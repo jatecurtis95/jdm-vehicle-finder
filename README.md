@@ -24,6 +24,38 @@ Cron (every 6h)  ->  matcher  ->  AVTONET SQL API (live `main` feed)
 - Every match needs your approval before any client is contacted.
 - Each lot is only ever surfaced once per wishlist (deduped via the `seen_lots` table).
 
+## Working from another computer (e.g. your Windows PC)
+
+This project lives on GitHub (private repo `jatecurtis95/jdm-vehicle-finder`). GitHub is
+the bridge between machines — you don't copy files manually.
+
+On a new computer:
+
+1. Install **GitHub Desktop** and sign in with the same GitHub account.
+2. **Clone** `jatecurtis95/jdm-vehicle-finder`. This downloads every project file.
+3. Install **Node.js** (https://nodejs.org).
+4. In the project folder, run `npm install` (rebuilds `node_modules`, which isn't in Git).
+5. Run `npx wrangler login` once, to connect this computer to your Cloudflare account.
+
+After that you can edit, then `npx wrangler deploy` to publish — exactly like on the Mac.
+
+Day to day: edit on one machine, then in GitHub Desktop **Commit to main** and **Push**.
+Before editing on the other machine, **Pull** first so both stay in sync.
+
+You do **not** need to re-enter any secrets — the API code, Resend key and admin token
+live on Cloudflare, not in the files, and deploys use them automatically. The relay file
+is on your website and the database is on Cloudflare; both are shared by every machine.
+
+## Security (where the keys are)
+
+- Cloudflare secrets (`AVTONET_CODE`, `RESEND_API_KEY`, `ADMIN_TOKEN`) are stored encrypted
+  on Cloudflare, never in these files.
+- `relay/jdm-relay.php` contains the auction API code and relay token in plaintext. PHP runs
+  server-side, so website visitors can never see them — but anyone with your web hosting login
+  or access to this (private) repo can. Keep the repo private.
+- Optional good practice: ask the auction provider to rotate the API code, then update the
+  relay file and the `AVTONET_CODE` Worker secret.
+
 ## One-time setup
 
 You'll do this from Terminal on your Mac, in this project folder.
