@@ -1,0 +1,88 @@
+// Delivery: email via Resend, plus a WhatsApp stub for Phase 2.
+
+import { clientHtml, carText } from "./render.js";
+
+// Send an email through Resend (https://resend.com).
+// Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
+export async function sendEmail(env, { to, subject, html, from }) {
+  if (!env.RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY not set");
+  }
+  const fromAddr = from || env.MAIL_FROM_INTERNAL || env.MAIL_FROM || "onboarding@resend.dev";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `JDM Connect <${fromAddr}>`,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Resend HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+// Send an approved lot to a client across whatever channels they have set.
+// Returns { email: bool, whatsapp: bool } for status tracking.
+export async function deliverToClient(env, client, lot, wishlist) {
+  const result = { email: false, whatsapp: false };
+
+  if (client.email) {
+    const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
+    await sendEmail(env, {
+      to: client.email,
+      subject,
+      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL),
+      from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+    });
+    result.email = true;
+  }
+
+  if (client.whatsapp) {
+    try {
+      await sendWhatsApp(env, client.whatsapp, carText(lot));
+      result.whatsapp = true;
+    } catch (err) {
+      // WhatsApp is optional in Phase 1; don't fail the whole delivery.
+      console.error("WhatsApp send skipped/failed:", err.message);
+    }
+  }
+
+  return result;
+}
+
+// --- WhatsApp (Phase 2) -----------------------------------------------------
+// Stub. To enable, add a provider. Twilio example is sketched below; uncomment
+// and set TWILIO_* secrets. Until then this throws so callers treat it as
+// "not delivered" and fall back to email.
+export async function sendWhatsApp(env, toNumber, text) {
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_WHATSAPP_FROM) {
+    throw new Error("WhatsApp not configured (Phase 2)");
+  }
+  const sid = env.TWILIO_ACCOUNT_SID;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+  const body = new URLSearchParams({
+    From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
+    To: `whatsapp:${toNumber}`,
+    Body: text,
+  });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + btoa(`${sid}:${env.TWILIO_AUTH_TOKEN}`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`Twilio HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return res.json();
+}

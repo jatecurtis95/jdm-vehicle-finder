@@ -1,0 +1,36 @@
+name = "jdm-vehicle-finder"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Runs the matcher automatically. Default: 4x per day (every 6 hours).
+# Adjust once the provider confirms rate limits. Times are UTC.
+[triggers]
+crons = ["0 */6 * * *"]
+
+# D1 database binding. Create it with:
+#   npx wrangler d1 create jdm-vehicle-finder
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "jdm-vehicle-finder"
+database_id = "2396671f-a3b6-4a33-bd9b-2b9fee37e0c2"
+
+[vars]
+# AVTONET SQL API base. The documented gateway. Override if the provider gives a new host.
+# Points at your relay (on your own web host), which forwards to the auction
+# API from an allowed IP. The Worker sends ?code=<relay token>&sql=...
+API_BASE = "https://jdmconnect.com.au/jdm-relay.php"
+# Email address that receives the internal approval digest (you).
+DIGEST_EMAIL = "jatecurtis1995@gmail.com"
+# Verified sender addresses (jdmconnect.com.au verified in Resend).
+# Internal review digest goes out as matches@, client emails as hello@.
+MAIL_FROM_INTERNAL = "matches@jdmconnect.com.au"
+MAIL_FROM_CLIENT = "hello@jdmconnect.com.au"
+# Public URL of this Worker once deployed (used to build approve/reject links).
+# e.g. https://jdm-vehicle-finder.<your-subdomain>.workers.dev
+PUBLIC_URL = "https://jdm-vehicle-finder.jate-curtis.workers.dev"
+
+# Secrets are NOT stored here. Set them with `wrangler secret put`:
+#   AVTONET_CODE   -> your API password (currently JCNnBvGfF54k)
+#   RESEND_API_KEY -> from resend.com
+#   ADMIN_TOKEN    -> any long random string; gates the admin page

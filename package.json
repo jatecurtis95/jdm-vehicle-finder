@@ -1,0 +1,17 @@
+{
+  "name": "jdm-vehicle-finder",
+  "version": "1.0.0",
+  "description": "Automated JDM auction vehicle finder and client notifier for JDM Connect (Cloudflare Worker).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create jdm-vehicle-finder",
+    "db:schema": "wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.101.0"
+  }
+}
