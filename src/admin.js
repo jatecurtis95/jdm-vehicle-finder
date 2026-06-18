@@ -396,11 +396,12 @@ export async function requestPage(env, opts = {}) {
       <div class="card">
         <h2><span class="num">01</span> Your details</h2>
         <form method="POST" action="/request">
+          <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
           <div class="grid">
-            <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
-            <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
-            <div><label>WHATSAPP <span class="opt">(+61…)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-            <div><label>STATE <span class="opt">(where it'll be registered)</span></label><select name="state">${stateOptions("")}</select></div>
+            <div><label for="rq-name">NAME</label><input id="rq-name" name="name" placeholder="Jane Citizen" required></div>
+            <div><label for="rq-email">EMAIL</label><input id="rq-email" name="email" type="email" placeholder="name@email.com"></div>
+            <div><label for="rq-whatsapp">WHATSAPP <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" placeholder="+61 4XX XXX XXX"></div>
+            <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions("")}</select></div>
           </div>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           <div class="grid">
@@ -416,6 +417,7 @@ export async function requestPage(env, opts = {}) {
           </div>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
             <span class="help">Leave fields blank to match anything. We review every match before sending.</span></div>
+          <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
         </form>
       </div>
     </div>
@@ -490,7 +492,36 @@ export async function toggleWishlist(env, id) {
   ).bind(wid).run();
 }
 
+// Hardening for the PUBLIC /request form (createClient/createWishlist are also
+// used by the admin-only flows, so the spam controls live here, not there).
+const REQ_MAX = { name: 120, email: 160, whatsapp: 40, label: 120, marka_name: 60, model_name: 60, kuzov: 40, grade_kw: 40 };
+const REQ_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function clipField(form, key, max) {
+  const v = String(form.get(key) ?? "").trim().slice(0, max);
+  form.set(key, v);
+  return v;
+}
+
 export async function createRequest(env, form) {
+  // Honeypot: a hidden field real visitors never see. Bots fill it — pretend
+  // success and store nothing, so they get no signal.
+  if (String(form.get("company_website") ?? "").trim()) return;
+
+  // Clip every free-text field so a bot can't store huge payloads.
+  clipField(form, "name", REQ_MAX.name);
+  clipField(form, "whatsapp", REQ_MAX.whatsapp);
+  clipField(form, "label", REQ_MAX.label);
+  clipField(form, "marka_name", REQ_MAX.marka_name);
+  clipField(form, "model_name", REQ_MAX.model_name);
+  clipField(form, "kuzov", REQ_MAX.kuzov);
+  clipField(form, "grade_kw", REQ_MAX.grade_kw);
+
+  // Drop a malformed email rather than storing junk that breaks alert delivery.
+  let email = clipField(form, "email", REQ_MAX.email).toLowerCase();
+  if (email && !REQ_EMAIL_RE.test(email)) email = "";
+  form.set("email", email);
+
   const clientId = await createClient(env, form);
   await createWishlist(env, form, clientId);
 }
