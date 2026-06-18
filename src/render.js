@@ -117,9 +117,17 @@ function internalCard(lot, wishlist, token, publicUrl) {
           ${specRow("Market estimate", yen(lot.avg_price || lot.start), true)}
           ${lot._landed ? specRow(`Est. landed · ${esc(lot._landed.state)} (AUD)`, "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU"), true) : ""}
         </table>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:16px;"><tr>
-          <td><a href="${esc(approve)}" style="background:${GOLD};color:${INK};font:600 14px/1 ${FONT};text-decoration:none;padding:11px 18px;border-radius:6px;display:inline-block;">Approve &amp; send</a></td>
-          <td style="padding-left:10px;"><a href="${esc(reject)}" style="background:#fff;color:#3A3C3F;font:500 14px/1 ${FONT};text-decoration:none;padding:10px 18px;border:1px solid rgba(0,0,0,0.16);border-radius:6px;display:inline-block;">Skip</a></td>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:18px;"><tr>
+          <td style="background:${GOLD};border-radius:7px;mso-padding-alt:14px 26px;">
+            <a href="${esc(approve)}" style="display:inline-block;padding:14px 26px;font-family:${FONT};font-size:14px;font-weight:700;line-height:1.2;color:${INK};text-decoration:none;border-radius:7px;">Approve &amp; send</a>
+          </td>
+          <td style="padding-left:12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+              <td style="border:1px solid rgba(0,0,0,0.18);border-radius:7px;mso-padding-alt:13px 22px;">
+                <a href="${esc(reject)}" style="display:inline-block;padding:13px 22px;font-family:${FONT};font-size:14px;font-weight:500;line-height:1.2;color:#3A3C3F;text-decoration:none;border-radius:7px;">Skip</a>
+              </td>
+            </tr></table>
+          </td>
         </tr></table>
       </td></tr>
     </table>
@@ -161,9 +169,13 @@ function keySpec(label, value) {
   </td>`;
 }
 
-export function clientHtml(lot, client, wishlist, publicUrl) {
+export function clientHtml(lot, client, wishlist, publicUrl, landed) {
   const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
+  // Prefer the real calculator landed figure; fall back to the rough multiplier.
+  const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
+    ? "A$" + Number(landed.grandTotal).toLocaleString("en-AU")
+    : aud(lot.avg_price || lot.start);
   const first = String(client?.name || "there").trim().split(/\s+/)[0];
   const want = [wishlist?.marka_name, wishlist?.model_name].filter(Boolean).join(" ") || "your search";
 
@@ -209,7 +221,7 @@ export function clientHtml(lot, client, wishlist, publicUrl) {
       <td width="50%" style="padding-left:8px;vertical-align:top;">
         <table role="presentation" width="100%" style="background:${INK};border-radius:8px;"><tr><td style="padding:14px 16px;">
           <div style="font:600 11px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${GOLD};">Indicative landed · AUD</div>
-          <div style="font:600 18px/1.2 ${FONT};color:#fff;margin-top:5px;">${aud(lot.avg_price || lot.start)}</div>
+          <div style="font:600 18px/1.2 ${FONT};color:#fff;margin-top:5px;">${landedStr}</div>
         </td></tr></table>
       </td>
     </tr></table>
@@ -217,8 +229,14 @@ export function clientHtml(lot, client, wishlist, publicUrl) {
   </td></tr>
 
   <tr><td style="padding:20px 36px 0;">
-    <a href="https://jdmconnect.com.au" style="background:${GOLD};color:${INK};font:600 15px/1 ${FONT};text-decoration:none;padding:13px 22px;border-radius:6px;display:inline-block;">I'm interested</a>
-    <a href="https://jdmconnect.com.au" style="color:${GOLDTXT};font:600 14px/1 ${FONT};text-decoration:none;padding:13px 14px;display:inline-block;">View full auction sheet</a>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="background:${GOLD};border-radius:7px;mso-padding-alt:14px 26px;">
+        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 26px;font-family:${FONT};font-size:15px;font-weight:700;line-height:1.2;color:${INK};text-decoration:none;border-radius:7px;">I'm interested</a>
+      </td>
+      <td style="padding-left:6px;">
+        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 16px;font-family:${FONT};font-size:14px;font-weight:600;line-height:1.2;color:${GOLDTXT};text-decoration:none;">View full auction sheet</a>
+      </td>
+    </tr></table>
   </td></tr>
 
   <tr><td style="padding:24px 36px 4px;">

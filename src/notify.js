@@ -1,6 +1,7 @@
 // Delivery: email via Resend, plus a WhatsApp stub for Phase 2.
 
 import { clientHtml, carText } from "./render.js";
+import { estimateLanded } from "./calc.js";
 
 // Send an email through Resend (https://resend.com).
 // Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
@@ -35,11 +36,14 @@ export async function deliverToClient(env, client, lot, wishlist) {
   const result = { email: false, whatsapp: false };
 
   if (client.email) {
+    // Use the estimate snapshotted at match time, else compute it now, so the
+    // client sees the same real landed figure staff reviewed.
+    const landed = lot._landed || await estimateLanded(env, lot, client);
     const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
     await sendEmail(env, {
       to: client.email,
       subject,
-      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL),
+      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
     result.email = true;

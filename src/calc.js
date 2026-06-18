@@ -51,6 +51,31 @@ function envNum(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Live JPY-per-AUD rate (the calculator's fxRate), cached per isolate for 6h.
+// Falls back to the fixed CALC_FX (default 95) if the FX service is unreachable.
+let _fxCache = { rate: 0, exp: 0 };
+async function getLiveFx(env) {
+  const fallback = (() => { const f = envNum(env.CALC_FX, 95); return f > 0 ? f : 95; })();
+  const now = Date.now();
+  if (_fxCache.rate > 0 && now < _fxCache.exp) return _fxCache.rate;
+  try {
+    const res = await fetch("https://api.frankfurter.app/latest?from=AUD&to=JPY", {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const rate = Number(data?.rates?.JPY);
+      if (Number.isFinite(rate) && rate > 0) {
+        _fxCache = { rate, exp: now + 6 * 60 * 60 * 1000 };
+        return rate;
+      }
+    }
+  } catch (e) {
+    console.error("Live FX fetch failed, using fallback:", e.message);
+  }
+  return fallback;
+}
+
 // The lot's working purchase price in JPY (starting bid, else market estimate).
 function lotJpy(lot) {
   const s = Number(lot?.start);
@@ -76,11 +101,11 @@ export async function estimateLanded(env, lot, client) {
 
   const state = normalizeState(client?.state) || normalizeState(env.CALC_DEFAULT_STATE) || "VIC";
   const port = STATE_TO_PORT[state] || "MELBOURNE";
-  const fx = envNum(env.CALC_FX, 95);
+  const fx = await getLiveFx(env);
 
   const payload = {
     jpyPrice: jpy,
-    fxRate: fx > 0 ? fx : 95,
+    fxRate: fx,
     vehicleSizeIdx: vehicleSizeIdx(lot),
     destinationPort: port,
     regState: state,

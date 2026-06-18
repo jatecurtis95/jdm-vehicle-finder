@@ -77,6 +77,12 @@ const CSS = `
   td{padding:15px 10px;border-bottom:1px solid rgba(0,0,0,0.05);color:var(--t2)}
   .avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:var(--avatar);color:var(--gold-txt);font-size:11px;font-weight:600;vertical-align:middle;margin-right:10px}
   .yes{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--gold-tint);color:var(--gold-txt);font-size:12px}
+  .btn-del{background:transparent;border:1px solid rgba(177,18,38,0.3);color:#B11226;font-size:12px;font-weight:600;padding:7px 12px;border-radius:5px;cursor:pointer;font-family:${FONT}}
+  .btn-del:hover{background:rgba(177,18,38,0.06)}
+  .btn-toggle{border:1px solid var(--hair);font-size:12px;font-weight:600;padding:7px 14px;border-radius:9999px;cursor:pointer;background:#fff;font-family:${FONT}}
+  .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold);color:var(--gold-txt)}
+  .btn-toggle.off{background:#f3f4f6;color:var(--t3)}
+  .btn-toggle:hover{filter:brightness(0.98)}
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:16px 22px;background:#fff;border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:6px}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:#B11226;display:inline-block}
   .banner .txt{font-size:14px;color:var(--t2)}
@@ -177,7 +183,16 @@ export async function adminPage(env, view = "intake") {
     }
     if (needCalc.length) {
       await attachLanded(env, needCalc.map(({ q, lot }) => ({ lot, client: { state: q.client_state } })));
-      for (const { q, lot } of needCalc) if (lot._landed) q._landed = lot._landed;
+      const ups = [];
+      for (const { q, lot } of needCalc) {
+        if (lot._landed) {
+          q._landed = lot._landed;
+          // Persist so this row is never recomputed (self-healing backfill for
+          // matches queued before landed-cost existed).
+          ups.push(env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), q.id));
+        }
+      }
+      if (ups.length) await env.DB.batch(ups);
     }
   }
 
@@ -270,10 +285,11 @@ function clientsView(clients, wishlists) {
       <td><span class="avatar">${esc(initials(c.name))}</span>${esc(c.name)}</td>
       <td>${esc(c.email || "—")}</td><td>${esc(c.whatsapp || "—")}</td><td>${esc(c.state || "—")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      <td style="text-align:right"><form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`
-  ).join("") || `<tr><td colspan="5" class="empty">No clients yet</td></tr>`;
+  ).join("") || `<tr><td colspan="6" class="empty">No clients yet</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
-    <table><tr><th>Client</th><th>Email</th><th>WhatsApp</th><th>State</th><th style="text-align:right">Wishlists</th></tr>${rows}</table></div>`;
+    <table><tr><th>Client</th><th>Email</th><th>WhatsApp</th><th>State</th><th style="text-align:right">Wishlists</th><th></th></tr>${rows}</table></div>`;
 }
 
 function wishlistsView(wishlists) {
@@ -286,11 +302,12 @@ function wishlistsView(wishlists) {
       <td>${w.price_max ? "¥" + Number(w.price_max).toLocaleString() : "—"}</td>
       <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "—"}</td>
       <td>${esc(w.rate_min || "—")}</td>
-      <td>${w.active ? `<span class="yes">✓</span>` : "—"}</td>
+      <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`
-  ).join("") || `<tr><td colspan="8" class="empty">No wishlists yet</td></tr>`;
+  ).join("") || `<tr><td colspan="9" class="empty">No wishlists yet</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
-    <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>On</th></tr>${rows}</table></div>`;
+    <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
 
 function matchCard(q) {
@@ -413,6 +430,39 @@ export async function createWishlist(env, form, clientIdOverride) {
     num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
     num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw")
   ).run();
+}
+
+// Delete a client and everything attached to them — their wishlists, queued
+// matches, and seen-lot history — in one batch.
+export async function deleteClient(env, id) {
+  const cid = Number(id);
+  if (!Number.isInteger(cid) || cid <= 0) return;
+  const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(cid).all()).results || [];
+  const stmts = [env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid)];
+  for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
+  stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
+  await env.DB.batch(stmts);
+}
+
+// Delete a single wishlist plus its queued matches and seen-lot history.
+export async function deleteWishlist(env, id) {
+  const wid = Number(id);
+  if (!Number.isInteger(wid) || wid <= 0) return;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
+    env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
+    env.DB.prepare("DELETE FROM wishlists WHERE id = ?").bind(wid),
+  ]);
+}
+
+// Flip a wishlist active/paused. Paused wishlists are skipped by the matcher.
+export async function toggleWishlist(env, id) {
+  const wid = Number(id);
+  if (!Number.isInteger(wid) || wid <= 0) return;
+  await env.DB.prepare(
+    "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
+  ).bind(wid).run();
 }
 
 export async function createRequest(env, form) {

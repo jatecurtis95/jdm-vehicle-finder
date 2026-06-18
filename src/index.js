@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest } from "./admin.js";
+import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist } from "./admin.js";
 import { isAuthed, passwordValid, sessionCookie, clearCookie } from "./auth.js";
 import { logoPngBytes } from "./assets.js";
 
@@ -90,9 +90,25 @@ export default {
       return Response.redirect(here("/admin"), 303);
     }
 
+    if (path === "/client/delete" && request.method === "POST") {
+      await deleteClient(env, (await request.formData()).get("id"));
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
     if (path === "/wishlist" && request.method === "POST") {
       await createWishlist(env, await request.formData());
-      return Response.redirect(here("/admin"), 303);
+      return Response.redirect(here("/admin?view=wishlists"), 303);
+    }
+
+
+    if (path === "/wishlist/toggle" && request.method === "POST") {
+      await toggleWishlist(env, (await request.formData()).get("id"));
+      return Response.redirect(here("/admin?view=wishlists"), 303);
+    }
+
+    if (path === "/wishlist/delete" && request.method === "POST") {
+      await deleteWishlist(env, (await request.formData()).get("id"));
+      return Response.redirect(here("/admin?view=wishlists"), 303);
     }
 
     return new Response("Not found", { status: 404 });
