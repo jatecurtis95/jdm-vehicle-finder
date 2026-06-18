@@ -153,7 +153,7 @@ export function digestHtml(summary, publicUrl) {
     </tr></table>
   </td></tr>`;
 
-  return shell(intro + cards + bulk + footer(), `${publicUrl}/assets/logo-black.png`);
+  return shell(intro + cards + bulk + footer(), `${publicUrl}/assets/logo-gold.png`);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +251,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
   </td></tr>`;
 
   const ft = footer(`<div style="font:400 11px/1.5 ${FONT};color:${MUTE};margin-top:8px;">Eligibility subject to SEVS/RAWS. We'll confirm import compliance before you commit.</div>`);
-  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + ft, publicUrl ? `${publicUrl}/assets/logo-black.png` : null);
+  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + ft, publicUrl ? `${publicUrl}/assets/logo-gold.png` : null);
 }
 
 // Plain-text version for WhatsApp / fallback.

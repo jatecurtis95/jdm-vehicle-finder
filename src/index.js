@@ -27,7 +27,7 @@ export default {
     // Approve / skip links from the digest. Token-gated, no admin key needed
     // so they work from your inbox on any device.
     // Brand logo (served so emails can use a real PNG). Public.
-    if (path === "/assets/logo-black.png") {
+    if (path === "/assets/logo-gold.png") {
       return new Response(logoPngBytes(), {
         headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
       });
