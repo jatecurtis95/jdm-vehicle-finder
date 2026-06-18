@@ -118,6 +118,52 @@ export function imageUrls(lot) {
   };
 }
 
+// --- Lookup lists for the form dropdowns ------------------------------------
+// Provider rule explicitly allows caching lookup lists. Cached per isolate so
+// the dropdowns don't re-query the feed on every page load.
+const LOOKUP_TTL = 12 * 60 * 60 * 1000; // 12h
+let _makersCache = { list: null, exp: 0 };
+const _modelsCache = new Map(); // makerUpper -> { list, exp }
+
+// Distinct makers currently in the live feed, sorted. Falls back to the last
+// good cache (or []) if the feed is unreachable.
+export async function distinctMakers(env) {
+  const now = Date.now();
+  if (_makersCache.list && now < _makersCache.exp) return _makersCache.list;
+  try {
+    const rows = await query(env, "SELECT DISTINCT marka_name FROM main WHERE marka_name <> '' ORDER BY marka_name");
+    const list = [...new Set(rows.map((r) => (r.marka_name || "").trim()).filter(Boolean))];
+    if (list.length) {
+      _makersCache = { list, exp: now + LOOKUP_TTL };
+      return list;
+    }
+  } catch (e) {
+    console.error("distinctMakers failed:", e.message);
+  }
+  return _makersCache.list || [];
+}
+
+// Distinct models for a maker in the live feed, sorted.
+export async function distinctModels(env, maker) {
+  const key = String(maker || "").trim().toUpperCase();
+  if (!key) return [];
+  const now = Date.now();
+  const cached = _modelsCache.get(key);
+  if (cached && now < cached.exp) return cached.list;
+  try {
+    const rows = await query(
+      env,
+      `SELECT DISTINCT model_name FROM main WHERE UPPER(marka_name) = '${sqlString(maker).toUpperCase()}' AND model_name <> '' ORDER BY model_name`
+    );
+    const list = [...new Set(rows.map((r) => (r.model_name || "").trim()).filter(Boolean))];
+    _modelsCache.set(key, { list, exp: now + LOOKUP_TTL });
+    return list;
+  } catch (e) {
+    console.error("distinctModels failed:", e.message);
+    return (cached && cached.list) || [];
+  }
+}
+
 // Best-effort numeric auction grade. Grades are usually numeric ("4", "4.5")
 // but can be letters ("R", "RA", "S", "A"). Returns a number or null.
 export function gradeValue(rate) {

@@ -15,7 +15,8 @@ export function buildSql(w) {
   where.push("auction_date >= NOW()");
 
   if (w.marka_name) {
-    where.push(`UPPER(marka_name) = '${sqlString(w.marka_name).toUpperCase()}'`);
+    // Contains match, so "Mercedes" matches the feed's "MERCEDES BENZ" etc.
+    where.push(`UPPER(marka_name) LIKE '%${sqlString(w.marka_name).toUpperCase()}%'`);
   }
   if (w.model_name) {
     where.push(`UPPER(model_name) LIKE '%${sqlString(w.model_name).toUpperCase()}%'`);

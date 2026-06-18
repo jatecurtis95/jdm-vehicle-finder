@@ -10,6 +10,7 @@ import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist } from "./admin.js";
 import { isAuthed, passwordValid, sessionCookie, clearCookie } from "./auth.js";
+import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 
 export default {
@@ -43,6 +44,18 @@ export default {
         return doc(await requestPage(env, { submitted: true }));
       }
       return doc(await requestPage(env));
+    }
+
+    // Feed lookup lists for the form dropdowns (public — just car names).
+    if (path === "/api/makers") {
+      return new Response(JSON.stringify(await distinctMakers(env)), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" },
+      });
+    }
+    if (path === "/api/models") {
+      return new Response(JSON.stringify(await distinctModels(env, url.searchParams.get("maker") || "")), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" },
+      });
     }
 
     // Same-host redirect helper: keeps the user (and their session cookie) on

@@ -2,8 +2,29 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km } from "./render.js";
-import { imageUrls } from "./avtonet.js";
+import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
+
+// Maker field: a <select> of real feed makers, so the criteria always match the
+// auction naming. Falls back to a free-text input if the feed lookup is down.
+function makerField(makers, id) {
+  if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA">`;
+  return `<select name="marka_name" id="${id}"><option value="">Any maker</option>` +
+    makers.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("") + `</select>`;
+}
+
+// Model field: free-text input backed by a <datalist> of the chosen maker's real
+// models (filled by modelScript on maker change). Free text still works — it's
+// matched as "contains", so "S400" or "SKYLINE" partials are fine.
+function modelField(listId) {
+  return `<input name="model_name" list="${listId}" placeholder="pick a maker, then choose or type"><datalist id="${listId}"></datalist>`;
+}
+
+// Inline JS: when the maker <select> changes, load that maker's models into the
+// datalist via /api/models. No-op if the maker fell back to a text input.
+function modelScript(makerId, listId) {
+  return `<script>(function(){var mk=document.getElementById(${JSON.stringify(makerId)}),dl=document.getElementById(${JSON.stringify(listId)});if(!mk||!dl||mk.tagName!=="SELECT")return;mk.addEventListener("change",function(){dl.innerHTML="";if(!mk.value)return;fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){(l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;dl.appendChild(o);});}).catch(function(){});});})();</script>`;
+}
 
 // <option> list of Australian states for the client forms.
 function stateOptions(selected) {
@@ -202,8 +223,9 @@ export async function adminPage(env, view = "intake") {
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
+  const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
-  if (view === "intake") body = intakeView(clients);
+  if (view === "intake") body = intakeView(clients, makers);
   else if (view === "clients") body = clientsView(clients, wishlists);
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending);
@@ -239,7 +261,7 @@ export function loginPage(opts = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — JDM Connect</title><style>${CSS}</style></head><body>${body}</body></html>`;
 }
 
-function intakeView(clients) {
+function intakeView(clients, makers) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
   return `
@@ -262,8 +284,8 @@ function intakeView(clients) {
         <div class="grid">
           <div><label>CLIENT</label><select name="client_id" required>${clientOptions}</select></div>
           <div><label>LABEL</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
-          <div><label>MAKER</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
-          <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. COROLLA"></div>
+          <div><label>MAKER</label>${makerField(makers, "wl-maker")}</div>
+          <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("wl-models")}</div>
           <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
           <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
           <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
@@ -275,7 +297,8 @@ function intakeView(clients) {
         <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
           <span class="help">Blank fields match anything. Only filled criteria filter the auction feed.</span></div>
       </form>
-    </div>`;
+    </div>
+    ${modelScript("wl-maker", "wl-models")}`;
 }
 
 function clientsView(clients, wishlists) {
@@ -358,6 +381,7 @@ function matchesView(pending) {
 // ---------------------------------------------------------------------------
 export async function requestPage(env, opts = {}) {
   const ok = opts.submitted;
+  const makers = await distinctMakers(env);
   const main = `
     <div class="topbar">
       <div>
@@ -380,8 +404,8 @@ export async function requestPage(env, opts = {}) {
           </div>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           <div class="grid">
-            <div><label>MAKER</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
-            <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
+            <div><label>MAKER</label>${makerField(makers, "rq-maker")}</div>
+            <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
             <div><label>LABEL <span class="opt">(optional)</span></label><input name="label" placeholder="e.g. weekend project"></div>
             <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
             <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
@@ -394,7 +418,8 @@ export async function requestPage(env, opts = {}) {
             <span class="help">Leave fields blank to match anything. We review every match before sending.</span></div>
         </form>
       </div>
-    </div>`;
+    </div>
+    ${modelScript("rq-maker", "rq-models")}`;
   const sb = `<aside class="side"><div class="brand">${LOGO}</div>
     <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
     </aside>`;
