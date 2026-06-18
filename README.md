@@ -24,6 +24,26 @@ Cron (every 6h)  ->  matcher  ->  AVTONET SQL API (live `main` feed)
 - Every match needs your approval before any client is contacted.
 - Each lot is only ever surfaced once per wishlist (deduped via the `seen_lots` table).
 
+## Dealer portal integration
+
+The [`jdm-dealer-portal`](https://github.com/jatecurtis95/jdm-dealer-portal)
+writes vehicle requests straight into this database (it binds this D1 as
+`FINDER_DB`), so dealers self-serve from the portal and the matcher picks their
+requests up automatically. Two columns support this:
+
+- `clients.dealer_username` — which portal dealer created a request (`NULL` for
+  staff-entered clients). Scopes a dealer's view to their own requests.
+- `wishlists.auto_notify` — `1` makes the matcher deliver matches immediately and
+  skip the approval digest; `0` (default) keeps the manual review flow.
+
+Apply both to the live DB once with:
+
+```bash
+npx wrangler d1 execute jdm-vehicle-finder --remote --file migrate-portal.sql
+```
+
+then `npx wrangler deploy` so the matcher honours `auto_notify`.
+
 ## Working from another computer (e.g. your Windows PC)
 
 This project lives on GitHub (private repo `jatecurtis95/jdm-vehicle-finder`). GitHub is
