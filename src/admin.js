@@ -9,7 +9,7 @@ export function authed(url, env) {
 }
 
 // Official JDM Connect black horizontal lockup (inline SVG; browser-only).
-const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:150px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
+const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:190px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
 <polygon points="133.86 45.51 150.93 .54 169.49 .54 182.2 31.95 215.18 .55 232.49 .54 215.4 45.5 201.57 45.51 213.16 14.41 181.27 45.51 172.35 45.51 159.78 13.79 147.44 45.51 133.86 45.51"></polygon>
 <path d="M60.77,45.5L77.84.52h47.87c8.59,0,15.68.61,11.7,11.11-1.04,2.73-5.67,15.91-9.97,23.88-5.23,9.69-10.58,10.02-21.73,10.02l-44.94-.02ZM78.98,37.5h27.61c4.47,0,6.88-1.65,8.81-3.84,2.14-2.43,7.07-14.79,7.97-18.27,1.24-4.84-1.45-6.83-10.08-6.83h-23.43l-.14.44-10.74,28.5Z"></path>
 <path d="M68.56.52c-2.18,5.74-4.3,11.29-6.59,17.33-6.74,17.77-8.86,27.67-29.03,27.67H-.05l3.15-7.98,28.65-.03c5.98-.43,8.57-2.77,11.03-8.22,2.93-6.47,4.88-13.89,7.73-20.45h-15.96c.96-2.78,1.76-5.94,3.4-8.32h30.61Z"></path>
@@ -33,8 +33,8 @@ const CSS = `
   a{color:inherit;text-decoration:none}
   .wrap{display:flex;min-height:100vh}
   .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:#fff}
-  .side .brand{padding:0 4px 4px}
-  .nav{margin-top:34px;display:flex;flex-direction:column;gap:2px}
+  .side .brand{padding:4px 6px 20px;margin-bottom:18px;border-bottom:1px solid var(--hair)}
+  .nav{margin-top:0;display:flex;flex-direction:column;gap:2px}
   .nav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:6px;font-size:15px;color:var(--t2)}
   .nav a .bar{width:3px;height:17px;border-radius:2px;background:transparent}
   .nav a .lbl{flex:1}
@@ -47,7 +47,6 @@ const CSS = `
   .btn-search{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--gold);color:var(--ink);font-weight:600;padding:13px;border-radius:6px;font-size:15px}
   .btn-search:hover{background:var(--gold-hover)}
   .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--ink);display:inline-block}
-  .foot-note{font-size:10px;color:var(--faint);letter-spacing:0.12em;text-transform:uppercase}
   .main{flex:1;background:var(--bg);display:flex;flex-direction:column}
   .topbar{position:sticky;top:0;z-index:5;background:#fff;padding:30px 40px 26px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--hair)}
   .kicker{display:flex;align-items:center;gap:10px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase}
@@ -125,16 +124,15 @@ function sidebar(active, key, counts) {
     </nav>
     <div class="side-foot">
       <a class="btn-search" href="/run?key=${k}"><span class="dot"></span>Search auctions</a>
-      <div class="foot-note">Connecting JDM · Melbourne</div>
     </div>
   </aside>`;
 }
 
 const HEADERS = {
-  intake: { kicker: "Intake", title: "Intake", sub: "Register clients and what they're hunting for.", btn: "Search auctions" },
-  clients: { kicker: "Directory", title: "Clients", sub: "Everyone you're hunting for.", btn: "Add via Intake" },
-  wishlists: { kicker: "Saved searches", title: "Wishlists", sub: "Active criteria scored against the live feed.", btn: "Add via Intake" },
-  matches: { kicker: "Auction candidates", title: "Matches", sub: "Lots scored against every active wishlist.", btn: "Search again" },
+  intake: { kicker: "Vehicle Finder", title: "Intake", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
+  clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add via Intake" },
+  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add via Intake" },
+  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
 };
 
 export async function adminPage(env, key, view = "intake") {
@@ -295,9 +293,9 @@ export async function requestPage(env, opts = {}) {
   const main = `
     <div class="topbar">
       <div>
-        <div class="kicker">Request</div>
+        <div class="kicker">Vehicle Finder</div>
         <h1>Request a vehicle</h1>
-        <p class="subline">Tell us what you're after and we'll hunt the Japanese auctions for it.</p>
+        <p class="subline">Tell us what you're after and we'll search the Japanese auctions for it.</p>
       </div>
     </div>
     <div class="content">
@@ -311,7 +309,7 @@ export async function requestPage(env, opts = {}) {
             <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
             <div><label>WHATSAPP <span class="opt">(+61…)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
           </div>
-          <h2 style="margin-top:26px"><span class="num">02</span> What you're hunting for</h2>
+          <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           <div class="grid">
             <div><label>MAKER</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
             <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
@@ -330,7 +328,7 @@ export async function requestPage(env, opts = {}) {
     </div>`;
   const sb = `<aside class="side"><div class="brand">${LOGO}</div>
     <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
-    <div class="side-foot"><div class="foot-note">Connecting JDM · Melbourne</div></div></aside>`;
+    </aside>`;
   return shell(sb, main, "Request a vehicle — JDM Connect");
 }
 
