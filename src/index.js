@@ -8,7 +8,8 @@
 import { runAll } from "./matcher.js";
 import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, authed, createClient, createWishlist, createRequest } from "./admin.js";
+import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest } from "./admin.js";
+import { isAuthed, passwordValid, sessionCookie, clearCookie } from "./auth.js";
 import { logoPngBytes } from "./assets.js";
 
 export default {
@@ -32,10 +33,10 @@ export default {
     }
 
     if (path === "/decide") {
-      return handleDecision(env, url);
+      return handleDecision(request, env, url);
     }
 
-    // Public vehicle-request form (no admin key) — for dealers and their clients.
+    // Public vehicle-request form (no login) — for dealers and their clients.
     if (path === "/request") {
       if (request.method === "POST") {
         await createRequest(env, await request.formData());
@@ -44,29 +45,54 @@ export default {
       return doc(await requestPage(env));
     }
 
-    // Everything below requires the admin key.
-    if (!authed(url, env)) {
-      return new Response("Unauthorized. Append ?key=YOUR_ADMIN_TOKEN", { status: 401 });
-    }
-    const key = url.searchParams.get("key");
+    // Same-host redirect helper: keeps the user (and their session cookie) on
+    // whichever domain they arrived on — custom domain or workers.dev.
+    const here = (p) => new URL(p, url).toString();
 
-    if (path === "/" || path === "/admin") {
-      return doc(await adminPage(env, key, url.searchParams.get("view") || "intake"));
+    // Login / logout.
+    if (path === "/login") {
+      if (request.method === "POST") {
+        const form = await request.formData();
+        if (passwordValid(env, form.get("password"))) {
+          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env) } });
+        }
+        await new Promise((r) => setTimeout(r, 600)); // throttle repeated guesses
+        return doc(loginPage({ error: true }), 401);
+      }
+      if (await isAuthed(request, url, env)) return Response.redirect(here("/admin"), 303);
+      return doc(loginPage());
+    }
+    if (path === "/logout") {
+      return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
+    }
+
+    // Bare domain → public request form, so the root is safe to share.
+    if (path === "/") {
+      return Response.redirect(here("/request"), 302);
+    }
+
+    // Admin area — require a signed-in session (legacy ?key= still accepted).
+    if (!(await isAuthed(request, url, env))) {
+      return Response.redirect(here("/login"), 303);
+    }
+
+    if (path === "/admin") {
+      return doc(await adminPage(env, url.searchParams.get("view") || "intake"));
     }
 
     if (path === "/run") {
       await runMatcher(env);
-      return Response.redirect(`${env.PUBLIC_URL}/admin?view=matches&key=${encodeURIComponent(key)}`, 303);
+      return Response.redirect(here("/admin?view=matches"), 303);
     }
 
     if (path === "/client" && request.method === "POST") {
       await createClient(env, await request.formData());
-      return Response.redirect(`${env.PUBLIC_URL}/admin?key=${encodeURIComponent(key)}`, 303);
+      return Response.redirect(here("/admin"), 303);
     }
 
     if (path === "/wishlist" && request.method === "POST") {
       await createWishlist(env, await request.formData());
-      return Response.redirect(`${env.PUBLIC_URL}/admin?key=${encodeURIComponent(key)}`, 303);
+      return Response.redirect(here("/admin"), 303);
     }
 
     return new Response("Not found", { status: 404 });
@@ -94,18 +120,17 @@ async function runMatcher(env) {
 }
 
 // Handle an approve/skip click from the digest.
-async function handleDecision(env, url) {
+async function handleDecision(request, env, url) {
   const token = url.searchParams.get("token");
   const action = url.searchParams.get("action");
   if (!token || !["approve", "reject"].includes(action)) {
     return html("<p>Invalid link.</p>", 400);
   }
 
-  // If the click came from inside the app (carries the admin key), return to
-  // the Matches view; otherwise (email link) show a simple confirmation page.
-  const key = url.searchParams.get("key");
-  const backToApp = env.ADMIN_TOKEN && key === env.ADMIN_TOKEN;
-  const toMatches = () => Response.redirect(`${env.PUBLIC_URL}/admin?view=matches&key=${encodeURIComponent(key)}`, 303);
+  // If the click came from inside the app (signed-in session), return to the
+  // Matches view; otherwise (email link) show a simple confirmation page.
+  const backToApp = await isAuthed(request, url, env);
+  const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
   if (!item) return html("<p>This item no longer exists.</p>", 404);

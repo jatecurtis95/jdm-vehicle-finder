@@ -4,10 +4,6 @@
 import { esc, yen, km } from "./render.js";
 import { imageUrls } from "./avtonet.js";
 
-export function authed(url, env) {
-  return env.ADMIN_TOKEN && url.searchParams.get("key") === env.ADMIN_TOKEN;
-}
-
 // Official JDM Connect black horizontal lockup (inline SVG; browser-only).
 const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:190px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
 <polygon points="133.86 45.51 150.93 .54 169.49 .54 182.2 31.95 215.18 .55 232.49 .54 215.4 45.5 201.57 45.51 213.16 14.41 181.27 45.51 172.35 45.51 159.78 13.79 147.44 45.51 133.86 45.51"></polygon>
@@ -101,6 +97,16 @@ const CSS = `
   .btn-skip{color:var(--t3);font-size:13px;padding:9px 8px}
   .empty{color:var(--faint);padding:30px 0;text-align:center}
   .empty .rule{width:40px;height:1px;background:rgba(202,163,76,0.7);margin:0 auto 16px}
+  .signout{display:block;text-align:center;color:var(--t3);font-size:13px;padding:10px;border-radius:6px}
+  .signout:hover{background:#f6f6f7;color:var(--ink)}
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px}
+  .login-card{width:100%;max-width:380px;background:#fff;border:1px solid var(--hair);border-radius:12px;padding:34px 32px 30px;box-shadow:0 14px 44px rgba(0,0,0,0.07)}
+  .login-card .login-logo{display:flex;justify-content:center;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--hair)}
+  .login-card h1{font-size:21px;font-weight:600;margin:0 0 6px;text-align:center;letter-spacing:-0.01em}
+  .login-card .login-sub{color:var(--t3);font-size:14px;text-align:center;margin:0 0 22px;line-height:1.45}
+  .login-card label{margin-bottom:8px}
+  .login-card .btn-gold{width:100%;margin-top:18px;padding:13px;font-size:15px;display:block}
+  .login-err{background:rgba(177,18,38,0.06);border:1px solid rgba(177,18,38,0.25);color:#B11226;font-size:13px;padding:10px 12px;border-radius:6px;margin-bottom:16px;text-align:center}
   @media(max-width:920px){.wrap{flex-direction:column}.side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px}.nav{flex-direction:row;margin-top:0;flex-wrap:wrap}.side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}}
   @media(max-width:640px){.grid{grid-template-columns:1fr}.topbar,.content{padding-left:20px;padding-right:20px}}
 `;
@@ -109,10 +115,9 @@ function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function sidebar(active, key, counts) {
-  const k = encodeURIComponent(key);
+function sidebar(active, counts) {
   const item = (id, label, count) =>
-    `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}&key=${k}">
+    `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}">
       <span class="bar"></span><span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
@@ -123,7 +128,8 @@ function sidebar(active, key, counts) {
       ${item("matches", "Matches", counts.matches || "")}
     </nav>
     <div class="side-foot">
-      <a class="btn-search" href="/run?key=${k}"><span class="dot"></span>Search auctions</a>
+      <a class="btn-search" href="/run"><span class="dot"></span>Search auctions</a>
+      <a class="signout" href="/logout">Sign out</a>
     </div>
   </aside>`;
 }
@@ -135,9 +141,8 @@ const HEADERS = {
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
 };
 
-export async function adminPage(env, key, view = "intake") {
+export async function adminPage(env, view = "intake") {
   if (!HEADERS[view]) view = "intake";
-  const k = encodeURIComponent(key);
   const clients = (await env.DB.prepare("SELECT * FROM clients ORDER BY name").all()).results || [];
   const wishlists = (await env.DB.prepare(
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id ORDER BY c.name, w.id`
@@ -152,14 +157,14 @@ export async function adminPage(env, key, view = "intake") {
   const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length };
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
-    ? `<a class="btn-dark" href="/run?key=${k}">${esc(h.btn)}</a>`
-    : `<a class="btn-dark" href="/admin?view=intake&key=${k}">${esc(h.btn)}</a>`;
+    ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
+    : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
   let body = "";
-  if (view === "intake") body = intakeView(clients, k);
+  if (view === "intake") body = intakeView(clients);
   else if (view === "clients") body = clientsView(clients, wishlists);
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, k);
+  else if (view === "matches") body = matchesView(pending);
 
   const main = `
     <div class="topbar">
@@ -172,16 +177,33 @@ export async function adminPage(env, key, view = "intake") {
     </div>
     <div class="content">${body}</div>`;
 
-  return shell(sidebar(view, key, counts), main, esc(h.title) + " — JDM Connect");
+  return shell(sidebar(view, counts), main, esc(h.title) + " — JDM Connect");
 }
 
-function intakeView(clients, k) {
+// Styled login screen shown when there's no valid session.
+export function loginPage(opts = {}) {
+  const err = opts.error ? `<div class="login-err">Incorrect password — please try again.</div>` : "";
+  const body = `<div class="login-screen">
+    <form class="login-card" method="POST" action="/login">
+      <div class="login-logo">${LOGO}</div>
+      <h1>Vehicle Finder</h1>
+      <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
+      ${err}
+      <label>PASSWORD</label>
+      <input type="password" name="password" autocomplete="current-password" autofocus required>
+      <button class="btn-gold" type="submit">Sign in</button>
+    </form>
+  </div>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — JDM Connect</title><style>${CSS}</style></head><body>${body}</body></html>`;
+}
+
+function intakeView(clients) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
   return `
     <div class="card">
       <h2><span class="num">01</span> New client</h2>
-      <form method="POST" action="/client?key=${k}">
+      <form method="POST" action="/client">
         <div class="grid">
           <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
           <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
@@ -193,7 +215,7 @@ function intakeView(clients, k) {
     </div>
     <div class="card">
       <h2><span class="num">02</span> New wishlist</h2>
-      <form method="POST" action="/wishlist?key=${k}">
+      <form method="POST" action="/wishlist">
         <div class="grid">
           <div><label>CLIENT</label><select name="client_id" required>${clientOptions}</select></div>
           <div><label>LABEL</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
@@ -243,7 +265,7 @@ function wishlistsView(wishlists) {
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>On</th></tr>${rows}</table></div>`;
 }
 
-function matchCard(q, k) {
+function matchCard(q) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
@@ -251,8 +273,8 @@ function matchCard(q, k) {
   const strength = lot._strength || "Possible";
   const sColor = lot._strengthColor || "#B6B9BC";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
-  const approve = `/decide?token=${esc(q.token)}&action=approve&key=${k}`;
-  const skip = `/decide?token=${esc(q.token)}&action=reject&key=${k}`;
+  const approve = `/decide?token=${esc(q.token)}&action=approve`;
+  const skip = `/decide?token=${esc(q.token)}&action=reject`;
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
@@ -275,14 +297,14 @@ function matchCard(q, k) {
   </div>`;
 }
 
-function matchesView(pending, k) {
+function matchesView(pending) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
       No matches awaiting review. Press <strong>Search auctions</strong> to score today's lots against every wishlist.</div></div>`;
   }
   return `<div class="banner"><span class="reddot"></span>
       <span class="txt"><strong>${pending.length}</strong> ${pending.length === 1 ? "match" : "matches"} awaiting your review</span></div>
-    <div class="mgrid">${pending.map((q) => matchCard(q, k)).join("")}</div>`;
+    <div class="mgrid">${pending.map((q) => matchCard(q)).join("")}</div>`;
 }
 
 // ---------------------------------------------------------------------------
