@@ -47,14 +47,15 @@ export default {
     }
 
     // Feed lookup lists for the form dropdowns (public — just car names).
+    // CORS-open so other JDM apps (e.g. the dealer portal) can consume them.
     if (path === "/api/makers") {
       return new Response(JSON.stringify(await distinctMakers(env)), {
-        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" },
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
       });
     }
     if (path === "/api/models") {
       return new Response(JSON.stringify(await distinctModels(env, url.searchParams.get("maker") || "")), {
-        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" },
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
       });
     }
 
