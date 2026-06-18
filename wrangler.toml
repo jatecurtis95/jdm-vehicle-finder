@@ -1,6 +1,17 @@
-name = "jdm-vehicle-finder"
+name = "finder"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
+# Cloudflare account that owns this Worker and the jdmconnect.com.au zone.
+account_id = "78a4648f57e3da163587fff349bf8b19"
+# Keep the *.workers.dev URL alive as a fallback alongside the custom domain.
+workers_dev = true
+
+# Custom domain (finder.jdmconnect.com.au) is BLOCKED: the jdmconnect.com.au zone
+# lives in a different Cloudflare account than this Worker, so Cloudflare can't
+# attach it (API error 10082). Re-enable once the zone and Worker share one account.
+# [[routes]]
+# pattern = "finder.jdmconnect.com.au"
+# custom_domain = true
 
 # Runs the matcher automatically. Default: 4x per day (every 6 hours).
 # Adjust once the provider confirms rate limits. Times are UTC.
@@ -28,7 +39,7 @@ MAIL_FROM_INTERNAL = "matches@jdmconnect.com.au"
 MAIL_FROM_CLIENT = "hello@jdmconnect.com.au"
 # Public URL of this Worker once deployed (used to build approve/reject links).
 # e.g. https://jdm-vehicle-finder.<your-subdomain>.workers.dev
-PUBLIC_URL = "https://jdm-vehicle-finder.jate-curtis.workers.dev"
+PUBLIC_URL = "https://finder.jate-curtis.workers.dev"
 
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
 #   AVTONET_CODE   -> your API password (currently JCNnBvGfF54k)
