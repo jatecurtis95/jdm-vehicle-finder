@@ -3,12 +3,13 @@
 
 -- Clients (the end buyers, or a dealer's own clients)
 CREATE TABLE IF NOT EXISTS clients (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  name        TEXT NOT NULL,
-  email       TEXT,
-  whatsapp    TEXT,                       -- E.164 format, e.g. +61400000000 (Phase 2)
-  notes       TEXT,
-  created_at  TEXT DEFAULT (datetime('now'))
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  name            TEXT NOT NULL,
+  email           TEXT,
+  whatsapp        TEXT,                   -- E.164 format, e.g. +61400000000 (Phase 2)
+  notes           TEXT,
+  dealer_username TEXT,                   -- portal dealer who created this (NULL = staff-entered)
+  created_at      TEXT DEFAULT (datetime('now'))
 );
 
 -- Wishlists: what each client is chasing. One client can have several.
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS wishlists (
   kuzov         TEXT,                      -- chassis code contains, e.g. ZRE212
   grade_kw      TEXT,                      -- grade text contains, e.g. RS, Type R
   active        INTEGER DEFAULT 1,
+  auto_notify   INTEGER NOT NULL DEFAULT 0, -- 1 = skip review, deliver matches immediately
   created_at    TEXT DEFAULT (datetime('now'))
 );
 

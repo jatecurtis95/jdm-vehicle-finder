@@ -2,6 +2,7 @@
 // `main` feed, fetch candidates, refine in code, dedupe, and queue new matches.
 
 import { query, sqlString, sqlInt, sqlNum, gradeValue } from "./avtonet.js";
+import { deliverToClient } from "./notify.js";
 
 // Build the SQL for one wishlist. Only upcoming auctions, filtered by the
 // numeric/text criteria we can express in SQL. Grade is refined in code
@@ -158,7 +159,13 @@ export async function runAll(env) {
   for (const w of wl.results || []) {
     try {
       const queued = await runWishlist(env, w);
-      if (queued.length) {
+      if (!queued.length) continue;
+      // auto_notify wishlists (e.g. a dealer who opted out of review) get their
+      // matches delivered immediately and skip the digest. Everything else lands
+      // in the manual approval queue, as before.
+      if (w.auto_notify) {
+        await autoDeliver(env, w, queued);
+      } else {
         summary.push({ wishlist: w, queued });
       }
     } catch (err) {
@@ -166,4 +173,23 @@ export async function runAll(env) {
     }
   }
   return summary;
+}
+
+// Deliver each fresh match for an auto-notify wishlist now, marking the queued
+// row sent/failed. The client fields are already joined onto the wishlist row.
+async function autoDeliver(env, w, queued) {
+  const client = { id: w.client_id, name: w.client_name, email: w.client_email, whatsapp: w.client_whatsapp };
+  for (const { lot, token } of queued) {
+    try {
+      await deliverToClient(env, client, lot, w);
+      await env.DB.prepare(
+        "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE token = ?"
+      ).bind(token).run();
+    } catch (err) {
+      console.error(`Auto-notify delivery failed (wishlist ${w.id}, lot ${lot.id}):`, err.message);
+      await env.DB.prepare(
+        "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE token = ?"
+      ).bind(token).run();
+    }
+  }
 }
