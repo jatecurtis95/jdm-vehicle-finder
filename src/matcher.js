@@ -3,6 +3,7 @@
 
 import { query, sqlString, sqlInt, sqlNum, gradeValue } from "./avtonet.js";
 import { deliverToClient } from "./notify.js";
+import { attachLanded } from "./calc.js";
 
 // Build the SQL for one wishlist. Only upcoming auctions, filtered by the
 // numeric/text criteria we can express in SQL. Grade is refined in code
@@ -113,6 +114,10 @@ export async function runWishlist(env, wishlist) {
   const fresh = candidates.filter((l) => l.id && !seen.has(l.id));
   if (fresh.length === 0) return [];
 
+  // Estimate landed cost up front so it's snapshotted into lot_json — the admin
+  // Matches view then reuses it instead of re-calling the calculator per load.
+  await attachLanded(env, fresh.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
+
   const queued = [];
   const stmts = [];
   for (const lot of fresh) {
@@ -150,7 +155,7 @@ async function getSeen(env, wishlistId) {
 // Run every active wishlist. Returns a summary for logging/the digest.
 export async function runAll(env) {
   const wl = await env.DB.prepare(
-    `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp
+    `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state
      FROM wishlists w JOIN clients c ON c.id = w.client_id
      WHERE w.active = 1`
   ).all();

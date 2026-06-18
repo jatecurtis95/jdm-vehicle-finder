@@ -40,6 +40,20 @@ MAIL_FROM_CLIENT = "hello@jdmconnect.com.au"
 # e.g. https://jdm-vehicle-finder.<your-subdomain>.workers.dev
 PUBLIC_URL = "https://finder.jdmconnect.com.au"
 
+# Landed-cost estimate — the finder reuses the live calculator at
+# calculator.jdmconnect.com.au/api/calc so numbers always match. These are the
+# ASSUMPTIONS fed to it for the indicative estimate; tune to your real figures.
+#   CALC_FX          JPY per A$1 (the calculator's default is 95)
+#   CALC_COMPLIANCE  your typical SEVS/RAWS compliance cost (PLACEHOLDER — confirm)
+#   CALC_AGENCY      your service fee; leave 0 to show pure landed cost
+#   CALC_DEFAULT_STATE used when a client has no state set
+CALC_API = "https://calculator.jdmconnect.com.au/api/calc"
+CALC_ORIGIN = "https://jdmconnect.com.au"
+CALC_FX = "95"
+CALC_COMPLIANCE = "4000"
+CALC_AGENCY = "0"
+CALC_DEFAULT_STATE = "VIC"
+
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
 #   AVTONET_CODE   -> your API password (currently JCNnBvGfF54k)
 #   RESEND_API_KEY -> from resend.com

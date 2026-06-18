@@ -3,6 +3,13 @@
 
 import { esc, yen, km } from "./render.js";
 import { imageUrls } from "./avtonet.js";
+import { attachLanded, auStates, normalizeState } from "./calc.js";
+
+// <option> list of Australian states for the client forms.
+function stateOptions(selected) {
+  return `<option value="">— select —</option>` +
+    auStates().map((s) => `<option value="${s}"${s === selected ? " selected" : ""}>${s}</option>`).join("");
+}
 
 // Official JDM Connect black horizontal lockup (inline SVG; browser-only).
 const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:190px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
@@ -88,6 +95,9 @@ const CSS = `
   .mstats .s .k{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint)}
   .mstats .s .v{font-size:13px;font-weight:600;margin-top:5px;color:var(--ink)}
   .mstats .s.gold .v{color:var(--gold-txt)}
+  .mland{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:#FBF7EC;border-top:1px solid var(--hair)}
+  .mland .ml-k{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--gold-txt)}
+  .mland .ml-v{font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .mfoot{border-top:1px solid var(--hair);padding:14px 16px;display:flex;align-items:center;gap:10px}
   .mfoot .who{flex:1;min-width:0}
   .mfoot .who .n{font-size:13px;font-weight:600;color:var(--ink)}
@@ -148,11 +158,28 @@ export async function adminPage(env, view = "intake") {
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id ORDER BY c.name, w.id`
   ).all()).results || [];
   const pending = (await env.DB.prepare(
-    `SELECT q.*, c.name AS client_name, w.label AS wlabel FROM queue q
+    `SELECT q.*, c.name AS client_name, c.state AS client_state, w.label AS wlabel FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
       WHERE q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
   ).all()).results || [];
+
+  // Landed cost per pending match (Matches tab only). Reuse the estimate
+  // snapshotted into lot_json at queue time; only legacy rows without one are
+  // computed here (bounded), so a page load makes few or no calculator calls.
+  if (view === "matches") {
+    const needCalc = [];
+    for (const q of pending) {
+      let lot = {};
+      try { lot = JSON.parse(q.lot_json); } catch (e) { console.error("Bad lot_json, queue id", q.id, e.message); }
+      if (lot._landed) q._landed = lot._landed;
+      else needCalc.push({ q, lot });
+    }
+    if (needCalc.length) {
+      await attachLanded(env, needCalc.map(({ q, lot }) => ({ lot, client: { state: q.client_state } })));
+      for (const { q, lot } of needCalc) if (lot._landed) q._landed = lot._landed;
+    }
+  }
 
   const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length };
   const h = HEADERS[view];
@@ -208,6 +235,7 @@ function intakeView(clients) {
           <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
           <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
           <div><label>WHATSAPP <span class="opt">(+61…)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+          <div><label>STATE <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name is required. Email and WhatsApp are optional.</span></div>
@@ -240,12 +268,12 @@ function clientsView(clients, wishlists) {
   const rows = clients.map((c) =>
     `<tr>
       <td><span class="avatar">${esc(initials(c.name))}</span>${esc(c.name)}</td>
-      <td>${esc(c.email || "—")}</td><td>${esc(c.whatsapp || "—")}</td>
+      <td>${esc(c.email || "—")}</td><td>${esc(c.whatsapp || "—")}</td><td>${esc(c.state || "—")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="4" class="empty">No clients yet</td></tr>`;
+  ).join("") || `<tr><td colspan="5" class="empty">No clients yet</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
-    <table><tr><th>Client</th><th>Email</th><th>WhatsApp</th><th style="text-align:right">Wishlists</th></tr>${rows}</table></div>`;
+    <table><tr><th>Client</th><th>Email</th><th>WhatsApp</th><th>State</th><th style="text-align:right">Wishlists</th></tr>${rows}</table></div>`;
 }
 
 function wishlistsView(wishlists) {
@@ -288,6 +316,7 @@ function matchCard(q) {
       <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
       <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
     </div>
+    ${q._landed ? `<div class="mland"><span class="ml-k">Est. landed · ${esc(q._landed.state)}</span><span class="ml-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</span></div>` : ""}
     <div class="mfoot">
       <span class="avatar">${esc(initials(q.client_name))}</span>
       <div class="who"><div class="n">${esc(q.client_name)}</div><div class="w">${esc(q.wlabel || "wishlist")}</div></div>
@@ -330,6 +359,7 @@ export async function requestPage(env, opts = {}) {
             <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
             <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
             <div><label>WHATSAPP <span class="opt">(+61…)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+            <div><label>STATE <span class="opt">(where it'll be registered)</span></label><select name="state">${stateOptions("")}</select></div>
           </div>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           <div class="grid">
@@ -363,8 +393,9 @@ function shell(side, main, title) {
 // Handlers
 // ---------------------------------------------------------------------------
 export async function createClient(env, form) {
-  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp) VALUES (?, ?, ?)")
-    .bind(form.get("name"), form.get("email") || null, form.get("whatsapp") || null).run();
+  const state = normalizeState(form.get("state"));
+  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)")
+    .bind(form.get("name"), form.get("email") || null, form.get("whatsapp") || null, state).run();
   return r.meta?.last_row_id;
 }
 

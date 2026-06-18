@@ -115,6 +115,7 @@ function internalCard(lot, wishlist, token, publicUrl) {
           ${specRow("Grade trim", esc(lot.grade || "—"))}
           ${specRow("Colour", esc(lot.color || "—"))}
           ${specRow("Market estimate", yen(lot.avg_price || lot.start), true)}
+          ${lot._landed ? specRow(`Est. landed · ${esc(lot._landed.state)} (AUD)`, "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU"), true) : ""}
         </table>
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:16px;"><tr>
           <td><a href="${esc(approve)}" style="background:${GOLD};color:${INK};font:600 14px/1 ${FONT};text-decoration:none;padding:11px 18px;border-radius:6px;display:inline-block;">Approve &amp; send</a></td>

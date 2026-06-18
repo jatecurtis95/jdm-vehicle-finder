@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS clients (
   name            TEXT NOT NULL,
   email           TEXT,
   whatsapp        TEXT,                   -- E.164 format, e.g. +61400000000 (Phase 2)
+  state           TEXT,                   -- AU state (NSW/VIC/QLD/WA/SA/TAS/ACT/NT) for landed-cost estimate
   notes           TEXT,
   dealer_username TEXT,                   -- portal dealer who created this (NULL = staff-entered)
   created_at      TEXT DEFAULT (datetime('now'))
