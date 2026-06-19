@@ -10,6 +10,7 @@ import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, clientAccessibleBy, shareClient, unshareClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie } from "./auth.js";
+import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 
@@ -144,6 +145,13 @@ export default {
       return Response.redirect(here("/admin?view=agents"), 303);
     }
 
+    // Settings — admin only.
+    if (path === "/settings" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      await saveSettings(env, await request.formData());
+      return Response.redirect(here("/admin?view=settings"), 303);
+    }
+
     // Client sharing — owner or admin (enforced in the handlers).
     if (path === "/share" && request.method === "POST") {
       const f = await request.formData();
@@ -169,10 +177,11 @@ async function runMatcher(env, session) {
   if (total === 0) {
     return "Matcher ran. No new matches this time.";
   }
-  if (!session || session.role === "admin") {
+  const settings = await getSettings(env);
+  if ((!session || session.role === "admin") && settingOn(settings, "email_alerts")) {
     try {
       await sendEmail(env, {
-        to: env.DIGEST_EMAIL,
+        to: digestRecipient(settings, env),
         subject: `${total} new auction match${total === 1 ? "" : "es"} to review`,
         html: digestHtml(summary, env.PUBLIC_URL),
       });

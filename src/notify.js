@@ -2,6 +2,7 @@
 
 import { clientHtml, carText } from "./render.js";
 import { estimateLanded } from "./calc.js";
+import { getSettings, settingOn } from "./settings.js";
 
 // Send an email through Resend (https://resend.com).
 // Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
@@ -34,11 +35,15 @@ export async function sendEmail(env, { to, subject, html, from }) {
 // Returns { email: bool, whatsapp: bool } for status tracking.
 export async function deliverToClient(env, client, lot, wishlist) {
   const result = { email: false, whatsapp: false };
+  const settings = await getSettings(env);
+  // "Send to client" off → approving just marks the match handled; the client
+  // isn't contacted (you reach out manually).
+  if (!settingOn(settings, "send_to_client")) return result;
 
   if (client.email) {
     // Use the estimate snapshotted at match time, else compute it now, so the
-    // client sees the same real landed figure staff reviewed.
-    const landed = lot._landed || await estimateLanded(env, lot, client);
+    // client sees the same real landed figure staff reviewed (toggle-gated).
+    const landed = settingOn(settings, "client_landed") ? (lot._landed || await estimateLanded(env, lot, client)) : null;
     const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
     await sendEmail(env, {
       to: client.email,

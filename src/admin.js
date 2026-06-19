@@ -5,6 +5,7 @@ import { esc, yen, km } from "./render.js";
 import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword } from "./auth.js";
+import { getSettings, settingOn } from "./settings.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -110,6 +111,13 @@ const CSS = `
   button.chip:hover{background:rgba(177,18,38,0.08);border-color:rgba(177,18,38,0.35);color:#B11226}
   .chip.muted{background:#f3f4f6;border-color:var(--hair);color:var(--t3)}
   .share-pick{font-size:12px;padding:5px 8px;border:1px solid var(--hair);border-radius:6px;background:#fff;color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .toggles{margin-top:22px;display:flex;flex-direction:column;gap:8px}
+  .toggle{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--hair);border-radius:8px;cursor:pointer}
+  .toggle:hover{background:#fafafb}
+  .toggle input{width:18px;height:18px;padding:0;margin:2px 0 0;accent-color:var(--gold);cursor:pointer;flex:0 0 auto}
+  .toggle .tg-txt{display:flex;flex-direction:column;gap:2px}
+  .toggle .tg-title{font-size:14px;font-weight:600;color:var(--ink)}
+  .toggle .tg-desc{font-size:12px;color:var(--t3);line-height:1.4}
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:16px 22px;background:#fff;border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:6px}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:#B11226;display:inline-block}
   .banner .txt{font-size:14px;color:var(--t2)}
@@ -176,6 +184,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
+      ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
       <a class="btn-search" href="/run"><span class="dot"></span>Search auctions</a>
@@ -191,12 +200,13 @@ const HEADERS = {
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add via Intake" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
+  settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email and notification toggles.", btn: "" },
 };
 
 export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }) {
   const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "intake";
-  if (view === "agents" && isAgent) view = "intake"; // agents can't manage agents
+  if ((view === "agents" || view === "settings") && isAgent) view = "intake"; // admin-only areas
 
   // Rows this session may see: all for admin, owned-or-shared for an agent.
   const acc = accessScope(session);
@@ -256,6 +266,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
         `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.name`
       ).all()).results || []
     : [];
+  const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
   if (isAgent) {
     const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
     session = { ...session, name: me ? me.name : "Agent" };
@@ -265,7 +276,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
-    : view === "agents"
+    : view === "agents" || view === "settings"
     ? ""
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
@@ -276,6 +287,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending);
   else if (view === "agents") body = agentsView(agents);
+  else if (view === "settings") body = settingsView(settings);
 
   const main = `
     <div class="topbar">
@@ -317,6 +329,30 @@ function agentsView(agents) {
     </div>
     <div class="card" style="padding:0;overflow:hidden">
       <table><tr><th>Agent</th><th>Email</th><th style="text-align:right">Clients</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+}
+
+// Admin-only: editable alert email + notification toggles.
+function toggleRow(name, title, desc, on) {
+  return `<label class="toggle"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span class="tg-txt"><span class="tg-title">${esc(title)}</span><span class="tg-desc">${esc(desc)}</span></span></label>`;
+}
+function settingsView(settings) {
+  const s = settings || {};
+  return `
+    <div class="card">
+      <h2><span class="num">✱</span> Notifications</h2>
+      <form method="POST" action="/settings">
+        <div style="max-width:560px">
+          <label>ALERT EMAIL <span class="opt">(where new-match alerts are sent)</span></label>
+          <input name="digest_email" type="email" value="${esc(s.digest_email || "")}" placeholder="support@jdmconnect.com.au">
+          <div class="toggles">
+            ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
+            ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Notify client”, actually send them the car by email.", settingOn(s, "send_to_client"))}
+            ${toggleRow("client_landed", "Show landed cost in client emails", "Include the indicative AUD landed figure in the client email.", settingOn(s, "client_landed"))}
+          </div>
+          <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
+        </div>
+      </form>
+    </div>`;
 }
 
 // Styled login screen shown when there's no valid session.

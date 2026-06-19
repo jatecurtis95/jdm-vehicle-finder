@@ -81,3 +81,9 @@ CREATE TABLE IF NOT EXISTS queue (
 
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
 CREATE INDEX IF NOT EXISTS idx_queue_token ON queue(token);
+
+-- Editable settings (key/value) so behaviour can be toggled from the UI.
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
