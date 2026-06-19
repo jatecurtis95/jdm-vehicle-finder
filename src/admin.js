@@ -353,6 +353,7 @@ function settingsView(settings) {
           <label>ALERT EMAIL <span class="opt">(where new-match alerts are sent)</span></label>
           <input name="digest_email" type="email" value="${esc(s.digest_email || "")}" placeholder="support@jdmconnect.com.au">
           <div class="toggles">
+            ${toggleRow("request_alerts", "Email me new vehicle requests", "When someone submits the public request form, email me their details.", settingOn(s, "request_alerts"))}
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Notify client”, actually send them the car by email.", settingOn(s, "send_to_client"))}
             ${toggleRow("client_landed", "Show landed cost in client emails", "Include the indicative AUD landed figure in the client email.", settingOn(s, "client_landed"))}
@@ -870,7 +871,7 @@ function clipField(form, key, max) {
 export async function createRequest(env, form) {
   // Honeypot: a hidden field real visitors never see. Bots fill it — pretend
   // success and store nothing, so they get no signal.
-  if (String(form.get("company_website") ?? "").trim()) return;
+  if (String(form.get("company_website") ?? "").trim()) return null;
 
   // Clip every free-text field so a bot can't store huge payloads.
   clipField(form, "name", REQ_MAX.name);
@@ -888,4 +889,13 @@ export async function createRequest(env, form) {
 
   const clientId = await createClient(env, form);
   await createWishlist(env, form, clientId);
+
+  // Return the submitted details so the route can email an admin alert.
+  const g = (k) => String(form.get(k) || "").trim();
+  return {
+    name: g("name") || "—", email, whatsapp: g("whatsapp"), state: g("state"),
+    label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
+    year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
+    mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
+  };
 }

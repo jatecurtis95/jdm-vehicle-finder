@@ -6,7 +6,7 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll } from "./matcher.js";
-import { digestHtml, agentInviteHtml } from "./render.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
@@ -54,7 +54,10 @@ export default {
             else await env.RL.put(k, String(n + 1), { expirationTtl: 3600 });
           } catch (_) { /* fail open */ }
         }
-        if (!limited) await createRequest(env, await request.formData());
+        if (!limited) {
+          const req = await createRequest(env, await request.formData());
+          if (req) await alertNewRequest(env, req);
+        }
         return doc(await requestPage(env, { submitted: true }));
       }
       return doc(await requestPage(env));
@@ -239,6 +242,22 @@ async function sendInvite(env, r) {
     });
   } catch (err) {
     console.error("Agent invite email failed:", err.message);
+  }
+}
+
+// Email the admin alert address when a customer submits the public request form
+// (respects the "Email me new vehicle requests" Settings toggle).
+async function alertNewRequest(env, req) {
+  try {
+    const settings = await getSettings(env);
+    if (!settingOn(settings, "request_alerts")) return;
+    await sendEmail(env, {
+      to: digestRecipient(settings, env),
+      subject: `New vehicle request — ${req.name}`,
+      html: requestAlertHtml(req, env.PUBLIC_URL),
+    });
+  } catch (err) {
+    console.error("New-request alert failed:", err.message);
   }
 }
 

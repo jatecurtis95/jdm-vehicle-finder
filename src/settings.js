@@ -6,6 +6,7 @@ const DEFAULTS = {
   email_alerts: "1",     // send the staff digest email when matches are found
   send_to_client: "1",   // email the client when a match is approved
   client_landed: "1",    // include the landed-cost figure in client emails
+  request_alerts: "1",   // email admin when a customer submits the public request form
 };
 
 export async function getSettings(env) {
@@ -35,6 +36,7 @@ export async function saveSettings(env, form) {
     email_alerts: form.get("email_alerts") ? "1" : "0",
     send_to_client: form.get("send_to_client") ? "1" : "0",
     client_landed: form.get("client_landed") ? "1" : "0",
+    request_alerts: form.get("request_alerts") ? "1" : "0",
   };
   const stmts = Object.entries(next).map(([k, v]) =>
     env.DB.prepare(

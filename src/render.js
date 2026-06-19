@@ -182,6 +182,45 @@ export function digestHtml(summary, publicUrl) {
 }
 
 // ---------------------------------------------------------------------------
+// ADMIN alert: a customer submitted the public "Request a vehicle" form
+// ---------------------------------------------------------------------------
+export function requestAlertHtml(req, publicUrl) {
+  const row = (label, value) => value
+    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font:400 13px/1.3 ${FONT};color:#7B7E82;">${esc(label)}</td>
+         <td style="padding:7px 0;border-top:1px solid ${HAIR};font:600 13px/1.3 ${FONT};color:${INK};text-align:right;">${esc(value)}</td></tr>`
+    : "";
+  const vehicle = [req.marka_name, req.model_name].filter(Boolean).join(" ") || "Any vehicle";
+  const years = [req.year_min, req.year_max].filter(Boolean).join("–");
+  const budget = req.price_max ? "¥" + Number(req.price_max).toLocaleString("en-US") : "";
+  const maxKm = req.mileage_max ? Number(req.mileage_max).toLocaleString("en-US") + " km" : "";
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font:600 11px/1 ${FONT};letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">New vehicle request</div>
+    <h1 style="margin:10px 0 6px;font:600 23px/1.2 ${FONT};letter-spacing:-0.015em;color:${INK};">${esc(req.name || "New enquiry")}</h1>
+    <p style="margin:0;font:400 14px/1.5 ${FONT};color:${BODY};">A new request just came in through the Vehicle Finder.</p>
+  </td></tr>
+  <tr><td style="padding:18px 36px 0;">
+    <div style="font:600 10px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};margin-bottom:2px;">Contact</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${row("Name", req.name)}${row("Email", req.email)}${row("WhatsApp", req.whatsapp)}${row("State", req.state)}
+    </table>
+  </td></tr>
+  <tr><td style="padding:18px 36px 0;">
+    <div style="font:600 10px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};margin-bottom:2px;">Looking for</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${row("Vehicle", vehicle)}${row("Years", years)}${row("Max budget", budget)}${row("Max mileage", maxKm)}${row("Min grade", req.rate_min)}${row("Chassis", req.kuzov)}${row("Keyword", req.grade_kw)}${row("Notes", req.label)}
+    </table>
+  </td></tr>
+  ${publicUrl ? `<tr><td style="padding:22px 36px 0;">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="background:${GOLD};border-radius:8px;mso-padding-alt:13px 26px;">
+        <a href="${esc(publicUrl)}/admin?view=clients" style="display:inline-block;padding:13px 26px;border-radius:8px;text-decoration:none;"><span style="font-family:${FONT};font-size:14px;font-weight:700;line-height:1.2;color:#1A1A1A;text-decoration:none;">Open in Vehicle Finder</span></a>
+      </td></tr></table>
+  </td></tr>` : ""}`;
+  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + footer(), LOGO_URL);
+}
+
+// ---------------------------------------------------------------------------
 // AGENT invite: "set your password" welcome email
 // ---------------------------------------------------------------------------
 export function agentInviteHtml(name, link) {
