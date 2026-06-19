@@ -364,10 +364,10 @@ export function loginPage(opts = {}) {
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>EMAIL <span class="opt">(agents)</span></label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
+      <label>EMAIL <span class="opt">(agents only — JDM Connect admin: leave blank)</span></label>
+      <input type="email" name="email" autocomplete="username" placeholder="agent@email.com">
       <label style="margin-top:14px">PASSWORD</label>
-      <input type="password" name="password" autocomplete="current-password" required>
+      <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
     </form>
   </div>`;
