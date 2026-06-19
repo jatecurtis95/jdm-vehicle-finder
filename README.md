@@ -104,7 +104,7 @@ npx wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql
 ### 4. Set secrets
 
 ```
-npx wrangler secret put AVTONET_CODE      # your API password (e.g. JCNnBvGfF54k)
+npx wrangler secret put AVTONET_CODE      # your auction API password (kept private, not in this repo)
 npx wrangler secret put RESEND_API_KEY     # from resend.com
 npx wrangler secret put ADMIN_TOKEN        # any long random string you choose
 ```
@@ -175,5 +175,6 @@ avg_string, lhdrive, images, serial, info`.
 - The API code and all keys are stored as Wrangler secrets, never in the repo.
 - The admin page is gated by `ADMIN_TOKEN`. Keep that URL private; rotate the token if
   it leaks.
-- If the API code (`JCNnBvGfF54k`) has been shared anywhere public, ask the provider to
-  rotate it and update the `AVTONET_CODE` secret.
+- The auction API code is stored only as the `AVTONET_CODE` Wrangler secret, never in
+  this repo. If it is ever exposed publicly, update the secret (or rotate the relay token
+  that fronts it).

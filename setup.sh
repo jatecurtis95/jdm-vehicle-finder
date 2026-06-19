@@ -51,7 +51,7 @@ npx wrangler d1 execute "$DB_NAME" --remote --file schema.sql
 
 echo "==> 5/7 Setting secrets"
 # AVTONET API code (defaults to the one on file; override with AVTONET_CODE=... )
-printf '%s' "${AVTONET_CODE:-JCNnBvGfF54k}" | npx wrangler secret put AVTONET_CODE
+printf '%s' "${AVTONET_CODE:?Set AVTONET_CODE in your environment before running setup}" | npx wrangler secret put AVTONET_CODE
 # Admin token (random, gates the admin page)
 ADMIN_TOKEN="$(openssl rand -hex 24)"
 printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN

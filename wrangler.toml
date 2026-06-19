@@ -55,6 +55,6 @@ CALC_AGENCY = "0"
 CALC_DEFAULT_STATE = "VIC"
 
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
-#   AVTONET_CODE   -> your API password (currently JCNnBvGfF54k)
+#   AVTONET_CODE   -> your auction API password (set via the command above; not stored here)
 #   RESEND_API_KEY -> from resend.com
 #   ADMIN_TOKEN    -> any long random string; gates the admin page
