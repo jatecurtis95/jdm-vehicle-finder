@@ -113,6 +113,8 @@ const CSS = `
   button.chip:hover{background:rgba(177,18,38,0.08);border-color:rgba(177,18,38,0.35);color:#B11226}
   .chip.muted{background:#f3f4f6;border-color:var(--hair);color:var(--t3)}
   .share-pick{font-size:12px;padding:5px 8px;border:1px solid var(--hair);border-radius:6px;background:#fff;color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--hair);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  .bulk-label{font-size:13px;font-weight:600;color:var(--t2)}
   .toggles{margin-top:22px;display:flex;flex-direction:column;gap:8px}
   .toggle{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--hair);border-radius:8px;cursor:pointer}
   .toggle:hover{background:#fafafb}
@@ -470,19 +472,43 @@ function clientsView(clients, wishlists, opts = {}) {
     return `${chips} ${picker}`;
   };
 
+  // Admin only: who owns this client (NULL = JDM Connect). Reassigning hands the
+  // client — its wishlists, matches and alerts — to that agent's dashboard.
+  const isAdmin = session.role === "admin";
+  const ownerCell = (c) => {
+    const opts = `<option value=""${!c.agent_id ? " selected" : ""}>JDM Connect</option>` +
+      agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}</option>`).join("");
+    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" onchange="this.form.submit()">${opts}</select></form>`;
+  };
+
   const rows = clients.map((c) =>
     `<tr>
+      ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td><span class="avatar">${esc(initials(c.name))}</span>${esc(c.name)}</td>
       <td>${esc(c.email || "—")}</td><td>${esc(c.state || "—")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
         ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="6" class="empty">No clients yet</td></tr>`;
-  return `<div class="card" style="padding:0;overflow:hidden">
-    <table><tr><th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th><th>Shared with</th><th></th></tr>${rows}</table></div>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet</td></tr>`;
+
+  const bulkBar = (isAdmin && agents.length)
+    ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
+        <span class="bulk-label">With selected clients:</span>
+        <select name="action" class="share-pick"><option value="assign">Assign owner</option><option value="share">Share with</option></select>
+        <select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+        <button class="btn-gold" type="submit">Apply</button>
+        <span class="help" style="margin-left:4px">Tick clients on the left, then apply.</span>
+      </form>`
+    : "";
+
+  const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
+  const headOwner = isAdmin ? `<th>Owner</th>` : "";
+  return `${bulkBar}<div class="card" style="padding:0;overflow:hidden">
+    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>`;
 }
 
 function wishlistsView(wishlists) {
@@ -779,6 +805,47 @@ export async function unshareClient(env, clientId, agentId, session) {
   if (!cid || !aid) return;
   if (!(await clientOwnedBy(env, cid, session))) return;
   await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, aid).run();
+}
+
+// Reassign a client's owner — admin only. Empty/0 agentId returns it to JDM
+// Connect (admin). The client's wishlists, matches and alerts follow the owner.
+export async function assignClient(env, clientId, agentId, session) {
+  if (!session || session.role !== "admin") return;
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return;
+  const aid = Number(agentId);
+  const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
+  if (owner) {
+    const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    if (!agent) return;
+  }
+  await env.DB.prepare("UPDATE clients SET agent_id = ? WHERE id = ?").bind(owner, cid).run();
+  if (owner) await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, owner).run();
+}
+
+// Bulk allocate selected clients — admin only. action "assign" sets the owner
+// (empty agent = JDM Connect); "share" adds the agent as a co-searcher.
+export async function bulkAllocate(env, action, agentId, ids, session) {
+  if (!session || session.role !== "admin") return;
+  const list = (ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (!list.length) return;
+  const aid = Number(agentId);
+  const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
+  if (owner) {
+    const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    if (!agent) return;
+  }
+  const stmts = [];
+  if (action === "share") {
+    if (!owner) return; // can't share with JDM Connect
+    for (const cid of list) stmts.push(env.DB.prepare("INSERT OR IGNORE INTO client_shares (client_id, agent_id) VALUES (?, ?)").bind(cid, owner));
+  } else {
+    for (const cid of list) {
+      stmts.push(env.DB.prepare("UPDATE clients SET agent_id = ? WHERE id = ?").bind(owner, cid));
+      if (owner) stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, owner));
+    }
+  }
+  if (stmts.length) await env.DB.batch(stmts);
 }
 
 export async function toggleAgent(env, id) {

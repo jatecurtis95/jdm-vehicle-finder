@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
@@ -145,6 +145,20 @@ export default {
 
     if (path === "/client/delete" && request.method === "POST") {
       await deleteClient(env, (await request.formData()).get("id"), session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
+    // Allocate clients to agents — admin only.
+    if (path === "/client/assign" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      await assignClient(env, f.get("client_id"), f.get("agent_id"), session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+    if (path === "/clients/bulk" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      await bulkAllocate(env, f.get("action"), f.get("agent_id"), f.getAll("ids"), session);
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
