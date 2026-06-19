@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, clientOwnedBy } from "./admin.js";
+import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, clientAccessibleBy, shareClient, unshareClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie } from "./auth.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
@@ -144,6 +144,18 @@ export default {
       return Response.redirect(here("/admin?view=agents"), 303);
     }
 
+    // Client sharing — owner or admin (enforced in the handlers).
+    if (path === "/share" && request.method === "POST") {
+      const f = await request.formData();
+      await shareClient(env, f.get("client_id"), f.get("agent_id"), session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+    if (path === "/share/remove" && request.method === "POST") {
+      const f = await request.formData();
+      await unshareClient(env, f.get("client_id"), f.get("agent_id"), session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
     return new Response("Not found", { status: 404 });
   },
 };
@@ -190,7 +202,7 @@ async function handleDecision(request, env, url) {
   if (!item) return html("<p>This item no longer exists.</p>", 404);
   // A signed-in agent may only act on their own clients' matches. Email links
   // (no session) are authorised by the unguessable token itself.
-  if (session && session.role === "agent" && !(await clientOwnedBy(env, item.client_id, session))) {
+  if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) {
     return backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404);
   }
   if (item.status !== "pending") {

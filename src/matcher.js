@@ -159,9 +159,9 @@ export async function runAll(env, session) {
   const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state
      FROM wishlists w JOIN clients c ON c.id = w.client_id
-     WHERE w.active = 1${isAgent ? " AND c.agent_id = ?" : ""}`
+     WHERE w.active = 1${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
   );
-  const wl = await (isAgent ? stmt.bind(session.id) : stmt).all();
+  const wl = await (isAgent ? stmt.bind(session.id, session.id) : stmt).all();
 
   const summary = [];
   for (const w of wl.results || []) {

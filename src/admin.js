@@ -105,6 +105,11 @@ const CSS = `
   .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold);color:var(--gold-txt)}
   .btn-toggle.off{background:#f3f4f6;color:var(--t3)}
   .btn-toggle:hover{filter:brightness(0.98)}
+  .chip{display:inline-block;background:var(--gold-tint);border:1px solid rgba(202,163,76,0.35);color:var(--gold-txt);font-size:11px;font-weight:600;padding:4px 9px;border-radius:9999px;font-family:${FONT}}
+  button.chip{cursor:pointer}
+  button.chip:hover{background:rgba(177,18,38,0.08);border-color:rgba(177,18,38,0.35);color:#B11226}
+  .chip.muted{background:#f3f4f6;border-color:var(--hair);color:var(--t3)}
+  .share-pick{font-size:12px;padding:5px 8px;border:1px solid var(--hair);border-radius:6px;background:#fff;color:var(--t2);cursor:pointer;font-family:${FONT}}
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:16px 22px;background:#fff;border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:6px}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:#B11226;display:inline-block}
   .banner .txt{font-size:14px;color:var(--t2)}
@@ -193,22 +198,31 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   if (!HEADERS[view]) view = "intake";
   if (view === "agents" && isAgent) view = "intake"; // agents can't manage agents
 
-  // The owning-agent filter. Agents see only their own rows; admin sees all.
-  const where = isAgent ? "c.agent_id = ?" : "1=1";
-  const bind = (stmt) => (isAgent ? stmt.bind(session.id) : stmt);
+  // Rows this session may see: all for admin, owned-or-shared for an agent.
+  const acc = accessScope(session);
+  const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
 
-  const clients = (await bind(env.DB.prepare(
-    `SELECT * FROM clients c WHERE ${where} ORDER BY name`
-  )).all()).results || [];
-  const wishlists = (await bind(env.DB.prepare(
-    `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${where} ORDER BY c.name, w.id`
-  )).all()).results || [];
-  const pending = (await bind(env.DB.prepare(
+  const clients = (await run(`SELECT * FROM clients c WHERE ${acc.sql} ORDER BY name`).all()).results || [];
+  const wishlists = (await run(
+    `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
+  ).all()).results || [];
+  const pending = (await run(
     `SELECT q.*, c.name AS client_name, c.state AS client_state, w.label AS wlabel FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${where} ORDER BY q.created_at DESC LIMIT 60`
-  )).all()).results || [];
+      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 60`
+  ).all()).results || [];
+
+  // For the Clients view: active agents (for the Share picker) and existing
+  // shares (chips), so owners can share/unshare.
+  let shareAgents = [], sharesByClient = {};
+  if (view === "clients") {
+    shareAgents = (await env.DB.prepare("SELECT id, name FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
+    const sh = (await env.DB.prepare(
+      "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN agents a ON a.id = cs.agent_id"
+    ).all()).results || [];
+    for (const r of sh) (sharesByClient[r.client_id] = sharesByClient[r.client_id] || []).push({ id: r.agent_id, name: r.agent_name });
+  }
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
   // snapshotted into lot_json at queue time; only legacy rows without one are
@@ -258,7 +272,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
   if (view === "intake") body = intakeView(clients, makers);
-  else if (view === "clients") body = clientsView(clients, wishlists);
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending);
   else if (view === "agents") body = agentsView(agents);
@@ -364,18 +378,44 @@ function intakeView(clients, makers) {
     ${modelScript("wl-maker", "wl-models")}`;
 }
 
-function clientsView(clients, wishlists) {
+function clientsView(clients, wishlists, opts = {}) {
+  const session = opts.session || { role: "admin" };
+  const agents = opts.agents || [];
+  const shares = opts.shares || {};
   const countFor = (id) => wishlists.filter((w) => w.client_id === id).length;
+  const canManage = (c) => session.role === "admin" || Number(c.agent_id) === Number(session.id);
+
+  const shareCell = (c) => {
+    const shared = shares[c.id] || [];
+    const chips = shared.map((a) =>
+      canManage(c)
+        ? `<form method="POST" action="/share/remove" style="display:inline" title="Remove ${esc(a.name)}"><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="agent_id" value="${a.id}"><button class="chip chip-on" type="submit">${esc(a.name)} ✕</button></form>`
+        : `<span class="chip">${esc(a.name)}</span>`
+    ).join(" ");
+    if (!canManage(c)) return chips || `<span class="chip muted">shared with you</span>`;
+    const sharedIds = new Set(shared.map((a) => Number(a.id)));
+    const opts2 = agents
+      .filter((a) => Number(a.id) !== Number(c.agent_id) && !sharedIds.has(Number(a.id)))
+      .map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
+    const picker = opts2
+      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" onchange="if(this.value)this.form.submit()"><option value="">+ share…</option>${opts2}</select></form>`
+      : "";
+    return `${chips} ${picker}`;
+  };
+
   const rows = clients.map((c) =>
     `<tr>
       <td><span class="avatar">${esc(initials(c.name))}</span>${esc(c.name)}</td>
-      <td>${esc(c.email || "—")}</td><td>${esc(c.whatsapp || "—")}</td><td>${esc(c.state || "—")}</td>
+      <td>${esc(c.email || "—")}</td><td>${esc(c.state || "—")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
-      <td style="text-align:right"><form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form></td>
+      <td>${shareCell(c)}</td>
+      <td style="text-align:right">${canManage(c)
+        ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
+        : ""}</td>
     </tr>`
   ).join("") || `<tr><td colspan="6" class="empty">No clients yet</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
-    <table><tr><th>Client</th><th>Email</th><th>WhatsApp</th><th>State</th><th style="text-align:right">Wishlists</th><th></th></tr>${rows}</table></div>`;
+    <table><tr><th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th><th>Shared with</th><th></th></tr>${rows}</table></div>`;
 }
 
 function wishlistsView(wishlists) {
@@ -500,19 +540,39 @@ function shell(side, main, title) {
 // Handlers
 // ---------------------------------------------------------------------------
 
-// Ownership guards: an agent may only touch their own clients/wishlists/matches.
-// Admin (or no session — internal/public flows) always passes.
+// Owner guard (strict): admin, or the agent who created the client. Used for
+// destructive/management actions (delete client, manage sharing).
 export async function clientOwnedBy(env, clientId, session) {
   if (!session || session.role === "admin") return true;
   const c = await env.DB.prepare("SELECT agent_id FROM clients WHERE id = ?").bind(Number(clientId)).first();
   return !!c && Number(c.agent_id) === Number(session.id);
 }
-async function wishlistOwnedBy(env, wishlistId, session) {
+
+// Access guard: the agent owns the client OR it has been shared with them.
+// Used for view / add-wishlist / search / approve-skip ("help search").
+export async function clientAccessibleBy(env, clientId, session) {
   if (!session || session.role === "admin") return true;
-  const w = await env.DB.prepare(
-    "SELECT c.agent_id AS agent_id FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
-  ).bind(Number(wishlistId)).first();
-  return !!w && Number(w.agent_id) === Number(session.id);
+  if (await clientOwnedBy(env, clientId, session)) return true;
+  const s = await env.DB.prepare(
+    "SELECT 1 FROM client_shares WHERE client_id = ? AND agent_id = ?"
+  ).bind(Number(clientId), Number(session.id)).first();
+  return !!s;
+}
+
+async function wishlistAccessibleBy(env, wishlistId, session) {
+  if (!session || session.role === "admin") return true;
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
+  return !!w && (await clientAccessibleBy(env, w.client_id, session));
+}
+
+// SQL predicate (alias c = clients) + bind values for "rows this session may
+// see": all for admin, owned-or-shared for an agent.
+function accessScope(session) {
+  if (!session || session.role === "admin") return { sql: "1=1", binds: [] };
+  return {
+    sql: "(c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))",
+    binds: [session.id, session.id],
+  };
 }
 
 export async function createClient(env, form, session) {
@@ -529,8 +589,8 @@ const str = (form, k) => { const v = form.get(k); return v === null || v === "" 
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
   if (!clientId) return;
-  // An agent can only add a wishlist to one of their own clients.
-  if (!(await clientOwnedBy(env, clientId, session))) return;
+  // An agent can add a wishlist to any client they own or that's shared to them.
+  if (!(await clientAccessibleBy(env, clientId, session))) return;
   await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw)
@@ -547,11 +607,12 @@ export async function createWishlist(env, form, clientIdOverride, session) {
 export async function deleteClient(env, id, session) {
   const cid = Number(id);
   if (!Number.isInteger(cid) || cid <= 0) return;
-  if (!(await clientOwnedBy(env, cid, session))) return;
+  if (!(await clientOwnedBy(env, cid, session))) return; // delete is owner-only
   const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(cid).all()).results || [];
   const stmts = [env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid)];
   for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
   stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
   await env.DB.batch(stmts);
 }
@@ -560,7 +621,7 @@ export async function deleteClient(env, id, session) {
 export async function deleteWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistOwnedBy(env, wid, session))) return;
+  if (!(await wishlistAccessibleBy(env, wid, session))) return;
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
@@ -572,7 +633,7 @@ export async function deleteWishlist(env, id, session) {
 export async function toggleWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistOwnedBy(env, wid, session))) return;
+  if (!(await wishlistAccessibleBy(env, wid, session))) return;
   await env.DB.prepare(
     "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
   ).bind(wid).run();
@@ -606,10 +667,31 @@ export async function deleteAgent(env, id) {
     stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(c.id));
     for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
     stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(c.id));
   }
+  stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE agent_id = ?").bind(aid)); // shares received
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE agent_id = ?").bind(aid));
   stmts.push(env.DB.prepare("DELETE FROM agents WHERE id = ?").bind(aid));
   await env.DB.batch(stmts);
+}
+
+// Share / unshare a client with another agent — owner (or admin) only.
+export async function shareClient(env, clientId, agentId, session) {
+  const cid = Number(clientId), aid = Number(agentId);
+  if (!cid || !aid) return;
+  if (!(await clientOwnedBy(env, cid, session))) return; // only the owner shares
+  const owner = await env.DB.prepare("SELECT agent_id FROM clients WHERE id = ?").bind(cid).first();
+  if (owner && Number(owner.agent_id) === aid) return; // don't share with the owner
+  const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(aid).first();
+  if (!agent) return;
+  await env.DB.prepare("INSERT OR IGNORE INTO client_shares (client_id, agent_id) VALUES (?, ?)").bind(cid, aid).run();
+}
+
+export async function unshareClient(env, clientId, agentId, session) {
+  const cid = Number(clientId), aid = Number(agentId);
+  if (!cid || !aid) return;
+  if (!(await clientOwnedBy(env, cid, session))) return;
+  await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, aid).run();
 }
 
 export async function toggleAgent(env, id) {

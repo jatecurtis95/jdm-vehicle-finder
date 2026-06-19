@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 CREATE INDEX IF NOT EXISTS idx_clients_agent ON clients(agent_id);
 
+-- Client sharing: extra agents (besides the owner) who can help search a client.
+CREATE TABLE IF NOT EXISTS client_shares (
+  client_id  INTEGER NOT NULL,
+  agent_id   INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (client_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_shares_agent ON client_shares(agent_id);
+
 -- Wishlists: what each client is chasing. One client can have several.
 CREATE TABLE IF NOT EXISTS wishlists (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
