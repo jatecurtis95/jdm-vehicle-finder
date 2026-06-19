@@ -1,7 +1,19 @@
 -- JDM Vehicle Finder: D1 schema
 -- Load with: npx wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql
 
--- Clients (the end buyers, or a dealer's own clients)
+-- Agents: separate logins that find cars for their own clients (data-isolated).
+CREATE TABLE IF NOT EXISTS agents (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  email       TEXT NOT NULL,              -- login id + alert address (stored lowercase)
+  name        TEXT NOT NULL,
+  pass_salt   TEXT NOT NULL,             -- base64 PBKDF2 salt
+  pass_hash   TEXT NOT NULL,             -- base64 PBKDF2-SHA256 hash
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_email ON agents(email);
+
+-- Clients (the end buyers, or an agent's own clients)
 CREATE TABLE IF NOT EXISTS clients (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name            TEXT NOT NULL,
@@ -10,8 +22,10 @@ CREATE TABLE IF NOT EXISTS clients (
   state           TEXT,                   -- AU state (NSW/VIC/QLD/WA/SA/TAS/ACT/NT) for landed-cost estimate
   notes           TEXT,
   dealer_username TEXT,                   -- portal dealer who created this (NULL = staff-entered)
+  agent_id        INTEGER,                -- owning agent (NULL = JDM Connect staff/admin)
   created_at      TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_clients_agent ON clients(agent_id);
 
 -- Wishlists: what each client is chasing. One client can have several.
 CREATE TABLE IF NOT EXISTS wishlists (

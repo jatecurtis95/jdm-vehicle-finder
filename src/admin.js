@@ -4,6 +4,7 @@
 import { esc, yen, km } from "./render.js";
 import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
+import { hashPassword } from "./auth.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -136,6 +137,9 @@ const CSS = `
   .empty .rule{width:40px;height:1px;background:rgba(202,163,76,0.7);margin:0 auto 16px}
   .signout{display:block;text-align:center;color:var(--t3);font-size:13px;padding:10px;border-radius:6px}
   .signout:hover{background:#f6f6f7;color:var(--ink)}
+  .whoami{display:flex;flex-direction:column;align-items:center;gap:1px;padding:2px 0}
+  .whoami .who-name{font-size:13px;font-weight:600;color:var(--ink)}
+  .whoami .who-role{font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-txt)}
   .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px}
   .login-card{width:100%;max-width:380px;background:#fff;border:1px solid var(--hair);border-radius:12px;padding:34px 32px 30px;box-shadow:0 14px 44px rgba(0,0,0,0.07)}
   .login-card .login-logo{display:flex;justify-content:center;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--hair)}
@@ -152,10 +156,13 @@ function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function sidebar(active, counts) {
+function sidebar(active, counts, session = { role: "admin" }) {
+  const isAdmin = session.role === "admin";
   const item = (id, label, count) =>
     `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}">
       <span class="bar"></span><span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
+  const whoLabel = isAdmin ? "JDM Connect" : esc(session.name || "Agent");
+  const whoSub = isAdmin ? "Admin" : "Agent";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
     <nav class="nav">
@@ -163,9 +170,11 @@ function sidebar(active, counts) {
       ${item("clients", "Clients", counts.clients)}
       ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
+      ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
     </nav>
     <div class="side-foot">
       <a class="btn-search" href="/run"><span class="dot"></span>Search auctions</a>
+      <div class="whoami"><span class="who-name">${whoLabel}</span><span class="who-role">${whoSub}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
   </aside>`;
@@ -176,20 +185,30 @@ const HEADERS = {
   clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add via Intake" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add via Intake" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
+  agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
 };
 
-export async function adminPage(env, view = "intake") {
+export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }) {
+  const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "intake";
-  const clients = (await env.DB.prepare("SELECT * FROM clients ORDER BY name").all()).results || [];
-  const wishlists = (await env.DB.prepare(
-    `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id ORDER BY c.name, w.id`
-  ).all()).results || [];
-  const pending = (await env.DB.prepare(
+  if (view === "agents" && isAgent) view = "intake"; // agents can't manage agents
+
+  // The owning-agent filter. Agents see only their own rows; admin sees all.
+  const where = isAgent ? "c.agent_id = ?" : "1=1";
+  const bind = (stmt) => (isAgent ? stmt.bind(session.id) : stmt);
+
+  const clients = (await bind(env.DB.prepare(
+    `SELECT * FROM clients c WHERE ${where} ORDER BY name`
+  )).all()).results || [];
+  const wishlists = (await bind(env.DB.prepare(
+    `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${where} ORDER BY c.name, w.id`
+  )).all()).results || [];
+  const pending = (await bind(env.DB.prepare(
     `SELECT q.*, c.name AS client_name, c.state AS client_state, w.label AS wlabel FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
-  ).all()).results || [];
+      WHERE q.status = 'pending' AND ${where} ORDER BY q.created_at DESC LIMIT 60`
+  )).all()).results || [];
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
   // snapshotted into lot_json at queue time; only legacy rows without one are
@@ -217,10 +236,23 @@ export async function adminPage(env, view = "intake") {
     }
   }
 
+  // Admin-only: agent list (for the Agents view) and the logged-in agent's name.
+  const agents = (!isAgent && view === "agents")
+    ? (await env.DB.prepare(
+        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.name`
+      ).all()).results || []
+    : [];
+  if (isAgent) {
+    const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
+    session = { ...session, name: me ? me.name : "Agent" };
+  }
+
   const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length };
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
+    : view === "agents"
+    ? ""
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
@@ -229,6 +261,7 @@ export async function adminPage(env, view = "intake") {
   else if (view === "clients") body = clientsView(clients, wishlists);
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending);
+  else if (view === "agents") body = agentsView(agents);
 
   const main = `
     <div class="topbar">
@@ -241,20 +274,50 @@ export async function adminPage(env, view = "intake") {
     </div>
     <div class="content">${body}</div>`;
 
-  return shell(sidebar(view, counts), main, esc(h.title) + " — JDM Connect");
+  return shell(sidebar(view, counts, session), main, esc(h.title) + " — JDM Connect");
+}
+
+// Admin-only: manage agent logins.
+function agentsView(agents) {
+  const rows = agents.map((a) =>
+    `<tr>
+      <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}</td>
+      <td>${esc(a.email)}</td>
+      <td style="text-align:right">${a.client_count}</td>
+      <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, wishlists and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form></td>
+    </tr>`
+  ).join("") || `<tr><td colspan="5" class="empty">No agents yet</td></tr>`;
+  return `
+    <div class="card">
+      <h2><span class="num">+</span> New agent</h2>
+      <form method="POST" action="/agent">
+        <div class="grid">
+          <div><label>NAME</label><input name="name" placeholder="Agent name" required></div>
+          <div><label>EMAIL <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
+          <div><label>PASSWORD</label><input name="password" type="text" placeholder="set a password to share" required></div>
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Create agent</button>
+          <span class="help">They sign in with this email + password and see only their own clients and matches.</span></div>
+      </form>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><tr><th>Agent</th><th>Email</th><th style="text-align:right">Clients</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Styled login screen shown when there's no valid session.
 export function loginPage(opts = {}) {
-  const err = opts.error ? `<div class="login-err">Incorrect password — please try again.</div>` : "";
+  const err = opts.error ? `<div class="login-err">Incorrect email or password — please try again.</div>` : "";
   const body = `<div class="login-screen">
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo">${LOGO}</div>
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>PASSWORD</label>
-      <input type="password" name="password" autocomplete="current-password" autofocus required>
+      <label>EMAIL <span class="opt">(agents)</span></label>
+      <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
+      <label style="margin-top:14px">PASSWORD</label>
+      <input type="password" name="password" autocomplete="current-password" required>
       <button class="btn-gold" type="submit">Sign in</button>
     </form>
   </div>`;
@@ -436,18 +499,38 @@ function shell(side, main, title) {
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
-export async function createClient(env, form) {
+
+// Ownership guards: an agent may only touch their own clients/wishlists/matches.
+// Admin (or no session — internal/public flows) always passes.
+export async function clientOwnedBy(env, clientId, session) {
+  if (!session || session.role === "admin") return true;
+  const c = await env.DB.prepare("SELECT agent_id FROM clients WHERE id = ?").bind(Number(clientId)).first();
+  return !!c && Number(c.agent_id) === Number(session.id);
+}
+async function wishlistOwnedBy(env, wishlistId, session) {
+  if (!session || session.role === "admin") return true;
+  const w = await env.DB.prepare(
+    "SELECT c.agent_id AS agent_id FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+  ).bind(Number(wishlistId)).first();
+  return !!w && Number(w.agent_id) === Number(session.id);
+}
+
+export async function createClient(env, form, session) {
   const state = normalizeState(form.get("state"));
-  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)")
-    .bind(form.get("name"), form.get("email") || null, form.get("whatsapp") || null, state).run();
+  const agentId = session && session.role === "agent" ? session.id : null;
+  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
+    .bind(form.get("name"), form.get("email") || null, form.get("whatsapp") || null, state, agentId).run();
   return r.meta?.last_row_id;
 }
 
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
 const str = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : v; };
 
-export async function createWishlist(env, form, clientIdOverride) {
+export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
+  if (!clientId) return;
+  // An agent can only add a wishlist to one of their own clients.
+  if (!(await clientOwnedBy(env, clientId, session))) return;
   await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw)
@@ -461,9 +544,10 @@ export async function createWishlist(env, form, clientIdOverride) {
 
 // Delete a client and everything attached to them — their wishlists, queued
 // matches, and seen-lot history — in one batch.
-export async function deleteClient(env, id) {
+export async function deleteClient(env, id, session) {
   const cid = Number(id);
   if (!Number.isInteger(cid) || cid <= 0) return;
+  if (!(await clientOwnedBy(env, cid, session))) return;
   const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(cid).all()).results || [];
   const stmts = [env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid)];
   for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
@@ -473,9 +557,10 @@ export async function deleteClient(env, id) {
 }
 
 // Delete a single wishlist plus its queued matches and seen-lot history.
-export async function deleteWishlist(env, id) {
+export async function deleteWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
@@ -484,12 +569,55 @@ export async function deleteWishlist(env, id) {
 }
 
 // Flip a wishlist active/paused. Paused wishlists are skipped by the matcher.
-export async function toggleWishlist(env, id) {
+export async function toggleWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.prepare(
     "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
   ).bind(wid).run();
+}
+
+// --- Agent management (admin only; the route layer enforces the admin role) ---
+export async function createAgent(env, form) {
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim().toLowerCase();
+  const password = String(form.get("password") || "");
+  if (!name || !email || !password) return { ok: false, error: "missing fields" };
+  const { salt, hash } = await hashPassword(password);
+  try {
+    await env.DB.prepare(
+      "INSERT INTO agents (email, name, pass_salt, pass_hash) VALUES (?, ?, ?, ?)"
+    ).bind(email, name, salt, hash).run();
+    return { ok: true };
+  } catch (e) {
+    console.error("createAgent failed:", e.message);
+    return { ok: false, error: "email already in use" };
+  }
+}
+
+export async function deleteAgent(env, id) {
+  const aid = Number(id);
+  if (!Number.isInteger(aid) || aid <= 0) return;
+  const clients = (await env.DB.prepare("SELECT id FROM clients WHERE agent_id = ?").bind(aid).all()).results || [];
+  const stmts = [];
+  for (const c of clients) {
+    const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(c.id).all()).results || [];
+    stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(c.id));
+    for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
+    stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(c.id));
+  }
+  stmts.push(env.DB.prepare("DELETE FROM clients WHERE agent_id = ?").bind(aid));
+  stmts.push(env.DB.prepare("DELETE FROM agents WHERE id = ?").bind(aid));
+  await env.DB.batch(stmts);
+}
+
+export async function toggleAgent(env, id) {
+  const aid = Number(id);
+  if (!Number.isInteger(aid) || aid <= 0) return;
+  await env.DB.prepare(
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
+  ).bind(aid).run();
 }
 
 // Hardening for the PUBLIC /request form (createClient/createWishlist are also

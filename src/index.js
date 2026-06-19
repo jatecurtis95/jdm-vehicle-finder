@@ -8,8 +8,8 @@
 import { runAll } from "./matcher.js";
 import { digestHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist } from "./admin.js";
-import { isAuthed, passwordValid, sessionCookie, clearCookie } from "./auth.js";
+import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, clientOwnedBy } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie } from "./auth.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 
@@ -67,13 +67,14 @@ export default {
     if (path === "/login") {
       if (request.method === "POST") {
         const form = await request.formData();
-        if (passwordValid(env, form.get("password"))) {
-          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env) } });
+        const who = await authenticate(env, form.get("email"), form.get("password"));
+        if (who) {
+          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
         await new Promise((r) => setTimeout(r, 600)); // throttle repeated guesses
         return doc(loginPage({ error: true }), 401);
       }
-      if (await isAuthed(request, url, env)) return Response.redirect(here("/admin"), 303);
+      if (await getSession(request, url, env)) return Response.redirect(here("/admin"), 303);
       return doc(loginPage());
     }
     if (path === "/logout") {
@@ -85,68 +86,90 @@ export default {
       return Response.redirect(here("/request"), 302);
     }
 
-    // Admin area — require a signed-in session (legacy ?key= still accepted).
-    if (!(await isAuthed(request, url, env))) {
+    // Everything below requires a signed-in session (admin or agent).
+    const session = await getSession(request, url, env);
+    if (!session) {
       return Response.redirect(here("/login"), 303);
     }
+    const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     if (path === "/admin") {
-      return doc(await adminPage(env, url.searchParams.get("view") || "intake"));
+      return doc(await adminPage(env, url.searchParams.get("view") || "intake", session));
     }
 
     if (path === "/run") {
-      await runMatcher(env);
+      await runMatcher(env, session);
       return Response.redirect(here("/admin?view=matches"), 303);
     }
 
     if (path === "/client" && request.method === "POST") {
-      await createClient(env, await request.formData());
+      await createClient(env, await request.formData(), session);
       return Response.redirect(here("/admin"), 303);
     }
 
     if (path === "/client/delete" && request.method === "POST") {
-      await deleteClient(env, (await request.formData()).get("id"));
+      await deleteClient(env, (await request.formData()).get("id"), session);
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
     if (path === "/wishlist" && request.method === "POST") {
-      await createWishlist(env, await request.formData());
+      await createWishlist(env, await request.formData(), undefined, session);
       return Response.redirect(here("/admin?view=wishlists"), 303);
     }
 
-
     if (path === "/wishlist/toggle" && request.method === "POST") {
-      await toggleWishlist(env, (await request.formData()).get("id"));
+      await toggleWishlist(env, (await request.formData()).get("id"), session);
       return Response.redirect(here("/admin?view=wishlists"), 303);
     }
 
     if (path === "/wishlist/delete" && request.method === "POST") {
-      await deleteWishlist(env, (await request.formData()).get("id"));
+      await deleteWishlist(env, (await request.formData()).get("id"), session);
       return Response.redirect(here("/admin?view=wishlists"), 303);
+    }
+
+    // Agent management — admin only.
+    if (path === "/agent" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      await createAgent(env, await request.formData());
+      return Response.redirect(here("/admin?view=agents"), 303);
+    }
+    if (path === "/agent/toggle" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      await toggleAgent(env, (await request.formData()).get("id"));
+      return Response.redirect(here("/admin?view=agents"), 303);
+    }
+    if (path === "/agent/delete" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      await deleteAgent(env, (await request.formData()).get("id"));
+      return Response.redirect(here("/admin?view=agents"), 303);
     }
 
     return new Response("Not found", { status: 404 });
   },
 };
 
-// Run the matcher and send the digest. Returns a human-readable summary string.
-async function runMatcher(env) {
-  const summary = await runAll(env);
+// Run the matcher (scoped to the session's agent, if any) and, for admin/cron
+// runs, email the digest. Agents review their own matches in-app, so their
+// manual "Search auctions" run doesn't email anyone.
+async function runMatcher(env, session) {
+  const summary = await runAll(env, session);
   const total = summary.reduce((n, s) => n + s.queued.length, 0);
   if (total === 0) {
     return "Matcher ran. No new matches this time.";
   }
-  try {
-    await sendEmail(env, {
-      to: env.DIGEST_EMAIL,
-      subject: `${total} new auction match${total === 1 ? "" : "es"} to review`,
-      html: digestHtml(summary, env.PUBLIC_URL),
-    });
-  } catch (err) {
-    console.error("Digest email failed:", err.message);
-    return `Matcher queued ${total} match(es) but the digest email failed: ${err.message}`;
+  if (!session || session.role === "admin") {
+    try {
+      await sendEmail(env, {
+        to: env.DIGEST_EMAIL,
+        subject: `${total} new auction match${total === 1 ? "" : "es"} to review`,
+        html: digestHtml(summary, env.PUBLIC_URL),
+      });
+    } catch (err) {
+      console.error("Digest email failed:", err.message);
+      return `Matcher queued ${total} match(es) but the digest email failed: ${err.message}`;
+    }
   }
-  return `Matcher queued ${total} new match(es) and emailed the digest.`;
+  return `Matcher queued ${total} new match(es).`;
 }
 
 // Handle an approve/skip click from the digest.
@@ -159,11 +182,17 @@ async function handleDecision(request, env, url) {
 
   // If the click came from inside the app (signed-in session), return to the
   // Matches view; otherwise (email link) show a simple confirmation page.
-  const backToApp = await isAuthed(request, url, env);
+  const session = await getSession(request, url, env);
+  const backToApp = !!session;
   const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
   if (!item) return html("<p>This item no longer exists.</p>", 404);
+  // A signed-in agent may only act on their own clients' matches. Email links
+  // (no session) are authorised by the unguessable token itself.
+  if (session && session.role === "agent" && !(await clientOwnedBy(env, item.client_id, session))) {
+    return backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404);
+  }
   if (item.status !== "pending") {
     return backToApp ? toMatches() : html(`<p>Already handled (status: ${item.status}).</p>`);
   }

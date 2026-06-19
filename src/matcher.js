@@ -154,12 +154,14 @@ async function getSeen(env, wishlistId) {
 }
 
 // Run every active wishlist. Returns a summary for logging/the digest.
-export async function runAll(env) {
-  const wl = await env.DB.prepare(
+export async function runAll(env, session) {
+  const isAgent = session && session.role === "agent";
+  const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state
      FROM wishlists w JOIN clients c ON c.id = w.client_id
-     WHERE w.active = 1`
-  ).all();
+     WHERE w.active = 1${isAgent ? " AND c.agent_id = ?" : ""}`
+  );
+  const wl = await (isAgent ? stmt.bind(session.id) : stmt).all();
 
   const summary = [];
   for (const w of wl.results || []) {
