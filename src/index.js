@@ -41,7 +41,20 @@ export default {
     // Public vehicle-request form (no login) — for dealers and their clients.
     if (path === "/request") {
       if (request.method === "POST") {
-        await createRequest(env, await request.formData());
+        // Per-IP rate limit (best-effort; fails open if KV is unavailable).
+        // Over the limit we return the normal confirmation without storing
+        // anything, so bots get no signal. 8/hour is far above real use.
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        let limited = false;
+        if (env.RL && ip) {
+          try {
+            const k = `reqrl:${ip}`;
+            const n = parseInt((await env.RL.get(k)) || "0", 10);
+            if (n >= 8) limited = true;
+            else await env.RL.put(k, String(n + 1), { expirationTtl: 3600 });
+          } catch (_) { /* fail open */ }
+        }
+        if (!limited) await createRequest(env, await request.formData());
         return doc(await requestPage(env, { submitted: true }));
       }
       return doc(await requestPage(env));

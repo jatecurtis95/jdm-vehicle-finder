@@ -4,7 +4,7 @@
 // The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
 // ADMIN_TOKEN — no server-side session store. Admin logs in with ADMIN_PASSWORD
 // (or ADMIN_TOKEN); agents log in with their email + password (PBKDF2-hashed in
-// the agents table). ?key=ADMIN_TOKEN remains an admin fallback for bookmarks.
+// the agents table). Login is via the form only — no ?key= URL fallback.
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -107,10 +107,10 @@ async function sessionFromCookie(request, env) {
   return { role, id: Number(idStr) || 0 };
 }
 
-// Current session: ?key= admin fallback, else the signed cookie. {role,id}|null.
+// Current session from the signed cookie. {role,id}|null. (The legacy
+// ?key=ADMIN_TOKEN URL fallback was removed so the admin token can't leak via
+// URLs, browser history, referrers or server logs.)
 export async function getSession(request, url, env) {
-  const key = url.searchParams.get("key");
-  if (key && env.ADMIN_TOKEN && safeEqual(key, env.ADMIN_TOKEN)) return { role: "admin", id: 0 };
   return sessionFromCookie(request, env);
 }
 

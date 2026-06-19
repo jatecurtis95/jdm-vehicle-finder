@@ -25,6 +25,11 @@ binding = "DB"
 database_name = "jdm-vehicle-finder"
 database_id = "2396671f-a3b6-4a33-bd9b-2b9fee37e0c2"
 
+# Per-IP rate limiting for the public request form (shared RL namespace).
+[[kv_namespaces]]
+binding = "RL"
+id = "0ba8ff47c4c646eda3ddf9df57212641"
+
 [vars]
 # AVTONET SQL API base. The documented gateway. Override if the provider gives a new host.
 # Points at your relay (on your own web host), which forwards to the auction
