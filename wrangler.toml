@@ -31,7 +31,7 @@ database_id = "2396671f-a3b6-4a33-bd9b-2b9fee37e0c2"
 # API from an allowed IP. The Worker sends ?code=<relay token>&sql=...
 API_BASE = "https://jdmconnect.com.au/jdm-relay.php"
 # Email address that receives the internal approval digest (you).
-DIGEST_EMAIL = "imports@jdmconnect.com.au"
+DIGEST_EMAIL = "support@jdmconnect.com.au"
 # Verified sender addresses (jdmconnect.com.au verified in Resend).
 # Internal review digest goes out as matches@, client emails as hello@.
 MAIL_FROM_INTERNAL = "matches@jdmconnect.com.au"

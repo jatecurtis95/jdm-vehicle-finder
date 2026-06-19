@@ -13,6 +13,9 @@ const LANDED_MULT = 1.9;      // auction+export+shipping+duties+GST, indicative
 const FONT = `-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif`;
 const INK = "#1A1A1A", BODY = "#5A5E62", MUTE = "#9A9DA1", GOLD = "#CAA34C", GOLDTXT = "#896B2D";
 const HAIR = "rgba(0,0,0,0.06)";
+// Logo served from the stable workers.dev host (the custom domain can be flaky
+// for mail-client image proxies), so the email logo always loads.
+const LOGO_URL = "https://jdm-vehicle-finder.jate-curtis.workers.dev/assets/logo-gold.png";
 
 export function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -67,7 +70,7 @@ function shell(inner, logoUrl) {
 function footer(extra) {
   return `<tr><td style="background:#FAFAF8;border-top:1px solid ${HAIR};padding:22px 36px;">
     <div style="font:600 14px/1.3 ${FONT};color:${INK};">JDM Connect</div>
-    <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:3px;">Connecting JDM · Melbourne, Australia</div>
+    <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:3px;">Japanese vehicle imports &middot; Melbourne, Australia</div>
     ${extra || ""}
     <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:10px;">
       <a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
@@ -90,43 +93,65 @@ function internalCard(lot, wishlist, token, publicUrl) {
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const approve = `${publicUrl}/decide?token=${token}&action=approve`;
   const reject = `${publicUrl}/decide?token=${token}&action=reject`;
-  return `<tr><td style="padding:24px 36px 0;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${HAIR};border-radius:8px;overflow:hidden;">
-      <tr><td style="background:#FAFAF8;padding:12px 16px;">
+  const sub = [esc(lot.auction || ""), esc((lot.auction_date || "").slice(0, 10))].filter(Boolean).join(" · ");
+  const landed = lot._landed ? "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU") : "—";
+  const landedLabel = lot._landed ? `Est. landed · ${esc(lot._landed.state)}` : "Est. landed";
+  const spec = (label, value) => `<td width="50%" style="padding:10px 0;vertical-align:top;">
+      <div style="font:600 10px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};">${esc(label)}</div>
+      <div style="font:600 14px/1.3 ${FONT};color:${INK};margin-top:5px;">${value}</div></td>`;
+
+  return `<tr><td style="padding:22px 30px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${HAIR};border-radius:14px;overflow:hidden;">
+      <tr><td style="background:#1a1a1a;">${img.medium
+        ? `<img src="${esc(img.medium)}" width="600" alt="${title}" style="display:block;width:100%;max-width:600px;height:auto;background:#1a1a1a;">`
+        : `<div style="height:170px;text-align:center;color:#9a854f;font:600 12px/170px ${FONT};letter-spacing:0.12em;text-transform:uppercase;">Photo on request</div>`}</td></tr>
+      <tr><td style="padding:20px 22px 2px;">
         <table role="presentation" width="100%"><tr>
-          <td style="font:600 13px/1.3 ${FONT};color:#3A3C3F;">
-            <span style="display:inline-block;width:22px;height:22px;border-radius:9999px;background:#F0E9D7;color:${GOLDTXT};font:600 10px/22px ${FONT};text-align:center;vertical-align:middle;">${esc(initials(wishlist.client_name))}</span>
-            <span style="vertical-align:middle;margin-left:8px;">${esc(wishlist.client_name)}</span>
-            <span style="color:${MUTE};font-weight:400;"> · ${esc(wishlist.label || "wishlist")}</span>
+          <td style="font:700 19px/1.25 ${FONT};color:${INK};letter-spacing:-0.01em;">${title}</td>
+          <td align="right" style="vertical-align:top;white-space:nowrap;">${strengthPill(lot)}</td>
+        </tr></table>
+        <div style="font:400 12px/1.4 ${FONT};color:${MUTE};margin-top:5px;">Lot ${esc(lot.lot || "—")}${sub ? " &middot; " + sub : ""}</div>
+      </td></tr>
+
+      <tr><td style="padding:16px 22px 2px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td width="50%" style="padding-right:6px;vertical-align:top;">
+            <table role="presentation" width="100%" style="background:#FAF6EC;border:1px solid rgba(202,163,76,0.30);border-radius:11px;"><tr><td style="padding:13px 15px;">
+              <div style="font:600 10px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${GOLDTXT};">Auction estimate</div>
+              <div style="font:700 18px/1.2 ${FONT};color:${INK};margin-top:6px;">${yen(lot.avg_price || lot.start)}</div>
+            </td></tr></table>
           </td>
-          <td align="right">${strengthPill(lot)}</td>
+          <td width="50%" style="padding-left:6px;vertical-align:top;">
+            <table role="presentation" width="100%" style="background:${INK};border-radius:11px;"><tr><td style="padding:13px 15px;">
+              <div style="font:600 10px/1 ${FONT};letter-spacing:0.1em;text-transform:uppercase;color:${GOLD};">${landedLabel}</div>
+              <div style="font:700 18px/1.2 ${FONT};color:#ffffff;margin-top:6px;">${landed}</div>
+            </td></tr></table>
+          </td>
         </tr></table>
       </td></tr>
-      ${img.medium ? `<tr><td><img src="${esc(img.medium)}" width="600" alt="" style="display:block;width:100%;max-width:600px;height:auto;background:#eee;"></td></tr>` : ""}
-      <tr><td style="padding:16px;">
-        <div style="font:600 18px/1.2 ${FONT};color:${INK};">${title}</div>
-        <div style="font:400 12px/1.3 ${FONT};color:${MUTE};margin-top:3px;">Lot ${esc(lot.lot || "—")}</div>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
-          ${specRow("Auction", esc(lot.auction || "—") + " · " + esc((lot.auction_date || "").slice(0, 10)))}
-          ${specRow("Grade (condition)", esc(lot.rate || "—"), true)}
-          ${specRow("Mileage", km(lot.mileage))}
-          ${specRow("Engine", esc(lot.eng_v || "—") + "cc · " + esc(lot.pw || "—") + "ps")}
-          ${specRow("Chassis", esc(lot.kuzov || "—"))}
-          ${specRow("Grade trim", esc(lot.grade || "—"))}
-          ${specRow("Colour", esc(lot.color || "—"))}
-          ${specRow("Market estimate", yen(lot.avg_price || lot.start), true)}
-          ${lot._landed ? specRow(`Est. landed · ${esc(lot._landed.state)} (AUD)`, "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU"), true) : ""}
+
+      <tr><td style="padding:4px 22px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>${spec("Grade", esc(lot.rate || "—"))}${spec("Mileage", km(lot.mileage))}</tr>
+          <tr>${spec("Engine", esc(lot.eng_v || "—") + "cc")}${spec("Chassis", esc(lot.kuzov || "—"))}</tr>
+          <tr>${spec("Trim", esc(lot.grade || "—"))}${spec("Colour", esc(lot.color || "—"))}</tr>
         </table>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:18px;"><tr>
-          <td style="background:${GOLD};border-radius:7px;mso-padding-alt:14px 26px;">
-            <a href="${esc(approve)}" style="display:inline-block;padding:14px 26px;font-family:${FONT};font-size:14px;font-weight:700;line-height:1.2;color:${INK};text-decoration:none;border-radius:7px;">Approve &amp; send</a>
+      </td></tr>
+
+      <tr><td style="padding:16px 22px 20px;border-top:1px solid ${HAIR};">
+        <div style="margin-bottom:14px;">
+          <span style="display:inline-block;width:26px;height:26px;border-radius:9999px;background:#F0E9D7;color:${GOLDTXT};font:700 11px/26px ${FONT};text-align:center;vertical-align:middle;">${esc(initials(wishlist.client_name))}</span>
+          <span style="vertical-align:middle;margin-left:9px;font:600 13px/1.3 ${FONT};color:${INK};">${esc(wishlist.client_name)}</span>
+          <span style="vertical-align:middle;font:400 12px/1.3 ${FONT};color:${MUTE};"> &middot; ${esc(wishlist.label || "wishlist")}</span>
+        </div>
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="background:${GOLD};border-radius:8px;mso-padding-alt:14px 28px;">
+            <a href="${esc(approve)}" style="display:inline-block;padding:14px 28px;border-radius:8px;text-decoration:none;"><span style="font-family:${FONT};font-size:14px;font-weight:700;line-height:1.2;color:#1A1A1A;text-decoration:none;">Approve &amp; send</span></a>
           </td>
-          <td style="padding-left:12px;">
-            <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-              <td style="border:1px solid rgba(0,0,0,0.18);border-radius:7px;mso-padding-alt:13px 22px;">
-                <a href="${esc(reject)}" style="display:inline-block;padding:13px 22px;font-family:${FONT};font-size:14px;font-weight:500;line-height:1.2;color:#3A3C3F;text-decoration:none;border-radius:7px;">Skip</a>
-              </td>
-            </tr></table>
+          <td style="padding-left:10px;">
+            <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border:1px solid rgba(0,0,0,0.20);border-radius:8px;mso-padding-alt:13px 22px;">
+              <a href="${esc(reject)}" style="display:inline-block;padding:13px 22px;border-radius:8px;text-decoration:none;"><span style="font-family:${FONT};font-size:14px;font-weight:600;line-height:1.2;color:#5A5E62;text-decoration:none;">Skip</span></a>
+            </td></tr></table>
           </td>
         </tr></table>
       </td></tr>
@@ -153,7 +178,7 @@ export function digestHtml(summary, publicUrl) {
     </tr></table>
   </td></tr>`;
 
-  return shell(intro + cards + bulk + footer(), `${publicUrl}/assets/logo-gold.png`);
+  return shell(intro + cards + bulk + footer(), LOGO_URL);
 }
 
 // ---------------------------------------------------------------------------
@@ -230,11 +255,11 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
 
   <tr><td style="padding:20px 36px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-      <td style="background:${GOLD};border-radius:7px;mso-padding-alt:14px 26px;">
-        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 26px;font-family:${FONT};font-size:15px;font-weight:700;line-height:1.2;color:${INK};text-decoration:none;border-radius:7px;">I'm interested</a>
+      <td style="background:${GOLD};border-radius:8px;mso-padding-alt:14px 28px;">
+        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 28px;border-radius:8px;text-decoration:none;"><span style="font-family:${FONT};font-size:15px;font-weight:700;line-height:1.2;color:#1A1A1A;text-decoration:none;">I'm interested</span></a>
       </td>
-      <td style="padding-left:6px;">
-        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 16px;font-family:${FONT};font-size:14px;font-weight:600;line-height:1.2;color:${GOLDTXT};text-decoration:none;">View full auction sheet</a>
+      <td style="padding-left:8px;">
+        <a href="https://jdmconnect.com.au" style="display:inline-block;padding:14px 16px;text-decoration:none;"><span style="font-family:${FONT};font-size:14px;font-weight:600;line-height:1.2;color:${GOLDTXT};text-decoration:none;">View full auction sheet</span></a>
       </td>
     </tr></table>
   </td></tr>
@@ -251,7 +276,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
   </td></tr>`;
 
   const ft = footer(`<div style="font:400 11px/1.5 ${FONT};color:${MUTE};margin-top:8px;">Eligibility subject to SEVS/RAWS. We'll confirm import compliance before you commit.</div>`);
-  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + ft, publicUrl ? `${publicUrl}/assets/logo-gold.png` : null);
+  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + ft, LOGO_URL);
 }
 
 // Plain-text version for WhatsApp / fallback.
