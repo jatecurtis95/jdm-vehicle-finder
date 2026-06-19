@@ -6,10 +6,10 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll } from "./matcher.js";
-import { digestHtml } from "./render.js";
+import { digestHtml, agentInviteHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, clientAccessibleBy, shareClient, unshareClient } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie } from "./auth.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
@@ -95,6 +95,28 @@ export default {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
     }
 
+    // Agent set-password (from the emailed invite link). Public — the single-use
+    // token authorises it. On success the agent is signed straight in.
+    if (path === "/set-password") {
+      if (request.method === "POST") {
+        const form = await request.formData();
+        const token = form.get("token");
+        const pw = String(form.get("password") || "");
+        if (pw !== String(form.get("confirm") || "")) {
+          const a = await agentByInviteToken(env, token);
+          return doc(a ? setPasswordPage({ token, name: a.name, error: "Those passwords don't match." }) : setPasswordPage({ invalid: true }));
+        }
+        const r = await setAgentPassword(env, token, pw);
+        if (r.ok) {
+          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env, "agent", r.id) } });
+        }
+        const a = await agentByInviteToken(env, token);
+        return doc(a ? setPasswordPage({ token, name: a.name, error: r.error }) : setPasswordPage({ invalid: true }));
+      }
+      const a = await agentByInviteToken(env, url.searchParams.get("token"));
+      return doc(a ? setPasswordPage({ token: url.searchParams.get("token"), name: a.name }) : setPasswordPage({ invalid: true }));
+    }
+
     // Bare domain → public request form, so the root is safe to share.
     if (path === "/") {
       return Response.redirect(here("/request"), 302);
@@ -144,7 +166,19 @@ export default {
     // Agent management — admin only.
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await createAgent(env, await request.formData());
+      const r = await createAgent(env, await request.formData());
+      if (r.ok && r.token) await sendInvite(env, r);
+      return Response.redirect(here("/admin?view=agents"), 303);
+    }
+    if (path === "/agent/invite" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const r = await resendInvite(env, (await request.formData()).get("id"));
+      if (r) await sendInvite(env, r);
+      return Response.redirect(here("/admin?view=agents"), 303);
+    }
+    if (path === "/agent/alerts" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      await toggleAgentAlerts(env, (await request.formData()).get("id"));
       return Response.redirect(here("/admin?view=agents"), 303);
     }
     if (path === "/agent/toggle" && request.method === "POST") {
@@ -181,26 +215,62 @@ export default {
   },
 };
 
-// Run the matcher (scoped to the session's agent, if any) and, for admin/cron
-// runs, email the digest. Agents review their own matches in-app, so their
-// manual "Search auctions" run doesn't email anyone.
+// Email an agent their set-password / reset link. `r` is { token, email, name }.
+async function sendInvite(env, r) {
+  try {
+    await sendEmail(env, {
+      to: r.email,
+      subject: "Set up your JDM Connect Vehicle Finder login",
+      html: agentInviteHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+    });
+  } catch (err) {
+    console.error("Agent invite email failed:", err.message);
+  }
+}
+
+// Run the matcher (scoped to the session's agent, if any) and route the digest.
+// Agents review their own matches in-app, so their manual "Search auctions" run
+// emails nobody. For admin/cron runs, each match is grouped by its owning agent:
+// that agent is alerted (if their alerts are on) and everything not owned by an
+// agent goes to the admin alert address.
 async function runMatcher(env, session) {
   const summary = await runAll(env, session);
   const total = summary.reduce((n, s) => n + s.queued.length, 0);
   if (total === 0) {
     return "Matcher ran. No new matches this time.";
   }
+  if (session && session.role === "agent") {
+    return `Matcher queued ${total} new match(es).`;
+  }
+
   const settings = await getSettings(env);
-  if ((!session || session.role === "admin") && settingOn(settings, "email_alerts")) {
+  const groups = new Map(); // key -> { agent|null, entries }
+  for (const entry of summary) {
+    const aid = entry.wishlist.client_agent_id;
+    const key = aid ? `agent:${aid}` : "admin";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        agent: aid ? { email: entry.wishlist.agent_email, name: entry.wishlist.agent_name, alerts: entry.wishlist.agent_alerts } : null,
+        entries: [],
+      });
+    }
+    groups.get(key).entries.push(entry);
+  }
+
+  for (const { agent, entries } of groups.values()) {
+    const n = entries.reduce((s, e) => s + e.queued.length, 0);
+    const to = agent ? agent.email : digestRecipient(settings, env);
+    if (agent ? (!agent.email || !agent.alerts) : !settingOn(settings, "email_alerts")) continue;
     try {
       await sendEmail(env, {
-        to: digestRecipient(settings, env),
-        subject: `${total} new auction match${total === 1 ? "" : "es"} to review`,
-        html: digestHtml(summary, env.PUBLIC_URL),
+        to,
+        subject: agent
+          ? `${n} new auction match${n === 1 ? "" : "es"} for your clients`
+          : `${n} new auction match${n === 1 ? "" : "es"} to review`,
+        html: digestHtml(entries, env.PUBLIC_URL),
       });
     } catch (err) {
-      console.error("Digest email failed:", err.message);
-      return `Matcher queued ${total} match(es) but the digest email failed: ${err.message}`;
+      console.error(`Digest email failed (${to}):`, err.message);
     }
   }
   return `Matcher queued ${total} new match(es).`;

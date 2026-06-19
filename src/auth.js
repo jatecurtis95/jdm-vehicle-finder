@@ -115,7 +115,7 @@ export async function getSession(request, url, env) {
 }
 
 // Verify login credentials. Admin password wins; otherwise email+password is
-// checked against an active agent. Returns {role,id}|null.
+// checked against an active agent (with a password set). Returns {role,id}|null.
 export async function authenticate(env, email, password) {
   if (passwordValid(env, password)) return { role: "admin", id: 0 };
   const e = String(email || "").trim().toLowerCase();
@@ -123,7 +123,36 @@ export async function authenticate(env, email, password) {
   const agent = await env.DB.prepare(
     "SELECT id, pass_salt, pass_hash, active FROM agents WHERE email = ?"
   ).bind(e).first();
-  if (!agent || !agent.active) return null;
+  if (!agent || !agent.active || !agent.pass_hash) return null;
   if (await verifyPassword(password, agent.pass_salt, agent.pass_hash)) return { role: "agent", id: agent.id };
   return null;
+}
+
+// --- Agent invites (agent sets their own password) ---------------------------
+export function randomToken() {
+  return toBase64Url(crypto.getRandomValues(new Uint8Array(24)));
+}
+
+// Look up the agent for a valid, unexpired invite token.
+export async function agentByInviteToken(env, token) {
+  if (!token) return null;
+  const a = await env.DB.prepare(
+    "SELECT id, name, email, invite_exp FROM agents WHERE invite_token = ?"
+  ).bind(String(token)).first();
+  if (!a || !a.invite_exp || Number(a.invite_exp) < Date.now()) return null;
+  return a;
+}
+
+// Set an agent's password from a valid invite token. Returns {ok, id, email}.
+export async function setAgentPassword(env, token, password) {
+  if (typeof password !== "string" || password.length < 6) {
+    return { ok: false, error: "Password must be at least 6 characters." };
+  }
+  const a = await agentByInviteToken(env, token);
+  if (!a) return { ok: false, error: "This link is invalid or has expired." };
+  const { salt, hash } = await hashPassword(password);
+  await env.DB.prepare(
+    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ?"
+  ).bind(salt, hash, a.id).run();
+  return { ok: true, id: a.id, email: a.email };
 }

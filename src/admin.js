@@ -4,7 +4,7 @@
 import { esc, yen, km } from "./render.js";
 import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
-import { hashPassword } from "./auth.js";
+import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
@@ -106,6 +106,8 @@ const CSS = `
   .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold);color:var(--gold-txt)}
   .btn-toggle.off{background:#f3f4f6;color:var(--t3)}
   .btn-toggle:hover{filter:brightness(0.98)}
+  .btn-link{background:transparent;border:0;color:var(--gold-txt);font-size:12px;font-weight:600;padding:7px 8px;cursor:pointer;font-family:${FONT}}
+  .btn-link:hover{text-decoration:underline}
   .chip{display:inline-block;background:var(--gold-tint);border:1px solid rgba(202,163,76,0.35);color:var(--gold-txt);font-size:11px;font-weight:600;padding:4px 9px;border-radius:9999px;font-family:${FONT}}
   button.chip{cursor:pointer}
   button.chip:hover{background:rgba(177,18,38,0.08);border-color:rgba(177,18,38,0.35);color:#B11226}
@@ -305,15 +307,20 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
 
 // Admin-only: manage agent logins.
 function agentsView(agents) {
-  const rows = agents.map((a) =>
-    `<tr>
-      <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}</td>
+  const rows = agents.map((a) => {
+    const invited = !a.pass_hash;
+    return `<tr>
+      <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}${invited ? ` <span class="chip muted">invited</span>` : ""}</td>
       <td>${esc(a.email)}</td>
       <td style="text-align:right">${a.client_count}</td>
+      <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
-      <td style="text-align:right"><form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, wishlists and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form></td>
-    </tr>`
-  ).join("") || `<tr><td colspan="5" class="empty">No agents yet</td></tr>`;
+      <td style="text-align:right;white-space:nowrap">
+        <form method="POST" action="/agent/invite" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-link" type="submit">${invited ? "Resend invite" : "Reset password"}</button></form>
+        <form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, wishlists and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form>
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">No agents yet</td></tr>`;
   return `
     <div class="card">
       <h2><span class="num">+</span> New agent</h2>
@@ -321,14 +328,13 @@ function agentsView(agents) {
         <div class="grid">
           <div><label>NAME</label><input name="name" placeholder="Agent name" required></div>
           <div><label>EMAIL <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
-          <div><label>PASSWORD</label><input name="password" type="text" placeholder="set a password to share" required></div>
         </div>
-        <div class="actions"><button class="btn-gold" type="submit">Create agent</button>
-          <span class="help">They sign in with this email + password and see only their own clients and matches.</span></div>
+        <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
+          <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>Agent</th><th>Email</th><th style="text-align:right">Clients</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table><tr><th>Agent</th><th>Email</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -372,6 +378,31 @@ export function loginPage(opts = {}) {
     </form>
   </div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — JDM Connect</title><style>${CSS}</style></head><body>${body}</body></html>`;
+}
+
+// Agent set-password screen (reached from the emailed invite link).
+export function setPasswordPage(opts = {}) {
+  const { token, name, error, invalid } = opts;
+  let card;
+  if (invalid) {
+    card = `<div class="login-card"><div class="login-logo">${LOGO}</div><h1>Link expired</h1>
+      <p class="login-sub">This set-password link is invalid or has expired. Ask JDM Connect to resend your invite.</p></div>`;
+  } else {
+    const err = error ? `<div class="login-err">${esc(error)}</div>` : "";
+    card = `<form class="login-card" method="POST" action="/set-password">
+      <div class="login-logo">${LOGO}</div>
+      <h1>Set your password</h1>
+      <p class="login-sub">Welcome${name ? ", " + esc(name) : ""} — choose a password to access the Vehicle Finder.</p>
+      ${err}
+      <input type="hidden" name="token" value="${esc(token || "")}">
+      <label>NEW PASSWORD</label>
+      <input type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
+      <label style="margin-top:14px">CONFIRM PASSWORD</label>
+      <input type="password" name="confirm" autocomplete="new-password" required minlength="6">
+      <button class="btn-gold" type="submit">Set password &amp; sign in</button>
+    </form>`;
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set password — JDM Connect</title><style>${CSS}</style></head><body><div class="login-screen">${card}</div></body></html>`;
 }
 
 function intakeView(clients, makers) {
@@ -676,21 +707,41 @@ export async function toggleWishlist(env, id, session) {
 }
 
 // --- Agent management (admin only; the route layer enforces the admin role) ---
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Create an agent with no password — they set their own via the emailed invite.
+// Returns { ok, token, email, name } so the route can send the welcome email.
 export async function createAgent(env, form) {
   const name = String(form.get("name") || "").trim();
   const email = String(form.get("email") || "").trim().toLowerCase();
-  const password = String(form.get("password") || "");
-  if (!name || !email || !password) return { ok: false, error: "missing fields" };
-  const { salt, hash } = await hashPassword(password);
+  if (!name || !email) return { ok: false, error: "missing fields" };
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
   try {
     await env.DB.prepare(
-      "INSERT INTO agents (email, name, pass_salt, pass_hash) VALUES (?, ?, ?, ?)"
-    ).bind(email, name, salt, hash).run();
-    return { ok: true };
+      "INSERT INTO agents (email, name, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, '', '', ?, ?)"
+    ).bind(email, name, token, exp).run();
+    return { ok: true, token, email, name };
   } catch (e) {
     console.error("createAgent failed:", e.message);
     return { ok: false, error: "email already in use" };
   }
+}
+
+// Re-issue an invite / set-password link (resend invite or reset password).
+export async function resendInvite(env, id) {
+  const a = await env.DB.prepare("SELECT id, name, email FROM agents WHERE id = ?").bind(Number(id)).first();
+  if (!a) return null;
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
+  await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, a.id).run();
+  return { token, email: a.email, name: a.name };
+}
+
+export async function toggleAgentAlerts(env, id) {
+  const aid = Number(id);
+  if (!Number.isInteger(aid) || aid <= 0) return;
+  await env.DB.prepare("UPDATE agents SET alerts = CASE WHEN alerts = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(aid).run();
 }
 
 export async function deleteAgent(env, id) {

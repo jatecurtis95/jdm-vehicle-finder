@@ -3,13 +3,16 @@
 
 -- Agents: separate logins that find cars for their own clients (data-isolated).
 CREATE TABLE IF NOT EXISTS agents (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  email       TEXT NOT NULL,              -- login id + alert address (stored lowercase)
-  name        TEXT NOT NULL,
-  pass_salt   TEXT NOT NULL,             -- base64 PBKDF2 salt
-  pass_hash   TEXT NOT NULL,             -- base64 PBKDF2-SHA256 hash
-  active      INTEGER NOT NULL DEFAULT 1,
-  created_at  TEXT DEFAULT (datetime('now'))
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  email        TEXT NOT NULL,             -- login id + alert address (stored lowercase)
+  name         TEXT NOT NULL,
+  pass_salt    TEXT NOT NULL,             -- base64 PBKDF2 salt ("" until they set a password)
+  pass_hash    TEXT NOT NULL,             -- base64 PBKDF2-SHA256 hash ("" until set)
+  active       INTEGER NOT NULL DEFAULT 1,
+  invite_token TEXT,                      -- single-use set-password token
+  invite_exp   INTEGER,                   -- token expiry (epoch ms)
+  alerts       INTEGER NOT NULL DEFAULT 1, -- email this agent their matches
+  created_at   TEXT DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_email ON agents(email);
 

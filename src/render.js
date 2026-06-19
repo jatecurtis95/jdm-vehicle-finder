@@ -182,6 +182,29 @@ export function digestHtml(summary, publicUrl) {
 }
 
 // ---------------------------------------------------------------------------
+// AGENT invite: "set your password" welcome email
+// ---------------------------------------------------------------------------
+export function agentInviteHtml(name, link) {
+  const first = String(name || "").trim().split(/\s+/)[0];
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font:600 11px/1 ${FONT};letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Vehicle Finder</div>
+    <h1 style="margin:10px 0 6px;font:600 24px/1.2 ${FONT};letter-spacing:-0.015em;color:${INK};">Welcome${first ? ", " + esc(first) : ""}</h1>
+    <p style="margin:0;font:400 14px/1.6 ${FONT};color:${BODY};">You've been added to the JDM Connect Vehicle Finder. Set your password to start finding cars for your clients — you'll see only your own clients and matches.</p>
+  </td></tr>
+  <tr><td style="padding:22px 36px 0;">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="background:${GOLD};border-radius:8px;mso-padding-alt:14px 28px;">
+        <a href="${esc(link)}" style="display:inline-block;padding:14px 28px;border-radius:8px;text-decoration:none;"><span style="font-family:${FONT};font-size:15px;font-weight:700;line-height:1.2;color:#1A1A1A;text-decoration:none;">Set your password</span></a>
+      </td>
+    </tr></table>
+    <p style="margin:16px 0 0;font:400 12px/1.5 ${FONT};color:${MUTE};">Or paste this link into your browser:<br><span style="color:${GOLDTXT};">${esc(link)}</span></p>
+    <p style="margin:14px 0 0;font:400 12px/1.5 ${FONT};color:${MUTE};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+  </td></tr>`;
+  return shell(inner + `<tr><td style="height:20px;"></td></tr>` + footer(), LOGO_URL);
+}
+
+// ---------------------------------------------------------------------------
 // CLIENT email: a single approved match, warm second-person voice
 // ---------------------------------------------------------------------------
 function chip(text) {
