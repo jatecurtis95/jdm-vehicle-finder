@@ -70,7 +70,7 @@ function shell(inner, logoUrl) {
 function footer(extra) {
   return `<tr><td style="background:#FAFAF8;border-top:1px solid ${HAIR};padding:22px 36px;">
     <div style="font:600 14px/1.3 ${FONT};color:${INK};">JDM Connect</div>
-    <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:3px;">Japanese vehicle imports &middot; Melbourne, Australia</div>
+    <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:3px;">Japanese vehicle imports &middot; Australia-wide</div>
     ${extra || ""}
     <div style="font:400 12px/1.5 ${FONT};color:${MUTE};margin-top:10px;">
       <a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
