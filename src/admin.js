@@ -127,7 +127,7 @@ const CSS = `
   .banner .txt{font-size:14px;color:var(--t2)}
   .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:22px}
   .mcard{background:#fff;border:1px solid var(--hair);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
-  .mphoto{position:relative;aspect-ratio:16/10;background:#ddd;background-size:cover;background-position:center}
+  .mphoto{position:relative;height:188px;flex:0 0 auto;background:#15171a;background-size:cover;background-position:center}
   .mphoto .grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0) 55%)}
   .pill{position:absolute;top:12px;display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);border-radius:3px;padding:4px 9px;font-size:11px;font-weight:600;color:#fff;letter-spacing:0.04em}
   .pill.lot{left:12px}
@@ -229,6 +229,16 @@ const CSS = `
   .wledit summary::-webkit-details-marker{display:none}
   .wledit summary:hover{background:#f6f6f7}
   .wledit form{padding:4px 16px 18px}
+  .slegend{background:#fff;border:1px solid var(--hair);border-radius:10px;padding:11px 16px;margin-bottom:16px}
+  .sl-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--t2)}
+  .sl-t{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .sl-item{display:inline-flex;align-items:center;gap:7px}
+  .sl-item b{font-weight:600;color:var(--ink)}
+  .sl-dot{width:9px;height:9px;border-radius:9999px;display:inline-block}
+  .sl-more{margin-top:8px}
+  .sl-more summary{cursor:pointer;color:var(--gold-txt);font-weight:600;font-size:12px;list-style:none}
+  .sl-more summary::-webkit-details-marker{display:none}
+  .sl-detail{margin-top:6px;color:var(--t3);line-height:1.5;font-size:12.5px;max-width:720px}
 `;
 
 function initials(name) {
@@ -741,7 +751,7 @@ function matchesView(pending, opts = {}) {
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
   const grid = `<div class="mgrid" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return triage + pause + controls + bulk + grid + matchesScript();
+  return triage + strengthLegend() + pause + controls + bulk + grid + matchesScript();
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
@@ -843,6 +853,20 @@ function matchActionScript() {
   });
   function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1A1A1A;color:#fff;padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   })();<\/script>`;
+}
+
+// Plain-English key for the Strong / Good / Possible labels, shown on the
+// Matches view and client pages so agents know what each strength means.
+function strengthLegend() {
+  return `<div class="slegend">
+    <div class="sl-row">
+      <span class="sl-t">Match strength</span>
+      <span class="sl-item"><span class="sl-dot" style="background:#46B17A"></span><b>Strong</b> well under budget and a clear step above the grade asked for</span>
+      <span class="sl-item"><span class="sl-dot" style="background:#CAA34C"></span><b>Good</b> a solid fit on budget and grade</span>
+      <span class="sl-item"><span class="sl-dot" style="background:#B6B9BC"></span><b>Possible</b> meets the basics, less margin</span>
+    </div>
+    <details class="sl-more"><summary>How it's scored</summary><div class="sl-detail">Strength blends four things: how far under the client's max budget the lot sits, how far its auction grade beats the minimum grade asked for, an exact chassis-code or keyword match, and a bonus for top-condition lots (grade 4.5 or higher). Strong is a clear all-round fit; Possible just meets the basics and is lower priority.</div></details>
+  </div>`;
 }
 
 // Mark pending matches whose auction has already ended as 'expired', so the
@@ -977,7 +1001,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
-    ${matches.length ? `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+    ${matches.length ? strengthLegend() + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
   const main = `
