@@ -49,6 +49,14 @@ function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
+// Wider hero image (~680px) for emails. Mobile clients scale images down to fit
+// but not up, so a too-small source leaves a gap beside the photo; this fills it.
+function heroSrc(lot) {
+  const f = imageUrls(lot).full;
+  if (!f) return null;
+  return f + (f.indexOf("?") >= 0 ? "&" : "?") + "w=680";
+}
+
 // Bulletproof button: VML roundrect for Outlook, styled <a> for everyone else.
 // opts: { bg, color, border, w } — fixed width keeps Outlook honest.
 function btn(href, label, opts = {}) {
@@ -140,8 +148,8 @@ function internalCard(lot, wishlist, token, publicUrl) {
 
   return `<tr><td style="padding:22px 30px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:14px;overflow:hidden;">
-      <tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;">${img.medium
-        ? `<img src="${esc(img.medium)}" width="538" alt="${title}" style="display:block;width:100%;max-width:538px;height:auto;">`
+      <tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;">${heroSrc(lot)
+        ? `<img src="${esc(heroSrc(lot))}" width="538" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;">`
         : `<div style="height:150px;text-align:center;color:#9A854F;font-family:${FONT};font-size:12px;font-weight:600;line-height:150px;letter-spacing:0.12em;text-transform:uppercase;">Photo on request</div>`}</td></tr>
       <tr><td style="padding:20px 22px 2px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
@@ -304,7 +312,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
 
   <tr><td style="padding:20px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;">
-      ${img.medium ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(img.medium)}" width="526" alt="${title}" style="display:block;width:100%;max-width:526px;height:auto;"></td></tr>` : ""}
+      ${heroSrc(lot) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
       <tr><td style="padding:16px 18px;">
         <div style="font-family:${FONT};font-size:19px;font-weight:600;line-height:1.2;color:${INK};">${title}</div>
         <div style="font-family:${FONT};font-size:12px;line-height:1.3;color:${MUTE};margin-top:4px;">${esc(lot.auction || "")}${lot.auction_date ? " &middot; " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div>
