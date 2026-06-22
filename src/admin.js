@@ -811,8 +811,38 @@ function matchesScript() {
   var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
   var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
   var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
+  grid.addEventListener('click',function(e){
+    var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
+    var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
+    var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
+    fetch(a.getAttribute('href')+'&ajax=1').then(function(r){ if(!r.ok)throw 0;
+      var i=cards.indexOf(card); if(i>=0)cards.splice(i,1);
+      if(card.parentNode)card.parentNode.removeChild(card);
+      toast(approve?'Sent to client':'Skipped'); apply();
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+  });
+  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1A1A1A;color:#fff;padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   apply();
 })();<\/script>`;
+}
+
+// Standalone approve/skip handler for pages that render match cards without the
+// Matches grid controller (the client detail page). Sends the action in the
+// background and fades the card out, no reload.
+function matchActionScript() {
+  return `<script>(function(){
+  document.addEventListener('click',function(e){
+    var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
+    var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
+    var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
+    fetch(a.getAttribute('href')+'&ajax=1').then(function(r){ if(!r.ok)throw 0;
+      card.style.transition='opacity .2s'; card.style.opacity='0';
+      setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); },200);
+      toast(approve?'Sent to client':'Skipped');
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+  });
+  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1A1A1A;color:#fff;padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  })();<\/script>`;
 }
 
 // Mark pending matches whose auction has already ended as 'expired', so the
@@ -959,7 +989,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${head}${wlSection}${newWl}${matchSection}</div>`;
+    <div class="content">${head}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " — JDM Connect");
 }
 

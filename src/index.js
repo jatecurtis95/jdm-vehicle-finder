@@ -334,12 +334,16 @@ async function runMatcher(env, session) {
   return `Matcher queued ${total} new match(es).`;
 }
 
-// Handle an approve/skip click from the digest.
+// Handle an approve/skip click from the digest or the in-app cards. When called
+// with &ajax=1 (an in-app fetch), it returns a tiny 200/4xx instead of
+// redirecting, so the card is removed in place with no full-page reload.
 async function handleDecision(request, env, url) {
   const token = url.searchParams.get("token");
   const action = url.searchParams.get("action");
+  const ajax = url.searchParams.get("ajax") === "1";
+  const ok200 = () => new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
   if (!token || !["approve", "reject"].includes(action)) {
-    return html("<p>Invalid link.</p>", 400);
+    return ajax ? new Response("invalid", { status: 400 }) : html("<p>Invalid link.</p>", 400);
   }
 
   // If the click came from inside the app (signed-in session), return to the
@@ -349,21 +353,22 @@ async function handleDecision(request, env, url) {
   const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
-  if (!item) return html("<p>This item no longer exists.</p>", 404);
+  if (!item) return ajax ? ok200() : html("<p>This item no longer exists.</p>", 404);
   // A signed-in agent may only act on their own clients' matches. Email links
   // (no session) are authorised by the unguessable token itself.
   if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) {
-    return backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404);
+    return ajax ? new Response("forbidden", { status: 403 }) : (backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404));
   }
   if (item.status !== "pending") {
-    return backToApp ? toMatches() : html(`<p>Already handled (status: ${item.status}).</p>`);
+    return ajax ? ok200() : (backToApp ? toMatches() : html(`<p>Already handled (status: ${item.status}).</p>`));
   }
 
   if (action === "reject") {
+    const reason = (url.searchParams.get("reason") || "").slice(0, 80) || null;
     await env.DB.prepare(
-      "UPDATE queue SET status = 'rejected', decided_at = datetime('now') WHERE id = ?"
-    ).bind(item.id).run();
-    return backToApp ? toMatches() : html("<p>Skipped. The client will not be contacted about this car.</p>");
+      "UPDATE queue SET status = 'rejected', reason = ?, decided_at = datetime('now') WHERE id = ?"
+    ).bind(reason, item.id).run();
+    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Skipped. The client will not be contacted about this car.</p>"));
   }
 
   // Approve: deliver to the client.
@@ -377,6 +382,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
+    if (ajax) return ok200();
     if (backToApp) return toMatches();
     const channels = [r.email && "email", r.whatsapp && "WhatsApp"].filter(Boolean).join(" + ") || "no channel (client has no contact set)";
     return html(`<p>Approved and sent to ${escapeName(client?.name)} via ${channels}.</p>`);
@@ -384,7 +390,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return html(`<p>Approved but delivery failed: ${err.message}</p>`, 500);
+    return ajax ? new Response("send failed", { status: 500 }) : html(`<p>Approved but delivery failed: ${err.message}</p>`, 500);
   }
 }
 
