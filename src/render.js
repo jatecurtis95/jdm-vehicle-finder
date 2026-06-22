@@ -14,7 +14,7 @@ import { imageUrls } from "./avtonet.js";
 const JPY_AUD = 0.0103;       // A$ per ¥1
 const LANDED_MULT = 1.9;      // auction+export+shipping+duties+GST, indicative
 
-const FONT = `-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Helvetica,Arial,sans-serif`;
+const FONT = `-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Helvetica,Arial,sans-serif`;
 // Core palette — all solid so Outlook renders them correctly.
 const INK = "#1A1A1A", BODY = "#5A5E62", MUTE = "#9A9DA1", GOLD = "#CAA34C", GOLDTXT = "#896B2D";
 // Pre-blended tints (the old rgba values flattened onto their backgrounds).
@@ -348,7 +348,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
       ${["Tell us you're interested", "We bid on your behalf", "We handle the rest"].map((t, i) => `
         <tr><td style="padding:6px 0;font-family:${FONT};font-size:14px;line-height:1.4;color:#3A3C3F;">
-          <span style="display:inline-block;width:24px;height:24px;border-radius:12px;border:1px solid ${GOLD};color:${GOLDTXT};font-family:${FONT};font-size:12px;font-weight:600;line-height:24px;text-align:center;vertical-align:middle;">${i + 1}</span>
+          <span style="display:inline-block;width:26px;height:26px;border-radius:13px;background:${GOLD_TINT};border:1px solid ${GOLD_BORDER};color:${GOLDTXT};font-family:${FONT};font-size:13px;font-weight:700;line-height:26px;text-align:center;vertical-align:middle;">${i + 1}</span>
           <span style="vertical-align:middle;margin-left:10px;">${esc(t)}</span>
         </td></tr>`).join("")}
     </table>
