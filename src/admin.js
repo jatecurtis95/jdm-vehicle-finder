@@ -212,6 +212,23 @@ const CSS = `
   .urg.soon{background:#C9821f}
   .nocontact{margin:10px 16px 0;padding:7px 10px;background:rgba(202,163,76,.1);border:1px solid rgba(202,163,76,.4);border-radius:6px;font-size:11px;color:var(--gold-txt);font-weight:600}
   .mempty{color:var(--faint);padding:40px 0;text-align:center;grid-column:1/-1}
+  .clink{color:var(--ink);font-weight:500;border-bottom:1px solid transparent}
+  .clink:hover{border-bottom-color:var(--gold)}
+  .cd-head{display:flex;align-items:center;gap:16px}
+  .cd-owner{text-align:right}
+  .cd-owner .k{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .cd-owner .v{font-size:14px;font-weight:600;color:var(--gold-txt);margin-top:3px}
+  .wlrow{border:1px solid var(--hair);border-radius:8px;margin-bottom:12px;overflow:hidden}
+  .wlhead{display:flex;align-items:center;gap:12px;padding:14px 16px}
+  .wlsum{flex:1;min-width:0}
+  .wlsum .wln{font-size:14px;font-weight:600}
+  .wlsum .wlc{font-size:12.5px;color:var(--t3);margin-top:2px}
+  .wlacts{display:flex;align-items:center;gap:8px}
+  .wledit{border-top:1px solid var(--hair);background:var(--off)}
+  .wledit summary{cursor:pointer;padding:11px 16px;font-size:13px;font-weight:600;color:var(--gold-txt);list-style:none}
+  .wledit summary::-webkit-details-marker{display:none}
+  .wledit summary:hover{background:#f6f6f7}
+  .wledit form{padding:4px 16px 18px}
 `;
 
 function initials(name) {
@@ -280,7 +297,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   // shares (chips), so owners can share/unshare.
   let shareAgents = [], sharesByClient = {};
   if (view === "clients") {
-    shareAgents = (await env.DB.prepare("SELECT id, name FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
+    shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
       "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN agents a ON a.id = cs.agent_id"
     ).all()).results || [];
@@ -367,6 +384,7 @@ function agentsView(agents) {
     return `<tr>
       <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}${invited ? ` <span class="chip muted">invited</span>` : ""}</td>
       <td>${esc(a.email)}</td>
+      <td>${esc(a.company || "—")}</td>
       <td style="text-align:right">${a.client_count}</td>
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
@@ -375,7 +393,7 @@ function agentsView(agents) {
         <form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, wishlists and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form>
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="6" class="empty">No agents yet</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="empty">No agents yet</td></tr>`;
   return `
     <div class="card">
       <h2><span class="num">+</span> New agent</h2>
@@ -383,13 +401,14 @@ function agentsView(agents) {
         <div class="grid">
           <div><label>NAME</label><input name="name" placeholder="Agent name" required></div>
           <div><label>EMAIL <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
+          <div><label>COMPANY <span class="opt">(optional)</span></label><input name="company" placeholder="e.g. Ofuka"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>Agent</th><th>Email</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -531,14 +550,14 @@ function clientsView(clients, wishlists, opts = {}) {
   const isAdmin = session.role === "admin";
   const ownerCell = (c) => {
     const opts = `<option value=""${!c.agent_id ? " selected" : ""}>JDM Connect</option>` +
-      agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}</option>`).join("");
+      agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
     return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" onchange="this.form.submit()">${opts}</select></form>`;
   };
 
   const rows = clients.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td><span class="avatar">${esc(initials(c.name))}</span>${esc(c.name)}</td>
+      <td><span class="avatar">${esc(initials(c.name))}</span><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></td>
       <td>${esc(c.email || "—")}</td><td>${esc(c.state || "—")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
@@ -796,6 +815,154 @@ function matchesScript() {
 })();<\/script>`;
 }
 
+// Mark pending matches whose auction has already ended as 'expired', so the
+// review queue only ever shows lots you can still bid on. Safe to call often.
+export async function expirePast(env) {
+  try {
+    await env.DB.prepare(
+      "UPDATE queue SET status = 'expired', decided_at = datetime('now') WHERE status = 'pending' AND json_extract(lot_json,'$.auction_date') < datetime('now')"
+    ).run();
+  } catch (e) {
+    console.error("expirePast failed:", e.message);
+  }
+}
+
+// Update an existing wishlist's criteria (the "edit what they're chasing" flow).
+export async function editWishlist(env, form, session) {
+  const id = Number(form.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return;
+  if (!(await wishlistAccessibleBy(env, id, session))) return;
+  await env.DB.prepare(
+    `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ?`
+  ).bind(
+    str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
+    num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
+    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), id
+  ).run();
+}
+
+// Inline editor for one wishlist (native <details>, no JS), plus toggle/delete.
+function wishlistEditor(w) {
+  const field = (label, name, type, opt) =>
+    `<div><label>${label}${opt ? ` <span class="opt">${opt}</span>` : ""}</label><input name="${name}"${type ? ` type="${type}"` : ""} value="${esc(w[name] ?? "")}"></div>`;
+  const summary = `${esc(w.marka_name || "Any maker")} ${esc(w.model_name || "")}`.trim()
+    + (w.year_min || w.year_max ? ` · ${esc(w.year_min || "")}-${esc(w.year_max || "")}` : "")
+    + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
+    + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
+  return `<div class="wlrow">
+    <div class="wlhead">
+      <div class="wlsum">
+        <div class="wln">${esc(w.label || "Wishlist")} ${w.active ? "" : `<span class="chip muted">paused</span>`}</div>
+        <div class="wlc">${summary || "Matches anything"}</div>
+      </div>
+      <div class="wlacts">
+        <form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
+        <form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
+      </div>
+    </div>
+    <details class="wledit">
+      <summary>Edit what they're chasing</summary>
+      <form method="POST" action="/wishlist/edit">
+        <input type="hidden" name="id" value="${w.id}">
+        <div class="grid">
+          ${field("LABEL", "label")}
+          ${field("MAKER", "marka_name")}
+          ${field("MODEL", "model_name")}
+          ${field("YEAR MIN", "year_min", "number")}
+          ${field("YEAR MAX", "year_max", "number")}
+          ${field("MAX PRICE (JPY)", "price_max", "number")}
+          ${field("MAX MILEAGE (KM)", "mileage_max", "number")}
+          ${field("MIN GRADE", "rate_min", "number")}
+          ${field("CHASSIS CODE", "kuzov", null, "(contains)")}
+          ${field("GRADE KEYWORD", "grade_kw", null, "(contains)")}
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
+          <span class="help">Blank fields match anything.</span></div>
+      </form>
+    </details>
+  </div>`;
+}
+
+// Client detail page: contact, owner, their wishlists (editable) and their live
+// matches. Reached by clicking a client name in the Clients list.
+export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }) {
+  const cid = Number(clientId);
+  const notFound = () => shell(sidebar("clients", {}, session),
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-dark" href="/admin?view=clients">Back to clients</a></div>
+     <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>`,
+    "Client — JDM Connect");
+  if (!Number.isInteger(cid) || cid <= 0) return notFound();
+  if (!(await clientAccessibleBy(env, cid, session))) return notFound();
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  if (!c) return notFound();
+
+  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  await expirePast(env);
+  const matches = (await env.DB.prepare(
+    `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.client_id = ? AND q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
+  ).bind(cid).all()).results || [];
+
+  const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
+  const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
+  const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
+
+  const head = `<div class="card">
+    <div class="cd-head">
+      <span class="avatar" style="width:46px;height:46px;font-size:16px">${esc(initials(c.name))}</span>
+      <div style="flex:1">
+        <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
+        <div class="help">${contact}</div>
+      </div>
+      <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
+    </div>
+  </div>`;
+
+  const newWl = `<div class="card">
+    <h2><span class="num">+</span> New wishlist for ${esc(c.name)}</h2>
+    <form method="POST" action="/wishlist">
+      <input type="hidden" name="client_id" value="${c.id}">
+      <div class="grid">
+        <div><label>LABEL</label><input name="label" placeholder="e.g. weekend project"></div>
+        <div><label>MAKER</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
+        <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
+        <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
+        <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
+        <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
+        <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label>CHASSIS CODE <span class="opt">(contains)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button></div>
+    </form>
+  </div>`;
+
+  const wlSection = `<div class="card">
+    <h2><span class="num">${wls.length}</span> Wishlists</h2>
+    ${wls.map(wishlistEditor).join("") || `<div class="empty">No wishlists yet. Add one below.</div>`}
+  </div>`;
+
+  const matchSection = `<div class="card">
+    <h2><span class="num">${matches.length}</span> Live matches</h2>
+    ${matches.length ? `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+  </div>`;
+
+  const main = `
+    <div class="topbar">
+      <div>
+        <div class="kicker">Vehicle Finder · Client</div>
+        <h1>${esc(c.name)}</h1>
+        <p class="subline">What they're chasing, and the lots that match.</p>
+      </div>
+      <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
+    </div>
+    <div class="content">${head}${wlSection}${newWl}${matchSection}</div>`;
+  return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " — JDM Connect");
+}
+
 // ---------------------------------------------------------------------------
 // Public request page
 // ---------------------------------------------------------------------------
@@ -964,13 +1131,14 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export async function createAgent(env, form) {
   const name = String(form.get("name") || "").trim();
   const email = String(form.get("email") || "").trim().toLowerCase();
+  const company = String(form.get("company") || "").trim() || null;
   if (!name || !email) return { ok: false, error: "missing fields" };
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
   try {
     await env.DB.prepare(
-      "INSERT INTO agents (email, name, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, '', '', ?, ?)"
-    ).bind(email, name, token, exp).run();
+      "INSERT INTO agents (email, name, company, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, '', '', ?, ?)"
+    ).bind(email, name, company, token, exp).run();
     return { ok: true, token, email, name };
   } catch (e) {
     console.error("createAgent failed:", e.message);

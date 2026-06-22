@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, expirePast } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
@@ -17,7 +17,7 @@ import { logoPngBytes } from "./assets.js";
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runMatcher(env));
+    ctx.waitUntil((async () => { await expirePast(env); await runMatcher(env); })());
   },
 
   // -------- HTTP routes --------
@@ -133,7 +133,11 @@ export default {
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     if (path === "/admin") {
-      return doc(await adminPage(env, url.searchParams.get("view") || "intake", session));
+      const view = url.searchParams.get("view") || "intake";
+      if (view === "client") {
+        return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
+      }
+      return doc(await adminPage(env, view, session));
     }
 
     if (path === "/run") {
@@ -178,8 +182,17 @@ export default {
     }
 
     if (path === "/wishlist" && request.method === "POST") {
-      await createWishlist(env, await request.formData(), undefined, session);
-      return Response.redirect(here("/admin?view=wishlists"), 303);
+      const f = await request.formData();
+      await createWishlist(env, f, undefined, session);
+      const cid = f.get("client_id");
+      return Response.redirect(here(cid ? `/admin?view=client&id=${cid}` : "/admin?view=wishlists"), 303);
+    }
+
+    if (path === "/wishlist/edit" && request.method === "POST") {
+      const f = await request.formData();
+      await editWishlist(env, f, session);
+      const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
+      return Response.redirect(here(w ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists"), 303);
     }
 
     if (path === "/wishlist/toggle" && request.method === "POST") {

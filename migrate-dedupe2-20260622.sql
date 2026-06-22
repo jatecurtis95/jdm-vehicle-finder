@@ -1,0 +1,12 @@
+UPDATE wishlists SET client_id=15 WHERE client_id IN (35,36);
+UPDATE queue SET client_id=15 WHERE client_id IN (35,36);
+DELETE FROM client_shares WHERE client_id IN (35,36);
+DELETE FROM clients WHERE id IN (35,36);
+UPDATE clients SET name='Nathan' WHERE id=38;
+DELETE FROM queue WHERE client_id=37;
+DELETE FROM wishlists WHERE client_id=37;
+DELETE FROM client_shares WHERE client_id=37;
+DELETE FROM clients WHERE id=37;
+UPDATE clients SET agent_id=NULL WHERE agent_id=5;
+DELETE FROM client_shares WHERE agent_id=5;
+DELETE FROM agents WHERE id=5;
