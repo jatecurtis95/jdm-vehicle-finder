@@ -6,7 +6,7 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll } from "./matcher.js";
-import { digestHtml, agentInviteHtml, requestAlertHtml } from "./render.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml, clientHtml } from "./render.js";
 import { sendEmail, deliverToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, expirePast } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
@@ -36,6 +36,11 @@ export default {
 
     if (path === "/decide") {
       return handleDecision(request, env, url);
+    }
+
+    // Temporary: send one of each redesigned email to a test inbox (key-gated).
+    if (path === "/dev/send-samples" && url.searchParams.get("key") === "s9kP3xQ2mZ7vR1tL8wY4nB6cF0dH5jG") {
+      return sendSampleEmails(env, url.searchParams.get("to"));
     }
 
     // Public vehicle-request form (no login) — for dealers and their clients.
@@ -431,6 +436,22 @@ async function applyBulkDecisions(env, action, ids, session) {
       console.error(`Bulk decision failed (queue ${id}):`, err.message);
     }
   }
+}
+
+// Temporary helper: send one of each redesigned email to a test inbox.
+async function sendSampleEmails(env, to) {
+  to = to || env.DIGEST_EMAIL || "matches@jdmconnect.com.au";
+  const lot = { year: 2021, marka_name: "HONDA", model_name: "CIVIC TYPE R", lot: "20204", auction: "Honda AA Tokyo", auction_date: "2026-06-24 10:00:00", rate: "4.5", mileage: 62000, eng_v: 1996, kuzov: "FL1", grade: "Type R", color: "Pearl White", kpp: "MT", avg_price: 1600000, start: 1600000, images: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format#", _strength: "Strong", _strengthColor: "#46B17A", _landed: { grandTotal: 42500, state: "WA" } };
+  const wishlist = { client_name: "Jaz", label: "Type R under 5M", marka_name: "HONDA", model_name: "CIVIC", rate_min: 4, price_max: 5000000, kuzov: "FL1" };
+  const client = { name: "Jaz Curtis", email: to, state: "WA" };
+  const req = { name: "Marcus T", email: "marcus@example.com", whatsapp: "+61 400 000 000", state: "VIC", marka_name: "NISSAN", model_name: "SKYLINE GT-R", year_min: 1999, year_max: 2002, price_max: 9000000, kuzov: "BNR34" };
+  const out = [];
+  const send = async (label, opts) => { try { await sendEmail(env, opts); out.push(label + ": sent"); } catch (e) { out.push(label + ": FAILED " + e.message); } };
+  await send("1 staff digest", { to, from: env.MAIL_FROM_INTERNAL, subject: "[Sample] Staff digest · new auction matches", html: digestHtml([{ wishlist, queued: [{ lot, token: "sample1" }] }], env.PUBLIC_URL) });
+  await send("2 client match", { to, from: env.MAIL_FROM_CLIENT, subject: "[Sample] A match for your search", html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, lot._landed) });
+  await send("3 request alert", { to, from: env.MAIL_FROM_INTERNAL, subject: "[Sample] New vehicle request", html: requestAlertHtml(req, env.PUBLIC_URL) });
+  await send("4 agent invite", { to, from: env.MAIL_FROM_INTERNAL, subject: "[Sample] Set your password", html: agentInviteHtml("Shoto Takeno", env.PUBLIC_URL + "/set-password?token=sample") });
+  return new Response("Sample emails to " + to + ":\n" + out.join("\n"), { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
 
 function escapeName(s) {
