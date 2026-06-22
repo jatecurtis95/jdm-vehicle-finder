@@ -141,6 +141,18 @@ export default {
       return Response.redirect(here("/admin?view=matches"), 303);
     }
 
+    // Bulk approve/skip from the Matches view. Same per-item access rules as the
+    // single /decide link; one failure never stops the batch.
+    if (path === "/matches/bulk" && request.method === "POST") {
+      const f = await request.formData();
+      const action = f.get("action");
+      const ids = f.getAll("ids").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
+      if (["approve", "reject"].includes(action) && ids.length) {
+        await applyBulkDecisions(env, action, ids, session);
+      }
+      return Response.redirect(here("/admin?view=matches"), 303);
+    }
+
     if (path === "/client" && request.method === "POST") {
       await createClient(env, await request.formData(), session);
       return Response.redirect(here("/admin"), 303);
@@ -360,6 +372,45 @@ async function handleDecision(request, env, url) {
       "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
     return html(`<p>Approved but delivery failed: ${err.message}</p>`, 500);
+  }
+}
+
+// Apply approve/reject to many queued matches at once (the Matches bulk bar).
+// Mirrors the single-decision logic, keeps the agent per-item access check, and
+// isolates each item so one bad lot or failed send never aborts the batch.
+async function applyBulkDecisions(env, action, ids, session) {
+  for (const id of ids) {
+    try {
+      const item = await env.DB.prepare("SELECT * FROM queue WHERE id = ?").bind(id).first();
+      if (!item || item.status !== "pending") continue;
+      if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
+
+      if (action === "reject") {
+        await env.DB.prepare(
+          "UPDATE queue SET status = 'rejected', decided_at = datetime('now') WHERE id = ?"
+        ).bind(item.id).run();
+        continue;
+      }
+
+      const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
+      const wishlist = await env.DB.prepare(
+        "SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+      ).bind(item.wishlist_id).first();
+      const lot = JSON.parse(item.lot_json);
+      try {
+        await deliverToClient(env, client, lot, wishlist);
+        await env.DB.prepare(
+          "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
+        ).bind(item.id).run();
+      } catch (err) {
+        await env.DB.prepare(
+          "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
+        ).bind(item.id).run();
+        console.error(`Bulk approve delivery failed (queue ${item.id}):`, err.message);
+      }
+    } catch (err) {
+      console.error(`Bulk decision failed (queue ${id}):`, err.message);
+    }
   }
 }
 

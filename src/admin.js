@@ -167,6 +167,51 @@ const CSS = `
   .login-err{background:rgba(177,18,38,0.06);border:1px solid rgba(177,18,38,0.25);color:#B11226;font-size:13px;padding:10px 12px;border-radius:6px;margin-bottom:16px;text-align:center}
   @media(max-width:920px){.wrap{flex-direction:column}.side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px}.nav{flex-direction:row;margin-top:0;flex-wrap:wrap}.side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}}
   @media(max-width:640px){.grid{grid-template-columns:1fr}.topbar,.content{padding-left:20px;padding-right:20px}}
+  /* Matches review (v2) */
+  .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:6px;border-bottom:1px solid var(--hair)}
+  .triage{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .tstat{background:#fff;border:1px solid var(--hair);border-radius:10px;padding:11px 15px;min-width:96px}
+  .tstat .k{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .tstat .v{font-size:22px;font-weight:700;margin-top:3px}
+  .tstat .d{width:8px;height:8px;border-radius:9999px;display:inline-block}
+  .tstat.urgent{border-color:rgba(177,18,38,.3);background:rgba(177,18,38,.04)}
+  .tstat.urgent .v{color:#B11226}
+  .crow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
+  .msearch{position:relative;flex:1;min-width:200px;display:block;margin:0}
+  .msearch input{width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,.14);border-radius:7px;font-size:14px;background:#fff;font-family:inherit;color:var(--ink)}
+  .msearch input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,.16)}
+  select.mctl{padding:9px 11px;border:1px solid rgba(0,0,0,.14);border-radius:7px;font-size:13.5px;background:#fff;color:var(--t2);cursor:pointer;font-family:inherit}
+  .fchips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .fchip{border:1px solid rgba(0,0,0,.14);background:#fff;color:var(--t2);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
+  .fchip .sd{width:8px;height:8px;border-radius:9999px;display:inline-block}
+  .fchip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .fchip.on.urgent{background:#B11226;border-color:#B11226;color:#fff}
+  .quick{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+  .quick button{font-family:inherit;font-size:12px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid rgba(202,163,76,.35);border-radius:9999px;padding:6px 12px;cursor:pointer}
+  .pausebar{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:rgba(177,18,38,.05);border:1px solid rgba(177,18,38,.25);border-left:3px solid #B11226;border-radius:6px;font-size:13.5px;color:var(--t2)}
+  .bulkbar2{position:sticky;top:60px;z-index:6;display:none;align-items:center;gap:12px;background:var(--ink);color:#fff;border-radius:10px;padding:10px 15px;margin:0 0 16px}
+  .bulkbar2.show{display:flex}
+  .bulkbar2 .bc{font-weight:600;font-size:14px}.bulkbar2 .bsp{flex:1}
+  .bulkbar2 button{font-family:inherit;font-weight:600;font-size:13px;border-radius:6px;padding:9px 14px;cursor:pointer;border:0}
+  .bulkbar2 .bap{background:var(--gold);color:var(--ink)}
+  .bulkbar2 .bsk{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
+  .bulkbar2 .bcl{background:transparent;color:#cfd0d2;border:0;font-size:12.5px}
+  .ghead{display:flex;align-items:center;gap:10px;grid-column:1/-1;padding:8px 2px 2px;border-bottom:1px solid var(--hair);margin-top:8px}
+  .ghead .gh-n{font-size:14px;font-weight:600}
+  .ghead .gh-sel{margin-left:auto;font-size:12px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid rgba(202,163,76,.35);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit}
+  .mgrid .mcard{position:relative}
+  .mcard .msel{position:absolute;top:10px;left:10px;z-index:4;width:21px;height:21px;accent-color:var(--gold);cursor:pointer;display:none}
+  .mcard:hover .msel,.mcard.picked .msel{display:block}
+  .mcard:hover .pill.lot,.mcard.picked .pill.lot{opacity:0}
+  .mcard.picked{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-tint)}
+  .specline{padding:2px 16px 0;font-size:11.5px;color:var(--t3);display:flex;gap:6px;flex-wrap:wrap}
+  .specline b{color:var(--t2);font-weight:600}
+  .why{padding:9px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
+  .why .wc{font-size:10.5px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid rgba(202,163,76,.3);border-radius:9999px;padding:3px 9px}
+  .urg{display:inline-flex;align-items:center;gap:4px;background:#B11226;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-right:6px}
+  .urg.soon{background:#C9821f}
+  .nocontact{margin:10px 16px 0;padding:7px 10px;background:rgba(202,163,76,.1);border:1px solid rgba(202,163,76,.4);border-radius:6px;font-size:11px;color:var(--gold-txt);font-weight:600}
+  .mempty{color:var(--faint);padding:40px 0;text-align:center;grid-column:1/-1}
 `;
 
 function initials(name) {
@@ -221,10 +266,14 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
   ).all()).results || [];
   const pending = (await run(
-    `SELECT q.*, c.name AS client_name, c.state AS client_state, w.label AS wlabel FROM queue q
+    `SELECT q.*, c.name AS client_name, c.state AS client_state,
+            c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
+            w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 60`
+      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
   ).all()).results || [];
 
   // For the Clients view: active agents (for the Share picker) and existing
@@ -250,9 +299,12 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
       else needCalc.push({ q, lot });
     }
     if (needCalc.length) {
-      await attachLanded(env, needCalc.map(({ q, lot }) => ({ lot, client: { state: q.client_state } })));
+      // Cap calculator calls per load so a large queue still loads fast; the rest
+      // self-heal on later loads.
+      const calcBatch = needCalc.slice(0, 40);
+      await attachLanded(env, calcBatch.map(({ q, lot }) => ({ lot, client: { state: q.client_state } })));
       const ups = [];
-      for (const { q, lot } of needCalc) {
+      for (const { q, lot } of calcBatch) {
         if (lot._landed) {
           q._landed = lot._landed;
           // Persist so this row is never recomputed (self-healing backfill for
@@ -271,6 +323,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
       ).all()).results || []
     : [];
   const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
+  const matchSettings = view === "matches" ? await getSettings(env) : null;
   if (isAgent) {
     const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
     session = { ...session, name: me ? me.name : "Agent" };
@@ -289,7 +342,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   if (view === "intake") body = intakeView(clients, makers);
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending);
+  else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
   else if (view === "agents") body = agentsView(agents);
   else if (view === "settings") body = settingsView(settings);
 
@@ -530,22 +583,64 @@ function wishlistsView(wishlists) {
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
 
+// Whole days until an auction date string (negative = past). 999 if unparseable,
+// so undated lots sort last and never count as "closing soon".
+const daysUntil = (s) => { const t = Date.parse(s); return Number.isFinite(t) ? Math.round((t - Date.now()) / 86400000) : 999; };
+
+// Number of photos encoded in the feed's "#"-separated images field.
+function photoCount(lot) {
+  const raw = String(lot.images || "").trim();
+  if (!raw) return 0;
+  return raw.split("#").filter((u) => u.trim()).length;
+}
+
+// "Why it matched" chips, built from the wishlist criteria that were actually set.
+function whyChips(q) {
+  const out = [];
+  if (q.w_rate) out.push(`Grade ${esc(q.w_rate)}+`);
+  if (q.w_price) out.push("Within budget");
+  if (q.w_kuzov) out.push(`Chassis ${esc(q.w_kuzov)}`);
+  if (q.w_kw) out.push(esc(q.w_kw));
+  return out.slice(0, 3);
+}
+
 function matchCard(q) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
-  const strength = lot._strength || "Possible";
+  const strengthLabel = lot._strength || "Possible";
+  const strKey = strengthLabel === "Strong" ? "strong" : strengthLabel === "Good" ? "good" : "poss";
   const sColor = lot._strengthColor || "#B6B9BC";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
   const approve = `/decide?token=${esc(q.token)}&action=approve`;
   const skip = `/decide?token=${esc(q.token)}&action=reject`;
-  return `<div class="mcard">
+  const days = daysUntil(lot.auction_date);
+  const auc = esc(lot.auction || "");
+  const aucDate = esc((lot.auction_date || "").slice(0, 10));
+  const sub = (days >= 0 && days <= 1)
+    ? `<span class="urg">Auction ${days === 0 ? "today" : "1d"}</span>${auc}`
+    : days === 2
+    ? `<span class="urg soon">Auction 2d</span>${auc}`
+    : `${auc}${aucDate ? " · " + aucDate : ""}`;
+  const landedNum = q._landed ? Number(q._landed.grandTotal) : 0;
+  const hasContact = !!(q.client_email || q.client_whatsapp);
+  const chips = whyChips(q);
+  const specs = [
+    lot.kpp ? `<b>${esc(lot.kpp)}</b>` : "",
+    lot.color ? esc(lot.color) : "",
+    lot.kuzov ? `<b>${esc(lot.kuzov)}</b>` : "",
+    lot.eng_v ? esc(lot.eng_v) + "cc" : "",
+    photoCount(lot) ? photoCount(lot) + " photos" : "",
+  ].filter(Boolean).join(" · ");
+  const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
+  return `<div class="mcard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-auction="${auc}" data-search="${haystack}">
+    <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
       <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
-      <span class="pill str"><span class="sd" style="background:${sColor}"></span>${esc(strength)}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")} · ${esc((lot.auction_date || "").slice(0, 10))}</div></div>
+      <span class="pill str"><span class="sd" style="background:${sColor}"></span>${esc(strengthLabel)}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${sub}</div></div>
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "—")}</div></div>
@@ -553,24 +648,152 @@ function matchCard(q) {
       <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
       <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
     </div>
+    ${specs ? `<div class="specline">${specs}</div>` : ""}
+    ${chips.length ? `<div class="why">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
     ${q._landed ? `<div class="mland"><span class="ml-k">Est. landed · ${esc(q._landed.state)}</span><span class="ml-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</span></div>` : ""}
+    ${!hasContact ? `<div class="nocontact">No email or WhatsApp on file — approving won't reach this client.</div>` : ""}
     <div class="mfoot">
       <span class="avatar">${esc(initials(q.client_name))}</span>
       <div class="who"><div class="n">${esc(q.client_name)}</div><div class="w">${esc(q.wlabel || "wishlist")}</div></div>
       <a class="btn-skip" href="${skip}">Skip</a>
-      <a class="btn-notify" href="${approve}">Notify client</a>
+      <a class="btn-notify" href="${approve}">Approve &amp; send</a>
     </div>
   </div>`;
 }
 
-function matchesView(pending) {
+function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>Search auctions</strong> to score today's lots against every wishlist.</div></div>`;
+      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every wishlist.</div></div>`;
   }
-  return `<div class="banner"><span class="reddot"></span>
-      <span class="txt"><strong>${pending.length}</strong> ${pending.length === 1 ? "match" : "matches"} awaiting your review</span></div>
-    <div class="mgrid">${pending.map((q) => matchCard(q)).join("")}</div>`;
+  const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
+  let strong = 0, good = 0, poss = 0, soon = 0;
+  for (const q of pending) {
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const s = lot._strength || "Possible";
+    if (s === "Strong") strong++; else if (s === "Good") good++; else poss++;
+    if (daysUntil(lot.auction_date) <= 2) soon++;
+  }
+  const triage = `<div class="triage">
+    <div class="tstat"><div class="k">Awaiting review</div><div class="v">${pending.length}</div></div>
+    <div class="tstat"><div class="k"><span class="d" style="background:#46B17A"></span>Strong</div><div class="v">${strong}</div></div>
+    <div class="tstat"><div class="k"><span class="d" style="background:#CAA34C"></span>Good</div><div class="v">${good}</div></div>
+    <div class="tstat"><div class="k"><span class="d" style="background:#B6B9BC"></span>Possible</div><div class="v">${poss}</div></div>
+    <div class="tstat urgent"><div class="k">Closing in 48h</div><div class="v">${soon}</div></div>
+  </div>`;
+  const pause = sendOff
+    ? `<div class="pausebar"><span><strong>Client emails are paused</strong> in Settings, so “Approve &amp; send” will mark a match handled without emailing the client.</span></div>`
+    : "";
+  const controls = `<div class="mtools">
+    <div class="crow">
+      <label class="msearch"><input id="mq" type="search" placeholder="Search car, chassis, lot or client…" autocomplete="off"></label>
+      <select id="msort" class="mctl" aria-label="Sort matches">
+        <option value="priority">Sort: Priority</option>
+        <option value="soonest">Sort: Auction soonest</option>
+        <option value="strength">Sort: Strength</option>
+        <option value="landed">Sort: Lowest landed</option>
+        <option value="new">Sort: Newest</option>
+      </select>
+      <select id="mgroup" class="mctl" aria-label="Group matches">
+        <option value="client">Group: Client</option>
+        <option value="make">Group: Make</option>
+        <option value="auction">Group: Auction</option>
+        <option value="none">Group: None</option>
+      </select>
+    </div>
+    <div class="fchips">
+      <button type="button" class="fchip on" data-str="all">All</button>
+      <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:#46B17A"></span>Strong</button>
+      <button type="button" class="fchip" data-str="good"><span class="sd" style="background:#CAA34C"></span>Good</button>
+      <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:#B6B9BC"></span>Possible</button>
+      <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
+      <span class="quick">
+        <button type="button" id="qStrong">Select all Strong</button>
+        <button type="button" id="qSoon">Select all closing soon</button>
+      </span>
+    </div>
+  </div>`;
+  const bulk = `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"></form>
+    <div class="bulkbar2" id="bulkBar">
+      <span class="bc"><span id="selCount">0</span> selected</span>
+      <span class="bsp"></span>
+      <button type="submit" form="bulkForm" class="bap" id="bApprove">Approve &amp; send</button>
+      <button type="submit" form="bulkForm" class="bsk" id="bSkip">Skip</button>
+      <button type="button" class="bcl" id="bClear">Clear</button>
+    </div>`;
+  const grid = `<div class="mgrid" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
+  return triage + pause + controls + bulk + grid + matchesScript();
+}
+
+// Client-side controller for the Matches view: search, strength + closing-soon
+// filters, sort, grouping with headers, and multi-select bulk actions. Cards are
+// server-rendered, so if this script ever fails the cards and their per-card
+// Approve/Skip links still work. No template literals or ${} inside this string.
+function matchesScript() {
+  return `<script>(function(){
+  var grid=document.getElementById('mGrid'); if(!grid) return;
+  var cards=[].slice.call(grid.getElementsByClassName('mcard'));
+  var st={q:'',str:'all',soon:false,sort:'priority',group:'client'};
+  function gv(c,k){return c.getAttribute('data-'+k)||''}
+  function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
+  function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
+  function grpKey(c){return st.group==='make'?gv(c,'make'):st.group==='auction'?gv(c,'auction'):gv(c,'client')}
+  function cmp(a,b){
+    if(st.sort==='priority')return (rank(b)*1000-gn(b,'days'))-(rank(a)*1000-gn(a,'days'));
+    if(st.sort==='soonest')return gn(a,'days')-gn(b,'days');
+    if(st.sort==='strength')return rank(b)-rank(a);
+    if(st.sort==='landed')return (gn(a,'landed')||1e12)-(gn(b,'landed')||1e12);
+    return gn(b,'qid')-gn(a,'qid');
+  }
+  function syncBulk(){
+    var n=0;
+    cards.forEach(function(c){var cb=c.querySelector('.msel'); if(cb&&cb.checked){n++; c.classList.add('picked');} else c.classList.remove('picked');});
+    var sc=document.getElementById('selCount'); if(sc)sc.textContent=n;
+    var bar=document.getElementById('bulkBar'); if(bar)bar.className=n?'bulkbar2 show':'bulkbar2';
+  }
+  function headEl(name){
+    var d=document.createElement('div'); d.className='ghead';
+    var s=document.createElement('span'); s.className='gh-n'; s.textContent=name; d.appendChild(s);
+    var b=document.createElement('button'); b.type='button'; b.className='gh-sel'; b.textContent='Select all';
+    b.addEventListener('click',function(){cards.forEach(function(c){ if(c.__show&&grpKey(c)===name){var cb=c.querySelector('.msel'); if(cb)cb.checked=true;} }); syncBulk();});
+    d.appendChild(b); return d;
+  }
+  function apply(){
+    try{
+      var ql=st.q.toLowerCase(), shown=0;
+      cards.forEach(function(c){
+        var ok=true;
+        if(st.str!=='all'&&gv(c,'str')!==st.str)ok=false;
+        if(st.soon&&gn(c,'days')>2)ok=false;
+        if(ql&&gv(c,'search').indexOf(ql)<0)ok=false;
+        c.__show=ok; if(ok)shown++;
+      });
+      var vis=cards.filter(function(c){return c.__show}); vis.sort(cmp);
+      var olds=grid.getElementsByClassName('ghead'); while(olds.length)olds[0].remove();
+      var frag=document.createDocumentFragment(), last=null;
+      vis.forEach(function(c){
+        if(st.group!=='none'){var g=grpKey(c)||'Other'; if(g!==last){frag.appendChild(headEl(g)); last=g;}}
+        c.style.display=''; frag.appendChild(c);
+      });
+      cards.forEach(function(c){ if(!c.__show){c.style.display='none'; frag.appendChild(c);} });
+      var empty=document.getElementById('mEmpty'); if(empty){empty.style.display=shown?'none':''; frag.appendChild(empty);}
+      grid.appendChild(frag);
+      syncBulk();
+    }catch(e){}
+  }
+  var mq=document.getElementById('mq'); if(mq)mq.addEventListener('input',function(e){st.q=e.target.value;apply();});
+  var ms=document.getElementById('msort'); if(ms)ms.addEventListener('change',function(e){st.sort=e.target.value;apply();});
+  var mg=document.getElementById('mgroup'); if(mg)mg.addEventListener('change',function(e){st.group=e.target.value;apply();});
+  [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
+  var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
+  grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
+  var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
+  var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
+  var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
+  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
+  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
+  apply();
+})();<\/script>`;
 }
 
 // ---------------------------------------------------------------------------
