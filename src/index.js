@@ -446,7 +446,7 @@ async function sendSampleEmails(env, to) {
   const client = { name: "Jaz Curtis", email: to, state: "WA" };
   const req = { name: "Marcus T", email: "marcus@example.com", whatsapp: "+61 400 000 000", state: "VIC", marka_name: "NISSAN", model_name: "SKYLINE GT-R", year_min: 1999, year_max: 2002, price_max: 9000000, kuzov: "BNR34" };
   const out = [];
-  const send = async (label, opts) => { try { await sendEmail(env, opts); out.push(label + ": sent"); } catch (e) { out.push(label + ": FAILED " + e.message); } };
+  const send = async (label, opts) => { try { await sendEmail(env, opts); out.push(label + ": sent"); } catch (e) { out.push(label + ": FAILED " + e.message); } await new Promise((r) => setTimeout(r, 700)); };
   await send("1 staff digest", { to, from: env.MAIL_FROM_INTERNAL, subject: "[Sample] Staff digest · new auction matches", html: digestHtml([{ wishlist, queued: [{ lot, token: "sample1" }] }], env.PUBLIC_URL) });
   await send("2 client match", { to, from: env.MAIL_FROM_CLIENT, subject: "[Sample] A match for your search", html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, lot._landed) });
   await send("3 request alert", { to, from: env.MAIL_FROM_INTERNAL, subject: "[Sample] New vehicle request", html: requestAlertHtml(req, env.PUBLIC_URL) });
