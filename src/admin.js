@@ -75,6 +75,7 @@ const CSS = `
   .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--ink);display:inline-block}
   .main{flex:1;background:var(--bg);display:flex;flex-direction:column}
   .topbar{position:sticky;top:0;z-index:5;background:#fff;padding:30px 40px 26px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--hair)}
+  .topbar.unstick{position:static}
   .kicker{display:flex;align-items:center;gap:10px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase}
   .kicker:before{content:"";width:24px;height:1px;background:var(--gold);display:inline-block}
   h1{font-size:33px;font-weight:600;letter-spacing:-0.015em;margin:12px 0 6px;line-height:1.05}
@@ -374,7 +375,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   else if (view === "settings") body = settingsView(settings);
 
   const main = `
-    <div class="topbar">
+    <div class="topbar${view === "matches" ? " unstick" : ""}">
       <div>
         <div class="kicker">${esc(h.kicker)}</div>
         <h1>${esc(h.title)}</h1>
