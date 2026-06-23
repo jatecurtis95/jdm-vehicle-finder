@@ -724,10 +724,10 @@ function matchesView(pending, opts = {}) {
         <option value="new">Sort: Newest</option>
       </select>
       <select id="mgroup" class="mctl" aria-label="Group matches">
+        <option value="none">Group: None</option>
         <option value="client">Group: Client</option>
         <option value="make">Group: Make</option>
         <option value="auction">Group: Auction</option>
-        <option value="none">Group: None</option>
       </select>
     </div>
     <div class="fchips">
@@ -762,7 +762,7 @@ function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;
   var cards=[].slice.call(grid.getElementsByClassName('mcard'));
-  var st={q:'',str:'all',soon:false,sort:'priority',group:'client'};
+  var st={q:'',str:'all',soon:false,sort:'priority',group:'none'};
   function gv(c,k){return c.getAttribute('data-'+k)||''}
   function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
   function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
