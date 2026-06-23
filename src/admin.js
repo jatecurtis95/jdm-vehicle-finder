@@ -83,6 +83,7 @@ const CSS = `
   .btn-dark{background:var(--ink);color:#fff;font-weight:600;padding:12px 20px;border-radius:6px;font-size:14px;white-space:nowrap}
   .btn-dark:hover{background:#333436}
   .content{padding:32px 40px 60px;max-width:1180px}
+  .content.wide,.topbar.wide{max-width:1640px;margin-left:auto;margin-right:auto}
   .card{background:#fff;border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
   .card>h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card>h2 .num{color:var(--gold);font-weight:700}
@@ -375,7 +376,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   else if (view === "settings") body = settingsView(settings);
 
   const main = `
-    <div class="topbar${view === "matches" ? " unstick" : ""}">
+    <div class="topbar${view === "matches" ? " unstick wide" : ""}">
       <div>
         <div class="kicker">${esc(h.kicker)}</div>
         <h1>${esc(h.title)}</h1>
@@ -383,7 +384,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
       </div>
       ${primary}
     </div>
-    <div class="content">${body}</div>`;
+    <div class="content${view === "matches" ? " wide" : ""}">${body}</div>`;
 
   return shell(sidebar(view, counts, session), main, esc(h.title) + " — JDM Connect");
 }
