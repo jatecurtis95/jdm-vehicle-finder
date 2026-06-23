@@ -58,7 +58,7 @@ const CSS = `
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--card);font-variant-numeric:tabular-nums}
   a{color:inherit;text-decoration:none}
   .wrap{display:flex;min-height:100vh}
-  .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:#fff}
+  .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:#fff;position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
   .side .brand{padding:4px 6px 20px;margin-bottom:18px;border-bottom:1px solid var(--hair)}
   .nav{margin-top:0;display:flex;flex-direction:column;gap:2px}
   .nav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:6px;font-size:15px;color:var(--t2)}
@@ -167,7 +167,7 @@ const CSS = `
   .login-card label{margin-bottom:8px}
   .login-card .btn-gold{width:100%;margin-top:18px;padding:13px;font-size:15px;display:block}
   .login-err{background:rgba(177,18,38,0.06);border:1px solid rgba(177,18,38,0.25);color:#B11226;font-size:13px;padding:10px 12px;border-radius:6px;margin-bottom:16px;text-align:center}
-  @media(max-width:920px){.wrap{flex-direction:column}.side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px}.nav{flex-direction:row;margin-top:0;flex-wrap:wrap}.side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}}
+  @media(max-width:920px){.wrap{flex-direction:column}.side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;position:static;height:auto;overflow:visible}.nav{flex-direction:row;margin-top:0;flex-wrap:wrap}.side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}}
   @media(max-width:640px){.grid{grid-template-columns:1fr}.topbar,.content{padding-left:20px;padding-right:20px}}
   /* Matches review (v2) */
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:6px;border-bottom:1px solid var(--hair)}
