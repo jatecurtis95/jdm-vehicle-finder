@@ -83,7 +83,7 @@ const CSS = `
   .btn-dark{background:var(--ink);color:#fff;font-weight:600;padding:12px 20px;border-radius:6px;font-size:14px;white-space:nowrap}
   .btn-dark:hover{background:#333436}
   .content{padding:32px 40px 60px;max-width:1180px}
-  .content.wide,.topbar.wide{max-width:1640px;margin-left:auto;margin-right:auto}
+  .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
   .card{background:#fff;border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
   .card>h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card>h2 .num{color:var(--gold);font-weight:700}
