@@ -38,8 +38,10 @@ API_BASE = "https://jdmconnect.com.au/jdm-relay.php"
 # Email address that receives the internal approval digest (you).
 DIGEST_EMAIL = "support@jdmconnect.com.au"
 # Verified sender addresses (jdmconnect.com.au verified in Resend).
-# Internal review digest goes out as matches@, client emails as hello@.
-MAIL_FROM_INTERNAL = "matches@jdmconnect.com.au"
+# Internal notifications send AS noreply@ (not matches@). The digest is delivered
+# TO the matches@ shared mailbox, so sending it FROM matches@ made From == To, which
+# Microsoft 365 drops as a self-spoof/mail loop. noreply@ keeps From != To. Client emails as hello@.
+MAIL_FROM_INTERNAL = "noreply@jdmconnect.com.au"
 MAIL_FROM_CLIENT = "hello@jdmconnect.com.au"
 # Public URL of this Worker once deployed (used to build approve/reject links).
 # e.g. https://jdm-vehicle-finder.<your-subdomain>.workers.dev
