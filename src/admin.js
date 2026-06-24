@@ -439,7 +439,7 @@ function settingsView(settings) {
           <div class="toggles">
             ${toggleRow("request_alerts", "Email me new vehicle requests", "When someone submits the public request form, email me their details.", settingOn(s, "request_alerts"))}
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
-            ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Notify client”, actually send them the car by email.", settingOn(s, "send_to_client"))}
+            ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Approve & send” on a match, actually email that car to the client. Off = approving just files the match without emailing anyone.", settingOn(s, "send_to_client"))}
             ${toggleRow("client_landed", "Show landed cost in client emails", "Include the indicative AUD landed figure in the client email.", settingOn(s, "client_landed"))}
           </div>
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
@@ -457,8 +457,9 @@ export function loginPage(opts = {}) {
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>EMAIL <span class="opt">(agents only — JDM Connect admin: leave blank)</span></label>
-      <input type="email" name="email" autocomplete="username" placeholder="agent@email.com">
+      <label>EMAIL <span class="opt">(agents only)</span></label>
+      <input type="email" name="email" autocomplete="username" placeholder="you@youragency.com">
+      <div style="font-size:12px;color:#9A9DA1;line-height:1.5;margin-top:7px;text-align:left;">Agents: sign in with your email and password. JDM Connect admin: leave the email blank and just enter the admin password.</div>
       <label style="margin-top:14px">PASSWORD</label>
       <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
@@ -578,7 +579,7 @@ function clientsView(clients, wishlists, opts = {}) {
         ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
   const bulkBar = (isAdmin && agents.length)
     ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
@@ -609,7 +610,7 @@ function wishlistsView(wishlists) {
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`
-  ).join("") || `<tr><td colspan="9" class="empty">No wishlists yet</td></tr>`;
+  ).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
@@ -1035,7 +1036,7 @@ export async function requestPage(env, opts = {}) {
     </div>
     <div class="content">
       ${ok ? `<div class="card"><h2><span class="num">✓</span> Request received</h2>
-        <p class="help">Thanks. We'll start scanning the auctions and be in touch when matching vehicles come up.</p></div>` : ""}
+        <p class="help">Thanks, your request is in. We'll search upcoming Japanese auctions for you and email you the moment a matching car comes up. That can take days or weeks depending on what's listed, so no news for a little while is completely normal.</p></div>` : ""}
       <div class="card">
         <h2><span class="num">01</span> Your details</h2>
         <form method="POST" action="/request">
@@ -1048,18 +1049,18 @@ export async function requestPage(env, opts = {}) {
           </div>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           <div class="grid">
-            <div><label>MAKER</label>${makerField(makers, "rq-maker")}</div>
+            <div><label>MAKE</label>${makerField(makers, "rq-maker")}</div>
             <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
-            <div><label>LABEL <span class="opt">(optional)</span></label><input name="label" placeholder="e.g. weekend project"></div>
-            <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
-            <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
-            <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="3,000,000"></div>
-            <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="100,000"></div>
-            <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-            <div><label>CHASSIS CODE <span class="opt">(contains)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+            <div><label>NICKNAME <span class="opt">(optional, for your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
+            <div><label>YEAR FROM</label><input name="year_min" type="number" placeholder="1990"></div>
+            <div><label>YEAR TO</label><input name="year_max" type="number" placeholder="2002"></div>
+            <div><label>MAX BUDGET <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" placeholder="3,000,000"></div>
+            <div><label>MAX MILEAGE <span class="opt">(km)</span></label><input name="mileage_max" type="number" placeholder="100,000"></div>
+            <div><label>MIN AUCTION GRADE <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+            <div><label>CHASSIS CODE <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
           </div>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
-            <span class="help">Leave fields blank to match anything. We review every match before sending.</span></div>
+            <span class="help">Only your name is required. Leave any car detail blank to match more cars. We review every match before sending you anything.</span></div>
           <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
         </form>
       </div>

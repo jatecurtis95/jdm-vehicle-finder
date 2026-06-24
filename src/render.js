@@ -296,6 +296,9 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
     : aud(lot.avg_price || lot.start);
   const first = String(client?.name || "there").trim().split(/\s+/)[0];
   const want = [wishlist?.marka_name, wishlist?.model_name].filter(Boolean).join(" ") || "your search";
+  const carRef = [lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ").trim() + (lot.lot ? ` (Lot ${lot.lot})` : "");
+  const interestedHref = `mailto:hello@jdmconnect.com.au?subject=${encodeURIComponent("I'm interested in this " + carRef)}`;
+  const questionHref = `mailto:hello@jdmconnect.com.au?subject=${encodeURIComponent("Question about " + carRef)}`;
 
   const chips = [];
   if (wishlist?.rate_min) chips.push(`Matches your grade ${wishlist.rate_min}+ requirement`);
@@ -347,8 +350,8 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
 
   <tr><td style="padding:22px 36px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td style="padding-right:10px;">${btn("https://jdmconnect.com.au", "I'm interested", { bg: GOLD, color: INK, w: 180 })}</td>
-      <td>${btn("https://jdmconnect.com.au", "View auction sheet", { bg: "#FFFFFF", color: GOLDTXT, border: GOLD_BORDER, w: 178 })}</td>
+      <td style="padding-right:10px;">${btn(interestedHref, "I'm interested", { bg: GOLD, color: INK, w: 180 })}</td>
+      <td>${btn(questionHref, "Ask a question", { bg: "#FFFFFF", color: GOLDTXT, border: GOLD_BORDER, w: 178 })}</td>
     </tr></table>
   </td></tr>
 
