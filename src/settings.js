@@ -7,6 +7,9 @@ const DEFAULTS = {
   send_to_client: "1",   // email the client when a match is approved
   client_landed: "1",    // include the landed-cost figure in client emails
   request_alerts: "1",   // email admin when a customer submits the public request form
+  stripe_enabled: "0",   // show the "Pay deposit" button in the buyer portal
+  stripe_deposit_aud: "", // deposit amount in AUD dollars (e.g. "500"); blank = off
+  stripe_currency: "aud", // Checkout currency
 };
 
 export async function getSettings(env) {
@@ -37,6 +40,9 @@ export async function saveSettings(env, form) {
     send_to_client: form.get("send_to_client") ? "1" : "0",
     client_landed: form.get("client_landed") ? "1" : "0",
     request_alerts: form.get("request_alerts") ? "1" : "0",
+    stripe_enabled: form.get("stripe_enabled") ? "1" : "0",
+    stripe_deposit_aud: String(form.get("stripe_deposit_aud") || "").trim(),
+    stripe_currency: (String(form.get("stripe_currency") || "aud").trim().toLowerCase()) || "aud",
   };
   const stmts = Object.entries(next).map(([k, v]) =>
     env.DB.prepare(

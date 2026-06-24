@@ -1,7 +1,7 @@
 // JDM Connect — Vehicle Finder staff app (hi-fi redesign) + public request page.
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
-import { esc, yen, km } from "./render.js";
+import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
@@ -50,7 +50,7 @@ function presetSelect() {
     <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${WL_PRESETS.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</select></div>`;
 }
 function presetScript() {
-  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);sel.selectedIndex=0;}</script>`;
+  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);}</script>`;
 }
 
 // <option> list of Australian states for the client forms.
@@ -78,7 +78,7 @@ const FONT = `"Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetic
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
   :root{--gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#896B2D;--gold-tint:rgba(202,163,76,0.12);--avatar:#F0E9D7;
-    --ink:#1A1A1A;--t2:#4C5055;--t3:#6F7378;--faint:#B6B9BC;--bg:#E9EAEB;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.08);}
+    --ink:#1A1A1A;--t2:#4C5055;--t3:#6F7378;--faint:#6B7178;--bg:#E9EAEB;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.08);}
   *{box-sizing:border-box}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--card);font-variant-numeric:tabular-nums}
   a{color:inherit;text-decoration:none}
@@ -116,7 +116,7 @@ const CSS = `
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:11px 13px;border:1px solid rgba(0,0,0,0.14);border-radius:5px;font-size:14px;background:#FBFBFC;color:var(--ink);font-family:${FONT}}
-  input::placeholder{color:#B6B9BC}
+  input::placeholder{color:#9AA0A6}
   input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,0.16);background:#fff}
   .actions{display:flex;align-items:center;gap:14px;margin-top:22px}
   .btn-gold{background:var(--gold);color:var(--ink);font-weight:600;border:0;padding:11px 22px;border-radius:6px;font-size:14px;cursor:pointer;font-family:${FONT}}
@@ -192,8 +192,34 @@ const CSS = `
   .login-card label{margin-bottom:8px}
   .login-card .btn-gold{width:100%;margin-top:18px;padding:13px;font-size:15px;display:block}
   .login-err{background:rgba(177,18,38,0.06);border:1px solid rgba(177,18,38,0.25);color:#B11226;font-size:13px;padding:10px 12px;border-radius:6px;margin-bottom:16px;text-align:center}
+  /* Public request: bold success receipt + inline error (Fix 1 / Fix 7) */
+  .reqok{border:1px solid var(--gold);border-left:4px solid var(--gold);background:linear-gradient(180deg,#FBF7EC,#fff)}
+  .reqok .reqok-badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-txt)}
+  .reqok .reqok-badge .tick{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--gold);color:var(--ink);font-size:13px}
+  .reqok .reqok-ref{margin-top:12px;font-size:15px;color:var(--ink)}
+  .reqok .reqok-ref strong{font-weight:700;letter-spacing:.02em}
+  .reqok p{margin:12px 0 0;color:var(--t2);font-size:14px;line-height:1.55}
+  .reqerr{margin-bottom:18px;padding:13px 16px;background:rgba(177,18,38,.06);border:1px solid rgba(177,18,38,.3);border-left:4px solid #B11226;border-radius:6px;color:#9F1020;font-size:14px;line-height:1.45}
+  .field-err{display:none;color:#B11226;font-size:13px;line-height:1.45;margin-top:9px;font-weight:500}
+  /* Client portal */
+  .reqbadge{display:inline-flex;align-items:center;gap:6px;background:rgba(70,177,122,.12);border:1px solid rgba(70,177,122,.4);color:#1F7A4D;font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:9999px}
+  .paybadge{display:inline-flex;align-items:center;gap:6px;background:var(--gold-tint);border:1px solid rgba(202,163,76,.4);color:var(--gold-txt);font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:9999px;margin-left:8px}
+  .portal-acct{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .portal-acct .pa-k{font-size:12px;color:var(--t3)}
+  .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
   @media(max-width:920px){.wrap{flex-direction:column}.side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;position:static;height:auto;overflow:visible}.nav{flex-direction:row;margin-top:0;flex-wrap:wrap}.side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}}
-  @media(max-width:640px){.grid{grid-template-columns:1fr}.topbar,.content{padding-left:20px;padding-right:20px}}
+  @media(max-width:640px){
+    .grid{grid-template-columns:1fr}
+    .topbar,.content{padding-left:20px;padding-right:20px}
+    /* M3: tighten the stacked header so the form starts higher */
+    .side{padding:12px 20px}.topbar{padding-top:22px;padding-bottom:20px}
+    /* M1: >=16px controls stop iOS Safari auto-zooming on focus */
+    input,select,textarea{font-size:16px}
+    /* M2: comfortable 48px tap targets, full-width primary CTA */
+    input,select,textarea{min-height:48px}
+    .actions{flex-wrap:wrap}
+    .actions .btn-gold{width:100%;min-height:48px;padding:14px 22px}
+  }
   /* Matches review (v2) */
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:6px;border-bottom:1px solid var(--hair)}
   .triage{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
@@ -287,6 +313,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
+      ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
       ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
@@ -303,13 +330,14 @@ const HEADERS = {
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
-  settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email and notification toggles.", btn: "" },
+  payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
+  settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email, notifications and payments.", btn: "" },
 };
 
 export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }) {
   const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "intake";
-  if ((view === "agents" || view === "settings") && isAgent) view = "intake"; // admin-only areas
+  if (["agents", "settings", "payments"].includes(view) && isAgent) view = "intake"; // admin-only areas
 
   // Rows this session may see: all for admin, owned-or-shared for an agent.
   const acc = accessScope(session);
@@ -377,6 +405,11 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
       ).all()).results || []
     : [];
   const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
+  const payments = (!isAgent && view === "payments")
+    ? (await env.DB.prepare(
+        "SELECT p.*, c.name AS client_name FROM payments p LEFT JOIN clients c ON c.id = p.client_id ORDER BY p.created_at DESC LIMIT 200"
+      ).all()).results || []
+    : [];
   const matchSettings = view === "matches" ? await getSettings(env) : null;
   if (isAgent) {
     const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
@@ -387,7 +420,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
-    : view === "agents" || view === "settings"
+    : ["agents", "settings", "payments"].includes(view)
     ? ""
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
@@ -398,7 +431,8 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
   else if (view === "agents") body = agentsView(agents);
-  else if (view === "settings") body = settingsView(settings);
+  else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
+  else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL });
 
   const main = `
     <div class="topbar${view === "matches" ? " unstick wide" : ""}">
@@ -452,11 +486,13 @@ function agentsView(agents) {
 function toggleRow(name, title, desc, on) {
   return `<label class="toggle"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span class="tg-txt"><span class="tg-title">${esc(title)}</span><span class="tg-desc">${esc(desc)}</span></span></label>`;
 }
-function settingsView(settings) {
+function settingsView(settings, opts = {}) {
   const s = settings || {};
+  const stripeSecret = !!opts.stripeSecret;
+  const webhookUrl = (opts.publicUrl || "") + "/webhooks/stripe";
   return `
     <div class="card">
-      <h2><span class="num">✱</span> Notifications</h2>
+      <h2><span class="num">✱</span> Notifications &amp; payments</h2>
       <form method="POST" action="/settings">
         <div style="max-width:560px">
           <label>ALERT EMAIL <span class="opt">(where new-match alerts are sent)</span></label>
@@ -467,9 +503,54 @@ function settingsView(settings) {
             ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Approve & send” on a match, actually email that car to the client. Off = approving just files the match without emailing anyone.", settingOn(s, "send_to_client"))}
             ${toggleRow("client_landed", "Show landed cost in client emails", "Include the indicative AUD landed figure in the client email.", settingOn(s, "client_landed"))}
           </div>
+
+          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
+            <div style="font-size:15px;font-weight:600;margin-bottom:4px">Payments (Stripe)</div>
+            <p class="help" style="margin:0 0 16px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> — deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
+            <div class="toggles" style="margin-top:0">
+              ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client has asked us to chase.", settingOn(s, "stripe_enabled"))}
+            </div>
+            <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-top:16px">
+              <div><label>DEPOSIT AMOUNT <span class="opt">(AUD)</span></label><input name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
+              <div><label>CURRENCY</label><input name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
+            </div>
+            <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> — add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
+          </div>
+
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
         </div>
       </form>
+    </div>`;
+}
+
+// Admin-only: list of Stripe deposits taken through the buyer portal.
+function paymentsView(payments, opts = {}) {
+  const money = (cents, cur) => {
+    const v = Number(cents) / 100;
+    return (cur || "aud").toLowerCase() === "aud"
+      ? "A$" + v.toLocaleString("en-AU")
+      : v.toLocaleString() + " " + String(cur || "").toUpperCase();
+  };
+  const badge = (st) => {
+    const m = { paid: ["#1F7A4D", "rgba(70,177,122,.14)"], created: ["#896B2D", "rgba(202,163,76,.14)"], expired: ["#6F7378", "#f3f4f6"], failed: ["#B11226", "rgba(177,18,38,.08)"] };
+    const [c, bg] = m[st] || m.created;
+    return `<span style="display:inline-block;padding:4px 10px;border-radius:9999px;font-size:11px;font-weight:600;color:${c};background:${bg}">${esc(st || "—")}</span>`;
+  };
+  const rows = payments.map((p) => `<tr>
+    <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
+    <td>${esc(p.client_name || ("#" + p.client_id))}</td>
+    <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
+    <td>${esc(p.description || "—")}</td>
+    <td>${badge(p.status)}</td>
+    <td style="font-size:11px;color:var(--t3)">${esc(p.stripe_session || "—")}</td>
+  </tr>`).join("") || `<tr><td colspan="6" class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</td></tr>`;
+  const totalPaid = payments.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_cents || 0), 0);
+  return `<div class="triage">
+      <div class="tstat"><div class="k">Collected</div><div class="v">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
+      <div class="tstat"><div class="k">Payments</div><div class="v">${payments.length}</div></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
 
@@ -482,9 +563,9 @@ export function loginPage(opts = {}) {
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>EMAIL <span class="opt">(agents only)</span></label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@youragency.com">
-      <div style="font-size:12px;color:#9A9DA1;line-height:1.5;margin-top:7px;text-align:left;">Agents: sign in with your email and password. JDM Connect admin: leave the email blank and just enter the admin password.</div>
+      <label>EMAIL <span class="opt">(agents &amp; clients)</span></label>
+      <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
+      <div style="font-size:12px;color:#6B7178;line-height:1.5;margin-top:7px;text-align:left;">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
       <label style="margin-top:14px">PASSWORD</label>
       <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
@@ -624,20 +705,40 @@ function clientsView(clients, wishlists, opts = {}) {
     <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
+// Fix 10: bounded/half-open year ranges instead of a bare leading-dash "–2009".
+function yearRange(min, max) {
+  const a = Number(min) || null, b = Number(max) || null;
+  if (a && b) return `${a} to ${b}`;
+  if (b) return `up to ${b}`;
+  if (a) return `from ${a}`;
+  return "any year";
+}
+// Fix 10: tidy ALL-CAPS feed names for display without mangling acronyms or
+// chassis codes. Title-cases clearly-a-word caps tokens (TOYOTA→Toyota,
+// SKYLINE→Skyline) but leaves short acronyms (NSX, BMW, GT-R) and codes (JZA80)
+// untouched. Display only — matching still uses the raw stored values.
+function tcWord(w) {
+  return /^[A-Z]{4,}$/.test(w) ? w[0] + w.slice(1).toLowerCase() : w;
+}
+function displayName(s) {
+  return String(s || "").split(/\s+/).map(tcWord).join(" ").trim();
+}
+
 function wishlistsView(wishlists) {
-  const rows = wishlists.map((w) =>
-    `<tr>
-      <td><span class="avatar">${esc(initials(w.client_name))}</span>${esc(w.client_name)}</td>
+  const rows = wishlists.map((w) => {
+    const vehicle = `${displayName(w.marka_name) || "Any maker"} ${displayName(w.model_name)}`.trim();
+    return `<tr>
+      <td><span class="avatar">${esc(initials(w.client_name))}</span>${esc(w.client_name)}${w.needs_detail ? ` <span class="chip muted">needs detail</span>` : ""}</td>
       <td>${esc(w.label || "—")}</td>
-      <td>${esc(w.marka_name || "any")} ${esc(w.model_name || "")}</td>
-      <td>${esc(w.year_min || "")}–${esc(w.year_max || "")}</td>
+      <td>${esc(vehicle)}</td>
+      <td>${esc(yearRange(w.year_min, w.year_max))}</td>
       <td>${w.price_max ? "¥" + Number(w.price_max).toLocaleString() : "—"}</td>
       <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "—"}</td>
       <td>${esc(w.rate_min || "—")}</td>
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
-    </tr>`
-  ).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
+    </tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow:hidden">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
@@ -703,7 +804,7 @@ function matchCard(q) {
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "—")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(lot.rate || "—")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
       <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
       <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
     </div>
@@ -933,11 +1034,14 @@ export async function editWishlist(env, form, session) {
 }
 
 // Inline editor for one wishlist (native <details>, no JS), plus toggle/delete.
-function wishlistEditor(w) {
+// opts.base prefixes the form actions ("" = staff routes, "/portal" = buyer).
+// opts.portal hides the staff-only "watch only" lead control.
+function wishlistEditor(w, opts = {}) {
+  const base = opts.base || "";
   const field = (label, name, type, opt) =>
     `<div><label>${label}${opt ? ` <span class="opt">${opt}</span>` : ""}</label><input name="${name}"${type ? ` type="${type}"` : ""} value="${esc(w[name] ?? "")}"></div>`;
-  const summary = `${esc(w.marka_name || "Any maker")} ${esc(w.model_name || "")}`.trim()
-    + (w.year_min || w.year_max ? ` · ${esc(w.year_min || "")}-${esc(w.year_max || "")}` : "")
+  const summary = `${esc(displayName(w.marka_name)) || "Any maker"} ${esc(displayName(w.model_name))}`.trim()
+    + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
     + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
   return `<div class="wlrow">
@@ -947,13 +1051,13 @@ function wishlistEditor(w) {
         <div class="wlc">${summary || "Matches anything"}</div>
       </div>
       <div class="wlacts">
-        <form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
-        <form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
+        <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
+        <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
       </div>
     </div>
     <details class="wledit">
-      <summary>Edit what they're chasing</summary>
-      <form method="POST" action="/wishlist/edit">
+      <summary>${opts.portal ? "Edit this search" : "Edit what they're chasing"}</summary>
+      <form method="POST" action="${base}/wishlist/edit">
         <input type="hidden" name="id" value="${w.id}">
         <div class="grid">
           ${field("LABEL", "label")}
@@ -967,7 +1071,7 @@ function wishlistEditor(w) {
           ${field("CHASSIS / MODEL CODE", "kuzov", null, "(contains, best match)")}
           ${field("GRADE KEYWORD", "grade_kw", null, "(contains)")}
         </div>
-        <label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>
+        ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
           <span class="help">Blank fields match anything.</span></div>
       </form>
@@ -1011,9 +1115,16 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
 
+  // Cars this client has asked us to action/translate from their portal.
+  const requested = (await env.DB.prepare(
+    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
+  ).bind(cid).all()).results || [];
+
   const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
   const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
+  const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
 
   const head = `<div class="card">
     <div class="cd-head">
@@ -1025,6 +1136,29 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
   </div>`;
+
+  // Buyer-portal access control (owner/admin only).
+  const portalState = c.portal_enabled ? (c.pass_hash ? "Active — client can sign in" : "Invited — awaiting password") : "Not enabled";
+  const portalCard = canManage ? `<div class="card">
+    <div class="portal-acct">
+      <div style="flex:1">
+        <div class="pa-k">BUYER PORTAL</div>
+        <div style="font-weight:600;margin-top:3px">${portalState}</div>
+      </div>
+      <div class="pwrap">
+        ${c.email
+          ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
+          : `<span class="help">Add an email to enable portal access.</span>`}
+        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" onsubmit="return confirm('Revoke this client&#39;s portal access and clear their password?')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
+      </div>
+    </div>
+  </div>` : "";
+
+  const reqSection = requested.length ? `<div class="card">
+    <h2><span class="num">${requested.length}</span> Cars ${esc(c.name)} asked us to action</h2>
+    <p class="help" style="margin:-8px 0 16px">Requested from their portal — pull the auction sheet, translate, and follow up.</p>
+    <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
+  </div>` : "";
 
   const newWl = `<div class="card">
     <h2><span class="num">+</span> New wishlist for ${esc(c.name)}</h2>
@@ -1050,7 +1184,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const wlSection = `<div class="card">
     <h2><span class="num">${wls.length}</span> Wishlists</h2>
-    ${wls.map(wishlistEditor).join("") || `<div class="empty">No wishlists yet. Add one below.</div>`}
+    ${wls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No wishlists yet. Add one below.</div>`}
   </div>`;
 
   const matchSection = `<div class="card">
@@ -1067,7 +1201,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${head}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
+    <div class="content">${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " — JDM Connect");
 }
 
@@ -1076,7 +1210,26 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 // ---------------------------------------------------------------------------
 export async function requestPage(env, opts = {}) {
   const ok = opts.submitted;
+  const ref = opts.ref;
+  const req = opts.req || {};
+  const firstName = String(req.name || "").trim().split(/\s+/)[0];
+  const vals = opts.vals || {};
+  const v = (k) => esc(vals[k] ?? "");
   const makers = await distinctMakers(env);
+  const yMax = new Date().getFullYear() + 1; // allow next year's models in the feed
+
+  const success = ok ? `<div class="card reqok" id="reqOk">
+        <div class="reqok-badge"><span class="tick">&#10003;</span> Request received</div>
+        ${ref ? `<div class="reqok-ref">Your reference: <strong>${esc(ref)}</strong></div>` : ""}
+        <p>Thanks${firstName ? " " + esc(firstName) : ""} — your request is in and we're now watching the Japanese auctions for it. We'll ${req.email ? "email" : "be in touch"} the moment a matching car comes up. That can take days or weeks depending on what's listed, so quiet for a little while is completely normal.${req.email ? ` A confirmation is on its way to <strong>${esc(req.email)}</strong>.` : ""}</p>
+        ${req.portal ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55"><strong>Your account is ready.</strong> <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> any time with your email and the password you chose to track your search and see the cars we find.</p>` : ""}
+      </div>
+      <script>(function(){try{var el=document.getElementById('reqOk');if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}})();</script>` : "";
+
+  const contactBanner = opts.error === "contact"
+    ? `<div class="reqerr">Please add an email or a WhatsApp number so we can reach you when a match comes up.</div>`
+    : "";
+
   const main = `
     <div class="topbar">
       <div>
@@ -1086,42 +1239,73 @@ export async function requestPage(env, opts = {}) {
       </div>
     </div>
     <div class="content">
-      ${ok ? `<div class="card"><h2><span class="num">✓</span> Request received</h2>
-        <p class="help">Thanks, your request is in. We'll search upcoming Japanese auctions for you and email you the moment a matching car comes up. That can take days or weeks depending on what's listed, so no news for a little while is completely normal.</p></div>` : ""}
+      ${success}
       <div class="card">
+        ${contactBanner}
         <h2><span class="num">01</span> Your details</h2>
-        <form method="POST" action="/request">
+        <form id="requestForm" method="POST" action="/request" novalidate>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
           <div class="grid">
-            <div><label for="rq-name">NAME</label><input id="rq-name" name="name" placeholder="Jane Citizen" required></div>
-            <div><label for="rq-email">EMAIL</label><input id="rq-email" name="email" type="email" placeholder="name@email.com"></div>
-            <div><label for="rq-whatsapp">WHATSAPP <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" placeholder="+61 4XX XXX XXX"></div>
-            <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions("")}</select></div>
+            <div><label for="rq-name">NAME</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" required></div>
+            <div><label for="rq-email">EMAIL</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
+            <div><label for="rq-whatsapp">WHATSAPP <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
+            <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+            <div><label for="rq-pass">CREATE A PASSWORD <span class="opt">(optional — to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
           </div>
+          <p id="rq-contact-error" class="field-err">Please add an email or a WhatsApp number so we can reach you when a match comes up.</p>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           ${presetSelect()}
           <div class="grid">
             <div><label>MAKE</label>${makerField(makers, "rq-maker")}</div>
             <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
-            <div><label>NICKNAME <span class="opt">(optional, for your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
-            <div><label>YEAR FROM</label><input name="year_min" type="number" placeholder="1990"></div>
-            <div><label>YEAR TO</label><input name="year_max" type="number" placeholder="2002"></div>
-            <div><label>MAX BUDGET <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" placeholder="3,000,000"></div>
-            <div><label>MAX MILEAGE <span class="opt">(km)</span></label><input name="mileage_max" type="number" placeholder="100,000"></div>
-            <div><label>MIN AUCTION GRADE <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-            <div><label>CHASSIS CODE <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+            <div><label>NICKNAME <span class="opt">(optional, for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></div>
+            <div><label>YEAR FROM</label><input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></div>
+            <div><label>YEAR TO</label><input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></div>
+            <div><label>MAX BUDGET <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></div>
+            <div><label>MAX MILEAGE <span class="opt">(km)</span></label><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
+            <div><label>MIN AUCTION GRADE <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+            <div><label>CHASSIS CODE <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></div>
           </div>
+          <p id="rq-year-error" class="field-err">“Year from” can't be later than “Year to”. Please check the years.</p>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
-            <span class="help">Only your name is required. Leave any car detail blank to match more cars. We review every match before sending you anything.</span></div>
+            <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can — the more detail, the better the match. We review every match before sending you anything.</span></div>
           <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
         </form>
       </div>
     </div>
-    ${modelScript("rq-maker", "rq-models")}${presetScript()}`;
+    ${modelScript("rq-maker", "rq-models")}${presetScript()}${requestFormScript()}`;
   const sb = `<aside class="side"><div class="brand">${LOGO}</div>
     <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
     </aside>`;
   return shell(sb, main, "Request a vehicle — JDM Connect");
+}
+
+// Client-side guard for the public request form: require a contact method
+// (Fix 1), sanity-check the year range (Fix 4), and disable the button after a
+// valid submit so a fast double-tap can't create two leads (Fix 9). The server
+// re-checks all of this — these are UX only. No ${} interpolation inside.
+function requestFormScript() {
+  return `<script>(function(){
+    var form=document.getElementById('requestForm'); if(!form) return;
+    var cErr=document.getElementById('rq-contact-error');
+    var yErr=document.getElementById('rq-year-error');
+    var btn=form.querySelector('button[type=submit]');
+    function val(n){var el=form.querySelector('[name="'+n+'"]');return el?String(el.value||'').trim():'';}
+    form.addEventListener('submit',function(e){
+      var noContact=!val('email') && !val('whatsapp');
+      if(cErr) cErr.style.display=noContact?'block':'none';
+      var yf=parseInt(val('year_min'),10), yt=parseInt(val('year_max'),10);
+      var badYear=!!(yf && yt && yf>yt);
+      if(yErr) yErr.style.display=badYear?'block':'none';
+      if(noContact||badYear){
+        e.preventDefault();
+        var first=noContact?cErr:yErr;
+        if(first&&first.scrollIntoView)first.scrollIntoView({behavior:'smooth',block:'center'});
+        return;
+      }
+      if(btn){btn.disabled=true;btn.textContent='Sending…';}
+    });
+  })();</script>`;
 }
 
 function shell(side, main, title) {
@@ -1370,10 +1554,14 @@ function clipField(form, key, max) {
   return v;
 }
 
+// Handle a public request submission. Returns a tagged result the route acts on:
+//   { ok:true, req, ref, clientId }        → stored; alert + confirm + receipt
+//   { ok:false, error:"contact", vals }    → no contact method; re-render w/ error
+//   { ok:false, error:"spam" }             → honeypot; pretend success, store nothing
 export async function createRequest(env, form) {
   // Honeypot: a hidden field real visitors never see. Bots fill it — pretend
   // success and store nothing, so they get no signal.
-  if (String(form.get("company_website") ?? "").trim()) return null;
+  if (String(form.get("company_website") ?? "").trim()) return { ok: false, error: "spam" };
 
   // Clip every free-text field so a bot can't store huge payloads.
   clipField(form, "name", REQ_MAX.name);
@@ -1389,15 +1577,390 @@ export async function createRequest(env, form) {
   if (email && !REQ_EMAIL_RE.test(email)) email = "";
   form.set("email", email);
 
-  const clientId = await createClient(env, form);
-  await createWishlist(env, form, clientId);
-
-  // Return the submitted details so the route can email an admin alert.
   const g = (k) => String(form.get(k) || "").trim();
-  return {
-    name: g("name") || "—", email, whatsapp: g("whatsapp"), state: g("state"),
+  const whatsapp = g("whatsapp");
+
+  // Fix 1 (server backstop): block a lead we could never reach. The form guards
+  // this client-side too, but never trust the client. Preserve the input so the
+  // re-rendered form keeps what they typed.
+  if (!email && !whatsapp) {
+    return {
+      ok: false,
+      error: "contact",
+      vals: {
+        name: g("name"), email: g("email"), whatsapp, state: g("state"), label: g("label"),
+        year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
+        mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
+      },
+    };
+  }
+
+  // Fix 6: reuse an existing staff-scoped client with this email rather than
+  // spawning a duplicate on every submission.
+  const clientId = await upsertPublicClient(env, form, email, whatsapp);
+  // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged for staff).
+  await createRequestWishlist(env, clientId, form);
+
+  // Portal self-signup: if the buyer chose a password (and gave an email), turn
+  // on their portal login immediately. Never overwrites an existing account.
+  let portal = false;
+  const selfPw = String(form.get("portal_password") || "");
+  if (selfPw && email) portal = await enablePortalSelfSignup(env, clientId, selfPw);
+
+  // Fix 7: a human-readable reference, stable per client.
+  const ref = `JDM-${new Date().getFullYear()}-${String(clientId).padStart(5, "0")}`;
+
+  const req = {
+    portal,
+    name: g("name") || "—", email, whatsapp, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
+  return { ok: true, req, ref, clientId };
+}
+
+// Upsert a public (staff-scoped) client by email so repeat submissions update
+// one record instead of creating duplicates (Fix 6). Agent-owned and dealer
+// clients are never touched. With no email there's nothing to match on, so a
+// fresh client is inserted.
+async function upsertPublicClient(env, form, email, whatsapp) {
+  const name = String(form.get("name") || "").trim() || "Website enquiry";
+  const state = normalizeState(form.get("state"));
+  if (email) {
+    const existing = await env.DB.prepare(
+      "SELECT id FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND lower(email) = ? LIMIT 1"
+    ).bind(email).first();
+    if (existing) {
+      // Backfill newly-supplied contact details without clobbering existing ones.
+      await env.DB.prepare(
+        `UPDATE clients SET name = ?,
+            whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
+            state = COALESCE(NULLIF(?, ''), state)
+          WHERE id = ?`
+      ).bind(name, whatsapp || "", state || "", existing.id).run();
+      return existing.id;
+    }
+  }
+  const r = await env.DB.prepare(
+    "INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)"
+  ).bind(name, email || null, whatsapp || null, state).run();
+  return r.meta?.last_row_id;
+}
+
+// Always-create wishlist for the public request path (Fix 2). A request with no
+// make/model/chassis/keyword is still saved, flagged needs_detail so staff can
+// follow up; the matcher skips it until a narrowing term is added. Fix 6: skip
+// an obvious duplicate (same maker + model) for the same client.
+async function createRequestWishlist(env, clientId, form) {
+  if (!clientId) return;
+  const marka = str(form, "marka_name");
+  const model = str(form, "model_name");
+  const kuzov = str(form, "kuzov");
+  const gradeKw = str(form, "grade_kw");
+  const needsDetail = !(marka || model || kuzov || gradeKw) ? 1 : 0;
+
+  const dupe = await env.DB.prepare(
+    `SELECT id FROM wishlists
+       WHERE client_id = ?
+         AND lower(COALESCE(marka_name,'')) = lower(?)
+         AND lower(COALESCE(model_name,'')) = lower(?)
+         AND COALESCE(needs_detail,0) = ?
+       LIMIT 1`
+  ).bind(clientId, marka || "", model || "", needsDetail).first();
+  if (dupe) return;
+
+  // Fix 4 (server side): clamp the numbers the client checks are advisory only.
+  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
+  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  const priceMax = clampMin(num(form, "price_max"), 0);
+  const mileageMax = clampMin(num(form, "mileage_max"), 0);
+  const rateMin = clampRange(num(form, "rate_min"), 1, 6);
+
+  await env.DB.prepare(
+    `INSERT INTO wishlists
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+  ).bind(
+    clientId, str(form, "label"), marka, model,
+    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail
+  ).run();
+}
+
+const clampMin = (v, min) => (v === null ? null : Math.max(min, v));
+const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo, v)));
+
+// Self-signup: turn on a client's portal login from the public request form.
+// Never overwrites an existing password (prevents account takeover by re-using
+// someone else's email). Returns true only if a fresh login was created.
+async function enablePortalSelfSignup(env, clientId, password) {
+  if (!clientId || typeof password !== "string" || password.length < 6) return false;
+  const c = await env.DB.prepare("SELECT pass_hash FROM clients WHERE id = ?").bind(clientId).first();
+  if (!c || c.pass_hash) return false; // missing, or already has a password
+  const { salt, hash } = await hashPassword(password);
+  await env.DB.prepare(
+    "UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+  ).bind(salt, hash, clientId).run();
+  return true;
+}
+
+// ===========================================================================
+// CLIENT PORTAL (buyer self-service: see their cars, edit their searches, ask
+// us to action a car). All data is strictly scoped to session.id (the client).
+// ===========================================================================
+const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function portalSidebar(c) {
+  return `<aside class="side">
+    <div class="brand">${LOGO}</div>
+    <nav class="nav"><a class="active" href="/portal"><span class="bar"></span><span class="lbl">Your garage</span></a></nav>
+    <div class="side-foot">
+      <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">Client</span></div>
+      <a class="signout" href="/logout">Sign out</a>
+    </div>
+  </aside>`;
+}
+
+// One car the buyer sees in their portal. opts.stripe shows a "Pay deposit"
+// button; opts.depositLabel is the formatted amount.
+function clientCarCard(q, opts = {}) {
+  let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
+  const requested = !!q.client_request;
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
+  const chips = whyChips(q);
+  const landed = q._landed ? `A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  const payBtn = (opts.stripe && requested)
+    ? `<form method="POST" action="/portal/pay" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-dark" type="submit">Pay ${esc(opts.depositLabel)} deposit</button></form>`
+    : "";
+  const action = requested
+    ? `<span class="reqbadge">&#10003; Requested — we're on it</span>`
+    : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-notify" type="submit">Ask us to get this</button></form>`;
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "—")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    ${chips.length ? `<div class="why">${chips.map((cc) => `<span class="wc">${cc}</span>`).join("")}</div>` : ""}
+    ${landed ? `<div class="mland"><span class="ml-k">Indicative landed · ${esc(q._landed.state)}</span><span class="ml-v">${landed}</span></div>` : ""}
+    <div class="mfoot">
+      <div class="who" style="flex:1"><div class="w">${esc(q.wlabel || "Your search")}</div></div>
+      ${payBtn}${action}
+    </div>
+  </div>`;
+}
+
+// Compact card for the admin client page: a car the buyer requested (read-only).
+function requestedCard(q) {
+  let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
+  const when = q.client_request_at ? esc(String(q.client_request_at).slice(0, 10)) : "—";
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Auction est.</div><div class="v">${Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price)}</div></div>
+      <div class="s"><div class="k">Chassis</div><div class="v">${esc(lot.kuzov || "—")}</div></div>
+      <div class="s"><div class="k">Requested</div><div class="v">${when}</div></div>
+    </div>
+    <div class="mfoot"><span class="reqbadge">&#10003; Client wants this</span></div>
+  </div>`;
+}
+
+// The buyer portal dashboard. opts.flash shows a one-line confirmation banner.
+export async function portalPage(env, session, opts = {}) {
+  const cid = Number(session.id);
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  if (!c) {
+    return shell(portalSidebar(null),
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
+      "Portal — JDM Connect");
+  }
+  await expirePast(env);
+
+  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  const cars = (await env.DB.prepare(
+    `SELECT q.*, w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.client_id = ? AND q.status = 'sent' AND COALESCE(w.watch_only, 0) = 0
+      ORDER BY q.client_request DESC, q.decided_at DESC LIMIT 60`
+  ).bind(cid).all()).results || [];
+  for (const q of cars) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
+
+  const settings = await getSettings(env);
+  const depositAud = Number(settings.stripe_deposit_aud || 0);
+  const stripeOn = settingOn(settings, "stripe_enabled") && !!env.STRIPE_SECRET_KEY && depositAud > 0;
+  const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}` };
+  const makers = await distinctMakers(env);
+  const yMax = new Date().getFullYear() + 1;
+
+  const carsBody = cars.length
+    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>`
+    : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
+
+  const wlBody = wls.length
+    ? wls.map((w) => wishlistEditor(w, { base: "/portal", portal: true })).join("")
+    : `<div class="empty">You don't have any searches yet — add one below.</div>`;
+
+  const addForm = `<div class="card">
+    <h2><span class="num">+</span> Add a search</h2>
+    <form method="POST" action="/portal/wishlist">
+      ${presetSelect()}
+      <div class="grid">
+        <div><label>LABEL <span class="opt">(your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
+        <div><label>MAKE</label>${makerField(makers, "pl-maker")}</div>
+        <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("pl-models")}</div>
+        <div><label>YEAR FROM</label><input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></div>
+        <div><label>YEAR TO</label><input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></div>
+        <div><label>MAX BUDGET (JPY)</label><input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></div>
+        <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></div>
+        <div><label>MIN GRADE</label><input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></div>
+        <div><label>CHASSIS CODE <span class="opt">(if known)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Add search</button>
+        <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
+    </form>${modelScript("pl-maker", "pl-models")}${presetScript()}
+  </div>`;
+
+  const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
+  const main = `
+    <div class="topbar">
+      <div>
+        <div class="kicker">Your garage</div>
+        <h1>Welcome${c.name ? ", " + esc(String(c.name).trim().split(/\s+/)[0]) : ""}</h1>
+        <p class="subline">The cars we've found for you, and the searches we're running.</p>
+      </div>
+      <a class="btn-dark" href="/logout">Sign out</a>
+    </div>
+    <div class="content">
+      ${flash}
+      <div class="psec"><h2>Cars we've found for you</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
+      ${carsBody}
+      <div class="psec" style="margin-top:34px"><h2>What you're searching for</h2><p class="psub">Edit a search or add another — changes apply on the next auction sweep.</p></div>
+      ${wlBody}
+      ${addForm}
+    </div>`;
+  return shell(portalSidebar(c), main, "Your garage — JDM Connect");
+}
+
+// --- Portal handlers (every one scoped to the signed-in client's own id) -----
+async function portalWishlistOwned(env, id, cid) {
+  const w = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(Number(id)).first();
+  return w && Number(w.client_id) === Number(cid) ? w : null;
+}
+
+// True only while this client still exists and has portal access. Re-checked on
+// every write so a revoked client (or a stale tab) can't keep making changes.
+async function portalClientActive(env, cid) {
+  const c = await env.DB.prepare("SELECT 1 FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(cid)).first();
+  return !!c;
+}
+
+export async function portalAddWishlist(env, form, session) {
+  const cid = Number(session.id);
+  if (!cid || !(await portalClientActive(env, cid))) return;
+  const marka = str(form, "marka_name"), model = str(form, "model_name");
+  const kuzov = str(form, "kuzov"), gradeKw = str(form, "grade_kw");
+  if (!(marka || model || kuzov || gradeKw)) return; // need something to search on
+  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
+  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  await env.DB.prepare(
+    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
+  ).bind(
+    cid, str(form, "label"), marka, model, yMin, yMax,
+    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
+    kuzov, gradeKw
+  ).run();
+}
+
+export async function portalEditWishlist(env, form, session) {
+  const cid = Number(session.id);
+  if (!(await portalClientActive(env, cid))) return;
+  const w = await portalWishlistOwned(env, form.get("id"), cid);
+  if (!w) return;
+  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
+  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  await env.DB.prepare(
+    `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ? AND client_id = ?`
+  ).bind(
+    str(form, "label"), str(form, "marka_name"), str(form, "model_name"), yMin, yMax,
+    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
+    str(form, "kuzov"), str(form, "grade_kw"), w.id, cid
+  ).run();
+}
+
+export async function portalToggleWishlist(env, form, session) {
+  const cid = Number(session.id);
+  if (!(await portalClientActive(env, cid))) return;
+  const w = await portalWishlistOwned(env, form.get("id"), cid);
+  if (!w) return;
+  await env.DB.prepare("UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ? AND client_id = ?").bind(w.id, cid).run();
+}
+
+export async function portalDeleteWishlist(env, form, session) {
+  const cid = Number(session.id);
+  if (!(await portalClientActive(env, cid))) return;
+  const w = await portalWishlistOwned(env, form.get("id"), cid);
+  if (!w) return;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ? AND client_id = ?").bind(w.id, cid),
+    env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id),
+    env.DB.prepare("DELETE FROM wishlists WHERE id = ? AND client_id = ?").bind(w.id, cid),
+  ]);
+}
+
+// Buyer asks us to action/translate a car. Marks it and returns the context so
+// the route can email staff. Idempotent: alreadyDone=true means no new request.
+export async function portalApprove(env, queueId, session) {
+  const cid = Number(session.id);
+  const qid = Number(queueId);
+  if (!qid || !(await portalClientActive(env, cid))) return { ok: false };
+  const item = await env.DB.prepare("SELECT * FROM queue WHERE id = ? AND client_id = ?").bind(qid, cid).first();
+  if (!item || item.status !== "sent") return { ok: false };
+  const alreadyDone = !!item.client_request;
+  if (!alreadyDone) {
+    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now') WHERE id = ? AND client_id = ?").bind(qid, cid).run();
+  }
+  const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
+  const wishlist = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(item.wishlist_id).first();
+  return { ok: true, alreadyDone, client, lot, wishlist, queueId: qid };
+}
+
+// --- Staff: enable / revoke a client's portal access (owner or admin) --------
+export async function inviteClientPortal(env, clientId, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false };
+  if (!(await clientOwnedBy(env, cid, session))) return { ok: false };
+  const c = await env.DB.prepare("SELECT id, name, email FROM clients WHERE id = ?").bind(cid).first();
+  if (!c || !c.email) return { ok: false, error: "no-email" };
+  const token = randomToken();
+  const exp = Date.now() + PORTAL_INVITE_TTL_MS;
+  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
+  return { ok: true, token, email: c.email, name: c.name };
+}
+
+export async function revokeClientPortal(env, clientId, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return;
+  if (!(await clientOwnedBy(env, cid, session))) return;
+  await env.DB.prepare(
+    "UPDATE clients SET portal_enabled = 0, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+  ).bind(cid).run();
 }

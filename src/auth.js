@@ -103,7 +103,7 @@ async function sessionFromCookie(request, env) {
   const parts = payload.split(":");
   if (parts.length !== 3) return null;
   const [role, idStr, expStr] = parts;
-  if ((role !== "admin" && role !== "agent") || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
+  if (!["admin", "agent", "client"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
   return { role, id: Number(idStr) || 0 };
 }
 
@@ -114,17 +114,28 @@ export async function getSession(request, url, env) {
   return sessionFromCookie(request, env);
 }
 
-// Verify login credentials. Admin password wins; otherwise email+password is
-// checked against an active agent (with a password set). Returns {role,id}|null.
+// Verify login credentials. Admin password wins; then an active agent (email +
+// password); then a portal-enabled client (email + password). {role,id}|null.
 export async function authenticate(env, email, password) {
   if (passwordValid(env, password)) return { role: "admin", id: 0 };
   const e = String(email || "").trim().toLowerCase();
   if (!e || !password) return null;
+
   const agent = await env.DB.prepare(
     "SELECT id, pass_salt, pass_hash, active FROM agents WHERE email = ?"
   ).bind(e).first();
-  if (!agent || !agent.active || !agent.pass_hash) return null;
-  if (await verifyPassword(password, agent.pass_salt, agent.pass_hash)) return { role: "agent", id: agent.id };
+  if (agent && agent.active && agent.pass_hash && await verifyPassword(password, agent.pass_salt, agent.pass_hash)) {
+    return { role: "agent", id: agent.id };
+  }
+
+  // Buyer portal: a client who has been given access and set a password. If an
+  // email somehow maps to several clients, the most recent portal account wins.
+  const client = await env.DB.prepare(
+    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1"
+  ).bind(e).first();
+  if (client && await verifyPassword(password, client.pass_salt, client.pass_hash)) {
+    return { role: "client", id: client.id };
+  }
   return null;
 }
 
@@ -155,4 +166,29 @@ export async function setAgentPassword(env, token, password) {
     "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ?"
   ).bind(salt, hash, a.id).run();
   return { ok: true, id: a.id, email: a.email };
+}
+
+// --- Client (buyer) portal invites (same shape as agents) --------------------
+// Look up the client for a valid, unexpired invite token.
+export async function clientByInviteToken(env, token) {
+  if (!token) return null;
+  const c = await env.DB.prepare(
+    "SELECT id, name, email, invite_exp FROM clients WHERE invite_token = ?"
+  ).bind(String(token)).first();
+  if (!c || !c.invite_exp || Number(c.invite_exp) < Date.now()) return null;
+  return c;
+}
+
+// Set a client's portal password from a valid invite token. Returns {ok,id,email}.
+export async function setClientPassword(env, token, password) {
+  if (typeof password !== "string" || password.length < 6) {
+    return { ok: false, error: "Password must be at least 6 characters." };
+  }
+  const c = await clientByInviteToken(env, token);
+  if (!c) return { ok: false, error: "This link is invalid or has expired." };
+  const { salt, hash } = await hashPassword(password);
+  await env.DB.prepare(
+    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?"
+  ).bind(salt, hash, c.id).run();
+  return { ok: true, id: c.id, email: c.email };
 }

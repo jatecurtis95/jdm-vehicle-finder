@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS clients (
   notes           TEXT,
   dealer_username TEXT,                   -- portal dealer who created this (NULL = staff-entered)
   agent_id        INTEGER,                -- owning agent (NULL = JDM Connect staff/admin)
+  -- Client portal login (buyers who can sign in to view their cars + edit their
+  -- search). Mirrors the agents table; the client's email is the login id.
+  portal_enabled  INTEGER NOT NULL DEFAULT 0, -- 1 = may sign in to the buyer portal
+  pass_salt       TEXT,                   -- base64 PBKDF2 salt (NULL/"" until a password is set)
+  pass_hash       TEXT,                   -- base64 PBKDF2-SHA256 hash (NULL/"" until set)
+  invite_token    TEXT,                   -- single-use set-password token
+  invite_exp      INTEGER,                -- token expiry (epoch ms)
   created_at      TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_clients_agent ON clients(agent_id);
@@ -56,6 +63,7 @@ CREATE TABLE IF NOT EXISTS wishlists (
   active        INTEGER DEFAULT 1,
   auto_notify   INTEGER NOT NULL DEFAULT 0, -- 1 = skip review, deliver matches immediately
   watch_only    INTEGER NOT NULL DEFAULT 0, -- 1 = lead/watch: matches surface for staff follow-up, client never auto-emailed
+  needs_detail  INTEGER NOT NULL DEFAULT 0, -- 1 = public request had no make/model/chassis; staff must add detail before it can match
   created_at    TEXT DEFAULT (datetime('now'))
 );
 
@@ -79,6 +87,8 @@ CREATE TABLE IF NOT EXISTS queue (
   lot_json     TEXT NOT NULL,              -- snapshot of the lot at match time
   status       TEXT DEFAULT 'pending',     -- pending | approved | rejected | sent | failed
   token        TEXT NOT NULL,              -- random token used in approve/reject links
+  client_request    INTEGER NOT NULL DEFAULT 0, -- 1 = the client asked us to action/translate this (from the portal)
+  client_request_at TEXT,                  -- when the client requested it
   created_at   TEXT DEFAULT (datetime('now')),
   decided_at   TEXT
 );
@@ -91,3 +101,23 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Stripe payments. One row per Checkout Session the buyer is sent to. Status is
+-- advanced by the Stripe webhook (created -> paid/expired). queue_id links the
+-- payment to the specific car the deposit is for (NULL = general payment).
+CREATE TABLE IF NOT EXISTS payments (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id        INTEGER NOT NULL,
+  queue_id         INTEGER,                 -- the matched car this relates to (optional)
+  stripe_session   TEXT,                    -- Stripe Checkout Session id (cs_...)
+  stripe_intent    TEXT,                    -- Stripe PaymentIntent id (pi_...), set on completion
+  amount_cents     INTEGER NOT NULL,        -- amount in the smallest currency unit
+  currency         TEXT NOT NULL DEFAULT 'aud',
+  description      TEXT,
+  status           TEXT NOT NULL DEFAULT 'created', -- created | paid | expired | failed
+  created_at       TEXT DEFAULT (datetime('now')),
+  paid_at          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_payments_client ON payments(client_id);
+CREATE INDEX IF NOT EXISTS idx_payments_session ON payments(stripe_session);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
