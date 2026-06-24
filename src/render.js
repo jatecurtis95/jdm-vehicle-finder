@@ -380,7 +380,7 @@ function keySpec(label, value) {
   </td>`;
 }
 
-export function clientHtml(lot, client, wishlist, publicUrl, landed) {
+export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded = true) {
   const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
@@ -422,7 +422,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
     </table>
   </td></tr>
 
-  <tr><td style="padding:18px 36px 0;">
+  ${showLanded ? `<tr><td style="padding:18px 36px 0;">
     <p style="margin:0 0 10px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">Left is the car's likely auction price in Japan. Right is the estimated total to your door in Australia (car, export, shipping, duties and GST).</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
       <td width="50%" style="padding-right:8px;vertical-align:top;">
@@ -439,7 +439,17 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
       </td>
     </tr></table>
     <p style="margin:10px 0 0;font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};">Indicative only. Landed cost includes auction, export, shipping and duties, and is confirmed before you proceed. No obligation to bid.</p>
-  </td></tr>
+  </td></tr>` : `<tr><td style="padding:18px 36px 0;">
+    <p style="margin:0 0 10px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">This is the car's likely auction price in Japan, before import costs. We'll confirm the full landed cost to your door before you commit.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td style="vertical-align:top;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${OFF};border:1px solid ${HAIR};border-radius:10px;"><tr><td style="padding:14px 16px;">
+          <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};">Auction estimate</div>
+          <div style="font-family:${FONT};font-size:18px;font-weight:600;line-height:1.2;color:${INK};margin-top:5px;">${yen(lot.avg_price || lot.start)}</div>
+        </td></tr></table>
+      </td>
+    </tr></table>
+  </td></tr>`}
 
   <tr><td style="padding:22px 36px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
@@ -466,24 +476,15 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
 // ---------------------------------------------------------------------------
 // CLIENT email: several approved matches in ONE email (bulk approve)
 // ---------------------------------------------------------------------------
-function clientCarBlock(lot, wishlist, landed) {
+function clientCarBlock(lot, wishlist, landed, showLanded = true) {
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
     ? "A$" + Number(landed.grandTotal).toLocaleString("en-AU")
     : aud(lot.avg_price || lot.start);
   const carRef = [lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ").trim() + (lot.lot ? ` (Lot ${lot.lot})` : "");
   const interestedHref = `mailto:hello@jdmconnect.com.au?subject=${encodeURIComponent("I'm interested in this " + carRef)}`;
-  return `<tr><td style="padding:18px 36px 0;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;">
-      ${heroSrc(lot) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
-      <tr><td style="padding:16px 18px;">
-        <div style="font-family:${FONT};font-size:18px;font-weight:600;line-height:1.2;color:${INK};">${title}</div>
-        <div style="font-family:${FONT};font-size:12px;line-height:1.3;color:${MUTE};margin-top:4px;">${esc(lot.auction || "")}${lot.auction_date ? " &middot; " + esc((lot.auction_date || "").slice(0, 10)) : ""}${lot.lot ? " &middot; Lot " + esc(lot.lot) : ""}</div>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
-          <tr>${keySpec("Year", esc(lot.year || "—"))}${keySpec("Grade", esc(displayGrade(lot.rate)))}</tr>
-          <tr>${keySpec("Mileage", km(lot.mileage))}${keySpec("Chassis", esc(lot.kuzov || "—"))}</tr>
-        </table>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
+  const priceRow = showLanded
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
           <td width="50%" style="padding-right:8px;vertical-align:top;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${OFF};border:1px solid ${HAIR};border-radius:10px;"><tr><td style="padding:12px 14px;">
               <div style="font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};">Auction est.</div>
@@ -496,7 +497,26 @@ function clientCarBlock(lot, wishlist, landed) {
               <div style="font-family:${FONT};font-size:16px;font-weight:600;color:#FFFFFF;margin-top:4px;">${landedStr}</div>
             </td></tr></table>
           </td>
-        </tr></table>
+        </tr></table>`
+    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
+          <td style="vertical-align:top;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${OFF};border:1px solid ${HAIR};border-radius:10px;"><tr><td style="padding:12px 14px;">
+              <div style="font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:${MUTE};">Auction est. &middot; before import costs</div>
+              <div style="font-family:${FONT};font-size:16px;font-weight:600;color:${INK};margin-top:4px;">${yen(lot.avg_price || lot.start)}</div>
+            </td></tr></table>
+          </td>
+        </tr></table>`;
+  return `<tr><td style="padding:18px 36px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;">
+      ${heroSrc(lot) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
+      <tr><td style="padding:16px 18px;">
+        <div style="font-family:${FONT};font-size:18px;font-weight:600;line-height:1.2;color:${INK};">${title}</div>
+        <div style="font-family:${FONT};font-size:12px;line-height:1.3;color:${MUTE};margin-top:4px;">${esc(lot.auction || "")}${lot.auction_date ? " &middot; " + esc((lot.auction_date || "").slice(0, 10)) : ""}${lot.lot ? " &middot; Lot " + esc(lot.lot) : ""}</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+          <tr>${keySpec("Year", esc(lot.year || "—"))}${keySpec("Grade", esc(displayGrade(lot.rate)))}</tr>
+          <tr>${keySpec("Mileage", km(lot.mileage))}${keySpec("Chassis", esc(lot.kuzov || "—"))}</tr>
+        </table>
+        ${priceRow}
         <div style="margin-top:14px;">${btn(interestedHref, "I'm interested in this one", { bg: GOLD, color: INK, w: 230 })}</div>
       </td></tr>
     </table>
@@ -505,7 +525,7 @@ function clientCarBlock(lot, wishlist, landed) {
 
 // items: [{ lot, wishlist, landed }]. Used when several cars are approved for one
 // client at once, so they receive a single email instead of one per car.
-export function clientMultiHtml(client, items, publicUrl) {
+export function clientMultiHtml(client, items, publicUrl, showLanded = true) {
   const first = String(client?.name || "there").trim().split(/\s+/)[0];
   const n = items.length;
   const intro = `<tr><td style="padding:26px 36px 0;">
@@ -513,8 +533,8 @@ export function clientMultiHtml(client, items, publicUrl) {
     <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:25px;font-weight:600;line-height:1.2;color:${INK};">Hi ${esc(first)}, we found ${n} ${n === 1 ? "car" : "cars"} for you.</h1>
     <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:${BODY};">These just came up at Japanese auctions and line up with what you're after. Reply about any one you'd like us to chase.</p>
   </td></tr>`;
-  const blocks = items.map((it) => clientCarBlock(it.lot, it.wishlist, it.landed)).join("");
-  const ft = footer(`<div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:8px;">Indicative landed cost includes auction, export, shipping and duties, confirmed before you commit. Eligibility subject to SEVS/RAWS.</div>`);
+  const blocks = items.map((it) => clientCarBlock(it.lot, it.wishlist, it.landed, showLanded)).join("");
+  const ft = footer(`<div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:8px;">${showLanded ? "Indicative landed cost includes auction, export, shipping and duties, confirmed before you commit. " : ""}Eligibility subject to SEVS/RAWS.</div>`);
   return shell(intro + blocks + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + ft, `${n} ${n === 1 ? "car" : "cars"} matched to your search`);
 }
 

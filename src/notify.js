@@ -43,12 +43,13 @@ export async function deliverToClient(env, client, lot, wishlist) {
   if (client.email) {
     // Use the estimate snapshotted at match time, else compute it now, so the
     // client sees the same real landed figure staff reviewed (toggle-gated).
-    const landed = settingOn(settings, "client_landed") ? (lot._landed || await estimateLanded(env, lot, client)) : null;
+    const showLanded = settingOn(settings, "client_landed");
+    const landed = showLanded ? (lot._landed || await estimateLanded(env, lot, client)) : null;
     const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
     await sendEmail(env, {
       to: client.email,
       subject,
-      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed),
+      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed, showLanded),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
     result.email = true;
@@ -85,8 +86,8 @@ export async function deliverManyToClient(env, client, items) {
     }
     const one = enriched[0];
     const html = enriched.length === 1
-      ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed)
-      : clientMultiHtml(client, enriched, env.PUBLIC_URL);
+      ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed, showLanded)
+      : clientMultiHtml(client, enriched, env.PUBLIC_URL, showLanded);
     const subject = enriched.length === 1
       ? `${one.lot.year} ${one.lot.marka_name} ${one.lot.model_name} — a match for your search`
       : `${enriched.length} cars matched to your search`;

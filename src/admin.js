@@ -501,7 +501,7 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("request_alerts", "Email me new vehicle requests", "When someone submits the public request form, email me their details.", settingOn(s, "request_alerts"))}
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Approve & send” on a match, actually email that car to the client. Off = approving just files the match without emailing anyone.", settingOn(s, "send_to_client"))}
-            ${toggleRow("client_landed", "Show landed cost in client emails", "Include the indicative AUD landed figure in the client email.", settingOn(s, "client_landed"))}
+            ${toggleRow("client_landed", "Show landed (AUD) price to clients", "Show the indicative AUD landed price in client emails and the buyer portal. Off = clients see only the Japanese auction price; staff always see landed cost.", settingOn(s, "client_landed"))}
           </div>
 
           <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
@@ -1799,9 +1799,12 @@ export async function portalPage(env, session, opts = {}) {
       WHERE q.client_id = ? AND q.status = 'sent' AND COALESCE(w.watch_only, 0) = 0
       ORDER BY q.client_request DESC, q.decided_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
-  for (const q of cars) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
 
   const settings = await getSettings(env);
+  // Respect the "show landed cost to clients" toggle in the portal too.
+  if (settingOn(settings, "client_landed")) {
+    for (const q of cars) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
+  }
   const depositAud = Number(settings.stripe_deposit_aud || 0);
   const stripeOn = settingOn(settings, "stripe_enabled") && !!env.STRIPE_SECRET_KEY && depositAud > 0;
   const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}` };
