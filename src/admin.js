@@ -28,6 +28,31 @@ function modelScript(makerId, listId) {
   return `<script>(function(){var mk=document.getElementById(${JSON.stringify(makerId)}),dl=document.getElementById(${JSON.stringify(listId)});if(!mk||!dl||mk.tagName!=="SELECT")return;mk.addEventListener("change",function(){dl.innerHTML="";if(!mk.value)return;fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){(l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;dl.appendChild(o);});}).catch(function(){});});})();</script>`;
 }
 
+// Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
+// known model. EDIT THIS LIST to add or refine presets — especially tricky ones
+// like the E55 (listed under "Mercedes AMG", not Mercedes-Benz). Make uses
+// best-match, so the brand word alone is enough. Verify values against the feed.
+const WL_PRESETS = [
+  { name: "Mercedes E55 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2003, year_max: 2006, label: "E55 AMG" },
+  { name: "Mercedes E63 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2006, year_max: 2009, label: "E63 AMG" },
+  { name: "Nissan Skyline GT-R (R34)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR34", year_min: 1999, year_max: 2002, label: "R34 GT-R" },
+  { name: "Nissan Skyline GT-R (R33)", make: "NISSAN", model: "SKYLINE", kuzov: "BCNR33", year_min: 1995, year_max: 1998, label: "R33 GT-R" },
+  { name: "Toyota Supra (A80 / JZA80)", make: "TOYOTA", model: "SUPRA", kuzov: "JZA80", year_min: 1993, year_max: 2002, label: "A80 Supra" },
+  { name: "Honda NSX", make: "HONDA", model: "NSX", year_min: 1990, year_max: 2005, label: "NSX" },
+  { name: "Mazda RX-7 (FD3S)", make: "MAZDA", model: "RX-7", kuzov: "FD3S", year_min: 1991, year_max: 2002, label: "FD RX-7" },
+  { name: "Subaru WRX STI (GDB)", make: "SUBARU", model: "IMPREZA", kuzov: "GDB", year_min: 2000, year_max: 2007, label: "GDB STI" },
+];
+
+// Dropdown that fills a wishlist form from a preset. Works on any wishlist form
+// (matches inputs by name, relative to the form).
+function presetSelect() {
+  return `<div style="margin-bottom:14px;max-width:430px"><label>QUICK PRESET <span class="opt">(auto-fills the fields for a known model)</span></label>
+    <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${WL_PRESETS.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</select></div>`;
+}
+function presetScript() {
+  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);sel.selectedIndex=0;}</script>`;
+}
+
 // <option> list of Australian states for the client forms.
 function stateOptions(selected) {
   return `<option value="">— select —</option>` +
@@ -513,6 +538,7 @@ function intakeView(clients, makers) {
     <div class="card">
       <h2><span class="num">02</span> New wishlist</h2>
       <form method="POST" action="/wishlist">
+        ${presetSelect()}
         <div class="grid">
           <div><label>CLIENT</label><select name="client_id" required>${clientOptions}</select></div>
           <div><label>LABEL</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
@@ -531,7 +557,7 @@ function intakeView(clients, makers) {
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
     </div>
-    ${modelScript("wl-maker", "wl-models")}`;
+    ${modelScript("wl-maker", "wl-models")}${presetScript()}`;
 }
 
 function clientsView(clients, wishlists, opts = {}) {
@@ -1050,6 +1076,7 @@ export async function requestPage(env, opts = {}) {
             <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions("")}</select></div>
           </div>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
+          ${presetSelect()}
           <div class="grid">
             <div><label>MAKE</label>${makerField(makers, "rq-maker")}</div>
             <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
@@ -1067,7 +1094,7 @@ export async function requestPage(env, opts = {}) {
         </form>
       </div>
     </div>
-    ${modelScript("rq-maker", "rq-models")}`;
+    ${modelScript("rq-maker", "rq-models")}${presetScript()}`;
   const sb = `<aside class="side"><div class="brand">${LOGO}</div>
     <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
     </aside>`;
