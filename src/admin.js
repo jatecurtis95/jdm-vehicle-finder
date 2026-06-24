@@ -1030,19 +1030,22 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <h2><span class="num">+</span> New wishlist for ${esc(c.name)}</h2>
     <form method="POST" action="/wishlist">
       <input type="hidden" name="client_id" value="${c.id}">
+      ${presetSelect()}
       <div class="grid">
         <div><label>LABEL</label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>MAKER</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
+        <div><label>MAKE</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
         <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
         <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
         <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
         <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
         <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
         <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>CHASSIS CODE <span class="opt">(contains)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+        <div><label>CHASSIS / MODEL CODE <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
-      <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button></div>
-    </form>
+      <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
+      <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
+        <span class="help">Add at least a make, model or chassis/model code.</span></div>
+    </form>${presetScript()}
   </div>`;
 
   const wlSection = `<div class="card">
