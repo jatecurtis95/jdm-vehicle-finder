@@ -516,18 +516,19 @@ function intakeView(clients, makers) {
         <div class="grid">
           <div><label>CLIENT</label><select name="client_id" required>${clientOptions}</select></div>
           <div><label>LABEL</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
-          <div><label>MAKER</label>${makerField(makers, "wl-maker")}</div>
+          <div><label>MAKE</label>${makerField(makers, "wl-maker")}</div>
           <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("wl-models")}</div>
           <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
           <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
           <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
           <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
           <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-          <div><label>CHASSIS CODE <span class="opt">(contains)</span></label><input name="kuzov" placeholder="e.g. ZRE212"></div>
+          <div><label>CHASSIS / MODEL CODE <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
           <div><label>GRADE KEYWORD <span class="opt">(contains)</span></label><input name="grade_kw" placeholder="e.g. RS"></div>
         </div>
+        <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
-          <span class="help">Blank fields match anything. Only filled criteria filter the auction feed.</span></div>
+          <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
     </div>
     ${modelScript("wl-maker", "wl-models")}`;
@@ -681,14 +682,14 @@ function matchCard(q) {
       <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
     </div>
     ${specs ? `<div class="specline">${specs}</div>` : ""}
-    ${chips.length ? `<div class="why">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
+    ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:#E8F0FE;color:#2E6BE6;border-color:#BCD2FB">Lead &middot; follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
     ${q._landed ? `<div class="mland"><span class="ml-k">Est. landed · ${esc(q._landed.state)}</span><span class="ml-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</span></div>` : ""}
-    ${!hasContact ? `<div class="nocontact">No email or WhatsApp on file — approving won't reach this client.</div>` : ""}
+    ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
     <div class="mfoot">
       <span class="avatar">${esc(initials(q.client_name))}</span>
       <div class="who"><div class="n">${esc(q.client_name)}</div><div class="w">${esc(q.wlabel || "wishlist")}</div></div>
       <a class="btn-skip" href="${skip}">Skip</a>
-      <a class="btn-notify" href="${approve}">Approve &amp; send</a>
+      <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
     </div>
   </div>`;
 }
@@ -891,11 +892,11 @@ export async function editWishlist(env, form, session) {
   if (!(await wishlistAccessibleBy(env, id, session))) return;
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ?`
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
   ).bind(
     str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
     num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), id
+    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0, id
   ).run();
 }
 
@@ -924,16 +925,17 @@ function wishlistEditor(w) {
         <input type="hidden" name="id" value="${w.id}">
         <div class="grid">
           ${field("LABEL", "label")}
-          ${field("MAKER", "marka_name")}
+          ${field("MAKE", "marka_name")}
           ${field("MODEL", "model_name")}
           ${field("YEAR MIN", "year_min", "number")}
           ${field("YEAR MAX", "year_max", "number")}
           ${field("MAX PRICE (JPY)", "price_max", "number")}
           ${field("MAX MILEAGE (KM)", "mileage_max", "number")}
           ${field("MIN GRADE", "rate_min", "number")}
-          ${field("CHASSIS CODE", "kuzov", null, "(contains)")}
+          ${field("CHASSIS / MODEL CODE", "kuzov", null, "(contains, best match)")}
           ${field("GRADE KEYWORD", "grade_kw", null, "(contains)")}
         </div>
+        <label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
           <span class="help">Blank fields match anything.</span></div>
       </form>
@@ -1132,14 +1134,16 @@ export async function createWishlist(env, form, clientIdOverride, session) {
   if (!clientId) return;
   // An agent can add a wishlist to any client they own or that's shared to them.
   if (!(await clientAccessibleBy(env, clientId, session))) return;
+  // Don't save a whole-feed wishlist: require at least one narrowing term.
+  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return;
   await env.DB.prepare(
     `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     clientId, str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
     num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw")
+    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0
   ).run();
 }
 

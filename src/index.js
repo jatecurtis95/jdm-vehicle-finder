@@ -371,11 +371,18 @@ async function handleDecision(request, env, url) {
     return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Skipped. The client will not be contacted about this car.</p>"));
   }
 
-  // Approve: deliver to the client.
+  // Approve. Watch-only "lead" wishlists never email the client — the match is
+  // just marked handled so staff can follow up by phone instead.
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
   const wishlist = await env.DB.prepare(
     "SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
   ).bind(item.wishlist_id).first();
+  if (wishlist && wishlist.watch_only) {
+    await env.DB.prepare(
+      "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
+    ).bind(item.id).run();
+    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Marked for follow-up. The client was not emailed (watch-only lead).</p>"));
+  }
   const lot = JSON.parse(item.lot_json);
   try {
     const r = await deliverToClient(env, client, lot, wishlist);
