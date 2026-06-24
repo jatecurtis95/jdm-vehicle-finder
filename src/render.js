@@ -110,13 +110,14 @@ ${pre ? preheader(pre) : ""}
 }
 
 function footer(extra) {
-  return `<tr><td style="background:${OFF};border-top:1px solid ${HAIR};padding:22px 36px;">
-    <div style="font-family:${FONT};font-size:14px;font-weight:600;line-height:1.3;color:${INK};">JDM Connect</div>
-    <div style="font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};margin-top:3px;">Japanese vehicle imports &middot; Australia-wide</div>
+  return `<tr><td style="background:${OFF};border-top:1px solid ${HAIR};padding:26px 36px;">
+    <img src="${LOGO_URL}" width="142" alt="JDM Connect" style="display:block;border:0;outline:none;height:auto;margin:0 0 11px;">
+    <div style="font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">Japanese vehicle imports &middot; Australia-wide</div>
     ${extra || ""}
-    <div style="font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};margin-top:10px;">
-      <a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
+    <div style="font-family:${FONT};font-size:12px;line-height:1.7;color:${BODY};margin-top:13px;">
+      <a href="mailto:hello@jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">hello@jdmconnect.com.au</a>&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
     </div>
+    <div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:14px;">&copy; ${new Date().getFullYear()} JDM Connect &middot; Japanese performance &amp; classic vehicle imports, Australia-wide.</div>
   </td></tr>`;
 }
 
