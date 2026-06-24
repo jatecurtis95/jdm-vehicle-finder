@@ -282,7 +282,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
     <nav class="nav">
-      ${item("intake", "Intake", "")}
+      ${item("intake", "Add client", "")}
       ${item("clients", "Clients", counts.clients)}
       ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
@@ -298,9 +298,9 @@ function sidebar(active, counts, session = { role: "admin" }) {
 }
 
 const HEADERS = {
-  intake: { kicker: "Vehicle Finder", title: "Intake", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
-  clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add via Intake" },
-  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add via Intake" },
+  intake: { kicker: "Vehicle Finder", title: "Add a client", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
+  clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add client" },
+  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email and notification toggles.", btn: "" },
@@ -621,7 +621,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
   return `${bulkBar}<div class="card" style="padding:0;overflow:hidden">
-    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>`;
+    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 function wishlistsView(wishlists) {
@@ -723,7 +723,7 @@ function matchCard(q) {
 function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every wishlist.</div></div>`;
+      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every wishlist.</div></div>` + ranToast();
   }
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
   let strong = 0, good = 0, poss = 0, soon = 0;
@@ -781,13 +781,19 @@ function matchesView(pending, opts = {}) {
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
   const grid = `<div class="mgrid" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return triage + strengthLegend() + pause + controls + bulk + grid + matchesScript();
+  return triage + strengthLegend() + pause + controls + bulk + grid + matchesScript() + ranToast();
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
 // filters, sort, grouping with headers, and multi-select bulk actions. Cards are
 // server-rendered, so if this script ever fails the cards and their per-card
 // Approve/Skip links still work. No template literals or ${} inside this string.
+// Shows a one-off "Found N new matches" / "No new matches" toast after a search,
+// reading the ?ran=N the /run redirect adds, then cleans it from the URL.
+function ranToast() {
+  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";var d=document.createElement("div");d.textContent=msg;d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#1A1A1A;color:#fff;padding:11px 18px;border-radius:9px;font:600 14px/1 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22)";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},3200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+}
+
 function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;

@@ -331,6 +331,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed) {
   </td></tr>
 
   <tr><td style="padding:18px 36px 0;">
+    <p style="margin:0 0 10px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">Left is the car's likely auction price in Japan. Right is the estimated total to your door in Australia (car, export, shipping, duties and GST).</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
       <td width="50%" style="padding-right:8px;vertical-align:top;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${OFF};border:1px solid ${HAIR};border-radius:10px;"><tr><td style="padding:14px 16px;">

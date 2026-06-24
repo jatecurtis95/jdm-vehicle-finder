@@ -141,8 +141,8 @@ export default {
     }
 
     if (path === "/run") {
-      await runMatcher(env, session);
-      return Response.redirect(here("/admin?view=matches"), 303);
+      const ran = await runMatcher(env, session);
+      return Response.redirect(here(`/admin?view=matches&ran=${Number(ran) || 0}`), 303);
     }
 
     // Bulk approve/skip from the Matches view. Same per-item access rules as the
@@ -294,12 +294,8 @@ async function alertNewRequest(env, req) {
 async function runMatcher(env, session) {
   const summary = await runAll(env, session);
   const total = summary.reduce((n, s) => n + s.queued.length, 0);
-  if (total === 0) {
-    return "Matcher ran. No new matches this time.";
-  }
-  if (session && session.role === "agent") {
-    return `Matcher queued ${total} new match(es).`;
-  }
+  if (total === 0) return 0;
+  if (session && session.role === "agent") return total;
 
   const settings = await getSettings(env);
   const groups = new Map(); // key -> { agent|null, entries }
@@ -331,7 +327,7 @@ async function runMatcher(env, session) {
       console.error(`Digest email failed (${to}):`, err.message);
     }
   }
-  return `Matcher queued ${total} new match(es).`;
+  return total;
 }
 
 // Handle an approve/skip click from the digest or the in-app cards. When called
