@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS wishlists (
   grade_kw      TEXT,                      -- grade text contains, e.g. RS, Type R
   active        INTEGER DEFAULT 1,
   auto_notify   INTEGER NOT NULL DEFAULT 0, -- 1 = skip review, deliver matches immediately
+  watch_only    INTEGER NOT NULL DEFAULT 0, -- 1 = lead/watch: matches surface for staff follow-up, client never auto-emailed
   created_at    TEXT DEFAULT (datetime('now'))
 );
 

@@ -15,8 +15,11 @@ export function buildSql(w) {
   where.push("auction_date >= NOW()");
 
   if (w.marka_name) {
-    // Contains match, so "Mercedes" matches the feed's "MERCEDES BENZ" etc.
-    where.push(`UPPER(marka_name) LIKE '%${sqlString(w.marka_name).toUpperCase()}%'`);
+    // Best-match on the primary brand word so "Mercedes" / "Mercedes-Benz" both
+    // catch the feed's "MERCEDES BENZ" AND "MERCEDES AMG" (where cars like the
+    // E55 live). Falls back to the whole string if it's a single token.
+    const mk = sqlString(w.marka_name).toUpperCase().split(/[\s\-]+/).filter(Boolean)[0];
+    if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   if (w.model_name) {
     where.push(`UPPER(model_name) LIKE '%${sqlString(w.model_name).toUpperCase()}%'`);
@@ -97,6 +100,9 @@ export function refine(lots, w) {
 
 // Run one wishlist end to end. Returns the list of newly-queued lot ids.
 export async function runWishlist(env, wishlist) {
+  // Safety: a wishlist with no make / model / chassis / grade term would match
+  // the whole feed, so skip it. The create form also blocks saving one this broad.
+  if (!(wishlist.marka_name || wishlist.model_name || wishlist.kuzov || wishlist.grade_kw)) return [];
   const sql = buildSql(wishlist);
   const candidates = refine(await query(env, sql), wishlist);
   if (candidates.length === 0) return [];
@@ -115,13 +121,25 @@ export async function runWishlist(env, wishlist) {
   const fresh = candidates.filter((l) => l.id && !seen.has(l.id));
   if (fresh.length === 0) return [];
 
+  // Anti-flood: never let one wishlist sit on more than 40 pending matches.
+  // (Keeps a broad search from burying the review queue over many runs.)
+  const pendingRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue WHERE wishlist_id = ? AND status = 'pending'"
+  ).bind(wishlist.id).first();
+  const room = Math.max(0, 40 - (pendingRow?.n || 0));
+  if (room <= 0) return [];
+  const take = fresh.slice(0, room);
+
   // Estimate landed cost up front so it's snapshotted into lot_json — the admin
   // Matches view then reuses it instead of re-calling the calculator per load.
-  await attachLanded(env, fresh.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
+  await attachLanded(env, take.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
+  // Tag watch-only "lead" matches: they surface for a follow-up call but the
+  // client is never auto-emailed, even on approval.
+  for (const lot of take) lot._watch = wishlist.watch_only ? 1 : 0;
 
   const queued = [];
   const stmts = [];
-  for (const lot of fresh) {
+  for (const lot of take) {
     const token = crypto.randomUUID().replace(/-/g, "");
     stmts.push(
       env.DB.prepare(
