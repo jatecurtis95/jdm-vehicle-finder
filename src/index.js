@@ -158,7 +158,9 @@ export default {
       if (["approve", "reject"].includes(action) && ids.length) {
         await applyBulkDecisions(env, action, ids, session);
       }
-      return Response.redirect(here("/admin?view=matches"), 303);
+      const back = f.get("back");
+      const dest = (typeof back === "string" && back.startsWith("/admin")) ? back : "/admin?view=matches";
+      return Response.redirect(here(dest), 303);
     }
 
     if (path === "/client" && request.method === "POST") {

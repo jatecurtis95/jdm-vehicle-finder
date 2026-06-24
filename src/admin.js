@@ -975,6 +975,20 @@ function wishlistEditor(w) {
   </div>`;
 }
 
+// Self-contained bulk bar for the client page (the main Matches controller isn't
+// loaded here). Select-all + Approve/Skip the ticked matches, then return here.
+function clientBulkBar(cid) {
+  return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="/admin?view=client&amp;id=${cid}"></form>
+    <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
+      <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
+      <span style="flex:1"></span>
+      <button type="submit" form="bulkForm" class="bap" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
+      <button type="submit" form="bulkForm" class="bsk" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
+    </div>
+    <script>(function(){var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');function boxes(){return document.querySelectorAll('.mgrid .msel');}function upd(){var n=0,t=boxes().length;boxes().forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=t>0&&n===t;}if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});upd();})();</script>`;
+}
+
 // Client detail page: contact, owner, their wishlists (editable) and their live
 // matches. Reached by clicking a client name in the Clients list.
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }) {
@@ -1038,7 +1052,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
-    ${matches.length ? strengthLegend() + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+    ${matches.length ? strengthLegend() + clientBulkBar(cid) + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
   const main = `
