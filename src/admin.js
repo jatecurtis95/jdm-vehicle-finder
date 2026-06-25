@@ -362,6 +362,65 @@ const CSS = `
   .kebab:hover{background:#f1efe9;color:var(--ink)}
   @media(max-width:640px){.greet{font-size:30px}.ov{padding:0 16px}.ov .num{font-size:30px}}
   @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
+  /* --- Matches redesign: divided ticker + spec-sheet cards --- */
+  .mticker{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin-bottom:16px}
+  @media(min-width:760px){.mticker{grid-template-columns:repeat(5,1fr)}}
+  .mtk{background:var(--card);padding:15px 18px}
+  .mtk.urgent{background:rgba(177,18,38,.04)}
+  .mtk-k{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
+  .mtk-row{display:flex;align-items:flex-end;justify-content:space-between;margin-top:12px}
+  .mtk-n{font-size:34px;font-weight:700;line-height:1;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .mtk-n.gold{color:var(--gold-txt)}.mtk-n.str{color:#2E7D54}.mtk-n.bad{color:#B11226}
+  .mtk-dot{width:8px;height:8px;border-radius:9999px;display:inline-block;margin-bottom:6px}
+  .scards{display:grid;grid-template-columns:1fr;gap:16px}
+  @media(min-width:1180px){.scards{grid-template-columns:1fr 1fr}}
+  .scards .ghead{grid-column:1/-1}
+  .scards .mempty{grid-column:1/-1}
+  .scard{position:relative;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;transition:border-color .15s}
+  @media(min-width:560px){.scard{flex-direction:row}}
+  .scard:hover{border-color:var(--gold-line)}
+  .scard.picked{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-tint)}
+  .scard .msel{position:absolute;top:12px;right:12px;left:auto;z-index:4;width:20px;height:20px;accent-color:var(--gold);cursor:pointer;display:none}
+  .scard:hover .msel,.scard.picked .msel{display:block}
+  .sc-img{position:relative;flex:0 0 auto;height:200px;background:#15171a;background-size:cover;background-position:center}
+  @media(min-width:560px){.sc-img{width:40%;height:auto;min-height:236px}}
+  .sc-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0) 58%)}
+  .sc-tags{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .sc-tags .b{box-shadow:0 1px 5px rgba(0,0,0,.3)}
+  .sc-lot{background:rgba(0,0,0,.55);backdrop-filter:blur(3px);color:#fff;font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:5px}
+  .sc-imgfoot{position:absolute;left:12px;right:12px;bottom:12px;z-index:1;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .sc-when{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:4px}
+  .sc-when.urgent{background:#B11226}.sc-when.soon{background:#C9821f}
+  .sc-auc{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#E6E7E8}
+  .sc-body{flex:1;min-width:0;display:flex;flex-direction:column}
+  .sc-main{flex:1;padding:18px}
+  .sc-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+  .sc-id{min-width:0}
+  .sc-title{font-size:19px;font-weight:700;letter-spacing:-.01em;text-transform:uppercase;margin:0;color:var(--ink);line-height:1.12}
+  .sc-sub{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);margin:5px 0 0}
+  .sc-landed{text-align:right;flex:0 0 auto}
+  .sc-landed-k{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
+  .sc-landed-v{font-size:18px;font-weight:700;color:var(--gold-txt);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-top:2px}
+  .sc-grid{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--hair);border-radius:8px;overflow:hidden;margin-bottom:14px}
+  .sc-cell{padding:10px 8px;text-align:center;border-left:1px solid var(--hair)}
+  .sc-cell:first-child{border-left:0}
+  .sc-k{font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin-bottom:5px}
+  .sc-v{font-size:14px;font-weight:700;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .sc-v.gold{color:var(--gold-txt)}
+  .scard .why{padding:0;margin:0 0 12px}
+  .scard .nocontact{margin:0 0 12px}
+  .sc-client{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--off);border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:8px}
+  .sc-client .avatar{margin-right:0;width:34px;height:34px;font-size:12px;flex:0 0 auto}
+  .sc-cl{min-width:0}
+  .sc-cl-n{font-size:12px;font-weight:600;color:var(--ink)}
+  .sc-cl-n .gold{color:var(--gold-txt)}
+  .sc-cl-w{font-size:11px;color:var(--t3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sc-actions{display:flex;border-top:1px solid var(--hair)}
+  .sc-actions a{display:flex;align-items:center;justify-content:center;gap:7px;padding:14px 12px;font-size:13px;line-height:1;border-radius:0;white-space:nowrap}
+  .sc-actions .btn-skip{flex:1;color:var(--t2);font-weight:600;background:transparent;border-right:1px solid var(--hair)}
+  .sc-actions .btn-skip:hover{background:var(--off);color:var(--ink)}
+  .sc-actions .btn-notify{flex:2;color:var(--gold-on);font-weight:700;background:var(--gold);border:0}
+  .sc-actions .btn-notify:hover{background:var(--gold-hover)}
 `;
 
 function initials(name) {
@@ -1000,52 +1059,65 @@ function matchCard(q) {
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const strengthLabel = lot._strength || "Possible";
   const strKey = strengthLabel === "Strong" ? "strong" : strengthLabel === "Good" ? "good" : "poss";
-  const sColor = lot._strengthColor || "#B6B9BC";
+  const strBadge = strengthLabel === "Strong" ? "b-str" : strengthLabel === "Good" ? "b-good" : "b-pos";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
   const approve = `/decide?token=${esc(q.token)}&action=approve`;
   const skip = `/decide?token=${esc(q.token)}&action=reject`;
   const days = daysUntil(lot.auction_date);
   const auc = esc(lot.auction || "");
   const aucDate = esc((lot.auction_date || "").slice(0, 10));
-  const sub = (days >= 0 && days <= 1)
-    ? `<span class="urg">Auction ${days === 0 ? "today" : "1d"}</span>${auc}`
-    : days === 2
-    ? `<span class="urg soon">Auction 2d</span>${auc}`
-    : `${auc}${aucDate ? " · " + aucDate : ""}`;
+  const when = (days === 0) ? `<span class="sc-when urgent">Auction today</span>`
+    : (days === 1) ? `<span class="sc-when urgent">Auction in 1 day</span>`
+    : (days === 2) ? `<span class="sc-when soon">Auction in 2 days</span>`
+    : (days > 2) ? `<span class="sc-when">Auction in ${days} days</span>`
+    : aucDate ? `<span class="sc-when">${aucDate}</span>` : "";
   const landedNum = q._landed ? Number(q._landed.grandTotal) : 0;
   const hasContact = !!(q.client_email || q.client_whatsapp);
   const chips = whyChips(q);
-  const specs = [
-    lot.kpp ? `<b>${esc(lot.kpp)}</b>` : "",
-    lot.color ? esc(lot.color) : "",
-    lot.kuzov ? `<b>${esc(lot.kuzov)}</b>` : "",
+  const sub = [
+    lot.kuzov ? esc(lot.kuzov) : "",
     lot.eng_v ? esc(lot.eng_v) + "cc" : "",
+    lot.kpp ? esc(lot.kpp) : "",
     photoCount(lot) ? photoCount(lot) + " photos" : "",
   ].filter(Boolean).join(" · ");
   const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
-  return `<div class="mcard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-auction="${auc}" data-search="${haystack}">
+  const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
+  return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
-    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <span class="pill str"><span class="sd" style="background:${sColor}"></span>${esc(strengthLabel)}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${sub}</div></div>
+    <div class="sc-img" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="sc-grad"></div>
+      <div class="sc-tags">
+        <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
+        <span class="sc-lot">Lot ${esc(lot.lot || "-")}</span>
+      </div>
+      ${(when || auc) ? `<div class="sc-imgfoot">${when}${auc ? `<span class="sc-auc">${auc}</span>` : ""}</div>` : ""}
     </div>
-    <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
-      <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
-    </div>
-    ${specs ? `<div class="specline">${specs}</div>` : ""}
-    ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:#E8F0FE;color:#2E6BE6;border-color:#BCD2FB">Lead &middot; follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
-    ${q._landed ? `<div class="mland"><span class="ml-k">Est. landed · ${esc(q._landed.state)}</span><span class="ml-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</span></div>` : ""}
-    ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
-    <div class="mfoot">
-      <span class="avatar">${esc(initials(q.client_name))}</span>
-      <div class="who"><div class="n">${esc(q.client_name)}</div><div class="w">${esc(q.wlabel || "wishlist")}</div></div>
-      <a class="btn-skip" href="${skip}">Skip</a>
-      <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
+    <div class="sc-body">
+      <div class="sc-main">
+        <div class="sc-head">
+          <div class="sc-id">
+            <h3 class="sc-title">${title}</h3>
+            ${sub ? `<p class="sc-sub">${sub}</p>` : ""}
+          </div>
+          ${q._landed ? `<div class="sc-landed"><div class="sc-landed-k">Est. landed ${esc(q._landed.state)}</div><div class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : ""}
+        </div>
+        <div class="sc-grid">
+          ${cell("Year", esc(lot.year || "-"))}
+          ${cell("Grade", esc(displayGrade(lot.rate)), true)}
+          ${cell("Odo", lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-")}
+          ${cell("Bid", bid)}
+        </div>
+        ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:#E8F0FE;color:#2E6BE6;border-color:#BCD2FB">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
+        <div class="sc-client">
+          ${avatar(q.client_name)}
+          <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "wishlist")}</div></div>
+        </div>
+        ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
+      </div>
+      <div class="sc-actions">
+        <a class="btn-skip" href="${skip}">Skip</a>
+        <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
+      </div>
     </div>
   </div>`;
 }
@@ -1063,12 +1135,13 @@ function matchesView(pending, opts = {}) {
     if (s === "Strong") strong++; else if (s === "Good") good++; else poss++;
     if (daysUntil(lot.auction_date) <= 2) soon++;
   }
-  const triage = `<div class="triage">
-    <div class="tstat"><div class="k">Awaiting review</div><div class="v">${pending.length}</div></div>
-    <div class="tstat"><div class="k"><span class="d" style="background:#46B17A"></span>Strong</div><div class="v">${strong}</div></div>
-    <div class="tstat"><div class="k"><span class="d" style="background:#CAA34C"></span>Good</div><div class="v">${good}</div></div>
-    <div class="tstat"><div class="k"><span class="d" style="background:#B6B9BC"></span>Possible</div><div class="v">${poss}</div></div>
-    <div class="tstat urgent"><div class="k">Closing in 48h</div><div class="v">${soon}</div></div>
+  const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
+  const ticker = `<div class="mticker">
+    ${tk("Awaiting review", pending.length, "", "var(--t3)")}
+    ${tk("Strong", strong, "str", "#2E7D54")}
+    ${tk("Good", good, "gold", "var(--gold)")}
+    ${tk("Possible", poss, "", "#B6B9BC")}
+    ${tk("Closing in 48h", soon, "bad", "#B11226", true)}
   </div>`;
   const pause = sendOff
     ? `<div class="pausebar"><span><strong>Client emails are paused</strong> in Settings, so “Approve &amp; send” will mark a match handled without emailing the client.</span></div>`
@@ -1110,8 +1183,8 @@ function matchesView(pending, opts = {}) {
       <button type="submit" form="bulkForm" class="bsk" id="bSkip">Skip</button>
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
-  const grid = `<div class="mgrid" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return triage + strengthLegend() + pause + controls + bulk + grid + matchesScript() + ranToast();
+  const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
+  return ticker + pause + controls + bulk + grid + matchesScript() + ranToast();
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
