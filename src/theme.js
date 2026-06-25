@@ -67,6 +67,7 @@ export const themeCss = `
     --bad:#E2607A;--bad-bg:rgba(226,96,122,0.1);--bad-line:rgba(226,96,122,0.34);
     --warn:#E0A94B;
     --radius:10px;--shadow:0 18px 50px rgba(0,0,0,0.45);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
@@ -212,6 +213,20 @@ export const themeCss = `
   .portal-acct{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .portal-acct .pa-k{font-size:12px;color:var(--t3)}
   .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+
+  /* Buyer portal: dashboard summary tiles (dark cloud-platform idiom, mono
+     numerals to match the auction spec-sheet language used across the app). */
+  .pstats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:4px 0 30px}
+  .pstat{position:relative;background:linear-gradient(180deg,var(--card-2),var(--card));border:1px solid var(--hair);border-radius:12px;padding:18px 20px;overflow:hidden}
+  .pstat:after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);transform:scaleY(0);transform-origin:top;transition:transform .45s var(--ease,ease)}
+  .pstat.lead:after{transform:scaleY(1)}
+  .pstat .pk{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .pstat .pv{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--ink);margin-top:9px;line-height:1;letter-spacing:-0.01em}
+  .pstat.lead .pv{color:var(--gold-txt)}
+  .pstat .ps{font-size:12px;color:var(--t3);margin-top:7px;line-height:1.4}
+  .psec h2 .ct{display:inline-block;vertical-align:middle;margin-left:9px;font-size:11px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:9999px;padding:2px 9px;font-family:var(--mono);letter-spacing:0}
+  @media(max-width:760px){.pstats{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:420px){.pstats{grid-template-columns:1fr}}
 
   /* Public request: success receipt + inline error */
   .reqok{border:1px solid var(--gold-line);border-left:4px solid var(--gold);background:linear-gradient(180deg,rgba(202,163,76,0.1),var(--card))}

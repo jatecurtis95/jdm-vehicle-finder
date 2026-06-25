@@ -384,6 +384,10 @@ const CSS = `
   .scard:hover .msel,.scard.picked .msel{display:block}
   .sc-img{position:relative;flex:0 0 auto;height:200px;background:#15171a;background-size:cover;background-position:center}
   @media(min-width:560px){.sc-img{width:40%;height:auto;min-height:236px}}
+  /* On the client page these cards live in a narrow 3-up grid, too tight for the
+     row layout — keep them stacked so the Year/Grade/Odo/Bid strip never clips. */
+  .mgrid .scard{flex-direction:column}
+  .mgrid .scard .sc-img{width:auto;height:200px;min-height:0}
   .sc-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0) 58%)}
   .sc-tags{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
   .sc-tags .b{box-shadow:0 1px 5px rgba(0,0,0,.3)}
@@ -1366,16 +1370,16 @@ function wishlistEditor(w, opts = {}) {
       <form method="POST" action="${base}/wishlist/edit">
         <input type="hidden" name="id" value="${w.id}">
         <div class="grid">
-          ${field("LABEL", "label")}
-          ${field("MAKE", "marka_name")}
-          ${field("MODEL", "model_name")}
-          ${field("YEAR MIN", "year_min", "number")}
-          ${field("YEAR MAX", "year_max", "number")}
-          ${field("MAX PRICE (JPY)", "price_max", "number")}
-          ${field("MAX MILEAGE (KM)", "mileage_max", "number")}
-          ${field("MIN GRADE", "rate_min", "number")}
-          ${field("CHASSIS / MODEL CODE", "kuzov", null, "(contains, best match)")}
-          ${field("GRADE KEYWORD", "grade_kw", null, "(contains)")}
+          ${field("Label", "label")}
+          ${field("Make", "marka_name")}
+          ${field("Model", "model_name")}
+          ${field("Year from", "year_min", "number")}
+          ${field("Year to", "year_max", "number")}
+          ${field("Max budget (JPY)", "price_max", "number")}
+          ${field("Max mileage (km)", "mileage_max", "number")}
+          ${field("Min grade", "rate_min", "number")}
+          ${field("Chassis or model code", "kuzov", null, "(contains, best match)")}
+          ${field("Grade keyword", "grade_kw", null, "(contains)")}
         </div>
         ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
@@ -2163,6 +2167,16 @@ export async function portalPage(env, session, opts = {}) {
   </div>`;
 
   const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
+  // At-a-glance summary, all counts scoped to this signed-in client.
+  const activeSearches = wls.filter((w) => Number(w.active ?? 1) !== 0).length;
+  const inProgress = cars.filter((q) => q.client_request).length;
+  const awaiting = cars.length - inProgress;
+  const statsRow = `<div class="pstats">
+      <div class="pstat lead"><div class="pk">New for you</div><div class="pv" data-count="${awaiting}">0</div><div class="ps">Matches waiting on your go-ahead</div></div>
+      <div class="pstat"><div class="pk">Cars found</div><div class="pv" data-count="${cars.length}">0</div><div class="ps">Hand-reviewed for your searches</div></div>
+      <div class="pstat"><div class="pk">In progress</div><div class="pv" data-count="${inProgress}">0</div><div class="ps">We're chasing these for you</div></div>
+      <div class="pstat"><div class="pk">Active searches</div><div class="pv" data-count="${activeSearches}">0</div><div class="ps">Running on every auction sweep</div></div>
+    </div>`;
   const main = `
     <div class="topbar">
       <div>
@@ -2174,11 +2188,13 @@ export async function portalPage(env, session, opts = {}) {
     </div>
     <div class="content">
       ${flash}
-      <div class="psec"><h2>Cars we've found for you</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
+      ${statsRow}
+      <div class="psec"><h2>Cars we've found for you${cars.length ? ` <span class="ct">${cars.length}</span>` : ""}</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
       ${carsBody}
-      <div class="psec" style="margin-top:34px"><h2>What you're searching for</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
+      <div class="psec" style="margin-top:34px"><h2>What you're searching for${wls.length ? ` <span class="ct">${activeSearches}/${wls.length}</span>` : ""}</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
       ${wlBody}
       ${addForm}
+      ${dashScript()}
     </div>`;
   return brandShell(portalSidebar(c), main, "Your garage - JDM Connect");
 }
