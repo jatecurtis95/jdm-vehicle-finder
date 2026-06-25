@@ -56,10 +56,11 @@ export function risingSun({ size = 320, tone = "soft" } = {}) {
 // The dark brand stylesheet. Mirrors the staff-app class names so portal and
 // request markup theme cleanly, with a product-grade dark palette layered on top.
 export const themeCss = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  /* Inter is loaded via preconnected <link> tags in brandDoc()'s <head>, so it
+     no longer render-blocks behind this stylesheet's @import. */
   :root{
     --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#71767E;
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;
     --bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;
     --hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);
@@ -67,6 +68,7 @@ export const themeCss = `
     --bad:#E2607A;--bad-bg:rgba(226,96,122,0.1);--bad-line:rgba(226,96,122,0.34);
     --warn:#E0A94B;
     --radius:10px;--shadow:0 18px 50px rgba(0,0,0,0.45);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
@@ -213,6 +215,20 @@ export const themeCss = `
   .portal-acct .pa-k{font-size:12px;color:var(--t3)}
   .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 
+  /* Buyer portal: dashboard summary tiles (dark cloud-platform idiom, mono
+     numerals to match the auction spec-sheet language used across the app). */
+  .pstats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:4px 0 30px}
+  .pstat{position:relative;background:linear-gradient(180deg,var(--card-2),var(--card));border:1px solid var(--hair);border-radius:12px;padding:18px 20px;overflow:hidden}
+  .pstat:after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);transform:scaleY(0);transform-origin:top;transition:transform .45s var(--ease,ease)}
+  .pstat.lead:after{transform:scaleY(1)}
+  .pstat .pk{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .pstat .pv{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--ink);margin-top:9px;line-height:1;letter-spacing:-0.01em}
+  .pstat.lead .pv{color:var(--gold-txt)}
+  .pstat .ps{font-size:12px;color:var(--t3);margin-top:7px;line-height:1.4}
+  .psec h2 .ct{display:inline-block;vertical-align:middle;margin-left:9px;font-size:11px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:9999px;padding:2px 9px;font-family:var(--mono);letter-spacing:0}
+  @media(max-width:760px){.pstats{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:420px){.pstats{grid-template-columns:1fr}}
+
   /* Public request: success receipt + inline error */
   .reqok{border:1px solid var(--gold-line);border-left:4px solid var(--gold);background:linear-gradient(180deg,rgba(202,163,76,0.1),var(--card))}
   .reqok .reqok-badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-txt)}
@@ -224,7 +240,8 @@ export const themeCss = `
   .field-err{display:none;color:var(--bad);font-size:13px;line-height:1.45;margin-top:9px;font-weight:500}
 
   /* Login + set-password */
-  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px;position:relative;overflow:hidden}
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(900px 520px at 50% -12%,rgba(202,163,76,0.13),transparent 60%),var(--bg);padding:24px;position:relative;overflow:hidden}
+  .login-card:before{content:"";position:absolute;left:28px;right:28px;top:0;height:2px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
   .login-card{position:relative;z-index:1;width:100%;max-width:392px;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:36px 32px 30px;box-shadow:var(--shadow)}
   .login-card .login-logo{display:flex;justify-content:center;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--hair)}
   .login-card h1{font-size:22px;font-weight:700;margin:0 0 6px;text-align:center;letter-spacing:-0.01em}
@@ -296,7 +313,7 @@ export function escHtml(s) {
 // set-password, info, 404. `bodyInner` is the inner markup; the doc supplies the
 // dark stylesheet and a head.
 export function brandDoc(bodyInner, title = "JDM Connect") {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><style>${themeCss}</style></head><body>${bodyInner}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body>${bodyInner}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
