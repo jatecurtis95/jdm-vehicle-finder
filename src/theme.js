@@ -304,12 +304,21 @@ export const themeCss = `
   .infocard p{color:var(--t2);font-size:15px;line-height:1.6;margin:0 0 22px}
   .infocard .ref{display:inline-block;font-weight:700;color:var(--gold-txt);letter-spacing:.02em}
 
+  /* Mobile nav: off-canvas drawer toggled by a CSS checkbox (no JS; a link
+     click loads a new page and resets it). Mirrors the staff admin shell. */
+  .nav-cb{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  .nav-burger{display:none}
+  .nav-scrim{display:none}
   @media(max-width:920px){
     .wrap{flex-direction:column}
-    .side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;position:static;height:auto;overflow:visible}
-    .side .brand{border-bottom:0;margin:0;padding:2px 6px}
-    .nav{flex-direction:row;flex-wrap:wrap}
-    .side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}
+    .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .nav-burger svg{width:22px;height:22px}
+    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
+    .nav{flex-direction:column}
+    .side-foot{flex-direction:column;margin-top:auto;padding-top:20px}
+    .nav-cb:checked ~ .wrap .side{transform:none}
+    .nav-scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .28s;z-index:55}
+    .nav-cb:checked ~ .wrap .nav-scrim{opacity:1;visibility:visible}
   }
   @media(max-width:640px){
     .grid{grid-template-columns:1fr}
@@ -340,7 +349,10 @@ export function brandDoc(bodyInner, title = "JDM Connect") {
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
 // so portal markup can move over without restructuring.
 export function brandShell(side, main, title = "JDM Connect") {
-  return brandDoc(`<div class="wrap">${side}<div class="main">${main}</div></div>`, title);
+  return brandDoc(
+    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
+    title
+  );
 }
 
 // Branded "not found" page. Replaces the bare text 404.
