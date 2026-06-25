@@ -47,7 +47,7 @@ const WL_PRESETS = [
 // Dropdown that fills a wishlist form from a preset. Works on any wishlist form
 // (matches inputs by name, relative to the form).
 function presetSelect() {
-  return `<div style="margin-bottom:14px;max-width:430px"><label>QUICK PRESET <span class="opt">(auto-fills the fields for a known model)</span></label>
+  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(auto-fills the fields for a known model)</span></label>
     <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${WL_PRESETS.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</select></div>`;
 }
 function presetScript() {
@@ -122,14 +122,14 @@ const CSS = `
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:11px 13px;border:1px solid rgba(0,0,0,0.14);border-radius:5px;font-size:14px;background:#FBFBFC;color:var(--ink);font-family:${FONT}}
   input::placeholder{color:#9AA0A6}
-  input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,0.16);background:#fff}
+  input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint);background:#fff}
   .actions{display:flex;align-items:center;gap:14px;margin-top:22px}
   .btn-gold{background:var(--gold);color:var(--gold-on);font-weight:600;border:0;padding:11px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT}}
   .btn-gold:hover{background:var(--gold-hover)}
   .btn-gold:focus-visible,.btn-dark:focus-visible,.btn-toggle:focus-visible,.btn-link:focus-visible,.kebab:focus-visible,.nav a:focus-visible,.fchip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .help{color:var(--faint);font-size:13px}
   table{width:100%;border-collapse:collapse;font-size:14px}
-  th{text-align:left;padding:12px 10px;background:var(--off);color:var(--t3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--hair)}
+  th{text-align:left;padding:12px 10px;background:var(--off);color:var(--t3);font-weight:600;font-size:12px;letter-spacing:.01em;border-bottom:1px solid var(--hair)}
   td{padding:15px 10px;border-bottom:1px solid rgba(0,0,0,0.05);color:var(--t2)}
   .avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:var(--avatar);color:var(--gold-txt);font-size:11px;font-weight:600;vertical-align:middle;margin-right:10px}
   .yes{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--gold-tint);color:var(--gold-txt);font-size:12px}
@@ -554,9 +554,9 @@ function agentsView(agents) {
       <h2><span class="num">+</span> New agent</h2>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label>NAME</label><input name="name" placeholder="Agent name" required></div>
-          <div><label>EMAIL <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
-          <div><label>COMPANY <span class="opt">(optional)</span></label><input name="company" placeholder="e.g. Ofuka"></div>
+          <div><label>Name</label><input name="name" placeholder="Agent name" required></div>
+          <div><label>Email <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
+          <div><label>Company <span class="opt">(optional)</span></label><input name="company" placeholder="e.g. Ofuka"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
@@ -579,7 +579,7 @@ function settingsView(settings, opts = {}) {
       <h2><span class="num">✱</span> Notifications &amp; payments</h2>
       <form method="POST" action="/settings">
         <div style="max-width:560px">
-          <label>ALERT EMAIL <span class="opt">(where new-match alerts are sent)</span></label>
+          <label>Alert email <span class="opt">(where new-match alerts are sent)</span></label>
           <input name="digest_email" type="email" value="${esc(s.digest_email || "")}" placeholder="support@jdmconnect.com.au">
           <div class="toggles">
             ${toggleRow("request_alerts", "Email me new vehicle requests", "When someone submits the public request form, email me their details.", settingOn(s, "request_alerts"))}
@@ -595,8 +595,8 @@ function settingsView(settings, opts = {}) {
               ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client has asked us to chase.", settingOn(s, "stripe_enabled"))}
             </div>
             <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-top:16px">
-              <div><label>DEPOSIT AMOUNT <span class="opt">(AUD)</span></label><input name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
-              <div><label>CURRENCY</label><input name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
+              <div><label>Deposit amount <span class="opt">(AUD)</span></label><input name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
+              <div><label>Currency</label><input name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
             </div>
             <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> - add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
           </div>
@@ -605,12 +605,12 @@ function settingsView(settings, opts = {}) {
             <div style="font-size:15px;font-weight:600;margin-bottom:4px">Membership pricing</div>
             <p class="help" style="margin:0 0 16px">Scaffolding for the Free and Importer tiers. These numbers feed the pricing page and the Stripe subscription products in a later stage. No memberships are billed yet.</p>
             <div class="grid" style="grid-template-columns:repeat(2,1fr)">
-              <div><label>IMPORTER <span class="opt">(A$/month)</span></label><input name="importer_monthly_aud" type="number" min="0" step="1" value="${esc(s.importer_monthly_aud || "19")}"></div>
-              <div><label>IMPORTER <span class="opt">(A$/year)</span></label><input name="importer_annual_aud" type="number" min="0" step="1" value="${esc(s.importer_annual_aud || "190")}"></div>
-              <div><label>FOUNDING <span class="opt">(A$/month, locked for life)</span></label><input name="founding_monthly_aud" type="number" min="0" step="1" value="${esc(s.founding_monthly_aud || "12")}"></div>
-              <div><label>FOUNDING SEATS <span class="opt">(cap)</span></label><input name="founding_seats" type="number" min="0" step="1" value="${esc(s.founding_seats || "100")}"></div>
-              <div><label>FREE RESULT LIMIT <span class="opt">(per search)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
-              <div><label>FOUNDING SEATS CLAIMED <span class="opt">(managed automatically)</span></label><input value="${esc(s.founding_claimed || "0")}" disabled style="opacity:.7"></div>
+              <div><label>Importer <span class="opt">(A$/month)</span></label><input name="importer_monthly_aud" type="number" min="0" step="1" value="${esc(s.importer_monthly_aud || "19")}"></div>
+              <div><label>Importer <span class="opt">(A$/year)</span></label><input name="importer_annual_aud" type="number" min="0" step="1" value="${esc(s.importer_annual_aud || "190")}"></div>
+              <div><label>Founding <span class="opt">(A$/month, locked for life)</span></label><input name="founding_monthly_aud" type="number" min="0" step="1" value="${esc(s.founding_monthly_aud || "12")}"></div>
+              <div><label>Founding seats <span class="opt">(cap)</span></label><input name="founding_seats" type="number" min="0" step="1" value="${esc(s.founding_seats || "100")}"></div>
+              <div><label>Free result limit <span class="opt">(per search)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
+              <div><label>Founding seats claimed <span class="opt">(managed automatically)</span></label><input value="${esc(s.founding_claimed || "0")}" disabled style="opacity:.7"></div>
             </div>
           </div>
 
@@ -661,10 +661,10 @@ export function loginPage(opts = {}) {
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>EMAIL <span class="opt">(agents and clients)</span></label>
+      <label>Email <span class="opt">(agents and clients)</span></label>
       <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
       <div class="login-note">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
-      <label style="margin-top:14px">PASSWORD</label>
+      <label style="margin-top:14px">Password</label>
       <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
     </form>
@@ -687,9 +687,9 @@ export function setPasswordPage(opts = {}) {
       <p class="login-sub">Welcome${name ? ", " + esc(name) : ""}. Choose a password to access the Vehicle Finder.</p>
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
-      <label>NEW PASSWORD</label>
+      <label>New password</label>
       <input type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
-      <label style="margin-top:14px">CONFIRM PASSWORD</label>
+      <label style="margin-top:14px">Confirm password</label>
       <input type="password" name="confirm" autocomplete="new-password" required minlength="6">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
@@ -795,10 +795,10 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
-          <div><label>EMAIL <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" placeholder="name@email.com"></div>
-          <div><label>WHATSAPP <span class="opt">(email or WhatsApp required)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-          <div><label>STATE <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
+          <div><label>Name</label><input name="name" placeholder="Jane Citizen" required></div>
+          <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" placeholder="name@email.com"></div>
+          <div><label>WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+          <div><label>State <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -809,17 +809,17 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/wishlist">
         ${presetSelect()}
         <div class="grid">
-          <div><label>CLIENT</label><select name="client_id" required>${clientOptions}</select></div>
-          <div><label>LABEL</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
-          <div><label>MAKE</label>${makerField(makers, "wl-maker")}</div>
-          <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("wl-models")}</div>
-          <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
-          <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
-          <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
-          <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
-          <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-          <div><label>CHASSIS / MODEL CODE <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
-          <div><label>GRADE KEYWORD <span class="opt">(contains)</span></label><input name="grade_kw" placeholder="e.g. RS"></div>
+          <div><label>Client</label><select name="client_id" required>${clientOptions}</select></div>
+          <div><label>Label</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
+          <div><label>Make</label>${makerField(makers, "wl-maker")}</div>
+          <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("wl-models")}</div>
+          <div><label>Year min</label><input name="year_min" type="number" placeholder="1990"></div>
+          <div><label>Year max</label><input name="year_max" type="number" placeholder="2002"></div>
+          <div><label>Max price (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
+          <div><label>Max mileage (km)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
+          <div><label>Min grade</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+          <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+          <div><label>Grade keyword <span class="opt">(contains)</span></label><input name="grade_kw" placeholder="e.g. RS"></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
@@ -1354,15 +1354,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
       <div class="grid">
-        <div><label>LABEL</label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>MAKE</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
-        <div><label>MODEL <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
-        <div><label>YEAR MIN</label><input name="year_min" type="number" placeholder="1990"></div>
-        <div><label>YEAR MAX</label><input name="year_max" type="number" placeholder="2002"></div>
-        <div><label>MAX PRICE (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
-        <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
-        <div><label>MIN GRADE</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>CHASSIS / MODEL CODE <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+        <div><label>Label</label><input name="label" placeholder="e.g. weekend project"></div>
+        <div><label>Make</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
+        <div><label>Model <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label>Year min</label><input name="year_min" type="number" placeholder="1990"></div>
+        <div><label>Year max</label><input name="year_max" type="number" placeholder="2002"></div>
+        <div><label>Max price (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
+        <div><label>Max mileage (km)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
+        <div><label>Min grade</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
@@ -1435,25 +1435,25 @@ export async function requestPage(env, opts = {}) {
         <form id="requestForm" method="POST" action="/request" novalidate>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
           <div class="grid">
-            <div><label for="rq-name">NAME</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" required></div>
-            <div><label for="rq-email">EMAIL</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
-            <div><label for="rq-whatsapp">WHATSAPP <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
-            <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-            <div><label for="rq-pass">CREATE A PASSWORD <span class="opt">(optional, to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
+            <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" required></div>
+            <div><label for="rq-email">Email</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
+            <div><label for="rq-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
+            <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+            <div><label for="rq-pass">Create a password <span class="opt">(optional, to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
           </div>
           <p id="rq-contact-error" class="field-err">Please add an email or a WhatsApp number so we can reach you when a match comes up.</p>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           ${presetSelect()}
           <div class="grid">
-            <div><label>MAKE</label>${makerField(makers, "rq-maker")}</div>
-            <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
-            <div><label>NICKNAME <span class="opt">(optional, for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></div>
-            <div><label>YEAR FROM</label><input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></div>
-            <div><label>YEAR TO</label><input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></div>
-            <div><label>MAX BUDGET <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></div>
-            <div><label>MAX MILEAGE <span class="opt">(km)</span></label><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-            <div><label>MIN AUCTION GRADE <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-            <div><label>CHASSIS CODE <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></div>
+            <div><label>Make</label>${makerField(makers, "rq-maker")}</div>
+            <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
+            <div><label>Nickname <span class="opt">(optional, for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></div>
+            <div><label>Year from</label><input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></div>
+            <div><label>Year to</label><input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></div>
+            <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></div>
+            <div><label>Max mileage <span class="opt">(km)</span></label><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
+            <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+            <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></div>
           </div>
           <p id="rq-year-error" class="field-err">“Year from” can't be later than “Year to”. Please check the years.</p>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
@@ -2021,15 +2021,15 @@ export async function portalPage(env, session, opts = {}) {
     <form method="POST" action="/portal/wishlist">
       ${presetSelect()}
       <div class="grid">
-        <div><label>LABEL <span class="opt">(your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>MAKE</label>${makerField(makers, "pl-maker")}</div>
-        <div><label>MODEL <span class="opt">(pick or type)</span></label>${modelField("pl-models")}</div>
-        <div><label>YEAR FROM</label><input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></div>
-        <div><label>YEAR TO</label><input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></div>
-        <div><label>MAX BUDGET (JPY)</label><input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></div>
-        <div><label>MAX MILEAGE (KM)</label><input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></div>
-        <div><label>MIN GRADE</label><input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>CHASSIS CODE <span class="opt">(if known)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+        <div><label>Label <span class="opt">(your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
+        <div><label>Make</label>${makerField(makers, "pl-maker")}</div>
+        <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("pl-models")}</div>
+        <div><label>Year from</label><input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></div>
+        <div><label>Year to</label><input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></div>
+        <div><label>Max budget (JPY)</label><input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></div>
+        <div><label>Max mileage (km)</label><input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></div>
+        <div><label>Min grade</label><input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></div>
+        <div><label>Chassis code <span class="opt">(if known)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
