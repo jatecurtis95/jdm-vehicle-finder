@@ -8,7 +8,11 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create jdm-vehicle-finder",
-    "db:schema": "wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql",
+    "db:migrate:local": "wrangler d1 migrations apply jdm-vehicle-finder --local",
+    "db:migrate:remote": "wrangler d1 migrations apply jdm-vehicle-finder --remote",
+    "db:migrate:list": "wrangler d1 migrations list jdm-vehicle-finder --remote",
+    "db:seed:local": "wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-dev.sql",
+    "test": "node --test",
     "tail": "wrangler tail"
   },
   "devDependencies": {

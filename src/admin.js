@@ -518,6 +518,19 @@ function settingsView(settings, opts = {}) {
             <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> - add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
           </div>
 
+          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
+            <div style="font-size:15px;font-weight:600;margin-bottom:4px">Membership pricing</div>
+            <p class="help" style="margin:0 0 16px">Scaffolding for the Free and Importer tiers. These numbers feed the pricing page and the Stripe subscription products in a later stage. No memberships are billed yet.</p>
+            <div class="grid" style="grid-template-columns:repeat(2,1fr)">
+              <div><label>IMPORTER <span class="opt">(A$/month)</span></label><input name="importer_monthly_aud" type="number" min="0" step="1" value="${esc(s.importer_monthly_aud || "19")}"></div>
+              <div><label>IMPORTER <span class="opt">(A$/year)</span></label><input name="importer_annual_aud" type="number" min="0" step="1" value="${esc(s.importer_annual_aud || "190")}"></div>
+              <div><label>FOUNDING <span class="opt">(A$/month, locked for life)</span></label><input name="founding_monthly_aud" type="number" min="0" step="1" value="${esc(s.founding_monthly_aud || "12")}"></div>
+              <div><label>FOUNDING SEATS <span class="opt">(cap)</span></label><input name="founding_seats" type="number" min="0" step="1" value="${esc(s.founding_seats || "100")}"></div>
+              <div><label>FREE RESULT LIMIT <span class="opt">(per search)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
+              <div><label>FOUNDING SEATS CLAIMED <span class="opt">(managed automatically)</span></label><input value="${esc(s.founding_claimed || "0")}" disabled style="opacity:.7"></div>
+            </div>
+          </div>
+
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
         </div>
       </form>
@@ -1352,8 +1365,9 @@ async function wishlistAccessibleBy(env, wishlistId, session) {
 }
 
 // SQL predicate (alias c = clients) + bind values for "rows this session may
-// see": all for admin, owned-or-shared for an agent.
-function accessScope(session) {
+// see": all for admin, owned-or-shared for an agent. Exported so the isolation
+// behaviour can be tested directly.
+export function accessScope(session) {
   if (!session || session.role === "admin") return { sql: "1=1", binds: [] };
   return {
     sql: "(c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))",

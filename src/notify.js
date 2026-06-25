@@ -7,6 +7,13 @@ import { getSettings, settingOn } from "./settings.js";
 // Send an email through Resend (https://resend.com).
 // Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
 export async function sendEmail(env, { to, subject, html, from }) {
+  // Dev safety: with MAIL_DRY_RUN on, never hit Resend. Log what would have been
+  // sent and return a fake success so flows complete without real email going
+  // out. Set MAIL_DRY_RUN=1 in .dev.vars (or any non-production environment).
+  if (env.MAIL_DRY_RUN === "1" || env.MAIL_DRY_RUN === true) {
+    console.log(`[MAIL_DRY_RUN] suppressed email to ${Array.isArray(to) ? to.join(", ") : to} | subject: ${subject}`);
+    return { id: "dry-run", dryRun: true };
+  }
   if (!env.RESEND_API_KEY) {
     throw new Error("RESEND_API_KEY not set");
   }
