@@ -70,6 +70,27 @@ export const themeCss = `
     --radius:10px;--shadow:0 18px 50px rgba(0,0,0,0.45);
     --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
   }
+  /* Light workspace for app-style shells (request form, buyer portal). The
+     sidebar (.side) keeps the dark brand from :root; only .main goes light.
+     The marketing landing (.lpage) and login (.login-screen) don't use .main,
+     so they stay fully dark. Mirrors the staff admin's dark-rail/light-content. */
+  .main{
+    color:var(--ink);
+    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;
+    --bg:#f4f4f1;--bg-2:#ffffff;--card:#ffffff;--card-2:#ffffff;--off:#f7f7f5;
+    --hair:rgba(0,0,0,0.10);--hair-2:rgba(0,0,0,0.06);
+    --field:#fbfbfc;--field-line:rgba(0,0,0,0.14);
+    --gold-txt:#7A5E1C;--warn:#8a5e10;
+    --good:#1F7A4D;--good-bg:#E1F5EE;--good-line:rgba(31,122,77,0.35);
+    --bad:#B11226;--bad-bg:rgba(177,18,38,0.06);--bad-line:rgba(177,18,38,0.3);
+  }
+  .main input:focus,.main select:focus,.main textarea:focus{background:#ffffff}
+  .main select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236F7378' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")}
+  .main .btn-dark{background:#f1f0ec}
+  .main .btn-dark:hover{background:#e8e7e1}
+  .main .btn-toggle.off{background:#f1f0ec}
+  .main .chip.muted{background:#f1f0ec}
+  .main .wledit summary:hover{background:rgba(0,0,0,0.03)}
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;line-height:1.5}
