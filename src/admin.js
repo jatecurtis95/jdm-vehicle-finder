@@ -1,4 +1,4 @@
-// JDM Connect — Vehicle Finder staff app (hi-fi redesign) + public request page.
+// JDM Connect - Vehicle Finder staff app (hi-fi redesign) + public request page.
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
@@ -6,6 +6,7 @@ import { imageUrls, distinctMakers } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
+import { brandDoc, brandShell, risingSun } from "./theme.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -16,7 +17,7 @@ function makerField(makers, id) {
 }
 
 // Model field: free-text input backed by a <datalist> of the chosen maker's real
-// models (filled by modelScript on maker change). Free text still works — it's
+// models (filled by modelScript on maker change). Free text still works - it's
 // matched as "contains", so "S400" or "SKYLINE" partials are fine.
 function modelField(listId) {
   return `<input name="model_name" list="${listId}" placeholder="pick a maker, then choose or type"><datalist id="${listId}"></datalist>`;
@@ -29,7 +30,7 @@ function modelScript(makerId, listId) {
 }
 
 // Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
-// known model. EDIT THIS LIST to add or refine presets — especially tricky ones
+// known model. EDIT THIS LIST to add or refine presets - especially tricky ones
 // like the E55 (listed under "Mercedes AMG", not Mercedes-Benz). Make uses
 // best-match, so the brand word alone is enough. Verify values against the feed.
 const WL_PRESETS = [
@@ -55,7 +56,7 @@ function presetScript() {
 
 // <option> list of Australian states for the client forms.
 function stateOptions(selected) {
-  return `<option value="">— select —</option>` +
+  return `<option value="">Select a state</option>` +
     auStates().map((s) => `<option value="${s}"${s === selected ? " selected" : ""}>${s}</option>`).join("");
 }
 
@@ -445,7 +446,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
     </div>
     <div class="content${view === "matches" ? " wide" : ""}">${body}</div>`;
 
-  return shell(sidebar(view, counts, session), main, esc(h.title) + " — JDM Connect");
+  return shell(sidebar(view, counts, session), main, esc(h.title) + " - JDM Connect");
 }
 
 // Admin-only: manage agent logins.
@@ -455,7 +456,7 @@ function agentsView(agents) {
     return `<tr>
       <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}${invited ? ` <span class="chip muted">invited</span>` : ""}</td>
       <td>${esc(a.email)}</td>
-      <td>${esc(a.company || "—")}</td>
+      <td>${esc(a.company || "-")}</td>
       <td style="text-align:right">${a.client_count}</td>
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
@@ -506,7 +507,7 @@ function settingsView(settings, opts = {}) {
 
           <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
             <div style="font-size:15px;font-weight:600;margin-bottom:4px">Payments (Stripe)</div>
-            <p class="help" style="margin:0 0 16px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> — deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
+            <p class="help" style="margin:0 0 16px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> - deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
             <div class="toggles" style="margin-top:0">
               ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client has asked us to chase.", settingOn(s, "stripe_enabled"))}
             </div>
@@ -514,7 +515,7 @@ function settingsView(settings, opts = {}) {
               <div><label>DEPOSIT AMOUNT <span class="opt">(AUD)</span></label><input name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
               <div><label>CURRENCY</label><input name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
             </div>
-            <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> — add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
+            <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> - add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
           </div>
 
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
@@ -534,15 +535,15 @@ function paymentsView(payments, opts = {}) {
   const badge = (st) => {
     const m = { paid: ["#1F7A4D", "rgba(70,177,122,.14)"], created: ["#896B2D", "rgba(202,163,76,.14)"], expired: ["#6F7378", "#f3f4f6"], failed: ["#B11226", "rgba(177,18,38,.08)"] };
     const [c, bg] = m[st] || m.created;
-    return `<span style="display:inline-block;padding:4px 10px;border-radius:9999px;font-size:11px;font-weight:600;color:${c};background:${bg}">${esc(st || "—")}</span>`;
+    return `<span style="display:inline-block;padding:4px 10px;border-radius:9999px;font-size:11px;font-weight:600;color:${c};background:${bg}">${esc(st || "-")}</span>`;
   };
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
     <td>${esc(p.client_name || ("#" + p.client_id))}</td>
     <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
-    <td>${esc(p.description || "—")}</td>
+    <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
-    <td style="font-size:11px;color:var(--t3)">${esc(p.stripe_session || "—")}</td>
+    <td style="font-size:11px;color:var(--t3)">${esc(p.stripe_session || "-")}</td>
   </tr>`).join("") || `<tr><td colspan="6" class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</td></tr>`;
   const totalPaid = payments.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_cents || 0), 0);
   return `<div class="triage">
@@ -556,22 +557,23 @@ function paymentsView(payments, opts = {}) {
 
 // Styled login screen shown when there's no valid session.
 export function loginPage(opts = {}) {
-  const err = opts.error ? `<div class="login-err">Incorrect email or password — please try again.</div>` : "";
+  const err = opts.error ? `<div class="login-err">Incorrect email or password. Please try again.</div>` : "";
   const body = `<div class="login-screen">
+    ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo">${LOGO}</div>
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
-      <label>EMAIL <span class="opt">(agents &amp; clients)</span></label>
+      <label>EMAIL <span class="opt">(agents and clients)</span></label>
       <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
-      <div style="font-size:12px;color:#6B7178;line-height:1.5;margin-top:7px;text-align:left;">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
+      <div class="login-note">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
       <label style="margin-top:14px">PASSWORD</label>
       <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
     </form>
   </div>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — JDM Connect</title><style>${CSS}</style></head><body>${body}</body></html>`;
+  return brandDoc(body, "Sign in - JDM Connect");
 }
 
 // Agent set-password screen (reached from the emailed invite link).
@@ -586,17 +588,17 @@ export function setPasswordPage(opts = {}) {
     card = `<form class="login-card" method="POST" action="/set-password">
       <div class="login-logo">${LOGO}</div>
       <h1>Set your password</h1>
-      <p class="login-sub">Welcome${name ? ", " + esc(name) : ""} — choose a password to access the Vehicle Finder.</p>
+      <p class="login-sub">Welcome${name ? ", " + esc(name) : ""}. Choose a password to access the Vehicle Finder.</p>
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label>NEW PASSWORD</label>
       <input type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
       <label style="margin-top:14px">CONFIRM PASSWORD</label>
       <input type="password" name="confirm" autocomplete="new-password" required minlength="6">
-      <button class="btn-gold" type="submit">Set password &amp; sign in</button>
+      <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set password — JDM Connect</title><style>${CSS}</style></head><body><div class="login-screen">${card}</div></body></html>`;
+  return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
 }
 
 function intakeView(clients, makers) {
@@ -667,7 +669,7 @@ function clientsView(clients, wishlists, opts = {}) {
   };
 
   // Admin only: who owns this client (NULL = JDM Connect). Reassigning hands the
-  // client — its wishlists, matches and alerts — to that agent's dashboard.
+  // client - its wishlists, matches and alerts - to that agent's dashboard.
   const isAdmin = session.role === "admin";
   const ownerCell = (c) => {
     const opts = `<option value=""${!c.agent_id ? " selected" : ""}>JDM Connect</option>` +
@@ -679,7 +681,7 @@ function clientsView(clients, wishlists, opts = {}) {
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td><span class="avatar">${esc(initials(c.name))}</span><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></td>
-      <td>${esc(c.email || "—")}</td><td>${esc(c.state || "—")}</td>
+      <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
@@ -705,7 +707,7 @@ function clientsView(clients, wishlists, opts = {}) {
     <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
-// Fix 10: bounded/half-open year ranges instead of a bare leading-dash "–2009".
+// Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
 function yearRange(min, max) {
   const a = Number(min) || null, b = Number(max) || null;
   if (a && b) return `${a} to ${b}`;
@@ -716,7 +718,7 @@ function yearRange(min, max) {
 // Fix 10: tidy ALL-CAPS feed names for display without mangling acronyms or
 // chassis codes. Title-cases clearly-a-word caps tokens (TOYOTA→Toyota,
 // SKYLINE→Skyline) but leaves short acronyms (NSX, BMW, GT-R) and codes (JZA80)
-// untouched. Display only — matching still uses the raw stored values.
+// untouched. Display only - matching still uses the raw stored values.
 function tcWord(w) {
   return /^[A-Z]{4,}$/.test(w) ? w[0] + w.slice(1).toLowerCase() : w;
 }
@@ -729,12 +731,12 @@ function wishlistsView(wishlists) {
     const vehicle = `${displayName(w.marka_name) || "Any maker"} ${displayName(w.model_name)}`.trim();
     return `<tr>
       <td><span class="avatar">${esc(initials(w.client_name))}</span>${esc(w.client_name)}${w.needs_detail ? ` <span class="chip muted">needs detail</span>` : ""}</td>
-      <td>${esc(w.label || "—")}</td>
+      <td>${esc(w.label || "-")}</td>
       <td>${esc(vehicle)}</td>
       <td>${esc(yearRange(w.year_min, w.year_max))}</td>
-      <td>${w.price_max ? "¥" + Number(w.price_max).toLocaleString() : "—"}</td>
-      <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "—"}</td>
-      <td>${esc(w.rate_min || "—")}</td>
+      <td>${w.price_max ? "¥" + Number(w.price_max).toLocaleString() : "-"}</td>
+      <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "-"}</td>
+      <td>${esc(w.rate_min || "-")}</td>
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
@@ -798,14 +800,14 @@ function matchCard(q) {
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
       <span class="pill str"><span class="sd" style="background:${sColor}"></span>${esc(strengthLabel)}</span>
       <div class="ttl"><div class="t">${title}</div><div class="a">${sub}</div></div>
     </div>
     <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "—")}</div></div>
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
       <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
+      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Bid</div><div class="v">${bid}</div></div>
     </div>
     ${specs ? `<div class="specline">${specs}</div>` : ""}
@@ -1100,7 +1102,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const notFound = () => shell(sidebar("clients", {}, session),
     `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-dark" href="/admin?view=clients">Back to clients</a></div>
      <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>`,
-    "Client — JDM Connect");
+    "Client - JDM Connect");
   if (!Number.isInteger(cid) || cid <= 0) return notFound();
   if (!(await clientAccessibleBy(env, cid, session))) return notFound();
   const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
@@ -1138,7 +1140,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </div>`;
 
   // Buyer-portal access control (owner/admin only).
-  const portalState = c.portal_enabled ? (c.pass_hash ? "Active — client can sign in" : "Invited — awaiting password") : "Not enabled";
+  const portalState = c.portal_enabled ? (c.pass_hash ? "Active - client can sign in" : "Invited - awaiting password") : "Not enabled";
   const portalCard = canManage ? `<div class="card">
     <div class="portal-acct">
       <div style="flex:1">
@@ -1156,7 +1158,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const reqSection = requested.length ? `<div class="card">
     <h2><span class="num">${requested.length}</span> Cars ${esc(c.name)} asked us to action</h2>
-    <p class="help" style="margin:-8px 0 16px">Requested from their portal — pull the auction sheet, translate, and follow up.</p>
+    <p class="help" style="margin:-8px 0 16px">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
@@ -1202,7 +1204,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
     <div class="content">${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
-  return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " — JDM Connect");
+  return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,7 +1223,7 @@ export async function requestPage(env, opts = {}) {
   const success = ok ? `<div class="card reqok" id="reqOk">
         <div class="reqok-badge"><span class="tick">&#10003;</span> Request received</div>
         ${ref ? `<div class="reqok-ref">Your reference: <strong>${esc(ref)}</strong></div>` : ""}
-        <p>Thanks${firstName ? " " + esc(firstName) : ""} — your request is in and we're now watching the Japanese auctions for it. We'll ${req.email ? "email" : "be in touch"} the moment a matching car comes up. That can take days or weeks depending on what's listed, so quiet for a little while is completely normal.${req.email ? ` A confirmation is on its way to <strong>${esc(req.email)}</strong>.` : ""}</p>
+        <p>Thanks${firstName ? " " + esc(firstName) : ""}. Your request is in and we're now watching the Japanese auctions for it. We'll ${req.email ? "email" : "be in touch"} the moment a matching car comes up. That can take days or weeks depending on what's listed, so a quiet little while is completely normal.${req.email ? ` A confirmation is on its way to <strong>${esc(req.email)}</strong>.` : ""}</p>
         ${req.portal ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55"><strong>Your account is ready.</strong> <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> any time with your email and the password you chose to track your search and see the cars we find.</p>` : ""}
       </div>
       <script>(function(){try{var el=document.getElementById('reqOk');if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}})();</script>` : "";
@@ -1232,7 +1234,8 @@ export async function requestPage(env, opts = {}) {
 
   const main = `
     <div class="topbar">
-      <div>
+      <div style="position:absolute;right:-50px;top:-90px">${risingSun({ size: 320, tone: "soft" })}</div>
+      <div class="topbar-in">
         <div class="kicker">Vehicle Finder</div>
         <h1>Request a vehicle</h1>
         <p class="subline">Tell us what you're after and we'll search the Japanese auctions for it.</p>
@@ -1250,7 +1253,7 @@ export async function requestPage(env, opts = {}) {
             <div><label for="rq-email">EMAIL</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
             <div><label for="rq-whatsapp">WHATSAPP <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
             <div><label for="rq-state">STATE <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-            <div><label for="rq-pass">CREATE A PASSWORD <span class="opt">(optional — to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
+            <div><label for="rq-pass">CREATE A PASSWORD <span class="opt">(optional, to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
           </div>
           <p id="rq-contact-error" class="field-err">Please add an email or a WhatsApp number so we can reach you when a match comes up.</p>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
@@ -1268,7 +1271,7 @@ export async function requestPage(env, opts = {}) {
           </div>
           <p id="rq-year-error" class="field-err">“Year from” can't be later than “Year to”. Please check the years.</p>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
-            <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can — the more detail, the better the match. We review every match before sending you anything.</span></div>
+            <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
           <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
         </form>
       </div>
@@ -1277,13 +1280,13 @@ export async function requestPage(env, opts = {}) {
   const sb = `<aside class="side"><div class="brand">${LOGO}</div>
     <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
     </aside>`;
-  return shell(sb, main, "Request a vehicle — JDM Connect");
+  return brandShell(sb, main, "Request a vehicle - JDM Connect");
 }
 
 // Client-side guard for the public request form: require a contact method
 // (Fix 1), sanity-check the year range (Fix 4), and disable the button after a
 // valid submit so a fast double-tap can't create two leads (Fix 9). The server
-// re-checks all of this — these are UX only. No ${} interpolation inside.
+// re-checks all of this - these are UX only. No ${} interpolation inside.
 function requestFormScript() {
   return `<script>(function(){
     var form=document.getElementById('requestForm'); if(!form) return;
@@ -1381,8 +1384,8 @@ export async function createWishlist(env, form, clientIdOverride, session) {
   ).run();
 }
 
-// Delete a client and everything attached to them — their wishlists, queued
-// matches, and seen-lot history — in one batch.
+// Delete a client and everything attached to them - their wishlists, queued
+// matches, and seen-lot history - in one batch.
 export async function deleteClient(env, id, session) {
   const cid = Number(id);
   if (!Number.isInteger(cid) || cid <= 0) return;
@@ -1421,7 +1424,7 @@ export async function toggleWishlist(env, id, session) {
 // --- Agent management (admin only; the route layer enforces the admin role) ---
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// Create an agent with no password — they set their own via the emailed invite.
+// Create an agent with no password - they set their own via the emailed invite.
 // Returns { ok, token, email, name } so the route can send the welcome email.
 export async function createAgent(env, form) {
   const name = String(form.get("name") || "").trim();
@@ -1475,7 +1478,7 @@ export async function deleteAgent(env, id) {
   await env.DB.batch(stmts);
 }
 
-// Share / unshare a client with another agent — owner (or admin) only.
+// Share / unshare a client with another agent - owner (or admin) only.
 export async function shareClient(env, clientId, agentId, session) {
   const cid = Number(clientId), aid = Number(agentId);
   if (!cid || !aid) return;
@@ -1494,7 +1497,7 @@ export async function unshareClient(env, clientId, agentId, session) {
   await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, aid).run();
 }
 
-// Reassign a client's owner — admin only. Empty/0 agentId returns it to JDM
+// Reassign a client's owner - admin only. Empty/0 agentId returns it to JDM
 // Connect (admin). The client's wishlists, matches and alerts follow the owner.
 export async function assignClient(env, clientId, agentId, session) {
   if (!session || session.role !== "admin") return;
@@ -1510,7 +1513,7 @@ export async function assignClient(env, clientId, agentId, session) {
   if (owner) await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, owner).run();
 }
 
-// Bulk allocate selected clients — admin only. action "assign" sets the owner
+// Bulk allocate selected clients - admin only. action "assign" sets the owner
 // (empty agent = JDM Connect); "share" adds the agent as a co-searcher.
 export async function bulkAllocate(env, action, agentId, ids, session) {
   if (!session || session.role !== "admin") return;
@@ -1559,7 +1562,7 @@ function clipField(form, key, max) {
 //   { ok:false, error:"contact", vals }    → no contact method; re-render w/ error
 //   { ok:false, error:"spam" }             → honeypot; pretend success, store nothing
 export async function createRequest(env, form) {
-  // Honeypot: a hidden field real visitors never see. Bots fill it — pretend
+  // Honeypot: a hidden field real visitors never see. Bots fill it - pretend
   // success and store nothing, so they get no signal.
   if (String(form.get("company_website") ?? "").trim()) return { ok: false, error: "spam" };
 
@@ -1612,7 +1615,7 @@ export async function createRequest(env, form) {
 
   const req = {
     portal,
-    name: g("name") || "—", email, whatsapp, state: g("state"),
+    name: g("name") || "-", email, whatsapp, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
@@ -1735,18 +1738,18 @@ function clientCarCard(q, opts = {}) {
     ? `<form method="POST" action="/portal/pay" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-dark" type="submit">Pay ${esc(opts.depositLabel)} deposit</button></form>`
     : "";
   const action = requested
-    ? `<span class="reqbadge">&#10003; Requested — we're on it</span>`
+    ? `<span class="reqbadge">&#10003; Requested - we're on it</span>`
     : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-notify" type="submit">Ask us to get this</button></form>`;
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
       <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
     </div>
     <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "—")}</div></div>
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
       <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "—"}</div></div>
+      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
     ${chips.length ? `<div class="why">${chips.map((cc) => `<span class="wc">${cc}</span>`).join("")}</div>` : ""}
@@ -1763,17 +1766,17 @@ function requestedCard(q) {
   let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
-  const when = q.client_request_at ? esc(String(q.client_request_at).slice(0, 10)) : "—";
+  const when = q.client_request_at ? esc(String(q.client_request_at).slice(0, 10)) : "-";
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "—")}</span>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
       <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}</div></div>
     </div>
     <div class="mstats">
       <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
       <div class="s"><div class="k">Auction est.</div><div class="v">${Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price)}</div></div>
-      <div class="s"><div class="k">Chassis</div><div class="v">${esc(lot.kuzov || "—")}</div></div>
+      <div class="s"><div class="k">Chassis</div><div class="v">${esc(lot.kuzov || "-")}</div></div>
       <div class="s"><div class="k">Requested</div><div class="v">${when}</div></div>
     </div>
     <div class="mfoot"><span class="reqbadge">&#10003; Client wants this</span></div>
@@ -1785,10 +1788,10 @@ export async function portalPage(env, session, opts = {}) {
   const cid = Number(session.id);
   const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
-    return shell(portalSidebar(null),
+    return brandShell(portalSidebar(null),
       `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
        <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
-      "Portal — JDM Connect");
+      "Portal - JDM Connect");
   }
   await expirePast(env);
 
@@ -1817,7 +1820,7 @@ export async function portalPage(env, session, opts = {}) {
 
   const wlBody = wls.length
     ? wls.map((w) => wishlistEditor(w, { base: "/portal", portal: true })).join("")
-    : `<div class="empty">You don't have any searches yet — add one below.</div>`;
+    : `<div class="empty">You don't have any searches yet - add one below.</div>`;
 
   const addForm = `<div class="card">
     <h2><span class="num">+</span> Add a search</h2>
@@ -1853,11 +1856,11 @@ export async function portalPage(env, session, opts = {}) {
       ${flash}
       <div class="psec"><h2>Cars we've found for you</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
       ${carsBody}
-      <div class="psec" style="margin-top:34px"><h2>What you're searching for</h2><p class="psub">Edit a search or add another — changes apply on the next auction sweep.</p></div>
+      <div class="psec" style="margin-top:34px"><h2>What you're searching for</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
       ${wlBody}
       ${addForm}
     </div>`;
-  return shell(portalSidebar(c), main, "Your garage — JDM Connect");
+  return brandShell(portalSidebar(c), main, "Your garage - JDM Connect");
 }
 
 // --- Portal handlers (every one scoped to the signed-in client's own id) -----

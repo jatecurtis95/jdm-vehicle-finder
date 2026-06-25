@@ -1,4 +1,4 @@
-// JDM Vehicle Finder — Cloudflare Worker entry point.
+// JDM Vehicle Finder - Cloudflare Worker entry point.
 //
 // scheduled(): runs the matcher on the cron schedule, queues new matches,
 //   emails you a digest with approve/skip links.
@@ -14,6 +14,7 @@ import { getSettings, settingOn, digestRecipient, saveSettings } from "./setting
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
+import { notFoundPage, infoPage } from "./theme.js";
 
 export default {
   // -------- Scheduled matcher --------
@@ -39,7 +40,7 @@ export default {
       return handleDecision(request, env, url);
     }
 
-    // Public vehicle-request form (no login) — for dealers and their clients.
+    // Public vehicle-request form (no login) - for dealers and their clients.
     if (path === "/request") {
       if (request.method === "POST") {
         // Per-IP rate limit (best-effort; fails open if KV is unavailable).
@@ -63,7 +64,7 @@ export default {
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req }));
           }
           if (result.error === "contact") {
-            // No email or WhatsApp — re-render with the error and their input.
+            // No email or WhatsApp - re-render with the error and their input.
             return doc(await requestPage(env, { error: "contact", vals: result.vals }));
           }
           // Honeypot/spam falls through to a generic success so bots get no signal.
@@ -73,7 +74,7 @@ export default {
       return doc(await requestPage(env));
     }
 
-    // Feed lookup lists for the form dropdowns (public — just car names).
+    // Feed lookup lists for the form dropdowns (public - just car names).
     // CORS-open so other JDM apps (e.g. the dealer portal) can consume them.
     if (path === "/api/makers") {
       return new Response(JSON.stringify(await distinctMakers(env)), {
@@ -87,7 +88,7 @@ export default {
     }
 
     // Same-host redirect helper: keeps the user (and their session cookie) on
-    // whichever domain they arrived on — custom domain or workers.dev.
+    // whichever domain they arrived on - custom domain or workers.dev.
     const here = (p) => new URL(p, url).toString();
 
     // Where each role lands after signing in.
@@ -112,7 +113,7 @@ export default {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
     }
 
-    // Set-password (from an emailed invite link). Public — the single-use token
+    // Set-password (from an emailed invite link). Public - the single-use token
     // authorises it. Works for both agent and client invites; the token is
     // looked up against agents first, then clients. On success the user is
     // signed straight in and sent to their home.
@@ -218,7 +219,7 @@ export default {
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
-    // Buyer portal access — enable + (re)send a set-password link, or revoke.
+    // Buyer portal access - enable + (re)send a set-password link, or revoke.
     // Owner/admin only (enforced inside the handlers).
     if (path === "/client/portal-invite" && request.method === "POST") {
       const id = (await request.formData()).get("id");
@@ -232,7 +233,7 @@ export default {
       return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
     }
 
-    // Allocate clients to agents — admin only.
+    // Allocate clients to agents - admin only.
     if (path === "/client/assign" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
@@ -270,7 +271,7 @@ export default {
       return Response.redirect(here("/admin?view=wishlists"), 303);
     }
 
-    // Agent management — admin only.
+    // Agent management - admin only.
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const r = await createAgent(env, await request.formData());
@@ -299,14 +300,14 @@ export default {
       return Response.redirect(here("/admin?view=agents"), 303);
     }
 
-    // Settings — admin only.
+    // Settings - admin only.
     if (path === "/settings" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       await saveSettings(env, await request.formData());
       return Response.redirect(here("/admin?view=settings"), 303);
     }
 
-    // Client sharing — owner or admin (enforced in the handlers).
+    // Client sharing - owner or admin (enforced in the handlers).
     if (path === "/share" && request.method === "POST") {
       const f = await request.formData();
       await shareClient(env, f.get("client_id"), f.get("agent_id"), session);
@@ -318,7 +319,7 @@ export default {
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
-    return new Response("Not found", { status: 404 });
+    return doc(notFoundPage(), 404);
   },
 };
 
@@ -333,8 +334,8 @@ async function handleClientPortal(request, env, url, path, session, here) {
     const code = url.searchParams.get("ok");
     const err = url.searchParams.get("err");
     const flash =
-      code === "requested" ? "Thanks — we've got it. We'll pull the auction sheet, translate it, and come back to you." :
-      code === "paid" ? "Payment received — thank you. We'll be in touch with the next steps." :
+      code === "requested" ? "Thanks - we've got it. We'll pull the auction sheet, translate it, and come back to you." :
+      code === "paid" ? "Payment received - thank you. We'll be in touch with the next steps." :
       code === "saved" ? "Saved." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." : "";
     return doc(await portalPage(env, session, { flash }));
@@ -357,7 +358,7 @@ async function handleClientPortal(request, env, url, path, session, here) {
     return back();
   }
 
-  // Buyer asks us to action/translate a car — flag it and alert staff (once).
+  // Buyer asks us to action/translate a car - flag it and alert staff (once).
   if (path === "/portal/approve" && request.method === "POST") {
     const queueId = (await request.formData()).get("queue_id");
     const r = await portalApprove(env, queueId, session);
@@ -409,7 +410,7 @@ async function sendClientPortalInvite(env, r) {
   try {
     await sendEmail(env, {
       to: r.email,
-      subject: "Your JDM Connect portal — set your password",
+      subject: "Your JDM Connect portal - set your password",
       html: clientPortalInviteHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
@@ -454,7 +455,7 @@ async function alertNewRequest(env, req) {
     if (!settingOn(settings, "request_alerts")) return;
     await sendEmail(env, {
       to: digestRecipient(settings, env),
-      subject: `New vehicle request — ${req.name}`,
+      subject: `New vehicle request - ${req.name}`,
       html: requestAlertHtml(req, env.PUBLIC_URL),
     });
   } catch (err) {
@@ -470,7 +471,7 @@ async function confirmRequest(env, req, ref) {
     if (!req || !req.email) return;
     await sendEmail(env, {
       to: req.email,
-      subject: `We have your JDM request${req.name && req.name !== "—" ? ", " + String(req.name).trim().split(/\s+/)[0] : ""} (ref ${ref})`,
+      subject: `We have your JDM request${req.name && req.name !== "-" ? ", " + String(req.name).trim().split(/\s+/)[0] : ""} (ref ${ref})`,
       html: requestConfirmationHtml(req, ref, env.PUBLIC_URL),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
@@ -532,7 +533,7 @@ async function handleDecision(request, env, url) {
   const ajax = url.searchParams.get("ajax") === "1";
   const ok200 = () => new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
   if (!token || !["approve", "reject"].includes(action)) {
-    return ajax ? new Response("invalid", { status: 400 }) : html("<p>Invalid link.</p>", 400);
+    return ajax ? new Response("invalid", { status: 400 }) : doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
   }
 
   // If the click came from inside the app (signed-in session), return to the
@@ -542,14 +543,14 @@ async function handleDecision(request, env, url) {
   const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
-  if (!item) return ajax ? ok200() : html("<p>This item no longer exists.</p>", 404);
+  if (!item) return ajax ? ok200() : doc(infoPage("Item not found", "This match no longer exists."), 404);
   // A signed-in agent may only act on their own clients' matches. Email links
   // (no session) are authorised by the unguessable token itself.
   if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) {
-    return ajax ? new Response("forbidden", { status: 403 }) : (backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404));
+    return ajax ? new Response("forbidden", { status: 403 }) : (backToApp ? toMatches() : doc(infoPage("Item not found", "This match no longer exists."), 404));
   }
   if (item.status !== "pending") {
-    return ajax ? ok200() : (backToApp ? toMatches() : html(`<p>Already handled (status: ${item.status}).</p>`));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Already handled", `This match was already handled (status: ${item.status}).`)));
   }
 
   if (action === "reject") {
@@ -557,10 +558,10 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'rejected', reason = ?, decided_at = datetime('now') WHERE id = ?"
     ).bind(reason, item.id).run();
-    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Skipped. The client will not be contacted about this car.</p>"));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Skipped", "Skipped. The client will not be contacted about this car.")));
   }
 
-  // Approve. Watch-only "lead" wishlists never email the client — the match is
+  // Approve. Watch-only "lead" wishlists never email the client - the match is
   // just marked handled so staff can follow up by phone instead.
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
   const wishlist = await env.DB.prepare(
@@ -570,7 +571,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Marked for follow-up. The client was not emailed (watch-only lead).</p>"));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Marked for follow-up", "Marked for follow-up. The client was not emailed because this is a watch-only lead.")));
   }
   const lot = JSON.parse(item.lot_json);
   try {
@@ -581,19 +582,19 @@ async function handleDecision(request, env, url) {
     if (ajax) return ok200();
     if (backToApp) return toMatches();
     const channels = [r.email && "email", r.whatsapp && "WhatsApp"].filter(Boolean).join(" + ") || "no channel (client has no contact set)";
-    return html(`<p>Approved and sent to ${escapeName(client?.name)} via ${channels}.</p>`);
+    return doc(infoPage("Approved and sent", `Approved and sent to ${client?.name || "the client"} via ${channels}.`));
   } catch (err) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return ajax ? new Response("send failed", { status: 500 }) : html(`<p>Approved but delivery failed: ${err.message}</p>`, 500);
+    return ajax ? new Response("send failed", { status: 500 }) : doc(infoPage("Delivery failed", `Approved, but delivery failed: ${err.message}`), 500);
   }
 }
 
 // Apply approve/reject to many queued matches at once (the Matches bulk bar).
 // Keeps the agent per-item access check and isolates failures. On approve, all
 // of one client's selected cars go out in a SINGLE combined email rather than
-// one per car — so picking 10 cars for a client sends them one email, not ten.
+// one per car - so picking 10 cars for a client sends them one email, not ten.
 async function applyBulkDecisions(env, action, ids, session) {
   if (action === "reject") {
     for (const id of ids) {
@@ -654,21 +655,11 @@ async function applyBulkDecisions(env, action, ids, session) {
   }
 }
 
-function escapeName(s) {
-  return String(s ?? "the client").replace(/</g, "&lt;");
-}
-
-// Return a complete HTML document as-is (used for the full-page admin/request UIs).
+// Return a complete HTML document as-is (used for the full-page admin/request UIs
+// and the branded standalone info / 404 pages from theme.js).
 function doc(htmlString, status = 200) {
   return new Response(htmlString, {
     status,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
   });
-}
-
-function html(body, status = 200) {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#222">${body}</body>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
-  );
 }

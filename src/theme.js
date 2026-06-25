@@ -1,0 +1,338 @@
+// JDM Connect design system (Stage 0).
+//
+// One canonical brand layer reused across every customer-facing surface: the
+// public request form, the buyer portal, login / set-password, and the public
+// vehicle browse and pricing pages added later. Dark charcoal background, a warm
+// gold accent, the rising-sun motif used sparingly, Inter for UI text.
+//
+// The class names here deliberately mirror the staff app so existing markup
+// re-themes with no churn. The internal staff admin keeps its lighter theme for
+// now; this module is the brand for everything a buyer or the public can see.
+//
+// Copy rule for this codebase: no em dashes or en dashes anywhere. Use commas,
+// periods, or hyphens.
+
+export const FONT = `"Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,sans-serif`;
+
+// Official JDM Connect horizontal lockup (inline SVG). The paths carry no fill,
+// so on a dark surface we tint them to the cream ink via CSS (.brand svg path).
+export const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:190px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
+<polygon points="133.86 45.51 150.93 .54 169.49 .54 182.2 31.95 215.18 .55 232.49 .54 215.4 45.5 201.57 45.51 213.16 14.41 181.27 45.51 172.35 45.51 159.78 13.79 147.44 45.51 133.86 45.51"></polygon>
+<path d="M60.77,45.5L77.84.52h47.87c8.59,0,15.68.61,11.7,11.11-1.04,2.73-5.67,15.91-9.97,23.88-5.23,9.69-10.58,10.02-21.73,10.02l-44.94-.02ZM78.98,37.5h27.61c4.47,0,6.88-1.65,8.81-3.84,2.14-2.43,7.07-14.79,7.97-18.27,1.24-4.84-1.45-6.83-10.08-6.83h-23.43l-.14.44-10.74,28.5Z"></path>
+<path d="M68.56.52c-2.18,5.74-4.3,11.29-6.59,17.33-6.74,17.77-8.86,27.67-29.03,27.67H-.05l3.15-7.98,28.65-.03c5.98-.43,8.57-2.77,11.03-8.22,2.93-6.47,4.88-13.89,7.73-20.45h-15.96c.96-2.78,1.76-5.94,3.4-8.32h30.61Z"></path>
+<path d="M252.07,21.74h-10.75c-3.68,0-5.88-1.31-6.97-3.44-.94-1.84-1-4.35.05-7.13,1.16-3.06,3.48-5.85,6.25-7.78,2.47-1.72,5.33-2.78,8.65-2.78h10.75l-2.11,5.6h-10.75c-1.85,0-3.21.53-4.41,1.38-1.28.91-2.36,2.22-2.89,3.63-.48,1.28-.45,2.47.01,3.34.5,1,1.57,1.63,3.52,1.63h10.75l-2.1,5.57Z"></path>
+<path d="M266.66,21.74c-3.68,0-5.88-1.31-6.97-3.44-.94-1.84-1-4.35.05-7.13,1.16-3.06,3.48-5.85,6.25-7.78,2.47-1.72,5.33-2.78,8.65-2.78h4.31c3.31,0,5.37,1.06,6.54,2.78,1.3,1.94,1.53,4.72.37,7.78-1.05,2.78-3,5.28-5.33,7.13-2.69,2.13-5.89,3.44-9.56,3.44h-4.31ZM272.52,6.2c-1.85,0-3.21.53-4.41,1.38-1.28.91-2.36,2.22-2.89,3.63-.48,1.28-.45,2.47.01,3.34.5,1,1.57,1.63,3.52,1.63h4.31c1.94,0,3.49-.63,4.74-1.63,1.12-.87,2.06-2.06,2.54-3.34.53-1.41.45-2.72-.15-3.63-.56-.84-1.52-1.38-3.37-1.38h-4.31Z"></path>
+<path d="M313.83,17.64c-1.2,3.19-3.56,4.53-5.57,4.53-1.73,0-2.85-.5-3.39-1.66l-6.21-13.41c-.08-.19-.2-.28-.38-.28-.27,0-.6.22-.74.59l-5.4,14.32h-5.41l6.29-16.66c1.36-3.6,3.87-4.94,6.63-4.94,1.94,0,2.96.53,3.64,2.09l5.37,12.35c.07.22.24.25.42.25.24,0,.5-.19.64-.56l5.15-13.66h5.38l-6.43,17.04Z"></path>
+<path d="M344.64,17.64c-1.2,3.19-3.56,4.53-5.57,4.53-1.73,0-2.85-.5-3.39-1.66l-6.21-13.41c-.08-.19-.2-.28-.38-.28-.27,0-.6.22-.74.59l-5.4,14.32h-5.41l6.29-16.66c1.36-3.6,3.87-4.94,6.63-4.94,1.94,0,2.96.53,3.65,2.09l5.37,12.35c.07.22.24.25.42.25.24,0,.5-.19.64-.56l5.15-13.66h5.38l-6.43,17.04Z"></path>
+<path d="M377.95.6l-2.11,5.6h-15.61c-.33,0-.56.19-.69.53l-.91,2.41h16.01l-1.53,4.06h-16.01l-.97,2.56c-.14.38-.06.56.27.56h15.61l-2.04,5.41h-18.71c-1.91,0-2.52-.97-1.78-2.94l5.79-15.35c.72-1.91,2.05-2.85,3.99-2.85h18.68Z"></path>
+<path d="M396.04,21.74h-10.75c-3.68,0-5.88-1.31-6.97-3.44-.94-1.84-1-4.35.05-7.13,1.16-3.06,3.48-5.85,6.25-7.78,2.47-1.72,5.33-2.78,8.64-2.78h10.75l-2.11,5.6h-10.75c-1.85,0-3.21.53-4.41,1.38-1.28.91-2.36,2.22-2.89,3.63-.48,1.28-.45,2.47.01,3.34.5,1,1.57,1.63,3.52,1.63h10.75l-2.1,5.57Z"></path>
+<path d="M432.03.6l-2.11,5.6h-8.99l-5.86,15.54h-5.53l5.86-15.54h-9.02l2.11-5.6h23.54Z"></path>
+</svg>`;
+
+// Rising-sun motif. A single half-disc with a fan of rays, used sparingly behind
+// brand headers and as a quiet signature. `tone` picks the opacity weight so it
+// can sit behind text without fighting it. Decorative only (aria-hidden).
+export function risingSun({ size = 320, tone = "soft" } = {}) {
+  const op = tone === "bold" ? 0.5 : tone === "faint" ? 0.12 : 0.26;
+  const rays = Array.from({ length: 9 }, (_, i) => {
+    const a = (-90 + i * 22.5) * (Math.PI / 180);
+    const x = 100 + Math.cos(a) * 96;
+    const y = 100 + Math.sin(a) * 96;
+    return `<line x1="100" y1="100" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="url(#rg)" stroke-width="3" stroke-linecap="round"/>`;
+  }).join("");
+  return `<svg class="risingsun" aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 200 200" style="opacity:${op}">
+    <defs>
+      <radialGradient id="rg" cx="50%" cy="100%" r="100%">
+        <stop offset="0%" stop-color="#E8C977"/>
+        <stop offset="55%" stop-color="#CAA34C"/>
+        <stop offset="100%" stop-color="#CAA34C" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <circle cx="100" cy="100" r="46" fill="url(#rg)"/>
+    ${rays}
+  </svg>`;
+}
+
+// The dark brand stylesheet. Mirrors the staff-app class names so portal and
+// request markup theme cleanly, with a product-grade dark palette layered on top.
+export const themeCss = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  :root{
+    --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#71767E;
+    --bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;
+    --hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
+    --field:#1B1F26;--field-line:rgba(255,255,255,0.14);
+    --good:#5BC08C;--good-bg:rgba(91,192,140,0.13);--good-line:rgba(91,192,140,0.4);
+    --bad:#E2607A;--bad-bg:rgba(226,96,122,0.1);--bad-line:rgba(226,96,122,0.34);
+    --warn:#E0A94B;
+    --radius:10px;--shadow:0 18px 50px rgba(0,0,0,0.45);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;line-height:1.5}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--gold-tint);color:var(--ink)}
+  .risingsun{position:absolute;pointer-events:none;z-index:0}
+
+  /* Shell: sidebar + main (buyer portal) */
+  .wrap{display:flex;min-height:100vh;position:relative;background:var(--bg)}
+  .side{width:264px;flex:0 0 264px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:28px 20px;background:var(--bg-2);position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
+  .side .brand{padding:2px 6px 22px;margin-bottom:18px;border-bottom:1px solid var(--hair)}
+  .brand svg path,.brand svg polygon,.login-logo svg path,.login-logo svg polygon{fill:var(--ink)}
+  .nav{display:flex;flex-direction:column;gap:3px}
+  .nav a{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:8px;font-size:15px;color:var(--t2);transition:background .15s,color .15s}
+  .nav a .bar{width:3px;height:17px;border-radius:2px;background:transparent}
+  .nav a .lbl{flex:1}
+  .nav a .ct{font-size:13px;color:var(--faint);font-weight:500}
+  .nav a.active{background:var(--gold-tint);color:var(--ink);font-weight:600}
+  .nav a.active .bar{background:var(--gold)}
+  .nav a.active .ct{color:var(--gold-txt)}
+  .nav a:hover:not(.active){background:rgba(255,255,255,0.04);color:var(--ink)}
+  .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:14px;padding-top:20px}
+  .whoami{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 0}
+  .whoami .who-name{font-size:13px;font-weight:600;color:var(--ink)}
+  .whoami .who-role{font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-txt)}
+  .signout{display:block;text-align:center;color:var(--t3);font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--hair)}
+  .signout:hover{background:rgba(255,255,255,0.04);color:var(--ink)}
+
+  .main{flex:1;min-width:0;background:var(--bg);display:flex;flex-direction:column;position:relative;z-index:1}
+  .topbar{position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;background:var(--bg-2);padding:34px 40px 28px;border-bottom:1px solid var(--hair);overflow:hidden}
+  .topbar .topbar-in{position:relative;z-index:1}
+  .topbar>div:not(.topbar-in){position:relative;z-index:1}
+  .topbar .btn-dark{position:relative;z-index:1}
+  .kicker{display:flex;align-items:center;gap:10px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase}
+  .kicker:before{content:"";width:26px;height:1px;background:var(--gold);display:inline-block}
+  h1{font-size:34px;font-weight:700;letter-spacing:-0.02em;margin:13px 0 7px;line-height:1.04;color:var(--ink)}
+  .subline{color:var(--t3);font-size:15px;margin:0;max-width:60ch}
+  .content{padding:32px 40px 64px;max-width:1180px;width:100%;position:relative;z-index:1}
+
+  /* Cards + forms */
+  .card{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);padding:26px 28px;margin-bottom:24px}
+  .card>h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px;color:var(--ink)}
+  .card>h2 .num{color:var(--gold);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
+  label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
+  label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
+  input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--field-line);border-radius:7px;font-size:14px;background:var(--field);color:var(--ink);font-family:${FONT};transition:border-color .15s,box-shadow .15s}
+  input::placeholder,textarea::placeholder{color:#7A808A}
+  select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239BA0A7' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint);background:#20242C}
+  .actions{display:flex;align-items:center;gap:14px;margin-top:24px;flex-wrap:wrap}
+  .help{color:var(--faint);font-size:13px;line-height:1.5}
+
+  /* Buttons */
+  .btn-gold{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;font-weight:700;border:0;padding:12px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};transition:background .15s,transform .05s}
+  .btn-gold:hover{background:var(--gold-hover)}
+  .btn-gold:active{transform:translateY(1px)}
+  .btn-dark,.btn-notify{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,0.06);color:var(--ink);font-weight:600;border:1px solid var(--hair);padding:11px 18px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};white-space:nowrap;transition:background .15s,border-color .15s}
+  .btn-dark:hover,.btn-notify:hover{background:rgba(255,255,255,0.1);border-color:var(--gold-line)}
+  .btn-notify{background:var(--gold);color:#15120A;border:0;font-weight:700}
+  .btn-notify:hover{background:var(--gold-hover)}
+  .btn-search{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--gold);color:#15120A;font-weight:700;padding:13px;border-radius:8px;font-size:15px}
+  .btn-search:hover{background:var(--gold-hover)}
+  .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:#15120A;display:inline-block}
+  .btn-skip{color:var(--t3);font-size:13px;padding:9px 8px;border-radius:7px}
+  .btn-skip:hover{color:var(--ink)}
+  .btn-toggle{border:1px solid var(--hair);font-size:12px;font-weight:600;padding:7px 14px;border-radius:9999px;cursor:pointer;background:transparent;color:var(--t2);font-family:${FONT}}
+  .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold-line);color:var(--gold-txt)}
+  .btn-toggle.off{background:rgba(255,255,255,0.04);color:var(--t3)}
+  .btn-del{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:12px;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer;font-family:${FONT}}
+  .btn-del:hover{background:var(--bad-bg)}
+  .btn-link{background:transparent;border:0;color:var(--gold-txt);font-size:13px;font-weight:600;padding:7px 8px;cursor:pointer;font-family:${FONT}}
+  .btn-link:hover{text-decoration:underline}
+
+  /* Badges, chips, banners, eligibility */
+  .chip{display:inline-block;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);font-size:11px;font-weight:600;padding:4px 10px;border-radius:9999px;font-family:${FONT}}
+  .chip.muted{background:rgba(255,255,255,0.05);border-color:var(--hair);color:var(--t3)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.03em;padding:5px 11px;border-radius:9999px;text-transform:uppercase}
+  .badge .bd{width:7px;height:7px;border-radius:9999px;display:inline-block;background:currentColor}
+  .badge.ok{color:var(--good);background:var(--good-bg);border:1px solid var(--good-line)}
+  .badge.warn{color:var(--warn);background:var(--gold-tint);border:1px solid var(--gold-line)}
+  .badge.no{color:var(--bad);background:var(--bad-bg);border:1px solid var(--bad-line)}
+  .elig{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px}
+  .elig.ok{color:var(--good);background:var(--good-bg);border:1px solid var(--good-line)}
+  .elig.check{color:var(--warn);background:var(--gold-tint);border:1px solid var(--gold-line)}
+  .elig.no{color:var(--bad);background:var(--bad-bg);border:1px solid var(--bad-line)}
+  .reqbadge{display:inline-flex;align-items:center;gap:7px;background:var(--good-bg);border:1px solid var(--good-line);color:var(--good);font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:9999px}
+  .paybadge{display:inline-flex;align-items:center;gap:6px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:9999px;margin-left:8px}
+  .banner{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:15px 20px;background:var(--card);border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:8px}
+  .banner .txt{font-size:14px;color:var(--t2)}
+  .flash{display:flex;align-items:center;gap:11px;margin-bottom:22px;padding:14px 18px;background:var(--good-bg);border:1px solid var(--good-line);border-radius:8px;color:var(--ink);font-size:14px}
+
+  /* Vehicle cards (portal + browse) */
+  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:22px}
+  .mcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s,transform .15s}
+  .mcard:hover{border-color:var(--gold-line);transform:translateY(-2px)}
+  .mphoto{position:relative;height:194px;flex:0 0 auto;background:#0B0D10;background-size:cover;background-position:center}
+  .mphoto .grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0) 58%)}
+  .pill{position:absolute;top:12px;display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,0.6);backdrop-filter:blur(3px);border-radius:5px;padding:5px 10px;font-size:11px;font-weight:600;color:#fff;letter-spacing:0.04em}
+  .pill.lot{left:12px}
+  .pill.str{right:12px}
+  .pill.str .sd{width:7px;height:7px;border-radius:9999px;display:inline-block}
+  .mphoto .ttl{position:absolute;left:14px;right:14px;bottom:12px;color:#fff;z-index:1}
+  .mphoto .ttl .t{font-size:17px;font-weight:700;letter-spacing:-0.01em}
+  .mphoto .ttl .a{font-size:11px;color:#E6E7E8;margin-top:3px}
+  .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px}
+  .mstats .s .k{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint)}
+  .mstats .s .v{font-size:13px;font-weight:600;margin-top:5px;color:var(--ink)}
+  .mstats .s.gold .v{color:var(--gold-txt)}
+  .mland{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(202,163,76,0.07);border-top:1px solid var(--hair)}
+  .mland .ml-k{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--gold-txt)}
+  .mland .ml-v{font-size:16px;font-weight:700;color:var(--ink)}
+  .mfoot{border-top:1px solid var(--hair);padding:14px 16px;display:flex;align-items:center;gap:10px}
+  .mfoot .who{flex:1;min-width:0}
+  .mfoot .who .n{font-size:13px;font-weight:600;color:var(--ink)}
+  .mfoot .who .w{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .why{padding:9px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
+  .why .wc{font-size:10.5px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:9999px;padding:3px 9px}
+  .why .wx{font-size:10.5px;font-weight:600;color:var(--bad);background:var(--bad-bg);border:1px solid var(--bad-line);border-radius:9999px;padding:3px 9px}
+  .specline{padding:2px 16px 0;font-size:11.5px;color:var(--t3);display:flex;gap:6px;flex-wrap:wrap}
+  .specline b{color:var(--t2);font-weight:600}
+
+  /* Wishlist rows (portal) */
+  .wlrow{border:1px solid var(--hair);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;background:var(--card)}
+  .wlhead{display:flex;align-items:center;gap:12px;padding:15px 16px}
+  .wlsum{flex:1;min-width:0}
+  .wlsum .wln{font-size:14px;font-weight:600;color:var(--ink)}
+  .wlsum .wlc{font-size:12.5px;color:var(--t3);margin-top:3px}
+  .wlacts{display:flex;align-items:center;gap:8px}
+  .wledit{border-top:1px solid var(--hair);background:var(--off)}
+  .wledit summary{cursor:pointer;padding:12px 16px;font-size:13px;font-weight:600;color:var(--gold-txt);list-style:none}
+  .wledit summary::-webkit-details-marker{display:none}
+  .wledit summary:hover{background:rgba(255,255,255,0.03)}
+  .wledit form{padding:6px 16px 18px}
+
+  /* Sectioning + empties */
+  .psec{margin:30px 0 16px}
+  .psec h2{font-size:18px;font-weight:700;margin:0;color:var(--ink);letter-spacing:-0.01em}
+  .psec .psub{margin:6px 0 0;font-size:13.5px;color:var(--t3);max-width:64ch}
+  .empty{color:var(--faint);padding:34px 0;text-align:center}
+  .empty .rule{width:42px;height:1px;background:var(--gold);opacity:.7;margin:0 auto 16px}
+  .portal-acct{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .portal-acct .pa-k{font-size:12px;color:var(--t3)}
+  .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+
+  /* Public request: success receipt + inline error */
+  .reqok{border:1px solid var(--gold-line);border-left:4px solid var(--gold);background:linear-gradient(180deg,rgba(202,163,76,0.1),var(--card))}
+  .reqok .reqok-badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-txt)}
+  .reqok .reqok-badge .tick{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--gold);color:#15120A;font-size:13px}
+  .reqok .reqok-ref{margin-top:13px;font-size:15px;color:var(--ink)}
+  .reqok .reqok-ref strong{font-weight:700;letter-spacing:.02em}
+  .reqok p{margin:13px 0 0;color:var(--t2);font-size:14px;line-height:1.55}
+  .reqerr{margin-bottom:18px;padding:13px 16px;background:var(--bad-bg);border:1px solid var(--bad-line);border-left:4px solid var(--bad);border-radius:8px;color:#F0A8B5;font-size:14px;line-height:1.45}
+  .field-err{display:none;color:var(--bad);font-size:13px;line-height:1.45;margin-top:9px;font-weight:500}
+
+  /* Login + set-password */
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px;position:relative;overflow:hidden}
+  .login-card{position:relative;z-index:1;width:100%;max-width:392px;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:36px 32px 30px;box-shadow:var(--shadow)}
+  .login-card .login-logo{display:flex;justify-content:center;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--hair)}
+  .login-card h1{font-size:22px;font-weight:700;margin:0 0 6px;text-align:center;letter-spacing:-0.01em}
+  .login-card .login-sub{color:var(--t3);font-size:14px;text-align:center;margin:0 0 22px;line-height:1.45}
+  .login-card label{margin-bottom:8px}
+  .login-card .btn-gold{width:100%;margin-top:18px;padding:13px;font-size:15px}
+  .login-err{background:var(--bad-bg);border:1px solid var(--bad-line);color:#F0A8B5;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:16px;text-align:center}
+  .login-note{font-size:12px;color:var(--t3);line-height:1.5;margin-top:7px;text-align:left}
+
+  /* Pricing tiers */
+  .pricegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+  .tier{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:26px 24px;display:flex;flex-direction:column}
+  .tier.feature{border-color:var(--gold-line);box-shadow:0 0 0 1px var(--gold-line)}
+  .tier .tier-tag{position:absolute;top:-11px;left:24px;background:var(--gold);color:#15120A;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 11px;border-radius:9999px}
+  .tier .tier-name{font-size:14px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-txt)}
+  .tier .tier-price{font-size:34px;font-weight:800;letter-spacing:-0.02em;margin:12px 0 2px}
+  .tier .tier-price .per{font-size:14px;font-weight:500;color:var(--t3)}
+  .tier .tier-sub{font-size:13px;color:var(--t3);margin-bottom:18px}
+  .tier ul{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
+  .tier li{font-size:13.5px;color:var(--t2);display:flex;gap:9px;align-items:flex-start}
+  .tier li:before{content:"";flex:0 0 auto;width:16px;height:16px;margin-top:1px;border-radius:9999px;background:var(--gold-tint);border:1px solid var(--gold-line);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.2 2.3 4.8-5' stroke='%23E6C879' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:center}
+  .tier .btn-gold,.tier .btn-dark{width:100%;margin-top:auto}
+
+  /* Freemium gate */
+  .gate{margin-top:22px;padding:22px 24px;text-align:center;background:linear-gradient(180deg,rgba(202,163,76,0.08),var(--card));border:1px dashed var(--gold-line);border-radius:var(--radius)}
+  .gate .gn{font-size:18px;font-weight:700;color:var(--ink)}
+  .gate .gs{font-size:13.5px;color:var(--t3);margin:7px 0 16px;max-width:46ch;margin-left:auto;margin-right:auto}
+
+  /* CTA strip */
+  .cta-import{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:16px 18px;background:rgba(202,163,76,0.08);border:1px solid var(--gold-line);border-radius:var(--radius)}
+  .cta-import .ci-t{font-size:14px;font-weight:600;color:var(--ink)}
+  .cta-import .ci-s{font-size:12.5px;color:var(--t3);margin-top:2px}
+
+  /* Standalone info / 404 pages */
+  .infowrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px;position:relative;overflow:hidden}
+  .infocard{position:relative;z-index:1;width:100%;max-width:460px;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:38px 34px;text-align:center;box-shadow:var(--shadow)}
+  .infocard .ico{display:flex;justify-content:center;margin-bottom:22px}
+  .infocard h1{font-size:24px;margin:0 0 10px}
+  .infocard p{color:var(--t2);font-size:15px;line-height:1.6;margin:0 0 22px}
+  .infocard .ref{display:inline-block;font-weight:700;color:var(--gold-txt);letter-spacing:.02em}
+
+  @media(max-width:920px){
+    .wrap{flex-direction:column}
+    .side{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;position:static;height:auto;overflow:visible}
+    .side .brand{border-bottom:0;margin:0;padding:2px 6px}
+    .nav{flex-direction:row;flex-wrap:wrap}
+    .side-foot{margin:0 0 0 auto;flex-direction:row;padding-top:0}
+  }
+  @media(max-width:640px){
+    .grid{grid-template-columns:1fr}
+    .topbar,.content{padding-left:20px;padding-right:20px}
+    .topbar{padding-top:24px;padding-bottom:22px}
+    h1{font-size:28px}
+    input,select,textarea{font-size:16px;min-height:48px}
+    .actions{flex-wrap:wrap}
+    .actions .btn-gold{width:100%;min-height:48px}
+  }
+`;
+
+// Minimal escaper (mirrors render.esc) so this module has no import cycle with
+// the app. Use for any caller-supplied text rendered into these pages.
+export function escHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Full branded HTML document for standalone (no sidebar) pages: login,
+// set-password, info, 404. `bodyInner` is the inner markup; the doc supplies the
+// dark stylesheet and a head.
+export function brandDoc(bodyInner, title = "JDM Connect") {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><style>${themeCss}</style></head><body>${bodyInner}</body></html>`;
+}
+
+// Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
+// so portal markup can move over without restructuring.
+export function brandShell(side, main, title = "JDM Connect") {
+  return brandDoc(`<div class="wrap">${side}<div class="main">${main}</div></div>`, title);
+}
+
+// Branded "not found" page. Replaces the bare text 404.
+export function notFoundPage() {
+  const inner = `<div class="infowrap">
+    ${risingSun({ size: 460, tone: "faint" })}
+    <div class="infocard">
+      <div class="ico">${LOGO}</div>
+      <h1>Page not found</h1>
+      <p>We could not find that page. The link may be old or mistyped.</p>
+      <a class="btn-gold" href="/request">Start a vehicle request</a>
+    </div>
+  </div>`;
+  return brandDoc(inner, "Not found - JDM Connect");
+}
+
+// Branded single-message page (used for the email approve / skip confirmations
+// and other simple outcomes). `opts.cta` is an optional { href, label }.
+export function infoPage(title, message, opts = {}) {
+  const cta = opts.cta
+    ? `<a class="btn-gold" href="${escHtml(opts.cta.href)}">${escHtml(opts.cta.label)}</a>`
+    : `<a class="btn-dark" href="/request">Back to JDM Connect</a>`;
+  const inner = `<div class="infowrap">
+    ${risingSun({ size: 460, tone: "faint" })}
+    <div class="infocard">
+      <div class="ico">${LOGO}</div>
+      <h1>${escHtml(title)}</h1>
+      <p>${opts.html ? message : escHtml(message)}</p>
+      ${cta}
+    </div>
+  </div>`;
+  return brandDoc(inner, escHtml(title) + " - JDM Connect");
+}

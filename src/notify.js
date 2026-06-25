@@ -45,7 +45,7 @@ export async function deliverToClient(env, client, lot, wishlist) {
     // client sees the same real landed figure staff reviewed (toggle-gated).
     const showLanded = settingOn(settings, "client_landed");
     const landed = showLanded ? (lot._landed || await estimateLanded(env, lot, client)) : null;
-    const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
+    const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} - a match for your search`;
     await sendEmail(env, {
       to: client.email,
       subject,
@@ -89,7 +89,7 @@ export async function deliverManyToClient(env, client, items) {
       ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed, showLanded)
       : clientMultiHtml(client, enriched, env.PUBLIC_URL, showLanded);
     const subject = enriched.length === 1
-      ? `${one.lot.year} ${one.lot.marka_name} ${one.lot.model_name} — a match for your search`
+      ? `${one.lot.year} ${one.lot.marka_name} ${one.lot.model_name} - a match for your search`
       : `${enriched.length} cars matched to your search`;
     await sendEmail(env, {
       to: client.email,
