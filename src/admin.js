@@ -1082,7 +1082,7 @@ function matchCard(q) {
   ].filter(Boolean).join(" · ");
   const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
   const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
-  return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-auction="${auc}" data-search="${haystack}">
+  return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
     <div class="sc-img" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="sc-grad"></div>
@@ -1154,6 +1154,7 @@ function matchesView(pending, opts = {}) {
         <option value="soonest">Sort: Auction soonest</option>
         <option value="strength">Sort: Strength</option>
         <option value="landed">Sort: Lowest landed</option>
+        <option value="color">Sort: Colour</option>
         <option value="new">Sort: Newest</option>
       </select>
       <select id="mgroup" class="mctl" aria-label="Group matches">
@@ -1161,6 +1162,7 @@ function matchesView(pending, opts = {}) {
         <option value="client">Group: Client</option>
         <option value="make">Group: Make</option>
         <option value="auction">Group: Auction</option>
+        <option value="color">Group: Colour</option>
       </select>
     </div>
     <div class="fchips">
@@ -1205,12 +1207,13 @@ function matchesScript() {
   function gv(c,k){return c.getAttribute('data-'+k)||''}
   function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
   function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
-  function grpKey(c){return st.group==='make'?gv(c,'make'):st.group==='auction'?gv(c,'auction'):gv(c,'client')}
+  function grpKey(c){return st.group==='make'?gv(c,'make'):st.group==='auction'?gv(c,'auction'):st.group==='color'?(gv(c,'color')||'No colour'):gv(c,'client')}
   function cmp(a,b){
     if(st.sort==='priority')return (rank(b)*1000-gn(b,'days'))-(rank(a)*1000-gn(a,'days'));
     if(st.sort==='soonest')return gn(a,'days')-gn(b,'days');
     if(st.sort==='strength')return rank(b)-rank(a);
     if(st.sort==='landed')return (gn(a,'landed')||1e12)-(gn(b,'landed')||1e12);
+    if(st.sort==='color')return gv(a,'color').localeCompare(gv(b,'color'))||(gn(b,'qid')-gn(a,'qid'));
     return gn(b,'qid')-gn(a,'qid');
   }
   function syncBulk(){
