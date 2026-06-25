@@ -239,7 +239,8 @@ export const themeCss = `
   .field-err{display:none;color:var(--bad);font-size:13px;line-height:1.45;margin-top:9px;font-weight:500}
 
   /* Login + set-password */
-  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px;position:relative;overflow:hidden}
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(900px 520px at 50% -12%,rgba(202,163,76,0.13),transparent 60%),var(--bg);padding:24px;position:relative;overflow:hidden}
+  .login-card:before{content:"";position:absolute;left:28px;right:28px;top:0;height:2px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
   .login-card{position:relative;z-index:1;width:100%;max-width:392px;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:36px 32px 30px;box-shadow:var(--shadow)}
   .login-card .login-logo{display:flex;justify-content:center;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--hair)}
   .login-card h1{font-size:22px;font-weight:700;margin:0 0 6px;text-align:center;letter-spacing:-0.01em}

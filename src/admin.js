@@ -750,8 +750,8 @@ export function loginPage(opts = {}) {
     ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
-      <h1>Vehicle Finder</h1>
-      <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
+      <h1>Welcome back</h1>
+      <p class="login-sub">Sign in to your JDM Connect account to track your searches and matches.</p>
       ${err}
       <label>Email <span class="opt">(agents and clients)</span></label>
       <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
@@ -1547,6 +1547,11 @@ export async function requestPage(env, opts = {}) {
         <div class="kicker">Vehicle Finder</div>
         <h1>Request a vehicle</h1>
         <p class="subline">Tell us what you're after and we'll search the Japanese auctions for it.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
+          <span class="chip muted">No account needed to start</span>
+          <span class="chip muted">Every match reviewed by hand</span>
+          <span class="chip muted">Landed cost included</span>
+        </div>
       </div>
     </div>
     <div class="content">
