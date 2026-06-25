@@ -335,7 +335,7 @@ const HEADERS = {
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email, notifications and payments.", btn: "" },
 };
 
-export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }) {
+export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "intake";
   if (["agents", "settings", "payments"].includes(view) && isAgent) view = "intake"; // admin-only areas
@@ -427,7 +427,7 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
-  if (view === "intake") body = intakeView(clients, makers);
+  if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
@@ -601,21 +601,27 @@ export function setPasswordPage(opts = {}) {
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
 }
 
-function intakeView(clients, makers) {
+function intakeView(clients, makers, opts = {}) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
+  const errBanner = opts.err === "contact"
+    ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
+    : opts.err === "name"
+    ? `<div class="reqerr">Please enter the client's name.</div>`
+    : "";
   return `
     <div class="card">
       <h2><span class="num">01</span> New client</h2>
       <form method="POST" action="/client">
+        ${errBanner}
         <div class="grid">
           <div><label>NAME</label><input name="name" placeholder="Jane Citizen" required></div>
-          <div><label>EMAIL</label><input name="email" type="email" placeholder="name@email.com"></div>
-          <div><label>WHATSAPP <span class="opt">(+61…)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+          <div><label>EMAIL <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" placeholder="name@email.com"></div>
+          <div><label>WHATSAPP <span class="opt">(email or WhatsApp required)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
           <div><label>STATE <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
-          <span class="help">Name is required. Email and WhatsApp are optional.</span></div>
+          <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
       </form>
     </div>
     <div class="card">
@@ -1356,11 +1362,18 @@ function accessScope(session) {
 }
 
 export async function createClient(env, form, session) {
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim();
+  const whatsapp = String(form.get("whatsapp") || "").trim();
+  // A client must be reachable, or any match we find can never be sent. Require
+  // a name plus at least one contact channel (email or WhatsApp).
+  if (!name) return { ok: false, error: "name" };
+  if (!email && !whatsapp) return { ok: false, error: "contact" };
   const state = normalizeState(form.get("state"));
   const agentId = session && session.role === "agent" ? session.id : null;
   const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
-    .bind(form.get("name"), form.get("email") || null, form.get("whatsapp") || null, state, agentId).run();
-  return r.meta?.last_row_id;
+    .bind(name, email || null, whatsapp || null, state, agentId).run();
+  return { ok: true, id: r.meta?.last_row_id };
 }
 
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
@@ -1945,7 +1958,9 @@ export async function portalApprove(env, queueId, session) {
   }
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
   let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
-  const wishlist = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(item.wishlist_id).first();
+  // Pin the wishlist to this client too, so a stale/cross wishlist_id can never
+  // pull another client's search into the staff alert.
+  const wishlist = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ? AND client_id = ?").bind(item.wishlist_id, cid).first();
   return { ok: true, alreadyDone, client, lot, wishlist, queueId: qid };
 }
 

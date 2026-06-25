@@ -187,7 +187,7 @@ export default {
       if (view === "client") {
         return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
       }
-      return doc(await adminPage(env, view, session));
+      return doc(await adminPage(env, view, session, { err: url.searchParams.get("err") }));
     }
 
     if (path === "/run") {
@@ -210,7 +210,8 @@ export default {
     }
 
     if (path === "/client" && request.method === "POST") {
-      await createClient(env, await request.formData(), session);
+      const r = await createClient(env, await request.formData(), session);
+      if (!r.ok) return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
       return Response.redirect(here("/admin"), 303);
     }
 
@@ -257,8 +258,11 @@ export default {
     if (path === "/wishlist/edit" && request.method === "POST") {
       const f = await request.formData();
       await editWishlist(env, f, session);
+      // Resolve the redirect target only if this session may actually see the
+      // client, so a blocked edit never leaks a foreign client_id in the URL.
       const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
-      return Response.redirect(here(w ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists"), 303);
+      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists";
+      return Response.redirect(here(dest), 303);
     }
 
     if (path === "/wishlist/toggle" && request.method === "POST") {
@@ -389,6 +393,12 @@ async function startDepositCheckout(env, session, queueId, here) {
     }
     const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(session.id).first();
     if (!client) return Response.redirect(here("/portal?err=pay"), 303);
+    // Only attach a queue_id the signed-in client actually owns. A client must
+    // never be able to reference another client's match on their payment row.
+    if (queueId) {
+      const owns = await env.DB.prepare("SELECT 1 FROM queue WHERE id = ? AND client_id = ?").bind(queueId, session.id).first();
+      if (!owns) queueId = null;
+    }
     const { url: checkoutUrl } = await createCheckoutSession(env, {
       client,
       queueId,
@@ -495,10 +505,13 @@ async function runMatcher(env, session) {
   const groups = new Map(); // key -> { agent|null, entries }
   for (const entry of summary) {
     const aid = entry.wishlist.client_agent_id;
-    const key = aid ? `agent:${aid}` : "admin";
+    // A paused agent is not emailed; their clients' matches fold into the admin
+    // digest so nothing is silently dropped.
+    const toAgent = aid && entry.wishlist.agent_active;
+    const key = toAgent ? `agent:${aid}` : "admin";
     if (!groups.has(key)) {
       groups.set(key, {
-        agent: aid ? { email: entry.wishlist.agent_email, name: entry.wishlist.agent_name, alerts: entry.wishlist.agent_alerts } : null,
+        agent: toAgent ? { email: entry.wishlist.agent_email, name: entry.wishlist.agent_name, alerts: entry.wishlist.agent_alerts } : null,
         entries: [],
       });
     }

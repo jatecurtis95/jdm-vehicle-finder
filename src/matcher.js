@@ -176,7 +176,7 @@ export async function runAll(env, session) {
   const isAgent = session && session.role === "agent";
   const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
-            c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts
+            c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
      FROM wishlists w JOIN clients c ON c.id = w.client_id
      LEFT JOIN agents ag ON ag.id = c.agent_id
      WHERE w.active = 1${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
