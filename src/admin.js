@@ -1273,9 +1273,8 @@ function matchCard(q) {
       <div class="sc-grad"></div>
       <div class="sc-tags">
         <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
-        <span class="sc-lot">Lot ${esc(lot.lot || "-")}</span>
       </div>
-      ${(when || auc) ? `<div class="sc-imgfoot">${when}${auc ? `<span class="sc-auc">${auc}</span>` : ""}</div>` : ""}
+      ${(when || auc || lot.lot) ? `<div class="sc-imgfoot">${when}${(auc || lot.lot) ? `<span class="sc-auc">${[auc, lot.lot ? "Lot " + esc(lot.lot) : ""].filter(Boolean).join(" &middot; ")}</span>` : ""}</div>` : ""}
     </div>
     <div class="sc-body">
       <div class="sc-main">
