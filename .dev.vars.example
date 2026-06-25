@@ -1,0 +1,26 @@
+# Local development variables for `wrangler dev`.
+# Copy this file to .dev.vars (which is gitignored) and adjust as needed.
+# These values keep development safe: no real emails, Stripe test mode only,
+# and a local database (wrangler dev uses a local D1 by default).
+
+# Suppress ALL outbound email in dev. With this on, sendEmail logs what it would
+# have sent and returns success without calling Resend. Keep this on locally.
+MAIL_DRY_RUN = "1"
+
+# Admin login for the local app (blank email + this password on /login).
+ADMIN_PASSWORD = "devadmin"
+
+# Signs session cookies. Any long random string is fine for dev.
+ADMIN_TOKEN = "dev-token-change-me-to-something-long"
+
+# Auction feed relay token. Leave blank in dev. Feed-backed dropdowns and search
+# degrade to empty lists when unset, which is fine for local UI work.
+AVTONET_CODE = ""
+
+# Resend is never called while MAIL_DRY_RUN=1, so this can stay blank in dev.
+RESEND_API_KEY = ""
+
+# Stripe TEST mode only. Never put a live (sk_live_...) key in local dev.
+# Get test keys from the Stripe dashboard in test mode.
+STRIPE_SECRET_KEY = ""
+STRIPE_WEBHOOK_SECRET = ""

@@ -1,12 +1,19 @@
 // Delivery: email via Resend, plus a WhatsApp stub for Phase 2.
 
-import { clientHtml, carText } from "./render.js";
+import { clientHtml, clientMultiHtml, carText } from "./render.js";
 import { estimateLanded } from "./calc.js";
 import { getSettings, settingOn } from "./settings.js";
 
 // Send an email through Resend (https://resend.com).
 // Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
 export async function sendEmail(env, { to, subject, html, from }) {
+  // Dev safety: with MAIL_DRY_RUN on, never hit Resend. Log what would have been
+  // sent and return a fake success so flows complete without real email going
+  // out. Set MAIL_DRY_RUN=1 in .dev.vars (or any non-production environment).
+  if (env.MAIL_DRY_RUN === "1" || env.MAIL_DRY_RUN === true) {
+    console.log(`[MAIL_DRY_RUN] suppressed email to ${Array.isArray(to) ? to.join(", ") : to} | subject: ${subject}`);
+    return { id: "dry-run", dryRun: true };
+  }
   if (!env.RESEND_API_KEY) {
     throw new Error("RESEND_API_KEY not set");
   }
@@ -43,12 +50,13 @@ export async function deliverToClient(env, client, lot, wishlist) {
   if (client.email) {
     // Use the estimate snapshotted at match time, else compute it now, so the
     // client sees the same real landed figure staff reviewed (toggle-gated).
-    const landed = settingOn(settings, "client_landed") ? (lot._landed || await estimateLanded(env, lot, client)) : null;
-    const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} — a match for your search`;
+    const showLanded = settingOn(settings, "client_landed");
+    const landed = showLanded ? (lot._landed || await estimateLanded(env, lot, client)) : null;
+    const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} - a match for your search`;
     await sendEmail(env, {
       to: client.email,
       subject,
-      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed),
+      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed, showLanded),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
     result.email = true;
@@ -64,6 +72,49 @@ export async function deliverToClient(env, client, lot, wishlist) {
     }
   }
 
+  return result;
+}
+
+// Send several approved lots to a client in ONE email (bulk approve). `items`
+// is [{ lot, wishlist }]. A single car still uses the rich single-car email;
+// multiple cars use the combined template. Returns { email, whatsapp }.
+export async function deliverManyToClient(env, client, items) {
+  const result = { email: false, whatsapp: false };
+  if (!items || !items.length) return result;
+  const settings = await getSettings(env);
+  if (!settingOn(settings, "send_to_client")) return result;
+
+  if (client.email) {
+    const showLanded = settingOn(settings, "client_landed");
+    const enriched = [];
+    for (const it of items) {
+      const landed = showLanded ? (it.lot._landed || await estimateLanded(env, it.lot, client)) : null;
+      enriched.push({ lot: it.lot, wishlist: it.wishlist, landed });
+    }
+    const one = enriched[0];
+    const html = enriched.length === 1
+      ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed, showLanded)
+      : clientMultiHtml(client, enriched, env.PUBLIC_URL, showLanded);
+    const subject = enriched.length === 1
+      ? `${one.lot.year} ${one.lot.marka_name} ${one.lot.model_name} - a match for your search`
+      : `${enriched.length} cars matched to your search`;
+    await sendEmail(env, {
+      to: client.email,
+      subject,
+      html,
+      from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+    });
+    result.email = true;
+  }
+
+  if (client.whatsapp) {
+    try {
+      await sendWhatsApp(env, client.whatsapp, items.map((it) => carText(it.lot)).join("\n\n"));
+      result.whatsapp = true;
+    } catch (err) {
+      console.error("WhatsApp send skipped/failed:", err.message);
+    }
+  }
   return result;
 }
 

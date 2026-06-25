@@ -24,6 +24,10 @@ crons = ["0 */6 * * *"]
 binding = "DB"
 database_name = "jdm-vehicle-finder"
 database_id = "2396671f-a3b6-4a33-bd9b-2b9fee37e0c2"
+# Schema changes are versioned under migrations/ and applied with
+# `wrangler d1 migrations apply`. See migrations/README.md. Production is already
+# at 0001_baseline; apply new migrations to prod only with explicit approval.
+migrations_dir = "migrations"
 
 # Per-IP rate limiting for the public request form (shared RL namespace).
 [[kv_namespaces]]
@@ -62,6 +66,17 @@ CALC_AGENCY = "0"
 CALC_DEFAULT_STATE = "VIC"
 
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
-#   AVTONET_CODE   -> your auction API password (set via the command above; not stored here)
-#   RESEND_API_KEY -> from resend.com
-#   ADMIN_TOKEN    -> any long random string; gates the admin page
+#   AVTONET_CODE         -> your auction API password (set via the command above; not stored here)
+#   RESEND_API_KEY       -> from resend.com
+#   ADMIN_TOKEN          -> any long random string; gates the admin page
+#   ADMIN_PASSWORD       -> optional separate admin login password (else ADMIN_TOKEN works)
+#   STRIPE_SECRET_KEY    -> Stripe secret key (sk_live_... / sk_test_...) for buyer deposits
+#   STRIPE_WEBHOOK_SECRET-> signing secret (whsec_...) for the /webhooks/stripe endpoint
+#
+# Stripe setup (once STRIPE_SECRET_KEY is set):
+#   1) Stripe Dashboard -> Developers -> Webhooks -> Add endpoint
+#      URL:   https://finder.jdmconnect.com.au/webhooks/stripe
+#      Event: checkout.session.completed
+#   2) Copy the endpoint's signing secret and run:
+#        npx wrangler secret put STRIPE_WEBHOOK_SECRET
+#   3) In the app: Settings -> Payments -> enable deposits + set the AUD amount.

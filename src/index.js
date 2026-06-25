@@ -1,4 +1,4 @@
-// JDM Vehicle Finder — Cloudflare Worker entry point.
+// JDM Vehicle Finder - Cloudflare Worker entry point.
 //
 // scheduled(): runs the matcher on the cron schedule, queues new matches,
 //   emails you a digest with approve/skip links.
@@ -6,13 +6,15 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll } from "./matcher.js";
-import { digestHtml, agentInviteHtml, requestAlertHtml } from "./render.js";
-import { sendEmail, deliverToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, expirePast } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword } from "./auth.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
+import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
+import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
+import { notFoundPage, infoPage } from "./theme.js";
 
 export default {
   // -------- Scheduled matcher --------
@@ -38,7 +40,7 @@ export default {
       return handleDecision(request, env, url);
     }
 
-    // Public vehicle-request form (no login) — for dealers and their clients.
+    // Public vehicle-request form (no login) - for dealers and their clients.
     if (path === "/request") {
       if (request.method === "POST") {
         // Per-IP rate limit (best-effort; fails open if KV is unavailable).
@@ -55,15 +57,24 @@ export default {
           } catch (_) { /* fail open */ }
         }
         if (!limited) {
-          const req = await createRequest(env, await request.formData());
-          if (req) await alertNewRequest(env, req);
+          const result = await createRequest(env, await request.formData());
+          if (result.ok) {
+            await alertNewRequest(env, result.req);     // notify staff
+            await confirmRequest(env, result.req, result.ref); // receipt to the buyer
+            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req }));
+          }
+          if (result.error === "contact") {
+            // No email or WhatsApp - re-render with the error and their input.
+            return doc(await requestPage(env, { error: "contact", vals: result.vals }));
+          }
+          // Honeypot/spam falls through to a generic success so bots get no signal.
         }
         return doc(await requestPage(env, { submitted: true }));
       }
       return doc(await requestPage(env));
     }
 
-    // Feed lookup lists for the form dropdowns (public — just car names).
+    // Feed lookup lists for the form dropdowns (public - just car names).
     // CORS-open so other JDM apps (e.g. the dealer portal) can consume them.
     if (path === "/api/makers") {
       return new Response(JSON.stringify(await distinctMakers(env)), {
@@ -77,8 +88,11 @@ export default {
     }
 
     // Same-host redirect helper: keeps the user (and their session cookie) on
-    // whichever domain they arrived on — custom domain or workers.dev.
+    // whichever domain they arrived on - custom domain or workers.dev.
     const here = (p) => new URL(p, url).toString();
+
+    // Where each role lands after signing in.
+    const homeFor = (role) => (role === "client" ? "/portal" : "/admin");
 
     // Login / logout.
     if (path === "/login") {
@@ -86,38 +100,75 @@ export default {
         const form = await request.formData();
         const who = await authenticate(env, form.get("email"), form.get("password"));
         if (who) {
-          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
+          return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
         await new Promise((r) => setTimeout(r, 600)); // throttle repeated guesses
         return doc(loginPage({ error: true }), 401);
       }
-      if (await getSession(request, url, env)) return Response.redirect(here("/admin"), 303);
+      const existing = await getSession(request, url, env);
+      if (existing) return Response.redirect(here(homeFor(existing.role)), 303);
       return doc(loginPage());
     }
     if (path === "/logout") {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
     }
 
-    // Agent set-password (from the emailed invite link). Public — the single-use
-    // token authorises it. On success the agent is signed straight in.
+    // Set-password (from an emailed invite link). Public - the single-use token
+    // authorises it. Works for both agent and client invites; the token is
+    // looked up against agents first, then clients. On success the user is
+    // signed straight in and sent to their home.
     if (path === "/set-password") {
+      // Resolve which kind of invite this token is. {kind, person} | null.
+      const resolveInvite = async (token) => {
+        const a = await agentByInviteToken(env, token);
+        if (a) return { kind: "agent", person: a };
+        const c = await clientByInviteToken(env, token);
+        if (c) return { kind: "client", person: c };
+        return null;
+      };
       if (request.method === "POST") {
         const form = await request.formData();
         const token = form.get("token");
         const pw = String(form.get("password") || "");
+        const found = await resolveInvite(token);
+        if (!found) return doc(setPasswordPage({ invalid: true }));
         if (pw !== String(form.get("confirm") || "")) {
-          const a = await agentByInviteToken(env, token);
-          return doc(a ? setPasswordPage({ token, name: a.name, error: "Those passwords don't match." }) : setPasswordPage({ invalid: true }));
+          return doc(setPasswordPage({ token, name: found.person.name, error: "Those passwords don't match." }));
         }
-        const r = await setAgentPassword(env, token, pw);
+        const r = found.kind === "agent"
+          ? await setAgentPassword(env, token, pw)
+          : await setClientPassword(env, token, pw);
         if (r.ok) {
-          return new Response(null, { status: 303, headers: { Location: here("/admin"), "Set-Cookie": await sessionCookie(env, "agent", r.id) } });
+          const role = found.kind === "agent" ? "agent" : "client";
+          return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
         }
-        const a = await agentByInviteToken(env, token);
-        return doc(a ? setPasswordPage({ token, name: a.name, error: r.error }) : setPasswordPage({ invalid: true }));
+        return doc(setPasswordPage({ token, name: found.person.name, error: r.error }));
       }
-      const a = await agentByInviteToken(env, url.searchParams.get("token"));
-      return doc(a ? setPasswordPage({ token: url.searchParams.get("token"), name: a.name }) : setPasswordPage({ invalid: true }));
+      const found = await resolveInvite(url.searchParams.get("token"));
+      return doc(found ? setPasswordPage({ token: url.searchParams.get("token"), name: found.person.name }) : setPasswordPage({ invalid: true }));
+    }
+
+    // Stripe webhook (public; verified by signature). Marks deposits paid.
+    if (path === "/webhooks/stripe" && request.method === "POST") {
+      const raw = await request.text();
+      // No signing secret configured: we cannot verify, so do not 400 (which
+      // would make Stripe exhaust retries). Acknowledge with 503 so it retries
+      // later, once the secret is set, and log it loudly.
+      if (!env.STRIPE_WEBHOOK_SECRET) {
+        console.warn("Stripe webhook hit but STRIPE_WEBHOOK_SECRET is not set; ignoring.");
+        return new Response("webhook not configured", { status: 503 });
+      }
+      const event = await verifyAndParseEvent(env, raw, request.headers.get("Stripe-Signature"));
+      if (!event) return new Response("invalid signature", { status: 400 });
+      // Applying is idempotent (WHERE status <> 'paid'), so a 500 here just lets
+      // Stripe retry a transient DB hiccup safely.
+      try {
+        await applyStripeEvent(env, event);
+      } catch (err) {
+        console.error("Stripe event failed:", err.message);
+        return new Response("processing error", { status: 500 });
+      }
+      return new Response("ok", { status: 200 });
     }
 
     // Bare domain → public request form, so the root is safe to share.
@@ -125,19 +176,25 @@ export default {
       return Response.redirect(here("/request"), 302);
     }
 
-    // Everything below requires a signed-in session (admin or agent).
+    // Everything below requires a signed-in session.
     const session = await getSession(request, url, env);
     if (!session) {
       return Response.redirect(here("/login"), 303);
     }
+
+    // Buyer (client) sessions are fully isolated from the staff app: they only
+    // ever reach the /portal/* surface, handled here and nowhere else.
+    if (session.role === "client") {
+      return handleClientPortal(request, env, url, path, session, here);
+    }
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     if (path === "/admin") {
-      const view = url.searchParams.get("view") || "intake";
+      const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
         return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
       }
-      return doc(await adminPage(env, view, session));
+      return doc(await adminPage(env, view, session, { err: url.searchParams.get("err") }));
     }
 
     if (path === "/run") {
@@ -160,7 +217,8 @@ export default {
     }
 
     if (path === "/client" && request.method === "POST") {
-      await createClient(env, await request.formData(), session);
+      const r = await createClient(env, await request.formData(), session);
+      if (!r.ok) return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
       return Response.redirect(here("/admin"), 303);
     }
 
@@ -169,7 +227,21 @@ export default {
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
-    // Allocate clients to agents — admin only.
+    // Buyer portal access - enable + (re)send a set-password link, or revoke.
+    // Owner/admin only (enforced inside the handlers).
+    if (path === "/client/portal-invite" && request.method === "POST") {
+      const id = (await request.formData()).get("id");
+      const r = await inviteClientPortal(env, id, session);
+      if (r.ok && r.token) await sendClientPortalInvite(env, r);
+      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+    }
+    if (path === "/client/portal-revoke" && request.method === "POST") {
+      const id = (await request.formData()).get("id");
+      await revokeClientPortal(env, id, session);
+      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+    }
+
+    // Allocate clients to agents - admin only.
     if (path === "/client/assign" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
@@ -193,8 +265,11 @@ export default {
     if (path === "/wishlist/edit" && request.method === "POST") {
       const f = await request.formData();
       await editWishlist(env, f, session);
+      // Resolve the redirect target only if this session may actually see the
+      // client, so a blocked edit never leaks a foreign client_id in the URL.
       const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
-      return Response.redirect(here(w ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists"), 303);
+      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists";
+      return Response.redirect(here(dest), 303);
     }
 
     if (path === "/wishlist/toggle" && request.method === "POST") {
@@ -207,7 +282,7 @@ export default {
       return Response.redirect(here("/admin?view=wishlists"), 303);
     }
 
-    // Agent management — admin only.
+    // Agent management - admin only.
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const r = await createAgent(env, await request.formData());
@@ -236,14 +311,14 @@ export default {
       return Response.redirect(here("/admin?view=agents"), 303);
     }
 
-    // Settings — admin only.
+    // Settings - admin only.
     if (path === "/settings" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       await saveSettings(env, await request.formData());
       return Response.redirect(here("/admin?view=settings"), 303);
     }
 
-    // Client sharing — owner or admin (enforced in the handlers).
+    // Client sharing - owner or admin (enforced in the handlers).
     if (path === "/share" && request.method === "POST") {
       const f = await request.formData();
       await shareClient(env, f.get("client_id"), f.get("agent_id"), session);
@@ -255,9 +330,126 @@ export default {
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
-    return new Response("Not found", { status: 404 });
+    return doc(notFoundPage(), 404);
   },
 };
+
+// --------------------------------------------------------------------------
+// Client (buyer) portal request handling. Reached only for a client session;
+// every action is scoped to session.id inside the admin.js handlers.
+// --------------------------------------------------------------------------
+async function handleClientPortal(request, env, url, path, session, here) {
+  const back = (q = "") => Response.redirect(here("/portal" + q), 303);
+
+  if (path === "/portal" && request.method === "GET") {
+    const code = url.searchParams.get("ok");
+    const err = url.searchParams.get("err");
+    const flash =
+      code === "requested" ? "Thanks - we've got it. We'll pull the auction sheet, translate it, and come back to you." :
+      code === "paid" ? "Payment received - thank you. We'll be in touch with the next steps." :
+      code === "saved" ? "Saved." :
+      err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." : "";
+    return doc(await portalPage(env, session, { flash }));
+  }
+
+  if (path === "/portal/wishlist" && request.method === "POST") {
+    await portalAddWishlist(env, await request.formData(), session);
+    return back("?ok=saved");
+  }
+  if (path === "/portal/wishlist/edit" && request.method === "POST") {
+    await portalEditWishlist(env, await request.formData(), session);
+    return back("?ok=saved");
+  }
+  if (path === "/portal/wishlist/toggle" && request.method === "POST") {
+    await portalToggleWishlist(env, await request.formData(), session);
+    return back();
+  }
+  if (path === "/portal/wishlist/delete" && request.method === "POST") {
+    await portalDeleteWishlist(env, await request.formData(), session);
+    return back();
+  }
+
+  // Buyer asks us to action/translate a car - flag it and alert staff (once).
+  if (path === "/portal/approve" && request.method === "POST") {
+    const queueId = (await request.formData()).get("queue_id");
+    const r = await portalApprove(env, queueId, session);
+    if (r.ok && !r.alreadyDone) await alertClientRequest(env, r);
+    return back("?ok=requested");
+  }
+
+  // Start a Stripe Checkout deposit for a car (config-gated).
+  if (path === "/portal/pay" && request.method === "POST") {
+    const queueId = Number((await request.formData()).get("queue_id")) || null;
+    return startDepositCheckout(env, session, queueId, here);
+  }
+  if (path === "/portal/pay/success") return back("?ok=paid");
+  if (path === "/portal/pay/cancel") return back();
+
+  // Anything else for a client → their dashboard.
+  return Response.redirect(here("/portal"), 303);
+}
+
+// Create a Stripe Checkout Session for the configured deposit and redirect the
+// buyer to Stripe. Falls back to the portal with an error flag on any problem.
+async function startDepositCheckout(env, session, queueId, here) {
+  try {
+    const settings = await getSettings(env);
+    const depositAud = Number(settings.stripe_deposit_aud || 0);
+    if (!stripeConfigured(env) || !settingOn(settings, "stripe_enabled") || !(depositAud > 0)) {
+      return Response.redirect(here("/portal?err=pay"), 303);
+    }
+    const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(session.id).first();
+    if (!client) return Response.redirect(here("/portal?err=pay"), 303);
+    // Only attach a queue_id the signed-in client actually owns. A client must
+    // never be able to reference another client's match on their payment row.
+    if (queueId) {
+      const owns = await env.DB.prepare("SELECT 1 FROM queue WHERE id = ? AND client_id = ?").bind(queueId, session.id).first();
+      if (!owns) queueId = null;
+    }
+    const { url: checkoutUrl } = await createCheckoutSession(env, {
+      client,
+      queueId,
+      amountCents: Math.round(depositAud * 100),
+      currency: (settings.stripe_currency || "aud").toLowerCase(),
+      description: `JDM Connect deposit${queueId ? " (ref " + queueId + ")" : ""}`,
+      successUrl: here("/portal/pay/success"),
+      cancelUrl: here("/portal/pay/cancel"),
+    });
+    return Response.redirect(checkoutUrl, 303);
+  } catch (err) {
+    console.error("Stripe checkout failed:", err.message);
+    return Response.redirect(here("/portal?err=pay"), 303);
+  }
+}
+
+// Email a client their portal set-password link. `r` is { token, email, name }.
+async function sendClientPortalInvite(env, r) {
+  try {
+    await sendEmail(env, {
+      to: r.email,
+      subject: "Your JDM Connect portal - set your password",
+      html: clientPortalInviteHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+      from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+    });
+  } catch (err) {
+    console.error("Client portal invite email failed:", err.message);
+  }
+}
+
+// Alert staff that a client asked us to action a specific car (from the portal).
+async function alertClientRequest(env, info) {
+  try {
+    const settings = await getSettings(env);
+    const title = `${info.lot.year || ""} ${info.lot.marka_name || ""} ${info.lot.model_name || ""}`.trim();
+    await sendEmail(env, {
+      to: digestRecipient(settings, env),
+      subject: `${info.client?.name || "A client"} requested ${title || "a car"}`,
+      html: clientRequestAlertHtml(info.client, info.lot, info.wishlist, env.PUBLIC_URL),
+    });
+  } catch (err) {
+    console.error("Client request alert failed:", err.message);
+  }
+}
 
 // Email an agent their set-password / reset link. `r` is { token, email, name }.
 async function sendInvite(env, r) {
@@ -280,11 +472,28 @@ async function alertNewRequest(env, req) {
     if (!settingOn(settings, "request_alerts")) return;
     await sendEmail(env, {
       to: digestRecipient(settings, env),
-      subject: `New vehicle request — ${req.name}`,
+      subject: `New vehicle request - ${req.name}`,
       html: requestAlertHtml(req, env.PUBLIC_URL),
     });
   } catch (err) {
     console.error("New-request alert failed:", err.message);
+  }
+}
+
+// Email the buyer a confirmation receipt with their reference (Fix 7). Only
+// possible because Fix 1 guarantees a contact method; skipped if it's WhatsApp
+// only (no email on file). Never blocks the submission on a mail failure.
+async function confirmRequest(env, req, ref) {
+  try {
+    if (!req || !req.email) return;
+    await sendEmail(env, {
+      to: req.email,
+      subject: `We have your JDM request${req.name && req.name !== "-" ? ", " + String(req.name).trim().split(/\s+/)[0] : ""} (ref ${ref})`,
+      html: requestConfirmationHtml(req, ref, env.PUBLIC_URL),
+      from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+    });
+  } catch (err) {
+    console.error("Request confirmation email failed:", err.message);
   }
 }
 
@@ -303,10 +512,13 @@ async function runMatcher(env, session) {
   const groups = new Map(); // key -> { agent|null, entries }
   for (const entry of summary) {
     const aid = entry.wishlist.client_agent_id;
-    const key = aid ? `agent:${aid}` : "admin";
+    // A paused agent is not emailed; their clients' matches fold into the admin
+    // digest so nothing is silently dropped.
+    const toAgent = aid && entry.wishlist.agent_active;
+    const key = toAgent ? `agent:${aid}` : "admin";
     if (!groups.has(key)) {
       groups.set(key, {
-        agent: aid ? { email: entry.wishlist.agent_email, name: entry.wishlist.agent_name, alerts: entry.wishlist.agent_alerts } : null,
+        agent: toAgent ? { email: entry.wishlist.agent_email, name: entry.wishlist.agent_name, alerts: entry.wishlist.agent_alerts } : null,
         entries: [],
       });
     }
@@ -341,7 +553,7 @@ async function handleDecision(request, env, url) {
   const ajax = url.searchParams.get("ajax") === "1";
   const ok200 = () => new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
   if (!token || !["approve", "reject"].includes(action)) {
-    return ajax ? new Response("invalid", { status: 400 }) : html("<p>Invalid link.</p>", 400);
+    return ajax ? new Response("invalid", { status: 400 }) : doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
   }
 
   // If the click came from inside the app (signed-in session), return to the
@@ -351,14 +563,14 @@ async function handleDecision(request, env, url) {
   const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
-  if (!item) return ajax ? ok200() : html("<p>This item no longer exists.</p>", 404);
+  if (!item) return ajax ? ok200() : doc(infoPage("Item not found", "This match no longer exists."), 404);
   // A signed-in agent may only act on their own clients' matches. Email links
   // (no session) are authorised by the unguessable token itself.
   if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) {
-    return ajax ? new Response("forbidden", { status: 403 }) : (backToApp ? toMatches() : html("<p>This item no longer exists.</p>", 404));
+    return ajax ? new Response("forbidden", { status: 403 }) : (backToApp ? toMatches() : doc(infoPage("Item not found", "This match no longer exists."), 404));
   }
   if (item.status !== "pending") {
-    return ajax ? ok200() : (backToApp ? toMatches() : html(`<p>Already handled (status: ${item.status}).</p>`));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Already handled", `This match was already handled (status: ${item.status}).`)));
   }
 
   if (action === "reject") {
@@ -366,10 +578,10 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'rejected', reason = ?, decided_at = datetime('now') WHERE id = ?"
     ).bind(reason, item.id).run();
-    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Skipped. The client will not be contacted about this car.</p>"));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Skipped", "Skipped. The client will not be contacted about this car.")));
   }
 
-  // Approve. Watch-only "lead" wishlists never email the client — the match is
+  // Approve. Watch-only "lead" wishlists never email the client - the match is
   // just marked handled so staff can follow up by phone instead.
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
   const wishlist = await env.DB.prepare(
@@ -379,7 +591,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return ajax ? ok200() : (backToApp ? toMatches() : html("<p>Marked for follow-up. The client was not emailed (watch-only lead).</p>"));
+    return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Marked for follow-up", "Marked for follow-up. The client was not emailed because this is a watch-only lead.")));
   }
   const lot = JSON.parse(item.lot_json);
   try {
@@ -390,69 +602,85 @@ async function handleDecision(request, env, url) {
     if (ajax) return ok200();
     if (backToApp) return toMatches();
     const channels = [r.email && "email", r.whatsapp && "WhatsApp"].filter(Boolean).join(" + ") || "no channel (client has no contact set)";
-    return html(`<p>Approved and sent to ${escapeName(client?.name)} via ${channels}.</p>`);
+    return doc(infoPage("Approved and sent", `Approved and sent to ${client?.name || "the client"} via ${channels}.`));
   } catch (err) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return ajax ? new Response("send failed", { status: 500 }) : html(`<p>Approved but delivery failed: ${err.message}</p>`, 500);
+    console.error("Approve delivery failed:", err.message);
+    return ajax ? new Response("send failed", { status: 500 }) : doc(infoPage("Delivery failed", "Approved, but the message could not be delivered. Please try again or contact support."), 500);
   }
 }
 
 // Apply approve/reject to many queued matches at once (the Matches bulk bar).
-// Mirrors the single-decision logic, keeps the agent per-item access check, and
-// isolates each item so one bad lot or failed send never aborts the batch.
+// Keeps the agent per-item access check and isolates failures. On approve, all
+// of one client's selected cars go out in a SINGLE combined email rather than
+// one per car - so picking 10 cars for a client sends them one email, not ten.
 async function applyBulkDecisions(env, action, ids, session) {
+  if (action === "reject") {
+    for (const id of ids) {
+      try {
+        const item = await env.DB.prepare("SELECT * FROM queue WHERE id = ?").bind(id).first();
+        if (!item || item.status !== "pending") continue;
+        if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
+        await env.DB.prepare("UPDATE queue SET status = 'rejected', decided_at = datetime('now') WHERE id = ?").bind(item.id).run();
+      } catch (err) {
+        console.error(`Bulk reject failed (queue ${id}):`, err.message);
+      }
+    }
+    return;
+  }
+
+  // Approve: collect deliverable cars grouped by client; watch-only leads are
+  // marked handled without emailing (matches the single-decision behaviour).
+  const byClient = new Map(); // client_id -> { client, rows:[{ item, lot, wishlist }] }
+  const watchOnly = [];
   for (const id of ids) {
     try {
       const item = await env.DB.prepare("SELECT * FROM queue WHERE id = ?").bind(id).first();
       if (!item || item.status !== "pending") continue;
       if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
-
-      if (action === "reject") {
-        await env.DB.prepare(
-          "UPDATE queue SET status = 'rejected', decided_at = datetime('now') WHERE id = ?"
-        ).bind(item.id).run();
-        continue;
-      }
-
-      const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
       const wishlist = await env.DB.prepare(
         "SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
       ).bind(item.wishlist_id).first();
-      const lot = JSON.parse(item.lot_json);
-      try {
-        await deliverToClient(env, client, lot, wishlist);
-        await env.DB.prepare(
-          "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
-        ).bind(item.id).run();
-      } catch (err) {
-        await env.DB.prepare(
-          "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
-        ).bind(item.id).run();
-        console.error(`Bulk approve delivery failed (queue ${item.id}):`, err.message);
+      if (wishlist && wishlist.watch_only) { watchOnly.push(item); continue; }
+      let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
+      if (!byClient.has(item.client_id)) {
+        const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
+        byClient.set(item.client_id, { client, rows: [] });
       }
+      byClient.get(item.client_id).rows.push({ item, lot, wishlist });
     } catch (err) {
-      console.error(`Bulk decision failed (queue ${id}):`, err.message);
+      console.error(`Bulk approve prep failed (queue ${id}):`, err.message);
+    }
+  }
+
+  for (const item of watchOnly) {
+    try {
+      await env.DB.prepare("UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?").bind(item.id).run();
+    } catch (err) {
+      console.error(`Bulk watch-only mark failed (queue ${item.id}):`, err.message);
+    }
+  }
+
+  for (const { client, rows } of byClient.values()) {
+    const setStatus = (st) => env.DB.batch(rows.map(({ item }) =>
+      env.DB.prepare("UPDATE queue SET status = ?, decided_at = datetime('now') WHERE id = ?").bind(st, item.id)));
+    try {
+      await deliverManyToClient(env, client, rows.map(({ lot, wishlist }) => ({ lot, wishlist })));
+      await setStatus("sent");
+    } catch (err) {
+      console.error(`Bulk delivery failed (client ${client?.id}):`, err.message);
+      try { await setStatus("failed"); } catch (e) { /* best effort */ }
     }
   }
 }
 
-function escapeName(s) {
-  return String(s ?? "the client").replace(/</g, "&lt;");
-}
-
-// Return a complete HTML document as-is (used for the full-page admin/request UIs).
+// Return a complete HTML document as-is (used for the full-page admin/request UIs
+// and the branded standalone info / 404 pages from theme.js).
 function doc(htmlString, status = 200) {
   return new Response(htmlString, {
     status,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
   });
-}
-
-function html(body, status = 200) {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#222">${body}</body>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
-  );
 }
