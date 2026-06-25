@@ -27,10 +27,11 @@ test("the Clients list uses colour-coded avatars from the shared palette", async
   assert.match(html, /class="avatar" style="background:#/, "avatar has a hashed colour");
 });
 
-test("gold accent token is the brief value across the admin", async () => {
+test("gold accent token matches the dark brand gold across the admin", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
-  assert.match(html, /--gold:#C9962F/);
+  // Admin runs the same dark-luxury palette as the public pages (theme.js).
+  assert.match(html, /--gold:#CAA34C/);
 });
 
 test("the public landing page explains the service and links to start a search and to sign in", async () => {
