@@ -151,6 +151,13 @@ export default {
     // Stripe webhook (public; verified by signature). Marks deposits paid.
     if (path === "/webhooks/stripe" && request.method === "POST") {
       const raw = await request.text();
+      // No signing secret configured: we cannot verify, so do not 400 (which
+      // would make Stripe exhaust retries). Acknowledge with 503 so it retries
+      // later, once the secret is set, and log it loudly.
+      if (!env.STRIPE_WEBHOOK_SECRET) {
+        console.warn("Stripe webhook hit but STRIPE_WEBHOOK_SECRET is not set; ignoring.");
+        return new Response("webhook not configured", { status: 503 });
+      }
       const event = await verifyAndParseEvent(env, raw, request.headers.get("Stripe-Signature"));
       if (!event) return new Response("invalid signature", { status: 400 });
       // Applying is idempotent (WHERE status <> 'paid'), so a 500 here just lets
@@ -600,7 +607,8 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
-    return ajax ? new Response("send failed", { status: 500 }) : doc(infoPage("Delivery failed", `Approved, but delivery failed: ${err.message}`), 500);
+    console.error("Approve delivery failed:", err.message);
+    return ajax ? new Response("send failed", { status: 500 }) : doc(infoPage("Delivery failed", "Approved, but the message could not be delivered. Please try again or contact support."), 500);
   }
 }
 

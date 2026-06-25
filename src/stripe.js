@@ -54,6 +54,7 @@ export async function createCheckoutSession(env, { client, queueId, amountCents,
     "INSERT INTO payments (client_id, queue_id, amount_cents, currency, description, status) VALUES (?, ?, ?, ?, ?, 'created')"
   ).bind(client.id, queueId || null, amountCents, currency, description || null).run();
   const paymentId = ins.meta?.last_row_id;
+  if (!paymentId) throw new Error("payment row insert returned no id");
 
   const session = await stripePost(env, "/checkout/sessions", {
     mode: "payment",

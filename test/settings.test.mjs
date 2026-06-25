@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
-import { getSettings, settingOn, settingNum } from "../src/settings.js";
+import { getSettings, settingOn, settingNum, saveSettings } from "../src/settings.js";
 
 test("settingOn treats only \"1\"/true as on", () => {
   assert.equal(settingOn({ x: "1" }, "x"), true);
@@ -28,6 +28,28 @@ test("getSettings returns the founding-pricing defaults on an empty database", a
   assert.equal(s.free_result_limit, "1");
   assert.equal(s.founding_claimed, "0");
   assert.equal(s.stripe_enabled, "0", "deposits default off");
+});
+
+test("saveSettings keeps defaults for blank or invalid numeric fields", async () => {
+  const env = makeEnv();
+  const f = new FormData();
+  f.set("free_result_limit", "");      // blank -> default
+  f.set("founding_seats", "abc");      // invalid -> default
+  f.set("importer_monthly_aud", "25"); // valid -> kept
+  f.set("stripe_deposit_aud", "");     // blank deposit stays off (empty)
+  await saveSettings(env, f);
+  const s = await getSettings(env);
+  assert.equal(s.free_result_limit, "1");
+  assert.equal(s.founding_seats, "100");
+  assert.equal(s.importer_monthly_aud, "25");
+  assert.equal(s.stripe_deposit_aud, "");
+});
+
+test("saveSettings does not blank the system-managed founding_claimed", async () => {
+  const env = makeEnv(`INSERT INTO settings (key,value) VALUES ('founding_claimed','7');`);
+  await saveSettings(env, new FormData());
+  const s = await getSettings(env);
+  assert.equal(s.founding_claimed, "7");
 });
 
 test("getSettings lets stored rows override defaults", async () => {

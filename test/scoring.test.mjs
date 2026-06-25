@@ -55,4 +55,7 @@ test("buildSql only queries upcoming auctions, applies maker/year/price, orders 
 test("buildSql escapes a maker so quotes cannot break out of the literal", () => {
   const sql = buildSql({ marka_name: "O'Brien" });
   assert.ok(!/LIKE '%O'BRIEN%'/.test(sql), "raw single quote must not survive");
+  // The maker is split on its first word, so the escaped literal is the leading
+  // token; confirm the apostrophe was doubled, not dropped.
+  assert.match(sql, /LIKE '%O''BRIEN%'/, "single quote is doubled into a safe literal");
 });

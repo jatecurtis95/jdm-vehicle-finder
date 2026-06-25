@@ -38,6 +38,8 @@ test("an agent dashboard is scoped to their own clients only", async () => {
   // Seed agent 9001 owns clients 9001 and 9002 (not the direct client 9003).
   const html = await adminPage(env, "dashboard", { role: "agent", id: 9001, name: "Demo Agent" });
   assert.match(html, /data-count="2"[^>]*>0<\/div>\s*<div class="l">Active clients/);
+  // The one pending seeded match belongs to a client this agent owns.
+  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="l">Matches to review/);
   // Agents do not see the agents metric.
   assert.doesNotMatch(html, /Active agents/);
 });

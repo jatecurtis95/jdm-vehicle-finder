@@ -79,7 +79,7 @@ const FONT = `"Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetic
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
   :root{--gold:#C9962F;--gold-hover:#D8A640;--gold-txt:#7A5E1C;--gold-tint:rgba(201,150,47,0.12);--gold-on:#2a1e04;--avatar:#F0E9D7;
-    --ink:#1b1c1e;--t2:#6b7280;--t3:#9aa1ab;--faint:#9aa1ab;--bg:#f6f6f4;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.10);
+    --ink:#1b1c1e;--t2:#6b7280;--t3:#6F7378;--faint:#6B7178;--bg:#f6f6f4;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.10);
     --ok-bg:#E1F5EE;--ok-fg:#04342C;--warn-bg:#FAEEDA;--warn-fg:#633806;--neu-bg:#F1EFE8;--neu-fg:#444441;
     --str-bg:#EAF3DE;--str-fg:#27500A;--good-bg:#FAEEDA;--good-fg:#633806;--pos-bg:#F1EFE8;--pos-fg:#444441;
     --elig-bg:#E1F5EE;--elig-fg:#04342C;--echk-bg:#FAEEDA;--echk-fg:#633806;--eno-bg:#FCEBEB;--eno-fg:#501313;
@@ -916,7 +916,7 @@ function wishlistsView(wishlists) {
   const rows = wishlists.map((w) => {
     const vehicle = `${displayName(w.marka_name) || "Any maker"} ${displayName(w.model_name)}`.trim();
     return `<tr>
-      <td><span class="avatar">${esc(initials(w.client_name))}</span>${esc(w.client_name)}${w.needs_detail ? ` <span class="chip muted">needs detail</span>` : ""}</td>
+      <td>${avatar(w.client_name)}${esc(w.client_name)}${w.needs_detail ? ` <span class="chip muted">needs detail</span>` : ""}</td>
       <td>${esc(w.label || "-")}</td>
       <td>${esc(vehicle)}</td>
       <td>${esc(yearRange(w.year_min, w.year_max))}</td>
@@ -1794,15 +1794,18 @@ export async function createRequest(env, form) {
 
   // Fix 6: reuse an existing staff-scoped client with this email rather than
   // spawning a duplicate on every submission.
-  const clientId = await upsertPublicClient(env, form, email, whatsapp);
+  const up = await upsertPublicClient(env, form, email, whatsapp);
+  const clientId = up.id;
   // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged for staff).
   await createRequestWishlist(env, clientId, form);
 
-  // Portal self-signup: if the buyer chose a password (and gave an email), turn
-  // on their portal login immediately. Never overwrites an existing account.
+  // Portal self-signup: only when this submission created a BRAND NEW client.
+  // If the email already existed we must not set a password from the public
+  // form, or anyone who knows a passwordless client's email could take over
+  // their portal. Existing clients get portal access via a staff-sent invite.
   let portal = false;
   const selfPw = String(form.get("portal_password") || "");
-  if (selfPw && email) portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  if (selfPw && email && up.created) portal = await enablePortalSelfSignup(env, clientId, selfPw);
 
   // Fix 7: a human-readable reference, stable per client.
   const ref = `JDM-${new Date().getFullYear()}-${String(clientId).padStart(5, "0")}`;
@@ -1836,13 +1839,13 @@ async function upsertPublicClient(env, form, email, whatsapp) {
             state = COALESCE(NULLIF(?, ''), state)
           WHERE id = ?`
       ).bind(name, whatsapp || "", state || "", existing.id).run();
-      return existing.id;
+      return { id: existing.id, created: false };
     }
   }
   const r = await env.DB.prepare(
     "INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)"
   ).bind(name, email || null, whatsapp || null, state).run();
-  return r.meta?.last_row_id;
+  return { id: r.meta?.last_row_id, created: true };
 }
 
 // Always-create wishlist for the public request path (Fix 2). A request with no
@@ -1888,17 +1891,18 @@ const clampMin = (v, min) => (v === null ? null : Math.max(min, v));
 const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo, v)));
 
 // Self-signup: turn on a client's portal login from the public request form.
-// Never overwrites an existing password (prevents account takeover by re-using
-// someone else's email). Returns true only if a fresh login was created.
+// The caller only invokes this for a brand-new client. As a second layer, the
+// UPDATE is conditional on the password still being unset, so it can never
+// overwrite an existing login even under a race. Returns true only if a fresh
+// login was actually created.
 async function enablePortalSelfSignup(env, clientId, password) {
   if (!clientId || typeof password !== "string" || password.length < 6) return false;
-  const c = await env.DB.prepare("SELECT pass_hash FROM clients WHERE id = ?").bind(clientId).first();
-  if (!c || c.pass_hash) return false; // missing, or already has a password
   const { salt, hash } = await hashPassword(password);
-  await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+  const r = await env.DB.prepare(
+    `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
+       WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '')`
   ).bind(salt, hash, clientId).run();
-  return true;
+  return (r.meta?.changes || 0) > 0;
 }
 
 // ===========================================================================

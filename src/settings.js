@@ -69,7 +69,7 @@ export async function saveSettings(env, form) {
     client_landed: form.get("client_landed") ? "1" : "0",
     request_alerts: form.get("request_alerts") ? "1" : "0",
     stripe_enabled: form.get("stripe_enabled") ? "1" : "0",
-    stripe_deposit_aud: String(form.get("stripe_deposit_aud") || "").trim(),
+    stripe_deposit_aud: posIntStr(form.get("stripe_deposit_aud"), ""),
     stripe_currency: (String(form.get("stripe_currency") || "aud").trim().toLowerCase()) || "aud",
     importer_monthly_aud: posIntStr(form.get("importer_monthly_aud"), "19"),
     importer_annual_aud: posIntStr(form.get("importer_annual_aud"), "190"),
