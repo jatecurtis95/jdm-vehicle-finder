@@ -329,11 +329,10 @@ export function landingPage(env) {
             ctaHref: "/request",
           })}
           ${tier({
-            tag: "Founding members",
-            name: "Importer",
-            price: "A$12",
+            name: "Full access",
+            price: "A$49",
             per: "/ month",
-            sub: "First 100 members, normally A$19. Yearly billing available.",
+            sub: "Yearly billing available.",
             feats: [
               "Everything in Browse",
               "Unlimited active searches",
