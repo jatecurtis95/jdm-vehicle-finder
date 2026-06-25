@@ -56,10 +56,11 @@ export function risingSun({ size = 320, tone = "soft" } = {}) {
 // The dark brand stylesheet. Mirrors the staff-app class names so portal and
 // request markup theme cleanly, with a product-grade dark palette layered on top.
 export const themeCss = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  /* Inter is loaded via preconnected <link> tags in brandDoc()'s <head>, so it
+     no longer render-blocks behind this stylesheet's @import. */
   :root{
     --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#71767E;
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;
     --bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;
     --hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);
@@ -312,7 +313,7 @@ export function escHtml(s) {
 // set-password, info, 404. `bodyInner` is the inner markup; the doc supplies the
 // dark stylesheet and a head.
 export function brandDoc(bodyInner, title = "JDM Connect") {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><style>${themeCss}</style></head><body>${bodyInner}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body>${bodyInner}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
