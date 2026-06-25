@@ -300,43 +300,53 @@ const CSS = `
   .sl-detail{margin-top:6px;color:var(--t3);line-height:1.5;font-size:12.5px;max-width:720px}
   /* --- Shared design system: dashboard + reusable components --- */
   .avatar.lg{width:38px;height:38px;font-size:13px;margin-right:0}
-  .dkick{display:flex;align-items:center;gap:9px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
-  .dkick .live{width:8px;height:8px;border-radius:9999px;background:#46B17A;box-shadow:0 0 0 3px rgba(70,177,122,.16);animation:livepulse 2.4s ease-in-out infinite}
-  @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.45}}
-  .greet{font-size:42px;font-weight:700;letter-spacing:-.02em;line-height:1.04;margin:16px 0 0;color:var(--ink)}
+  .nav a svg{width:18px;height:18px;flex:0 0 auto;color:var(--t3)}
+  .nav a:hover:not(.active) svg{color:var(--ink)}
+  .nav a.active svg{color:var(--gold)}
+  .dtop{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-bottom:14px}
+  .dtop a{color:var(--t3);display:inline-flex}
+  .dtop a:hover{color:var(--ink)}
+  .dtop svg{width:20px;height:20px}
+  .dkick{display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;margin-bottom:12px}
+  .dkick .live{width:8px;height:8px;border-radius:9999px;background:#2faf6a;animation:livepulse 1.8s ease-in-out infinite}
+  @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .greet{font-size:42px;font-weight:700;letter-spacing:-.02em;line-height:1.08;margin:0 0 26px;color:var(--ink)}
   .greet .nm{color:var(--gold-txt)}
-  .greet-sub{color:var(--t2);font-size:14px;margin:8px 0 0}
-  .ov{display:flex;align-items:flex-end;flex-wrap:wrap;gap:18px 0;margin:30px 0 0}
-  .ov .m{padding:0 30px;border-left:1px solid var(--hair)}
-  .ov .m:first-child{padding-left:0;border-left:0}
-  .ov .m .n{font-size:36px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
-  .ov .m.gold .n{color:var(--gold-txt)}
-  .ov .m .l{font-size:12px;color:var(--t2);margin-top:8px}
-  .ov-foot{margin:18px 0 0}
-  .ov-foot a{color:var(--gold-txt);font-weight:600;font-size:13px}
-  .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:30px}
+  .ovwrap{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .ovwrap .ovlbl{font-size:13px;color:var(--t2)}
+  .ovwrap a{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--gold-txt);font-weight:600}
+  .ovwrap a svg{width:14px;height:14px}
+  .overview{display:flex;flex-wrap:wrap;margin:0 0 32px}
+  .ov{padding:0 26px;border-left:1px solid var(--hair)}
+  .ov:first-child{padding-left:0;border-left:0}
+  .ov .num{font-size:38px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ov.gold .num{color:var(--gold-txt)}
+  .ov .cap{font-size:13px;color:var(--t2);margin-top:8px}
+  .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:0 0 32px}
   .acard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden}
-  .acard .ah{display:flex;align-items:center;gap:9px;padding:13px 18px;background:var(--gold-tint);color:var(--gold-txt);font-weight:600;font-size:13px}
-  .acard .ah svg{width:16px;height:16px}
-  .acard .ab{padding:18px}
-  .acard .ab .n{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
-  .acard .ab .s{font-size:13px;color:var(--t2);margin-top:6px;line-height:1.45}
-  .acard .ab a{display:inline-block;margin-top:14px;color:var(--gold-txt);font-weight:600;font-size:13px}
-  .acard .ab a:hover{text-decoration:underline}
-  .panel{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-top:30px}
-  .panel .ph{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--hair)}
-  .panel .ph .pt{font-size:14px;font-weight:600;color:var(--ink)}
-  .panel .ph a{font-size:12.5px;font-weight:600;color:var(--gold-txt)}
-  .lrow{display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--hair)}
+  .acard .ah{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--gold-tint);color:var(--gold-txt);font-weight:600;font-size:14px}
+  .acard .ah svg{width:18px;height:18px}
+  .acard .ab{padding:15px 16px;font-size:14px;color:var(--t2);line-height:1.5}
+  .acard .ab .big{font-weight:700;font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .acard .ab .link{display:inline-flex;align-items:center;gap:5px;margin-top:11px;color:var(--gold-txt);font-weight:600;font-size:13px}
+  .acard .ab .link svg{width:14px;height:14px}
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}
+  .sec-h h2{font-size:17px;font-weight:600;margin:0}
+  .sec-h h2 .ct{color:var(--faint);font-weight:400}
+  .sec-h .btn-gold{display:inline-flex;align-items:center;gap:6px}
+  .sec-h .btn-gold svg{width:15px;height:15px}
+  .list{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-bottom:30px}
+  .lrow{display:flex;align-items:center;gap:13px;padding:13px 16px;border-bottom:1px solid var(--hair)}
   .lrow:last-child{border-bottom:0}
   .lrow:hover{background:#faf9f6}
   .lrow .avatar{margin-right:0;width:38px;height:38px;font-size:13px;flex:0 0 auto}
-  .lrow .who{min-width:0}
+  .lrow .who{flex:1;min-width:0}
   .lrow .who .nm{font-weight:500;color:var(--ink);font-size:14px}
+  .lrow .who .nm small{color:var(--faint);font-weight:400}
   .lrow .who .sub{font-size:12.5px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .lrow .meta{margin-left:auto;display:flex;align-items:center;gap:12px;flex:0 0 auto}
-  .lrow .meta .mn{font-size:13px;color:var(--t2);font-variant-numeric:tabular-nums}
-  .b{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:9999px;white-space:nowrap}
+  .lrow .meta{margin-left:auto;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+  .b{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:3px 9px;border-radius:8px;white-space:nowrap}
+  .b svg{width:12px;height:12px}
   .b .bd{width:6px;height:6px;border-radius:9999px;background:currentColor;display:inline-block}
   .b-ok{background:var(--ok-bg);color:var(--ok-fg)}
   .b-warn{background:var(--warn-bg);color:var(--warn-fg)}
@@ -347,9 +357,10 @@ const CSS = `
   .b-elig{background:var(--elig-bg);color:var(--elig-fg)}
   .b-echk{background:var(--echk-bg);color:var(--echk-fg)}
   .b-eno{background:var(--eno-bg);color:var(--eno-fg)}
-  .kebab{width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--t3);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .kebab{width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .kebab svg{width:18px;height:18px}
   .kebab:hover{background:#f1efe9;color:var(--ink)}
-  @media(max-width:640px){.greet{font-size:32px}.ov .m{padding:0 18px}.ov .m .n{font-size:28px}}
+  @media(max-width:640px){.greet{font-size:30px}.ov{padding:0 16px}.ov .num{font-size:30px}}
   @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 `;
 
@@ -376,18 +387,35 @@ function avatar(name) {
   return `<span class="avatar" style="background:${bg};color:${fg}">${esc(initials(name))}</span>`;
 }
 
+// Inline SVG icon set (no external icon font: lighter, no render-blocking CDN).
+const svgIcon = (inner, fill = "none") => `<svg viewBox="0 0 24 24" fill="${fill}" stroke="${fill === "none" ? "currentColor" : "none"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const ICONS = {
+  dashboard: svgIcon(`<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>`),
+  clients: svgIcon(`<circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><path d="M16 3.2a3 3 0 0 1 0 7.6"/><path d="M21 21v-1a5 5 0 0 0-3.5-4.8"/>`),
+  wishlists: svgIcon(`<path d="M12 21C12 21 4 13.7 4 8.6A4.6 4.6 0 0 1 12 6a4.6 4.6 0 0 1 8 2.6C20 13.7 12 21 12 21Z"/>`),
+  matches: svgIcon(`<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 13l1.6-7a2 2 0 0 1 2-1.6h6.8a2 2 0 0 1 2 1.6L19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/>`),
+  agents: svgIcon(`<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/>`),
+  payments: svgIcon(`<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/>`),
+  settings: svgIcon(`<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="8" cy="18" r="2" fill="var(--card)"/>`),
+  bell: svgIcon(`<path d="M6 9a6 6 0 0 1 12 0c0 5.5 1.8 6.5 1.8 6.5H4.2S6 14.5 6 9Z"/><path d="M10 19a2 2 0 0 0 4 0"/>`),
+  help: svgIcon(`<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.3c-.8.4-1 .9-1 1.6"/><path d="M12 16.5h.01"/>`),
+  account: svgIcon(`<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.6 18.6a6 6 0 0 1 10.8 0"/>`),
+  plus: svgIcon(`<path d="M12 5v14M5 12h14"/>`),
+  arrow: svgIcon(`<path d="M5 12h13M13 6l6 6-6 6"/>`),
+  kebab: svgIcon(`<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>`, "currentColor"),
+};
+
 function sidebar(active, counts, session = { role: "admin" }) {
   const isAdmin = session.role === "admin";
   const item = (id, label, count) =>
     `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}">
-      <span class="bar"></span><span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
+      ${ICONS[id] || ""}<span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
   const whoLabel = isAdmin ? "JDM Connect" : esc(session.name || "Agent");
   const whoSub = isAdmin ? "Admin" : "Agent";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
     <nav class="nav">
       ${item("dashboard", "Dashboard", "")}
-      ${item("intake", "Add client", "")}
       ${item("clients", "Clients", counts.clients)}
       ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
@@ -496,7 +524,8 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     session = { ...session, name: me ? me.name : "Agent" };
   }
 
-  const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length };
+  const agentTotal = !isAgent ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0) : 0;
+  const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length, agents: agentTotal };
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
@@ -734,7 +763,7 @@ async function dashboardData(env, session) {
   for (const r of strRows) if (r.s in strength) strength[r.s] = r.n;
   let people;
   if (session.role === "admin") {
-    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
+    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
   } else {
     people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
   }
@@ -743,41 +772,53 @@ async function dashboardData(env, session) {
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
 function dashboardView(session, data) {
-  const who = session.role === "admin" ? "JDM Connect" : esc(session.name || "there");
-  const metric = (n, label, gold) => `<div class="m${gold ? " gold" : ""}"><div class="n" data-count="${Number(n) || 0}">0</div><div class="l">${label}</div></div>`;
-  const overview = `<div class="ov">
+  const isAdmin = session.role === "admin";
+  const who = isAdmin ? "Jate" : esc((session.name || "there").split(/\s+/)[0]);
+  const ovLabel = isAdmin ? "Team overview" : "Your overview";
+  const metric = (n, label, gold) => `<div class="ov${gold ? " gold" : ""}"><div class="num" data-count="${Number(n) || 0}">0</div><div class="cap">${label}</div></div>`;
+
+  const topbar = `<div class="dtop">
+      <a href="/admin?view=matches" aria-label="Review queue">${ICONS.bell}</a>
+      <a href="mailto:support@jdmconnect.com.au" aria-label="Get help">${ICONS.help}</a>
+      <a href="/logout" aria-label="Sign out">${ICONS.account}</a>
+    </div>`;
+
+  const overview = `<div class="ovwrap"><span class="ovlbl">${ovLabel}</span><a href="/admin?view=clients">Manage ${ICONS.arrow}</a></div>
+    <div class="overview">
       ${metric(data.clients, "Active clients")}
-      ${session.role === "admin" ? metric(data.agents, "Active agents") : ""}
+      ${isAdmin ? metric(data.agents, "Active agents") : ""}
       ${metric(data.pending, "Matches to review", true)}
       ${metric(data.closing, "Closing in 48h")}
-    </div>
-    <div class="ov-foot"><a href="/admin?view=matches">Manage review queue</a></div>`;
-  const acards = `<div class="acards">
-      <div class="acard"><div class="ah">${ICON_QUEUE} Review queue</div><div class="ab"><div class="n" data-count="${data.pending}">0</div><div class="s">${data.pending === 1 ? "car" : "cars"} matched and waiting for your review before the client is contacted.</div><a href="/admin?view=matches">Open the queue</a></div></div>
-      <div class="acard"><div class="ah">${ICON_CLOCK} Closing soon</div><div class="ab"><div class="n" data-count="${data.closing}">0</div><div class="s">auction${data.closing === 1 ? "" : "s"} closing within 48 hours. Worth reviewing first.</div><a href="/admin?view=matches">See closing soon</a></div></div>
     </div>`;
-  let panel;
-  if (session.role === "admin") {
+
+  const cards = `<div class="acards">
+      <div class="acard"><div class="ah"><span>Review queue</span>${ICON_QUEUE}</div><div class="ab"><span class="big" data-count="${data.pending}">0</span> ${data.pending === 1 ? "car" : "cars"} awaiting your review<br><a class="link" href="/admin?view=matches">Open review queue ${ICONS.arrow}</a></div></div>
+      <div class="acard"><div class="ah"><span>Closing soon</span>${ICON_CLOCK}</div><div class="ab"><span class="big" data-count="${data.closing}">0</span> lot${data.closing === 1 ? "" : "s"} closing within 48 hours<br><a class="link" href="/admin?view=matches">View closing soon ${ICONS.arrow}</a></div></div>
+    </div>`;
+
+  let section;
+  if (isAdmin) {
     const rows = data.people.map((a) => `<div class="lrow">
         ${avatar(a.name)}
-        <div class="who"><div class="nm">${esc(a.name)}</div><div class="sub">${esc(a.company || a.email || "Agent")}</div></div>
-        <div class="meta"><span class="mn">${a.client_count} ${a.client_count === 1 ? "client" : "clients"}</span><span class="b ${a.active ? "b-ok" : "b-neu"}"><span class="bd"></span>${a.active ? "Active" : "Paused"}</span></div>
-      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No agents yet. Invite one from the Agents page.</div></div></div>`;
-    panel = `<div class="panel"><div class="ph"><span class="pt">Agents</span><a href="/admin?view=agents">View all</a></div>${rows}</div>`;
+        <div class="who"><div class="nm">${esc((a.name || "").split(/\s+/)[0])}${a.company ? ` <small>· ${esc(a.company)}</small>` : ""}</div><div class="sub">${esc(a.email || "")}</div></div>
+        <div class="meta">${a.alerts ? `<span class="b b-warn">${ICONS.bell} alerts on</span>` : ""}<span class="b ${a.active ? "b-ok" : "b-neu"}">${a.active ? "active" : "paused"}</span><a class="kebab" href="/admin?view=agents" aria-label="Manage ${esc(a.name)}">${ICONS.kebab}</a></div>
+      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No agents yet. Invite one to get started.</div></div></div>`;
+    section = `<div class="sec-h"><h2>Agents <span class="ct">(${data.people.length})</span></h2><a class="btn-gold" href="/admin?view=agents">${ICONS.plus} Invite agent</a></div><div class="list">${rows}</div>`;
   } else {
     const rows = data.people.map((c) => `<div class="lrow">
         ${avatar(c.name)}
         <div class="who"><div class="nm"><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></div><div class="sub">${esc(c.email || c.state || "Client")}</div></div>
       </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No clients yet. Add one to get started.</div></div></div>`;
-    panel = `<div class="panel"><div class="ph"><span class="pt">Recent clients</span><a href="/admin?view=clients">View all</a></div>${rows}</div>`;
+    section = `<div class="sec-h"><h2>Recent clients</h2><a class="btn-gold" href="/admin?view=intake">${ICONS.plus} Add client</a></div><div class="list">${rows}</div>`;
   }
+
   return `<div class="dash">
-      <div class="dkick"><span class="live"></span> Live overview</div>
-      <h1 class="greet"><span id="greetTime">Welcome</span>, <span class="nm">${who}</span></h1>
-      <p class="greet-sub">Here is where things stand across the desk right now.</p>
+      ${topbar}
+      <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
+      <h1 class="greet"><span id="greetTime">Good morning</span><br><span class="nm">${who},</span> this is your finder</h1>
       ${overview}
-      ${acards}
-      ${panel}
+      ${cards}
+      ${section}
     </div>${dashScript()}`;
 }
 

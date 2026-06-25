@@ -13,7 +13,7 @@ test("dashboard renders the greeting, live kicker and a count-up overview", asyn
   const html = await adminPage(env, "dashboard", ADMIN);
   assert.match(html, /class="greet"/);
   assert.match(html, /id="greetTime"/);
-  assert.match(html, /Live overview/);
+  assert.match(html, /class="dkick"/);
   assert.match(html, /data-count=/);
   assert.match(html, /Active clients/);
   assert.match(html, /Matches to review/);
@@ -23,8 +23,8 @@ test("dashboard numbers reflect the seeded data (scoped counts, not hardcoded)",
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
   // Seed has 3 clients and exactly 1 pending match.
-  assert.match(html, /data-count="3"[^>]*>0<\/div>\s*<div class="l">Active clients/);
-  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="l">Matches to review/);
+  assert.match(html, /data-count="3"[^>]*>0<\/div>\s*<div class="cap">Active clients/);
+  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="cap">Matches to review/);
 });
 
 test("dashboard respects reduced motion (the script guards on the media query)", async () => {
@@ -37,9 +37,9 @@ test("an agent dashboard is scoped to their own clients only", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   // Seed agent 9001 owns clients 9001 and 9002 (not the direct client 9003).
   const html = await adminPage(env, "dashboard", { role: "agent", id: 9001, name: "Demo Agent" });
-  assert.match(html, /data-count="2"[^>]*>0<\/div>\s*<div class="l">Active clients/);
+  assert.match(html, /data-count="2"[^>]*>0<\/div>\s*<div class="cap">Active clients/);
   // The one pending seeded match belongs to a client this agent owns.
-  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="l">Matches to review/);
+  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="cap">Matches to review/);
   // Agents do not see the agents metric.
   assert.doesNotMatch(html, /Active agents/);
 });
