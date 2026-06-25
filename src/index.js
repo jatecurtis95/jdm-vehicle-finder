@@ -15,6 +15,7 @@ import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
+import { landingPage } from "./landing.js";
 
 export default {
   // -------- Scheduled matcher --------
@@ -171,9 +172,10 @@ export default {
       return new Response("ok", { status: 200 });
     }
 
-    // Bare domain → public request form, so the root is safe to share.
+    // Bare domain → public landing page: explains the service and offers a
+    // clear path to start a search or sign in. Safe to share publicly.
     if (path === "/") {
-      return Response.redirect(here("/request"), 302);
+      return doc(landingPage(env));
     }
 
     // Everything below requires a signed-in session.

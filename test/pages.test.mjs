@@ -4,6 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv, readFile } from "./helpers/d1.mjs";
 import { adminPage } from "../src/admin.js";
+import { landingPage } from "../src/landing.js";
+
+// Unicode em dash, en dash, and friends are banned in UI copy across the app.
+const FORBIDDEN_DASH = /[‒–—―−]/;
 
 const ADMIN = { role: "admin", id: 0 };
 const ALL_CAPS_LABEL = /<label[^>]*>\s*[A-Z][A-Z ]{2,}(?:<|\s)/;
@@ -27,6 +31,20 @@ test("gold accent token is the brief value across the admin", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
   assert.match(html, /--gold:#C9962F/);
+});
+
+test("the public landing page explains the service and links to start a search and to sign in", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = landingPage(env);
+  assert.match(html, /<!doctype html/i, "renders a full document");
+  // It is a real home, not the bare form: value prop + how-it-works present.
+  assert.match(html, /How it works/i, "explains how it works");
+  // Both entry paths a visitor needs are present and reachable.
+  assert.match(html, /href="\/request"/, "a path to start a request");
+  assert.match(html, /href="\/login"/, "a path to sign in");
+  // Membership info answers the "is there a cost / can I sign up" question.
+  assert.match(html, /Membership/i, "membership section");
+  assert.ok(!FORBIDDEN_DASH.test(html), "no em or en dashes in the copy");
 });
 
 test("the Matches page renders the spec-sheet layout and keeps the bulk-select contract", async () => {

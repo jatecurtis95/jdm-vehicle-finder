@@ -745,7 +745,7 @@ export function loginPage(opts = {}) {
   const body = `<div class="login-screen">
     ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
-      <div class="login-logo">${LOGO}</div>
+      <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
       <h1>Vehicle Finder</h1>
       <p class="login-sub">Sign in to manage clients, wishlists and auction matches.</p>
       ${err}
@@ -755,6 +755,7 @@ export function loginPage(opts = {}) {
       <label style="margin-top:14px">Password</label>
       <input type="password" name="password" autocomplete="current-password" autofocus required>
       <button class="btn-gold" type="submit">Sign in</button>
+      <p class="login-sub" style="margin:18px 0 0">New to JDM Connect? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle request</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -1580,8 +1581,12 @@ export async function requestPage(env, opts = {}) {
       </div>
     </div>
     ${modelScript("rq-maker", "rq-models")}${presetScript()}${requestFormScript()}`;
-  const sb = `<aside class="side"><div class="brand">${LOGO}</div>
-    <nav class="nav"><a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a></nav>
+  const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
+    <nav class="nav">
+      <a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a>
+      <a href="/login"><span class="bar"></span><span class="lbl">Sign in</span></a>
+    </nav>
+    <div class="side-foot"><a class="signout" href="/">Back to home</a></div>
     </aside>`;
   return brandShell(sb, main, "Request a vehicle - JDM Connect");
 }
