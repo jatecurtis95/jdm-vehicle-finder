@@ -78,8 +78,12 @@ const FONT = `"Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetic
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-  :root{--gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#896B2D;--gold-tint:rgba(202,163,76,0.12);--avatar:#F0E9D7;
-    --ink:#1A1A1A;--t2:#4C5055;--t3:#6F7378;--faint:#6B7178;--bg:#E9EAEB;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.08);}
+  :root{--gold:#C9962F;--gold-hover:#D8A640;--gold-txt:#7A5E1C;--gold-tint:rgba(201,150,47,0.12);--gold-on:#2a1e04;--avatar:#F0E9D7;
+    --ink:#1b1c1e;--t2:#6b7280;--t3:#9aa1ab;--faint:#9aa1ab;--bg:#f6f6f4;--card:#fff;--off:#FAFAFB;--hair:rgba(0,0,0,0.10);
+    --ok-bg:#E1F5EE;--ok-fg:#04342C;--warn-bg:#FAEEDA;--warn-fg:#633806;--neu-bg:#F1EFE8;--neu-fg:#444441;
+    --str-bg:#EAF3DE;--str-fg:#27500A;--good-bg:#FAEEDA;--good-fg:#633806;--pos-bg:#F1EFE8;--pos-fg:#444441;
+    --elig-bg:#E1F5EE;--elig-fg:#04342C;--echk-bg:#FAEEDA;--echk-fg:#633806;--eno-bg:#FCEBEB;--eno-fg:#501313;
+    --r:8px;--r-card:12px;}
   *{box-sizing:border-box}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--card);font-variant-numeric:tabular-nums}
   a{color:inherit;text-decoration:none}
@@ -96,9 +100,9 @@ const CSS = `
   .nav a.active .ct{color:var(--gold-txt)}
   .nav a:hover:not(.active){background:#f6f6f7}
   .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:16px;padding-top:20px}
-  .btn-search{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--gold);color:var(--ink);font-weight:600;padding:13px;border-radius:6px;font-size:15px}
+  .btn-search{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--gold);color:var(--gold-on);font-weight:600;padding:13px;border-radius:8px;font-size:15px}
   .btn-search:hover{background:var(--gold-hover)}
-  .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--ink);display:inline-block}
+  .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--gold-on);display:inline-block}
   .main{flex:1;background:var(--bg);display:flex;flex-direction:column}
   .topbar{position:sticky;top:0;z-index:5;background:#fff;padding:30px 40px 26px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--hair)}
   .topbar.unstick{position:static}
@@ -120,8 +124,9 @@ const CSS = `
   input::placeholder{color:#9AA0A6}
   input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,0.16);background:#fff}
   .actions{display:flex;align-items:center;gap:14px;margin-top:22px}
-  .btn-gold{background:var(--gold);color:var(--ink);font-weight:600;border:0;padding:11px 22px;border-radius:6px;font-size:14px;cursor:pointer;font-family:${FONT}}
+  .btn-gold{background:var(--gold);color:var(--gold-on);font-weight:600;border:0;padding:11px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT}}
   .btn-gold:hover{background:var(--gold-hover)}
+  .btn-gold:focus-visible,.btn-dark:focus-visible,.btn-toggle:focus-visible,.btn-link:focus-visible,.kebab:focus-visible,.nav a:focus-visible,.fchip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .help{color:var(--faint);font-size:13px}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th{text-align:left;padding:12px 10px;background:var(--off);color:var(--t3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--hair)}
@@ -293,10 +298,82 @@ const CSS = `
   .sl-more summary{cursor:pointer;color:var(--gold-txt);font-weight:600;font-size:12px;list-style:none}
   .sl-more summary::-webkit-details-marker{display:none}
   .sl-detail{margin-top:6px;color:var(--t3);line-height:1.5;font-size:12.5px;max-width:720px}
+  /* --- Shared design system: dashboard + reusable components --- */
+  .avatar.lg{width:38px;height:38px;font-size:13px;margin-right:0}
+  .dkick{display:flex;align-items:center;gap:9px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+  .dkick .live{width:8px;height:8px;border-radius:9999px;background:#46B17A;box-shadow:0 0 0 3px rgba(70,177,122,.16);animation:livepulse 2.4s ease-in-out infinite}
+  @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .greet{font-size:42px;font-weight:700;letter-spacing:-.02em;line-height:1.04;margin:16px 0 0;color:var(--ink)}
+  .greet .nm{color:var(--gold-txt)}
+  .greet-sub{color:var(--t2);font-size:14px;margin:8px 0 0}
+  .ov{display:flex;align-items:flex-end;flex-wrap:wrap;gap:18px 0;margin:30px 0 0}
+  .ov .m{padding:0 30px;border-left:1px solid var(--hair)}
+  .ov .m:first-child{padding-left:0;border-left:0}
+  .ov .m .n{font-size:36px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ov .m.gold .n{color:var(--gold-txt)}
+  .ov .m .l{font-size:12px;color:var(--t2);margin-top:8px}
+  .ov-foot{margin:18px 0 0}
+  .ov-foot a{color:var(--gold-txt);font-weight:600;font-size:13px}
+  .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:30px}
+  .acard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden}
+  .acard .ah{display:flex;align-items:center;gap:9px;padding:13px 18px;background:var(--gold-tint);color:var(--gold-txt);font-weight:600;font-size:13px}
+  .acard .ah svg{width:16px;height:16px}
+  .acard .ab{padding:18px}
+  .acard .ab .n{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .acard .ab .s{font-size:13px;color:var(--t2);margin-top:6px;line-height:1.45}
+  .acard .ab a{display:inline-block;margin-top:14px;color:var(--gold-txt);font-weight:600;font-size:13px}
+  .acard .ab a:hover{text-decoration:underline}
+  .panel{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-top:30px}
+  .panel .ph{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--hair)}
+  .panel .ph .pt{font-size:14px;font-weight:600;color:var(--ink)}
+  .panel .ph a{font-size:12.5px;font-weight:600;color:var(--gold-txt)}
+  .lrow{display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--hair)}
+  .lrow:last-child{border-bottom:0}
+  .lrow:hover{background:#faf9f6}
+  .lrow .avatar{margin-right:0;width:38px;height:38px;font-size:13px;flex:0 0 auto}
+  .lrow .who{min-width:0}
+  .lrow .who .nm{font-weight:500;color:var(--ink);font-size:14px}
+  .lrow .who .sub{font-size:12.5px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .meta{margin-left:auto;display:flex;align-items:center;gap:12px;flex:0 0 auto}
+  .lrow .meta .mn{font-size:13px;color:var(--t2);font-variant-numeric:tabular-nums}
+  .b{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:9999px;white-space:nowrap}
+  .b .bd{width:6px;height:6px;border-radius:9999px;background:currentColor;display:inline-block}
+  .b-ok{background:var(--ok-bg);color:var(--ok-fg)}
+  .b-warn{background:var(--warn-bg);color:var(--warn-fg)}
+  .b-neu{background:var(--neu-bg);color:var(--neu-fg)}
+  .b-str{background:var(--str-bg);color:var(--str-fg)}
+  .b-good{background:var(--good-bg);color:var(--good-fg)}
+  .b-pos{background:var(--pos-bg);color:var(--pos-fg)}
+  .b-elig{background:var(--elig-bg);color:var(--elig-fg)}
+  .b-echk{background:var(--echk-bg);color:var(--echk-fg)}
+  .b-eno{background:var(--eno-bg);color:var(--eno-fg)}
+  .kebab{width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--t3);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .kebab:hover{background:#f1efe9;color:var(--ink)}
+  @media(max-width:640px){.greet{font-size:32px}.ov .m{padding:0 18px}.ov .m .n{font-size:28px}}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 `;
 
 function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+}
+
+// Avatar colour palette (background, initials text). Assigned by hashing the
+// person's name so each person keeps a stable colour across the app.
+const AVATAR_PALETTE = [
+  ["#AFA9EC", "#26215C"], ["#5DCAA5", "#04342C"], ["#F5C4B3", "#4A1B0C"],
+  ["#85B7EB", "#042C53"], ["#97C459", "#173404"], ["#EF9F27", "#412402"], ["#ED93B1", "#4B1528"],
+];
+function avatarColor(name) {
+  const s = String(name || "?");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const [bg, fg] = AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+  return { bg, fg };
+}
+// Render a colour-coded initials avatar for a name.
+function avatar(name) {
+  const { bg, fg } = avatarColor(name);
+  return `<span class="avatar" style="background:${bg};color:${fg}">${esc(initials(name))}</span>`;
 }
 
 function sidebar(active, counts, session = { role: "admin" }) {
@@ -309,6 +386,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
     <nav class="nav">
+      ${item("dashboard", "Dashboard", "")}
       ${item("intake", "Add client", "")}
       ${item("clients", "Clients", counts.clients)}
       ${item("wishlists", "Wishlists", counts.wishlists)}
@@ -326,6 +404,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
 }
 
 const HEADERS = {
+  dashboard: { kicker: "Vehicle Finder", title: "Dashboard", sub: "Your desk at a glance.", btn: "" },
   intake: { kicker: "Vehicle Finder", title: "Add a client", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
   clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add client" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
@@ -335,10 +414,10 @@ const HEADERS = {
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email, notifications and payments.", btn: "" },
 };
 
-export async function adminPage(env, view = "intake", session = { role: "admin", id: 0 }, opts = {}) {
+export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
-  if (!HEADERS[view]) view = "intake";
-  if (["agents", "settings", "payments"].includes(view) && isAgent) view = "intake"; // admin-only areas
+  if (!HEADERS[view]) view = "dashboard";
+  if (["agents", "settings", "payments"].includes(view) && isAgent) view = "dashboard"; // admin-only areas
 
   // Rows this session may see: all for admin, owned-or-shared for an agent.
   const acc = accessScope(session);
@@ -427,7 +506,8 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
-  if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
+  if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
+  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
@@ -435,7 +515,10 @@ export async function adminPage(env, view = "intake", session = { role: "admin",
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL });
 
-  const main = `
+  // The dashboard is its own hero: no standard page header, the greeting leads.
+  const main = view === "dashboard"
+    ? `<div class="content">${body}</div>`
+    : `
     <div class="topbar${view === "matches" ? " unstick wide" : ""}">
       <div>
         <div class="kicker">${esc(h.kicker)}</div>
@@ -454,7 +537,7 @@ function agentsView(agents) {
   const rows = agents.map((a) => {
     const invited = !a.pass_hash;
     return `<tr>
-      <td><span class="avatar">${esc(initials(a.name))}</span>${esc(a.name)}${invited ? ` <span class="chip muted">invited</span>` : ""}</td>
+      <td>${avatar(a.name)}${esc(a.name)}${invited ? ` <span class="chip muted">invited</span>` : ""}</td>
       <td>${esc(a.email)}</td>
       <td>${esc(a.company || "-")}</td>
       <td style="text-align:right">${a.client_count}</td>
@@ -614,6 +697,90 @@ export function setPasswordPage(opts = {}) {
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
 }
 
+// Small inline icons for the action-card headers (inherit currentColor).
+const ICON_QUEUE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`;
+const ICON_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+
+// Time-aware greeting (client local time) + count-up on the dashboard numbers.
+// Honours prefers-reduced-motion by showing final values immediately.
+function dashScript() {
+  return `<script>(function(){
+    var h=new Date().getHours();
+    var g=h<12?'Good morning':h<18?'Good afternoon':'Good evening';
+    var t=document.getElementById('greetTime'); if(t) t.textContent=g;
+    var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.querySelectorAll('[data-count]').forEach(function(n,i){
+      var target=+n.getAttribute('data-count')||0;
+      if(reduce){ n.textContent=target.toLocaleString(); return; }
+      var dur=1150, start=null;
+      function tick(now){ if(start===null)start=now; var p=Math.min((now-start)/dur,1); var e=1-Math.pow(1-p,3); n.textContent=Math.round(target*e).toLocaleString(); if(p<1) requestAnimationFrame(tick); }
+      setTimeout(function(){ requestAnimationFrame(tick); }, i*110);
+    });
+  })();</script>`;
+}
+
+// Real counts for the dashboard, scoped to what this session may see.
+async function dashboardData(env, session) {
+  const acc = accessScope(session);
+  const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
+  const clients = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE ${acc.sql}`).first())?.n || 0;
+  const agents = session.role === "admin"
+    ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
+    : 0;
+  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql}`).first())?.n || 0;
+  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
+  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY s`).all()).results || [];
+  const strength = { Strong: 0, Good: 0, Possible: 0 };
+  for (const r of strRows) if (r.s in strength) strength[r.s] = r.n;
+  let people;
+  if (session.role === "admin") {
+    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
+  } else {
+    people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
+  }
+  return { clients, agents, pending, closing, strength, people };
+}
+
+// Dashboard home: time-aware greeting, animated overview, action cards, list.
+function dashboardView(session, data) {
+  const who = session.role === "admin" ? "JDM Connect" : esc(session.name || "there");
+  const metric = (n, label, gold) => `<div class="m${gold ? " gold" : ""}"><div class="n" data-count="${Number(n) || 0}">0</div><div class="l">${label}</div></div>`;
+  const overview = `<div class="ov">
+      ${metric(data.clients, "Active clients")}
+      ${session.role === "admin" ? metric(data.agents, "Active agents") : ""}
+      ${metric(data.pending, "Matches to review", true)}
+      ${metric(data.closing, "Closing in 48h")}
+    </div>
+    <div class="ov-foot"><a href="/admin?view=matches">Manage review queue</a></div>`;
+  const acards = `<div class="acards">
+      <div class="acard"><div class="ah">${ICON_QUEUE} Review queue</div><div class="ab"><div class="n" data-count="${data.pending}">0</div><div class="s">${data.pending === 1 ? "car" : "cars"} matched and waiting for your review before the client is contacted.</div><a href="/admin?view=matches">Open the queue</a></div></div>
+      <div class="acard"><div class="ah">${ICON_CLOCK} Closing soon</div><div class="ab"><div class="n" data-count="${data.closing}">0</div><div class="s">auction${data.closing === 1 ? "" : "s"} closing within 48 hours. Worth reviewing first.</div><a href="/admin?view=matches">See closing soon</a></div></div>
+    </div>`;
+  let panel;
+  if (session.role === "admin") {
+    const rows = data.people.map((a) => `<div class="lrow">
+        ${avatar(a.name)}
+        <div class="who"><div class="nm">${esc(a.name)}</div><div class="sub">${esc(a.company || a.email || "Agent")}</div></div>
+        <div class="meta"><span class="mn">${a.client_count} ${a.client_count === 1 ? "client" : "clients"}</span><span class="b ${a.active ? "b-ok" : "b-neu"}"><span class="bd"></span>${a.active ? "Active" : "Paused"}</span></div>
+      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No agents yet. Invite one from the Agents page.</div></div></div>`;
+    panel = `<div class="panel"><div class="ph"><span class="pt">Agents</span><a href="/admin?view=agents">View all</a></div>${rows}</div>`;
+  } else {
+    const rows = data.people.map((c) => `<div class="lrow">
+        ${avatar(c.name)}
+        <div class="who"><div class="nm"><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></div><div class="sub">${esc(c.email || c.state || "Client")}</div></div>
+      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No clients yet. Add one to get started.</div></div></div>`;
+    panel = `<div class="panel"><div class="ph"><span class="pt">Recent clients</span><a href="/admin?view=clients">View all</a></div>${rows}</div>`;
+  }
+  return `<div class="dash">
+      <div class="dkick"><span class="live"></span> Live overview</div>
+      <h1 class="greet"><span id="greetTime">Welcome</span>, <span class="nm">${who}</span></h1>
+      <p class="greet-sub">Here is where things stand across the desk right now.</p>
+      ${overview}
+      ${acards}
+      ${panel}
+    </div>${dashScript()}`;
+}
+
 function intakeView(clients, makers, opts = {}) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
@@ -699,7 +866,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const rows = clients.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td><span class="avatar">${esc(initials(c.name))}</span><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></td>
+      <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}

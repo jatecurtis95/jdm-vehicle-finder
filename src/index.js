@@ -183,7 +183,7 @@ export default {
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     if (path === "/admin") {
-      const view = url.searchParams.get("view") || "intake";
+      const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
         return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
       }
