@@ -416,9 +416,10 @@ const CSS = `
   .sc-cl-n .gold{color:var(--gold-txt)}
   .sc-cl-w{font-size:11px;color:var(--t3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sc-actions{display:flex;border-top:1px solid var(--hair)}
-  .sc-actions .btn-skip{flex:1;text-align:center;padding:14px;font-size:13px;font-weight:600;color:var(--t3);background:transparent;border-radius:0}
+  .sc-actions a{display:flex;align-items:center;justify-content:center;gap:7px;padding:14px 12px;font-size:13px;line-height:1;border-radius:0;white-space:nowrap}
+  .sc-actions .btn-skip{flex:1;color:var(--t2);font-weight:600;background:transparent;border-right:1px solid var(--hair)}
   .sc-actions .btn-skip:hover{background:var(--off);color:var(--ink)}
-  .sc-actions .btn-notify{flex:2;justify-content:center;padding:14px;border-radius:0;background:var(--gold);color:var(--gold-on);font-weight:700;font-size:13px;border-left:1px solid var(--hair)}
+  .sc-actions .btn-notify{flex:2;color:var(--gold-on);font-weight:700;background:var(--gold);border:0}
   .sc-actions .btn-notify:hover{background:var(--gold-hover)}
 `;
 
