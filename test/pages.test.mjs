@@ -28,3 +28,16 @@ test("gold accent token is the brief value across the admin", async () => {
   const html = await adminPage(env, "dashboard", ADMIN);
   assert.match(html, /--gold:#C9962F/);
 });
+
+test("the Matches page renders the spec-sheet layout and keeps the bulk-select contract", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = await adminPage(env, "matches", ADMIN);
+  assert.match(html, /class="mticker"/, "divided stat ticker");
+  assert.match(html, /class="mcard scard"/, "spec-sheet card keeps the mcard hook for the JS");
+  assert.match(html, /Match for:/, "client strip");
+  // The filter/sort/bulk JS depends on these, so the redesign must preserve them.
+  assert.match(html, /class="msel"/, "per-card select checkbox");
+  assert.match(html, /class="btn-notify"/, "approve link the JS binds to");
+  assert.match(html, /data-str=/, "strength data attr for filtering");
+  assert.ok(!ALL_CAPS_LABEL.test(html), "no shouty <label> text");
+});
