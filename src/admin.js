@@ -815,7 +815,7 @@ function dashboardView(session, data) {
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
-      <h1 class="greet"><span id="greetTime">Good morning</span><br><span class="nm">${who},</span> this is your finder</h1>
+      <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
       ${overview}
       ${cards}
       ${section}

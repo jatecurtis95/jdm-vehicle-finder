@@ -12,6 +12,15 @@ workers_dev = true
 pattern = "finder.jdmconnect.com.au"
 custom_domain = true
 
+# Public consumer domain (jdmfinder.com.au), served by the same Worker.
+[[routes]]
+pattern = "jdmfinder.com.au"
+custom_domain = true
+
+[[routes]]
+pattern = "www.jdmfinder.com.au"
+custom_domain = true
+
 # Runs the matcher automatically. Default: 4x per day (every 6 hours).
 # Adjust once the provider confirms rate limits. Times are UTC.
 [triggers]
