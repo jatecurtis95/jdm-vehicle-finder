@@ -2,7 +2,7 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, distinctMakers } from "./avtonet.js";
+import { imageUrls, distinctMakers, refreshLotImages } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
@@ -1728,6 +1728,13 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   if (!q._landed && lot._landed) q._landed = lot._landed;
+  // Refresh the image set live from the feed (like the dealer portal reads a lot
+  // on demand). We snapshot images at match time, but upcoming lots usually get
+  // the inspection sheet added closer to the sale — so heal the cached snapshot
+  // here so the gallery (and the AI reader) see the sheet once it exists.
+  if (await refreshLotImages(env, lot)) {
+    try { await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), q.id).run(); } catch (e) {}
+  }
   // "Auto when I open a car" mode: trigger the read on first view (guarded against
   // a reload loop by skipping when an error is already on the URL).
   const settings = await getSettings(env).catch(() => ({}));

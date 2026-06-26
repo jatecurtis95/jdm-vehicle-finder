@@ -12,7 +12,7 @@ import { adminPage, requestPage, loginPage, setPasswordPage, createClient, creat
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets } from "./sheet.js";
-import { distinctMakers, distinctModels } from "./avtonet.js";
+import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
@@ -231,11 +231,18 @@ export default {
       let lot = {};
       try { lot = JSON.parse(q.lot_json); } catch (e) {}
       const settings = await getSettings(env);
+      // Pull the freshest image set first — the inspection sheet is often added
+      // to a lot after we matched it, so the cached snapshot can lack it.
+      const imagesChanged = await refreshLotImages(env, lot);
       const result = await readAuctionSheet(env, lot.images, settings.ai_sheet_model);
       if (result && !result.error) {
         lot._sheet = { ...result, read_at: new Date().toISOString() };
         await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), qid).run();
         return back();
+      }
+      // Even if the read failed, persist any refreshed images so the gallery updates.
+      if (imagesChanged) {
+        try { await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), qid).run(); } catch (e) {}
       }
       return back((result && result.error) || "Could not read the auction sheet.");
     }
