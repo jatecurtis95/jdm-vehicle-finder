@@ -1725,8 +1725,10 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
 
   // Gallery — every photo, including the auction inspection sheet when present.
   const bases = String(lot.images || "").split("#").map((u) => u.trim().replace(/[?&][hw]=\d+$/i, "")).filter(Boolean);
-  const big = (u) => `${u}&w=1000`;
-  const th = (u) => `${u}&w=220`;
+  // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
+  // transforms — arbitrary widths return nothing. Hero = full, thumbs = &w=320.
+  const big = (u) => u;
+  const th = (u) => `${u}&w=320`;
   const gallery = bases.length
     ? `<div class="ld-gallery">
         <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(bases[0]))}')"></div>
