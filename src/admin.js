@@ -7,6 +7,7 @@ import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
+import { SHEET_MODELS, DEFAULT_SHEET_MODEL } from "./sheet.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -496,6 +497,11 @@ const CSS = `
   a.sc-img{cursor:pointer}
   .sc-more{display:inline-block;font-size:12px;font-weight:600;color:var(--gold-txt);margin:0 0 12px;text-decoration:none}
   .sc-more:hover{text-decoration:underline;text-underline-offset:2px}
+  .sc-scores{display:flex;gap:7px;margin:0 0 12px;flex-wrap:wrap}
+  .sc-score{font-size:11px;font-weight:600;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:6px;padding:3px 9px}
+  .sc-score b{color:var(--ink);font-weight:700}
+  .sc-score.ai{color:var(--gold-txt);background:var(--gold-tint);border-color:var(--gold-line)}
+  .ld-ai{font-size:9px;font-weight:700;letter-spacing:.04em;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle}
   .ld-grid{display:grid;grid-template-columns:1fr;gap:22px}
   @media(min-width:920px){.ld-grid{grid-template-columns:1.6fr 1fr;align-items:start}}
   .ld-left{min-width:0}
@@ -533,6 +539,11 @@ const CSS = `
   .ld-actions .btn-notify:hover{background:var(--gold-hover)}
   .ld-status{margin-top:16px;padding:12px;background:var(--off);border:1px solid var(--hair);border-radius:8px;font-size:13.5px;color:var(--t2);text-align:center}
   .ld-notes{font-size:14px;color:var(--t2);line-height:1.6;margin:0 0 10px}
+  .ld-ai-read{background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:10px;padding:14px 16px;margin:0 0 14px}
+  .ld-ai-head{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px}
+  .ld-ai-read .ld-notes:last-child{margin-bottom:0}
+  .ld-ai-form{margin-top:14px}
+  .ld-ai-form button:disabled{opacity:.7;cursor:default}
 `;
 
 function initials(name) {
@@ -713,7 +724,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
   else if (view === "agents") body = agentsView(agents);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
-  else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL });
+  else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
   const main = view === "dashboard"
@@ -812,6 +823,12 @@ function settingsView(settings, opts = {}) {
               <div><label>Free result limit <span class="opt">(per search)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
               <div><label>Founding seats claimed <span class="opt">(managed automatically)</span></label><input value="${esc(s.founding_claimed || "0")}" disabled style="opacity:.7"></div>
             </div>
+          </div>
+
+          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
+            <div style="font-size:15px;font-weight:600;margin-bottom:4px">AI auction-sheet reader</div>
+            <p class="help" style="margin:0 0 16px">Reads the Japanese inspection sheet from a car's photos and pulls out the exterior/interior grades, repairs and a translated summary. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> - the “Read auction sheet” button stays hidden until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
+            <div style="max-width:360px"><label>Model <span class="opt">(cached per car, so cost is one-time)</span></label><select name="ai_sheet_model">${Object.entries(SHEET_MODELS).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_model || DEFAULT_SHEET_MODEL) === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
           </div>
 
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
@@ -1280,6 +1297,30 @@ function whyChips(q) {
   return out.slice(0, 3);
 }
 
+// Interior / exterior condition letters. The auction feed has no dedicated field,
+// so we (1) prefer a structured read stored by the AI sheet reader (lot._sheet),
+// then (2) tolerantly parse the free-text fields, which occasionally carry the
+// marks. Returns { ext, int, ai } or null.
+function conditionScores(lot) {
+  if (lot._sheet && (lot._sheet.exterior || lot._sheet.interior)) {
+    return { ext: lot._sheet.exterior || null, int: lot._sheet.interior || null, ai: true };
+  }
+  const hay = `${lot.grade || ""} ${lot.rate || ""} ${lot.info || ""}`;
+  if (!hay.trim()) return null;
+  let ext = null, int = null, m;
+  if ((m = hay.match(/外装\s*[:：]?\s*([A-Ea-e])/))) ext = m[1].toUpperCase();
+  if ((m = hay.match(/内装\s*[:：]?\s*([A-Ea-e])/))) int = m[1].toUpperCase();
+  if (!ext && (m = hay.match(/\bext(?:erior)?\s*[:.\-]?\s*([A-Ea-e])\b/i))) ext = m[1].toUpperCase();
+  if (!int && (m = hay.match(/\bint(?:erior)?\s*[:.\-]?\s*([A-Ea-e])\b/i))) int = m[1].toUpperCase();
+  if (!ext && !int && (m = hay.match(/\b\d(?:\.\d)?\s+([A-E])\s*[\/\s]\s*([A-E])\b/))) { ext = m[1]; int = m[2]; }
+  return (ext || int) ? { ext, int, ai: false } : null;
+}
+function scoresChips(lot) {
+  const s = conditionScores(lot);
+  if (!s) return "";
+  return `<div class="sc-scores">${s.ext ? `<span class="sc-score">Ext <b>${esc(s.ext)}</b></span>` : ""}${s.int ? `<span class="sc-score">Int <b>${esc(s.int)}</b></span>` : ""}${s.ai ? `<span class="sc-score ai">AI read</span>` : ""}</div>`;
+}
+
 function matchCard(q) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
@@ -1334,6 +1375,7 @@ function matchCard(q) {
           ${cell("Odo", lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-")}
           ${cell("Bid", bid)}
         </div>
+        ${scoresChips(lot)}
         <a class="sc-more" href="/admin?view=lot&id=${q.id}">View details &amp; auction report &rarr;</a>
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:rgba(96,143,226,0.16);color:#9FB9F2;border-color:rgba(96,143,226,0.4)">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
@@ -1657,7 +1699,7 @@ function lotGalleryScript() {
   return `<script>(function(){var hero=document.getElementById('ldHero');if(!hero)return;document.querySelectorAll('.ld-th').forEach(function(b){b.addEventListener('click',function(){var f=b.getAttribute('data-full');if(f)hero.style.backgroundImage="url('"+f+"')";document.querySelectorAll('.ld-th').forEach(function(x){x.classList.remove('on')});b.classList.add('on');});});})();</script>`;
 }
 
-export async function lotDetailPage(env, queueId, session = { role: "admin", id: 0 }) {
+export async function lotDetailPage(env, queueId, session = { role: "admin", id: 0 }, opts = {}) {
   const qid = Number(queueId);
   const back = `<a class="btn-dark" href="/admin?view=matches">Back to matches</a>`;
   const notFound = () => shell(sidebar("matches", {}, session),
@@ -1694,10 +1736,13 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
 
   const row = (k, v) => v ? `<div class="ld-row"><span class="ld-k">${k}</span><span class="ld-v">${v}</span></div>` : "";
   const km = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const cs = conditionScores(lot);
   const specRows = [
     row("Year", esc(lot.year || "")),
     row("Chassis", esc(lot.kuzov || "")),
     row("Grade", esc(lot.grade || "")),
+    row("Exterior", cs && cs.ext ? esc(cs.ext) + (cs.ai ? ` <span class="ld-ai">AI</span>` : "") : ""),
+    row("Interior", cs && cs.int ? esc(cs.int) + (cs.ai ? ` <span class="ld-ai">AI</span>` : "") : ""),
     row("Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""),
     row("Transmission", esc(lot.kpp || lot.kpp_type || "")),
     row("Mileage", esc(km)),
@@ -1721,10 +1766,24 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const chips = whyChips(q);
   const equip = String(lot.equip || "").trim();
   const info = String(lot.info || "").trim();
+  const sheet = lot._sheet;
+  const aiBtn = opts.aiEnabled
+    ? `<form method="POST" action="/lot/read-sheet" class="ld-ai-form" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Reading the sheet… (~10s)';"><input type="hidden" name="id" value="${q.id}"><button class="btn-dark" type="submit">${sheet ? "Re-read auction sheet with AI" : "Read auction sheet with AI"}</button></form>`
+    : "";
+  const aiBlock = sheet ? `<div class="ld-ai-read">
+      <div class="ld-ai-head">AI reading of the inspection sheet${sheet.overall_grade ? ` &middot; grade ${esc(sheet.overall_grade)}` : ""}</div>
+      ${sheet.found === false
+        ? `<p class="ld-notes">No inspection sheet was visible in the photos.</p>`
+        : `${sheet.notes_en ? `<p class="ld-notes">${esc(sheet.notes_en)}</p>` : ""}
+           ${(sheet.repairs && sheet.repairs.length) ? `<p class="ld-notes"><strong>Repairs / marks.</strong> ${esc(sheet.repairs.join("; "))}</p>` : ""}
+           ${(sheet.equipment && sheet.equipment.length) ? `<p class="ld-notes"><strong>Equipment.</strong> ${esc(sheet.equipment.join(", "))}</p>` : ""}`}
+    </div>` : "";
   const notes = `<div class="card"><h2><span class="num">&middot;</span> Auction notes</h2>
-      ${equip ? `<p class="ld-notes"><strong>Equipment.</strong> ${esc(equip)}</p>` : ""}
+      ${aiBlock}
+      ${equip ? `<p class="ld-notes"><strong>Listed equipment.</strong> ${esc(equip)}</p>` : ""}
       ${info ? `<p class="ld-notes">${esc(info)}</p>` : ""}
-      <p class="help" style="margin-top:${equip || info ? "12px" : "0"}">Interior and exterior condition grades are marked on the auction inspection sheet, shown in the photos above when the auction provides it. The number above is the overall auction grade.</p>
+      ${!sheet ? `<p class="help" style="margin-top:${equip || info ? "12px" : "0"}">Interior and exterior condition grades are on the auction inspection sheet, shown in the photos above. ${opts.aiEnabled ? "Use the button below to have AI read and translate it." : "The number to the right is the overall auction grade."}</p>` : ""}
+      ${aiBtn}
     </div>`;
 
   const approve = `/decide?token=${esc(q.token)}&action=approve`;
@@ -1743,6 +1802,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       ${back}
     </div>
     <div class="content">
+      ${opts.err ? `<div class="reqerr" style="margin-bottom:18px">${esc(opts.err)}</div>` : ""}
       <div class="ld-grid">
         <div class="ld-left">
           ${gallery}

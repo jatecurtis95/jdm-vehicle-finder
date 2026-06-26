@@ -1,7 +1,10 @@
 // Editable runtime settings (key/value in D1), so behaviour can be toggled from
 // the admin Settings page without a redeploy. Booleans are stored as "1"/"0".
 
+import { DEFAULT_SHEET_MODEL, SHEET_MODELS } from "./sheet.js";
+
 const DEFAULTS = {
+  ai_sheet_model: DEFAULT_SHEET_MODEL, // Claude model for the AI auction-sheet reader
   digest_email: "",      // alert recipient; blank = fall back to env.DIGEST_EMAIL
   email_alerts: "1",     // send the staff digest email when matches are found
   send_to_client: "1",   // email the client when a match is approved
@@ -76,6 +79,7 @@ export async function saveSettings(env, form) {
     founding_monthly_aud: posIntStr(form.get("founding_monthly_aud"), "12"),
     founding_seats: posIntStr(form.get("founding_seats"), "100"),
     free_result_limit: posIntStr(form.get("free_result_limit"), "1"),
+    ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,
   };
   const stmts = Object.entries(next).map(([k, v]) =>
     env.DB.prepare(
