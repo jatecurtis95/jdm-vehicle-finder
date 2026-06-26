@@ -549,6 +549,11 @@ const CSS = `
   .ld-feed summary::-webkit-details-marker{display:none}
   .ld-feed summary:hover{color:var(--ink)}
   .ld-raw{white-space:pre-wrap;word-break:break-all;font-size:11.5px;line-height:1.5;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:8px;padding:12px 14px;margin:0;font-family:var(--mono,ui-monospace,Menlo,Consolas,monospace)}
+  .ld-sheet h2{margin-bottom:14px}
+  .ld-sheet-link{position:relative;display:block;border-radius:10px;overflow:hidden;border:1px solid var(--hair);background:var(--off);line-height:0}
+  .ld-sheet-img{display:block;width:100%;height:auto}
+  .ld-sheet-open{position:absolute;top:10px;right:10px;background:rgba(20,20,22,.72);color:#fff;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;letter-spacing:.02em;line-height:1}
+  .ld-sheet-link:hover .ld-sheet-open{background:rgba(20,20,22,.92)}
 `;
 
 function initials(name) {
@@ -1743,18 +1748,33 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim() || "Vehicle";
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
-  // Gallery — every photo, including the auction inspection sheet when present.
+  // Images. The inspection sheet is, by feed convention, the last image — pull it
+  // into its own box and keep the gallery to actual car photos. If an AI read
+  // found no sheet, leave every image in the gallery.
   const bases = String(lot.images || "").split("#").map((u) => u.trim().replace(/[?&][hw]=\d+$/i, "")).filter(Boolean);
+  const sheetIdx = (!(lot._sheet && lot._sheet.found === false) && bases.length >= 2) ? bases.length - 1 : -1;
+  const sheetBase = sheetIdx >= 0 ? bases[sheetIdx] : null;
+  const photoBases = sheetIdx >= 0 ? bases.filter((_, i) => i !== sheetIdx) : bases;
   // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
   // transforms — arbitrary widths return nothing. Hero = full, thumbs = &w=320.
   const big = (u) => u;
   const th = (u) => `${u}&w=320`;
-  const gallery = bases.length
+  const gallery = photoBases.length
     ? `<div class="ld-gallery">
-        <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(bases[0]))}')"></div>
-        ${bases.length > 1 ? `<div class="ld-thumbs">${bases.map((u, i) => `<button type="button" class="ld-th${i === 0 ? " on" : ""}" data-full="${esc(big(u))}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}
+        <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(photoBases[0]))}')"></div>
+        ${photoBases.length > 1 ? `<div class="ld-thumbs">${photoBases.map((u, i) => `<button type="button" class="ld-th${i === 0 ? " on" : ""}" data-full="${esc(big(u))}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}
       </div>`
     : `<div class="ld-gallery"><div class="ld-hero ld-noimg">No photos on this lot yet</div></div>`;
+  // The auction inspection sheet, in its own box (full-res, readable, opens full).
+  const sheetBox = sheetBase
+    ? `<div class="card ld-sheet">
+        <h2><span class="num">&middot;</span> Auction inspection sheet</h2>
+        <a href="${esc(big(sheetBase))}" target="_blank" rel="noopener" class="ld-sheet-link">
+          <img class="ld-sheet-img" src="${esc(big(sheetBase))}" alt="Auction inspection sheet" loading="lazy">
+          <span class="ld-sheet-open">Open full &nearr;</span>
+        </a>
+      </div>`
+    : "";
 
   const row = (k, v) => v ? `<div class="ld-row"><span class="ld-k">${k}</span><span class="ld-v">${v}</span></div>` : "";
   const km = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
@@ -1804,7 +1824,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       ${aiBlock}
       ${equip ? `<p class="ld-notes"><strong>Listed equipment.</strong> ${esc(equip)}</p>` : ""}
       ${info ? `<p class="ld-notes">${esc(info)}</p>` : ""}
-      ${!sheet ? `<p class="help" style="margin-top:${equip || info ? "12px" : "0"}">Interior and exterior condition grades are on the auction inspection sheet, shown in the photos above. ${opts.aiEnabled ? "Use the button below to have AI read and translate it." : "The number to the right is the overall auction grade."}</p>` : ""}
+      ${!sheet ? `<p class="help" style="margin-top:${equip || info ? "12px" : "0"}">Interior and exterior condition grades are on the auction inspection sheet${sheetBase ? " shown above" : ", once the auction house has uploaded it"}. ${opts.aiEnabled ? "Use the button below to have AI read and translate it." : "The number to the right is the overall auction grade."}</p>` : ""}
       ${aiBtn}
     </div>`;
 
@@ -1828,6 +1848,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <div class="ld-grid">
         <div class="ld-left">
           ${gallery}
+          ${sheetBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
             <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent — if the inspection sheet isn't here, the feed didn't include it):</p>
             <pre class="ld-raw">${esc(lot.images || "(empty — the feed sent no images for this lot)")}</pre>
