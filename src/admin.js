@@ -504,7 +504,7 @@ const CSS = `
   .sc-score.ai{color:var(--gold-txt);background:var(--gold-tint);border-color:var(--gold-line)}
   .ld-ai{font-size:9px;font-weight:700;letter-spacing:.04em;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle}
   .ld-grid{display:grid;grid-template-columns:1fr;gap:22px}
-  @media(min-width:920px){.ld-grid{grid-template-columns:1.6fr 1fr;align-items:start}}
+  @media(min-width:920px){.ld-grid{grid-template-columns:minmax(0,1fr) minmax(340px,420px);align-items:start}}
   .ld-left{min-width:0}
   .ld-gallery{margin-bottom:22px}
   .ld-hero{height:420px;border-radius:var(--r-card);background:#15171a;background-size:cover;background-position:center;border:1px solid var(--hair)}
@@ -1843,7 +1843,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
 
   const main = `
-    <div class="topbar">
+    <div class="topbar wide">
       <div>
         <div class="kicker">Vehicle Finder &middot; Auction report</div>
         <h1>${title}</h1>
@@ -1851,7 +1851,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       </div>
       ${back}
     </div>
-    <div class="content">
+    <div class="content wide">
       ${opts.err ? `<div class="reqerr" style="margin-bottom:18px">${esc(opts.err)}</div>` : ""}
       <div class="ld-grid">
         <div class="ld-left">
