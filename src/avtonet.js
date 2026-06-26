@@ -118,6 +118,37 @@ export function imageUrls(lot) {
   };
 }
 
+// Re-fetch a single lot's live row from the feed: live `main` first, then the
+// historical `stats` table (a sold lot moves out of main). Returns the row
+// object or null. Throws if the feed is unreachable — callers decide how to
+// degrade. Mirrors how the dealer portal reads a single lot on demand.
+export async function fetchLot(env, id) {
+  const safe = sqlString(id);
+  if (!safe) return null;
+  let rows = await query(env, `SELECT * FROM main WHERE id='${safe}'`);
+  if (!rows.length) rows = await query(env, `SELECT * FROM stats WHERE id='${safe}'`);
+  return rows[0] || null;
+}
+
+// Refresh a cached lot's image set from the live feed. Upcoming lots are often
+// listed before the auction house uploads the inspection sheet, so a snapshot
+// taken at match time can be missing it. Mutates lot.images in place and returns
+// true if it changed. Never throws — a feed outage just leaves the cached set.
+export async function refreshLotImages(env, lot) {
+  if (!lot || !lot.id) return false;
+  try {
+    const fresh = await fetchLot(env, lot.id);
+    const next = fresh && String(fresh.images || "").trim();
+    if (next && next !== lot.images) {
+      lot.images = next;
+      return true;
+    }
+  } catch (e) {
+    console.error("refreshLotImages failed:", e.message);
+  }
+  return false;
+}
+
 // --- Lookup lists for the form dropdowns ------------------------------------
 // Provider rule explicitly allows caching lookup lists. Cached per isolate so
 // the dropdowns don't re-query the feed on every page load.

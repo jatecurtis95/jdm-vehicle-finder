@@ -10,6 +10,8 @@
 // always valid JSON. The result is cached onto the lot (lot._sheet) by the caller
 // so each car is only read once.
 
+import { refreshLotImages } from "./avtonet.js";
+
 export const SHEET_MODELS = {
   "claude-opus-4-8": "Opus 4.8 — most accurate (~5¢)",
   "claude-sonnet-4-6": "Sonnet 4.6 — balanced (~2.5¢)",
@@ -127,9 +129,11 @@ export async function sweepUnreadSheets(env, mode, model, cap = SWEEP_CAP) {
     if (targets.length >= cap) break;
   }
   await Promise.all(targets.map(async ({ id, lot }) => {
+    const imagesChanged = await refreshLotImages(env, lot);   // pick up a sheet added since we matched
     const result = await readAuctionSheet(env, lot.images, model);
-    if (result && !result.error) {
-      lot._sheet = { ...result, read_at: new Date().toISOString() };
+    const ok = result && !result.error;
+    if (ok) lot._sheet = { ...result, read_at: new Date().toISOString() };
+    if (ok || imagesChanged) {
       try {
         await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), id).run();
       } catch (e) {
