@@ -3,7 +3,8 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, refreshLotImages } from "./avtonet.js";
-import { attachLanded, auStates, normalizeState } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
+import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
@@ -807,6 +808,7 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Approve & send” on a match, actually email that car to the client. Off = approving just files the match without emailing anyone.", settingOn(s, "send_to_client"))}
             ${toggleRow("client_landed", "Show landed (AUD) price to clients", "Show the indicative AUD landed price in client emails and the buyer portal. Off = clients see only the Japanese auction price; staff always see landed cost.", settingOn(s, "client_landed"))}
+            ${toggleRow("market_for_clients", "Show recent market average to clients", "Show the recent market-average sold price on each car in the buyer portal (a members perk). Staff always see the full market panel on the lot page.", settingOn(s, "market_for_clients"))}
           </div>
 
           <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
@@ -1754,6 +1756,13 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   // images) is kept for the admin "Feed image data" diagnostic below.
   const bases = String(lot.images || "").split("#").map((u) => u.trim().replace(/[?&][hw]=\d+$/i, "")).filter(Boolean);
   const { sheet: sheetBase, photos: photoBases } = splitImages(lot);
+  // Market intelligence (sold comparables) + live FX, in parallel. Both are
+  // cached and degrade to null/fallback, so the page never blocks on them.
+  const [market, fx] = await Promise.all([
+    marketIntel(env, lot.marka_name, lot.model_name).catch(() => null),
+    getLiveFx(env).catch(() => 0),
+  ]);
+  const marketBox = marketPanel(market, fx);
   // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
   // transforms — arbitrary widths return nothing. Hero = full, thumbs = &w=320.
   const big = (u) => u;
@@ -1848,6 +1857,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
         <div class="ld-left">
           ${gallery}
           ${sheetBox}
+          ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
             <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent — if the inspection sheet isn't here, the feed didn't include it):</p>
             <pre class="ld-raw">${esc(lot.images || "(empty — the feed sent no images for this lot)")}</pre>
@@ -2556,6 +2566,11 @@ function clientCarCard(q, opts = {}) {
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
   const chips = whyChips(q);
   const landed = q._landed ? `A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  // Members-only: the recent market-average sold price for this model (from the
+  // feed's avg_price), shown when the admin has enabled it for clients.
+  const mktAvg = (opts.showMarket && Number(lot.avg_price) > 0)
+    ? `<div class="mland"><span class="ml-k">Recent market avg</span><span class="ml-v">${yen(lot.avg_price)}${opts.fx > 0 ? ` <span style="font-weight:600;opacity:.65">≈ A$${Math.round(Number(lot.avg_price) / opts.fx).toLocaleString("en-AU")}</span>` : ""}</span></div>`
+    : "";
   const payBtn = (opts.stripe && requested)
     ? `<form method="POST" action="/portal/pay" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-dark" type="submit">Pay ${esc(opts.depositLabel)} deposit</button></form>`
     : "";
@@ -2576,6 +2591,7 @@ function clientCarCard(q, opts = {}) {
     </div>
     ${chips.length ? `<div class="why">${chips.map((cc) => `<span class="wc">${cc}</span>`).join("")}</div>` : ""}
     ${landed ? `<div class="mland"><span class="ml-k">Indicative landed · ${esc(q._landed.state)}</span><span class="ml-v">${landed}</span></div>` : ""}
+    ${mktAvg}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(q.wlabel || "Your search")}</div></div>
       ${payBtn}${action}
@@ -2632,7 +2648,9 @@ export async function portalPage(env, session, opts = {}) {
   }
   const depositAud = Number(settings.stripe_deposit_aud || 0);
   const stripeOn = settingOn(settings, "stripe_enabled") && !!env.STRIPE_SECRET_KEY && depositAud > 0;
-  const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}` };
+  const showMarket = settingOn(settings, "market_for_clients");
+  const fx = showMarket ? await getLiveFx(env).catch(() => 0) : 0;
+  const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}`, showMarket, fx };
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1;
 

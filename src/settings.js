@@ -6,6 +6,7 @@ import { DEFAULT_SHEET_MODEL, SHEET_MODELS, SHEET_AUTO_MODES } from "./sheet.js"
 const DEFAULTS = {
   ai_sheet_model: DEFAULT_SHEET_MODEL, // Claude model for the AI auction-sheet reader
   ai_sheet_auto: "off",  // when to read sheets: off (manual) | open | strong | all
+  market_for_clients: "0", // show the recent market-average price to clients in the portal
   digest_email: "",      // alert recipient; blank = fall back to env.DIGEST_EMAIL
   email_alerts: "1",     // send the staff digest email when matches are found
   send_to_client: "1",   // email the client when a match is approved
@@ -72,6 +73,7 @@ export async function saveSettings(env, form) {
     send_to_client: form.get("send_to_client") ? "1" : "0",
     client_landed: form.get("client_landed") ? "1" : "0",
     request_alerts: form.get("request_alerts") ? "1" : "0",
+    market_for_clients: form.get("market_for_clients") ? "1" : "0",
     stripe_enabled: form.get("stripe_enabled") ? "1" : "0",
     stripe_deposit_aud: posIntStr(form.get("stripe_deposit_aud"), ""),
     stripe_currency: (String(form.get("stripe_currency") || "aud").trim().toLowerCase()) || "aud",
