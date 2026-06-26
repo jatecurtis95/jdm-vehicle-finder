@@ -7,7 +7,7 @@ import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
-import { SHEET_MODELS, DEFAULT_SHEET_MODEL } from "./sheet.js";
+import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -828,7 +828,11 @@ function settingsView(settings, opts = {}) {
           <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
             <div style="font-size:15px;font-weight:600;margin-bottom:4px">AI auction-sheet reader</div>
             <p class="help" style="margin:0 0 16px">Reads the Japanese inspection sheet from a car's photos and pulls out the exterior/interior grades, repairs and a translated summary. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> - the “Read auction sheet” button stays hidden until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
-            <div style="max-width:360px"><label>Model <span class="opt">(cached per car, so cost is one-time)</span></label><select name="ai_sheet_model">${Object.entries(SHEET_MODELS).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_model || DEFAULT_SHEET_MODEL) === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+            <div class="grid" style="grid-template-columns:repeat(2,1fr);max-width:640px">
+              <div><label>When to read</label><select name="ai_sheet_auto">${Object.entries(SHEET_AUTO_MODES).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_auto || "off") === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+              <div><label>Model <span class="opt">(cached per car)</span></label><select name="ai_sheet_model">${Object.entries(SHEET_MODELS).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_model || DEFAULT_SHEET_MODEL) === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+            </div>
+            <p class="help" style="margin-top:10px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is only read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
           </div>
 
           <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
@@ -1719,6 +1723,10 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   if (!q._landed && lot._landed) q._landed = lot._landed;
+  // "Auto when I open a car" mode: trigger the read on first view (guarded against
+  // a reload loop by skipping when an error is already on the URL).
+  const settings = await getSettings(env).catch(() => ({}));
+  const autoOpen = !!opts.aiEnabled && settings.ai_sheet_auto === "open" && !lot._sheet && !opts.err;
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim() || "Vehicle";
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
@@ -1823,7 +1831,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           </div>
         </aside>
       </div>
-    </div>${lotGalleryScript()}`;
+    </div>${lotGalleryScript()}${autoOpen ? `<script>(function(){var f=document.querySelector('.ld-ai-form');if(!f)return;var b=f.querySelector('button');if(b){b.disabled=true;b.textContent='Reading the sheet… (~10s)';}f.submit();})();</script>` : ""}`;
   return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
 }
 

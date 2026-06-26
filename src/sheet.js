@@ -17,6 +17,16 @@ export const SHEET_MODELS = {
 };
 export const DEFAULT_SHEET_MODEL = "claude-opus-4-8";
 
+// When to run the reader. Background modes (strong/all) are capped per sweep so a
+// search run can't fire off dozens of paid reads at once.
+export const SHEET_AUTO_MODES = {
+  off: "Manual — click the button on each car",
+  open: "Auto when I open a car's page",
+  strong: "Auto for Strong matches (background)",
+  all: "Auto for every match (background)",
+};
+const SWEEP_CAP = 6;
+
 const SCHEMA = {
   type: "json_schema",
   schema: {
@@ -89,6 +99,44 @@ export async function readAuctionSheet(env, images, model = DEFAULT_SHEET_MODEL)
     return { error: "Could not parse the AI response." };
   }
   return parsed;
+}
+
+// Background "catch up" sweep: read the inspection sheet for up to SWEEP_CAP
+// pending matches that qualify for the auto mode and haven't been read yet, then
+// cache the result onto each lot. Capped + concurrent so it stays well within the
+// Worker's background-task budget. Called from ctx.waitUntil after a search run.
+export async function sweepUnreadSheets(env, mode, model, cap = SWEEP_CAP) {
+  if (!env.ANTHROPIC_API_KEY || (mode !== "strong" && mode !== "all")) return;
+  let rows;
+  try {
+    rows = (await env.DB.prepare(
+      "SELECT id, lot_json FROM queue WHERE status = 'pending' ORDER BY created_at DESC LIMIT 80"
+    ).all()).results || [];
+  } catch (e) {
+    console.error("sweepUnreadSheets query failed:", e.message);
+    return;
+  }
+  const targets = [];
+  for (const r of rows) {
+    let lot;
+    try { lot = JSON.parse(r.lot_json); } catch (e) { continue; }
+    if (lot._sheet) continue;                                   // already read
+    if (mode === "strong" && lot._strength !== "Strong") continue;
+    if (!String(lot.images || "").trim()) continue;             // no photos to read
+    targets.push({ id: r.id, lot });
+    if (targets.length >= cap) break;
+  }
+  await Promise.all(targets.map(async ({ id, lot }) => {
+    const result = await readAuctionSheet(env, lot.images, model);
+    if (result && !result.error) {
+      lot._sheet = { ...result, read_at: new Date().toISOString() };
+      try {
+        await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), id).run();
+      } catch (e) {
+        console.error("sweepUnreadSheets update failed for", id, e.message);
+      }
+    }
+  }));
 }
 
 // Parse a /messages response body (already-decoded JSON) into the sheet object or
