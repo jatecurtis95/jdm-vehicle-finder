@@ -11,7 +11,7 @@ import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
-import { readAuctionSheet, sweepUnreadSheets } from "./sheet.js";
+import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
@@ -225,6 +225,17 @@ export default {
         }
       }
       return Response.redirect(here(`/admin?view=matches&ran=${Number(ran) || 0}`), 303);
+    }
+
+    // One-click "Fix all photos": AI-read every un-read pending match in the
+    // background, which tags each car's cover photo + sheet so the cards heal.
+    // Admin only; gated by the API key.
+    if (path === "/lot/fix-photos" && request.method === "POST") {
+      if (session?.role !== "admin") return adminOnly();
+      if (!env.ANTHROPIC_API_KEY) return Response.redirect(here("/admin?view=matches"), 303);
+      const s = await getSettings(env);
+      ctx.waitUntil(fixAllPhotos(env, s.ai_sheet_model));
+      return Response.redirect(here("/admin?view=matches&fixing=1"), 303);
     }
 
     // AI auction-sheet reader: read one lot's inspection sheet and cache the

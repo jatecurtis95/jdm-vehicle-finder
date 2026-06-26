@@ -70,6 +70,39 @@ function cleanImageUrls(images, max = 5) {
     .slice(0, max);
 }
 
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic per-image limit
+
+// Base64-encode bytes in chunks (avoids blowing the call stack on big buffers).
+function bytesToBase64(bytes) {
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
+// Build a vision image block for a URL. Fetches the image server-side (browser
+// UA) and sends it as base64 — many JDM auction image hosts block hotlinking /
+// non-browser fetches, so handing Anthropic the raw URL often fails. Falls back
+// to a URL block if our own fetch doesn't work.
+async function imageBlock(url) {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA, "Accept": "image/avif,image/webp,image/*,*/*" } });
+    if (res.ok) {
+      const ct = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      const media = ALLOWED_MEDIA.includes(ct) ? ct : "image/jpeg";
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES) {
+        return { type: "image", source: { type: "base64", media_type: media, data: bytesToBase64(bytes) } };
+      }
+    }
+  } catch (e) {
+    // fall through to the URL block
+  }
+  return { type: "image", source: { type: "url", url } };
+}
+
 // Read the inspection sheet from a lot's images. Returns the parsed object on
 // success, or { error } on failure. Never throws.
 export async function readAuctionSheet(env, images, model = DEFAULT_SHEET_MODEL) {
@@ -78,7 +111,7 @@ export async function readAuctionSheet(env, images, model = DEFAULT_SHEET_MODEL)
   const urls = cleanImageUrls(images);
   if (!urls.length) return { error: "This lot has no photos to read." };
 
-  const content = urls.map((url) => ({ type: "image", source: { type: "url", url } }));
+  const content = await Promise.all(urls.map(imageBlock));
   content.push({ type: "text", text: PROMPT });
   const body = {
     model: SHEET_MODELS[model] ? model : DEFAULT_SHEET_MODEL,
@@ -117,7 +150,7 @@ export async function readAuctionSheet(env, images, model = DEFAULT_SHEET_MODEL)
 // cache the result onto each lot. Capped + concurrent so it stays well within the
 // Worker's background-task budget. Called from ctx.waitUntil after a search run.
 export async function sweepUnreadSheets(env, mode, model, cap = SWEEP_CAP) {
-  if (!env.ANTHROPIC_API_KEY || (mode !== "strong" && mode !== "all")) return;
+  if (!env.ANTHROPIC_API_KEY || (mode !== "strong" && mode !== "all")) return 0;
   let rows;
   try {
     rows = (await env.DB.prepare(
@@ -125,7 +158,7 @@ export async function sweepUnreadSheets(env, mode, model, cap = SWEEP_CAP) {
     ).all()).results || [];
   } catch (e) {
     console.error("sweepUnreadSheets query failed:", e.message);
-    return;
+    return 0;
   }
   const targets = [];
   for (const r of rows) {
@@ -150,6 +183,21 @@ export async function sweepUnreadSheets(env, mode, model, cap = SWEEP_CAP) {
       }
     }
   }));
+  return targets.length;
+}
+
+// One-click "fix all photos": read every un-read pending match, in bounded
+// concurrent batches, up to `max` per click. Reading a car also tags its cover
+// photo + sheet, so the cards heal. Runs in the background (ctx.waitUntil).
+export async function fixAllPhotos(env, model, max = 30, batch = SWEEP_CAP) {
+  if (!env.ANTHROPIC_API_KEY) return 0;
+  let done = 0;
+  while (done < max) {
+    const n = await sweepUnreadSheets(env, "all", model, Math.min(batch, max - done));
+    if (!n) break;       // no more un-read candidates
+    done += n;
+  }
+  return done;
 }
 
 // Parse a /messages response body (already-decoded JSON) into the sheet object or
