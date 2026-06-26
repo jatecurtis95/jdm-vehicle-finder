@@ -104,12 +104,24 @@ function decodeEntities(s) {
     .replace(/&amp;/g, "&");
 }
 
-// Build the three image sizes from the base image URL stored in `images`.
-// Provider rule: thumb = &h=50, medium = &w=320, full = plain URL.
+// Split a lot's images into the inspection sheet and the car photos. By feed
+// convention the FIRST image is the auction inspection sheet and the rest are
+// car photos. When there's only one image, or an AI read found no sheet, treat
+// them all as photos. Returns clean base URLs (any size suffix stripped).
+export function splitImages(lot) {
+  const bases = String((lot && lot.images) || "")
+    .split("#")
+    .map((u) => u.trim().replace(/[?&][hw]=\d+$/i, ""))
+    .filter(Boolean);
+  const hasSheet = !(lot && lot._sheet && lot._sheet.found === false) && bases.length >= 2;
+  return hasSheet ? { sheet: bases[0], photos: bases.slice(1) } : { sheet: null, photos: bases };
+}
+
+// Build the three image sizes for the lot's lead CAR photo — used for card and
+// email thumbnails. Skips the inspection sheet so listings show the car, not the
+// handwritten form. Provider rule: thumb = &h=50, medium = &w=320, full = plain.
 export function imageUrls(lot) {
-  // The images field is one or more URLs separated by "#", sometimes already
-  // carrying a size suffix (&h=50). Take the first and strip any size suffix.
-  let base = (lot.images || "").split("#")[0].trim().replace(/[?&][hw]=\d+$/i, "");
+  const base = splitImages(lot).photos[0] || null;
   if (!base) return { thumb: null, medium: null, full: null };
   return {
     thumb: `${base}&h=50`,
