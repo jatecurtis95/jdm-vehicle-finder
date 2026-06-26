@@ -5,7 +5,7 @@ import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, refreshLotImages } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
@@ -555,6 +555,17 @@ const CSS = `
   .ld-sheet-img{display:block;width:100%;height:auto}
   .ld-sheet-open{position:absolute;top:10px;right:10px;background:rgba(20,20,22,.72);color:#fff;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;letter-spacing:.02em;line-height:1}
   .ld-sheet-link:hover .ld-sheet-open{background:rgba(20,20,22,.92)}
+  .ld-topbtns{display:flex;gap:10px;align-items:center}
+  .ld-share{position:relative}
+  .ld-share>summary{list-style:none;cursor:pointer;display:inline-flex}
+  .ld-share>summary::-webkit-details-marker{display:none}
+  .ld-share-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:30;width:300px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.18);text-align:left}
+  .ld-share-h{font-weight:700;font-size:14px;color:var(--ink)}
+  .ld-share-p{font-size:12px;color:var(--t3);margin:4px 0 12px;line-height:1.5}
+  .ld-share-row{display:flex;gap:8px;margin-bottom:10px}
+  .ld-share-row input{flex:1;min-width:0;font-size:12px;padding:9px 10px;border:1px solid var(--field-line);border-radius:8px;background:var(--field);color:var(--ink)}
+  .ld-share-row .btn-dark{padding:9px 14px;font-size:13px}
+  .ld-share-wa{display:block;text-align:center;width:100%}
 `;
 
 function initials(name) {
@@ -1750,6 +1761,21 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim() || "Vehicle";
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
+  // Share: a signed, view-only public link to this car (no login), with copy +
+  // WhatsApp. The token can only VIEW — never approve/skip.
+  const shareTitle = `${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""}`.replace(/\s+/g, " ").trim();
+  const shareToken = await makeShareToken(env, q.id);
+  const shareBtn = shareToken ? `<details class="ld-share">
+      <summary class="btn-dark">Share</summary>
+      <div class="ld-share-pop">
+        <div class="ld-share-h">Share with a client</div>
+        <p class="ld-share-p">A view-only link to this car — no login needed.</p>
+        <div class="ld-share-row"><input id="shareUrl" readonly value="" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
+        <a id="shareWa" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
+      </div>
+    </details>` : "";
+  const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" \\u2014 "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
+
   // Images. The inspection sheet (first image, by feed convention) goes in its
   // own box; the rest are the car-photo gallery. Shared with the cards/emails via
   // splitImages so they all agree on which image is the sheet. `bases` (all
@@ -1849,7 +1875,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
         <h1>${title}</h1>
         ${sub ? `<p class="subline">${sub}</p>` : ""}
       </div>
-      ${back}
+      <div class="ld-topbtns">${shareBtn}${back}</div>
     </div>
     <div class="content wide">
       ${opts.err ? `<div class="reqerr" style="margin-bottom:18px">${esc(opts.err)}</div>` : ""}
@@ -1877,7 +1903,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           </div>
         </aside>
       </div>
-    </div>${lotGalleryScript()}${autoOpen ? `<script>(function(){var f=document.querySelector('.ld-ai-form');if(!f)return;var b=f.querySelector('button');if(b){b.disabled=true;b.textContent='Reading the sheet… (~10s)';}f.submit();})();</script>` : ""}`;
+    </div>${lotGalleryScript()}${shareScript}${autoOpen ? `<script>(function(){var f=document.querySelector('.ld-ai-form');if(!f)return;var b=f.querySelector('button');if(b){b.disabled=true;b.textContent='Reading the sheet… (~10s)';}f.submit();})();</script>` : ""}`;
   return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
 }
 
@@ -2075,6 +2101,106 @@ export async function requestPage(env, opts = {}) {
     </aside>`;
   return brandShell(sb, main, "Request a vehicle - JDM Connect");
 }
+
+// Read-only public view of a shared car (the "Share" link). No login, no client
+// info, no admin actions — just the car, its inspection sheet, the specs and
+// (optionally) the market panel, with an enquiry CTA. Self-contained styles so
+// it renders on the public brand shell. Access is the signed token alone, so
+// the caller must verify it before calling this.
+export async function publicLotPage(env, queueId) {
+  const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
+    <nav class="nav">
+      <a class="active"><span class="bar"></span><span class="lbl">Vehicle</span></a>
+      <a href="/request"><span class="bar"></span><span class="lbl">Request a car</span></a>
+    </nav>
+    <div class="side-foot"><a class="signout" href="/">JDM Connect</a></div>
+    </aside>`;
+  const q = await env.DB.prepare("SELECT lot_json FROM queue WHERE id = ?").bind(queueId).first();
+  if (!q) {
+    return brandShell(sb,
+      `<div class="topbar"><div class="topbar-in"><div class="kicker">Vehicle Finder</div><h1>Car not found</h1></div></div>
+       <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you're after</a> and we'll source it for you.</div></div></div>`,
+      "Vehicle - JDM Connect");
+  }
+  let lot = {};
+  try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  const { sheet: sheetBase, photos } = splitImages(lot);
+  const settings = await getSettings(env).catch(() => ({}));
+  const [market, fx] = settingOn(settings, "market_for_clients")
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    : [null, 0];
+
+  const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
+  const th = (u) => `${u}&w=320`;
+  const gallery = photos.length
+    ? `<div class="plv-hero" id="plvHero" style="background-image:url('${esc(photos[0])}')"></div>
+       ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
+    : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
+  const sheetBox = sheetBase
+    ? `<div class="card plv-sheet"><h2>Auction inspection sheet</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
+    : "";
+  const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const specRows = [
+    ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
+    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
+    ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
+    ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
+    ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
+
+  const main = `
+    <div class="topbar"><div class="topbar-in"><div class="kicker">JDM Connect &middot; Auction vehicle</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div></div>
+    <div class="content">
+      <div class="plv-grid">
+        <div class="plv-left">
+          <div class="plv-gallery">${gallery}</div>
+          ${sheetBox}
+          ${marketPanel(market, fx)}
+        </div>
+        <aside class="plv-right">
+          <div class="card plv-spec">
+            <div class="plv-rows">${specRows}</div>
+            <a class="btn-gold plv-cta" href="/request">Enquire about this car</a>
+            <p class="plv-fine">Price shown is the Japanese auction price. Ask us for a full landed cost to your state.</p>
+          </div>
+        </aside>
+      </div>
+    </div>
+    ${PLV_STYLE}${plvGalleryScript()}`;
+  return brandShell(sb, main, title + " - JDM Connect");
+}
+
+function plvGalleryScript() {
+  return `<script>(function(){var hero=document.getElementById('plvHero');if(!hero)return;document.querySelectorAll('.plv-th').forEach(function(b){b.addEventListener('click',function(){hero.style.backgroundImage="url('"+b.getAttribute('data-full')+"')";document.querySelectorAll('.plv-th').forEach(function(x){x.classList.remove('on');});b.classList.add('on');});});})();</script>`;
+}
+
+const PLV_STYLE = `<style>
+  .plv-grid{display:grid;grid-template-columns:1fr;gap:22px}
+  @media(min-width:920px){.plv-grid{grid-template-columns:minmax(0,1fr) minmax(300px,380px);align-items:start}}
+  .plv-left{min-width:0}
+  .plv-gallery{margin-bottom:22px}
+  .plv-hero{height:440px;border-radius:14px;background:#15171a;background-size:cover;background-position:center;border:1px solid rgba(0,0,0,.10)}
+  .plv-noimg{display:flex;align-items:center;justify-content:center;color:#8a8f98;font-size:14px}
+  .plv-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .plv-th{width:84px;height:60px;border-radius:8px;border:1px solid rgba(0,0,0,.10);background-size:cover;background-position:center;cursor:pointer;opacity:.7;transition:opacity .15s,border-color .15s;padding:0}
+  .plv-th:hover{opacity:1}
+  .plv-th.on{opacity:1;border-color:#CAA34C;box-shadow:0 0 0 1px #CAA34C}
+  .plv-sheet{margin-bottom:22px}
+  .plv-sheet h2{font-size:15px;margin-bottom:14px}
+  .plv-sheet-link{display:block;border-radius:10px;overflow:hidden;border:1px solid rgba(0,0,0,.10);background:#f7f7f5;line-height:0}
+  .plv-sheet-link img{display:block;width:100%;height:auto}
+  .plv-right{position:sticky;top:24px}
+  .plv-rows{display:flex;flex-direction:column}
+  .plv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:13.5px}
+  .plv-row:last-of-type{border-bottom:0}
+  .plv-k{color:#6b7079}
+  .plv-v{font-weight:700;color:#1b1c1e;text-align:right}
+  .plv-cta{display:flex;width:100%;margin-top:18px}
+  .plv-fine{font-size:11.5px;color:#8a8f98;margin-top:12px;line-height:1.5;text-align:center}
+  @media(max-width:920px){.plv-right{position:static}.plv-hero{height:300px}}
+</style>`;
 
 // Client-side guard for the public request form: require a contact method
 // (Fix 1), sanity-check the year range (Fix 4), and disable the button after a
