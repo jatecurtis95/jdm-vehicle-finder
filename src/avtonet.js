@@ -104,17 +104,34 @@ function decodeEntities(s) {
     .replace(/&amp;/g, "&");
 }
 
-// Split a lot's images into the inspection sheet and the car photos. By feed
-// convention the FIRST image is the auction inspection sheet and the rest are
-// car photos. When there's only one image, or an AI read found no sheet, treat
-// them all as photos. Returns clean base URLs (any size suffix stripped).
+// Split a lot's images into the inspection sheet and the car photos.
+//
+// If the AI reader has run (lot._sheet), trust its sheet_index and cover_index
+// (positions into the image list) — that's the reliable signal. Otherwise fall
+// back to the feed convention that the FIRST image is the inspection sheet.
+// photos[0] is the lead/cover photo (the AI's front-3/4 pick when available).
+// Returns clean base URLs (any size suffix stripped).
 export function splitImages(lot) {
   const bases = String((lot && lot.images) || "")
     .split("#")
     .map((u) => u.trim().replace(/[?&][hw]=\d+$/i, ""))
     .filter(Boolean);
-  const hasSheet = !(lot && lot._sheet && lot._sheet.found === false) && bases.length >= 2;
-  return hasSheet ? { sheet: bases[0], photos: bases.slice(1) } : { sheet: null, photos: bases };
+  const ai = lot && lot._sheet;
+  const inRange = (n) => Number.isInteger(n) && n >= 0 && n < bases.length;
+
+  let sheetIdx = -1;
+  if (ai && inRange(ai.sheet_index)) sheetIdx = ai.sheet_index;          // AI-identified
+  else if (!(ai && ai.found === false) && bases.length >= 2) sheetIdx = 0; // convention
+
+  const sheet = sheetIdx >= 0 ? bases[sheetIdx] : null;
+  let photos = sheetIdx >= 0 ? bases.filter((_, i) => i !== sheetIdx) : bases.slice();
+
+  // Promote the AI's chosen cover (front 3/4) to the front of the gallery.
+  if (ai && inRange(ai.cover_index) && ai.cover_index !== sheetIdx) {
+    const cover = bases[ai.cover_index];
+    photos = [cover, ...photos.filter((u) => u !== cover)];
+  }
+  return { sheet, photos };
 }
 
 // Build the three image sizes for the lot's lead CAR photo — used for card and
