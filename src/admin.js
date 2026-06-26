@@ -837,14 +837,10 @@ function settingsView(settings, opts = {}) {
 
           <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
             <div style="font-size:15px;font-weight:600;margin-bottom:4px">Membership pricing</div>
-            <p class="help" style="margin:0 0 16px">Scaffolding for the Free and Importer tiers. These numbers feed the pricing page and the Stripe subscription products in a later stage. No memberships are billed yet.</p>
-            <div class="grid" style="grid-template-columns:repeat(2,1fr)">
-              <div><label>Importer <span class="opt">(A$/month)</span></label><input name="importer_monthly_aud" type="number" min="0" step="1" value="${esc(s.importer_monthly_aud || "19")}"></div>
-              <div><label>Importer <span class="opt">(A$/year)</span></label><input name="importer_annual_aud" type="number" min="0" step="1" value="${esc(s.importer_annual_aud || "190")}"></div>
-              <div><label>Founding <span class="opt">(A$/month, locked for life)</span></label><input name="founding_monthly_aud" type="number" min="0" step="1" value="${esc(s.founding_monthly_aud || "12")}"></div>
-              <div><label>Founding seats <span class="opt">(cap)</span></label><input name="founding_seats" type="number" min="0" step="1" value="${esc(s.founding_seats || "100")}"></div>
-              <div><label>Free result limit <span class="opt">(per search)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
-              <div><label>Founding seats claimed <span class="opt">(managed automatically)</span></label><input value="${esc(s.founding_claimed || "0")}" disabled style="opacity:.7"></div>
+            <p class="help" style="margin:0 0 16px">One paid plan — “Full access”. This is the price shown on the public pricing page. Billing isn't live yet; “Start free” is the only active path, so changing this just updates the advertised price.</p>
+            <div class="grid" style="grid-template-columns:repeat(2,1fr);max-width:640px">
+              <div><label>Full access <span class="opt">(A$/month)</span></label><input name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
+              <div><label>Free result limit <span class="opt">(per search — reserved, not yet enforced)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
             </div>
           </div>
 

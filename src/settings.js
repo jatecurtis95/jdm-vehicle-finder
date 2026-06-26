@@ -15,15 +15,11 @@ const DEFAULTS = {
   stripe_enabled: "0",   // show the "Pay deposit" button in the buyer portal
   stripe_deposit_aud: "", // deposit amount in AUD dollars (e.g. "500"); blank = off
   stripe_currency: "aud", // Checkout currency
-  // Membership pricing scaffolding (Stage 0). No live billing yet: these are the
-  // numbers the public pricing page and the Stripe subscription products will
-  // read in Stage 2, kept here so they are tunable without a redeploy.
-  importer_monthly_aud: "19",  // Importer plan, A$ per month
-  importer_annual_aud: "190",  // Importer plan, A$ per year
-  founding_monthly_aud: "12",  // founding price, locked for life, A$ per month
-  founding_seats: "100",       // how many founding memberships exist (seat cap)
-  founding_claimed: "0",       // founding seats taken so far (advanced in Stage 2)
-  free_result_limit: "1",      // upcoming matches a free/logged-out user sees per search
+  // Membership pricing. One paid plan ("Full access"). The public pricing page
+  // reads this so the number is tunable without a redeploy. Billing isn't live
+  // yet — this is the advertised price; "Start free" is the only live path.
+  membership_monthly_aud: "49", // Full access plan, A$ per month
+  free_result_limit: "1",       // (reserved) free-tier result cap — not yet enforced
 };
 
 export async function getSettings(env) {
@@ -77,10 +73,7 @@ export async function saveSettings(env, form) {
     stripe_enabled: form.get("stripe_enabled") ? "1" : "0",
     stripe_deposit_aud: posIntStr(form.get("stripe_deposit_aud"), ""),
     stripe_currency: (String(form.get("stripe_currency") || "aud").trim().toLowerCase()) || "aud",
-    importer_monthly_aud: posIntStr(form.get("importer_monthly_aud"), "19"),
-    importer_annual_aud: posIntStr(form.get("importer_annual_aud"), "190"),
-    founding_monthly_aud: posIntStr(form.get("founding_monthly_aud"), "12"),
-    founding_seats: posIntStr(form.get("founding_seats"), "100"),
+    membership_monthly_aud: posIntStr(form.get("membership_monthly_aud"), "49"),
     free_result_limit: posIntStr(form.get("free_result_limit"), "1"),
     ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,
     ai_sheet_auto: SHEET_AUTO_MODES[form.get("ai_sheet_auto")] ? String(form.get("ai_sheet_auto")) : "off",
