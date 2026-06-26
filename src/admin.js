@@ -490,6 +490,49 @@ const CSS = `
   .sc-actions .btn-skip:hover{background:var(--off);color:var(--ink)}
   .sc-actions .btn-notify{flex:2;color:var(--gold-on);font-weight:700;background:var(--gold);border:0}
   .sc-actions .btn-notify:hover{background:var(--gold-hover)}
+  /* Clickable card affordances + lot detail page */
+  .sc-title a{color:inherit;text-decoration:none}
+  .sc-title a:hover{text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:2px}
+  a.sc-img{cursor:pointer}
+  .sc-more{display:inline-block;font-size:12px;font-weight:600;color:var(--gold-txt);margin:0 0 12px;text-decoration:none}
+  .sc-more:hover{text-decoration:underline;text-underline-offset:2px}
+  .ld-grid{display:grid;grid-template-columns:1fr;gap:22px}
+  @media(min-width:920px){.ld-grid{grid-template-columns:1.6fr 1fr;align-items:start}}
+  .ld-left{min-width:0}
+  .ld-gallery{margin-bottom:22px}
+  .ld-hero{height:420px;border-radius:var(--r-card);background:#15171a;background-size:cover;background-position:center;border:1px solid var(--hair)}
+  .ld-hero.ld-noimg{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:14px;background:var(--off)}
+  .ld-thumbs{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .ld-th{width:88px;height:62px;border-radius:8px;border:2px solid transparent;background:#15171a;background-size:cover;background-position:center;cursor:pointer;padding:0;opacity:.65;transition:opacity .15s,border-color .15s}
+  .ld-th:hover{opacity:1}
+  .ld-th.on{opacity:1;border-color:var(--gold)}
+  .ld-right{position:sticky;top:84px}
+  @media(max-width:920px){.ld-right{position:static}.ld-hero{height:280px}}
+  .ld-top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
+  .ld-grade-n{font-size:34px;font-weight:700;color:var(--gold-txt);line-height:1;font-variant-numeric:tabular-nums}
+  .ld-grade-k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:5px}
+  .ld-landed{text-align:right}
+  .ld-landed-k{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .ld-landed-v{font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;margin-top:2px}
+  .ld-when-row{margin-bottom:14px}
+  .ld-when{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--gold-txt);background:var(--gold-tint);border:1px solid var(--gold-line);padding:4px 10px;border-radius:6px}
+  .ld-when.urgent{color:#fff;background:#B11226;border-color:#B11226}
+  .ld-rows{display:flex;flex-direction:column}
+  .ld-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hair-2);font-size:13.5px}
+  .ld-row:last-child{border-bottom:0}
+  .ld-k{color:var(--t3)}
+  .ld-v{color:var(--ink);font-weight:600;text-align:right}
+  .ld-sec{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:16px 0 2px}
+  .ld-client{display:flex;align-items:center;gap:11px;padding:14px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
+  .ld-cl-n{font-size:13px;font-weight:600;color:var(--ink)}
+  .ld-cl-w{font-size:11.5px;color:var(--t3);margin-top:1px}
+  .ld-actions{display:flex;gap:10px;margin-top:18px}
+  .ld-actions .btn-skip{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:8px;color:var(--t2);font-weight:600;padding:13px}
+  .ld-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
+  .ld-actions .btn-notify{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:8px;padding:13px}
+  .ld-actions .btn-notify:hover{background:var(--gold-hover)}
+  .ld-status{margin-top:16px;padding:12px;background:var(--off);border:1px solid var(--hair);border-radius:8px;font-size:13.5px;color:var(--t2);text-align:center}
+  .ld-notes{font-size:14px;color:var(--t2);line-height:1.6;margin:0 0 10px}
 `;
 
 function initials(name) {
@@ -1269,18 +1312,18 @@ function matchCard(q) {
   const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
   return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
-    <div class="sc-img" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+    <a class="sc-img" href="/admin?view=lot&id=${q.id}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="sc-grad"></div>
       <div class="sc-tags">
         <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
       </div>
       ${(when || auc || lot.lot) ? `<div class="sc-imgfoot">${when}${(auc || lot.lot) ? `<span class="sc-auc">${[auc, lot.lot ? "Lot " + esc(lot.lot) : ""].filter(Boolean).join(" &middot; ")}</span>` : ""}</div>` : ""}
-    </div>
+    </a>
     <div class="sc-body">
       <div class="sc-main">
         <div class="sc-head">
           <div class="sc-id">
-            <h3 class="sc-title">${title}</h3>
+            <h3 class="sc-title"><a href="/admin?view=lot&id=${q.id}">${title}</a></h3>
             ${sub ? `<p class="sc-sub">${sub}</p>` : ""}
           </div>
           ${q._landed ? `<div class="sc-landed"><div class="sc-landed-k">Est. landed ${esc(q._landed.state)}</div><div class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : ""}
@@ -1291,6 +1334,7 @@ function matchCard(q) {
           ${cell("Odo", lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-")}
           ${cell("Bid", bid)}
         </div>
+        <a class="sc-more" href="/admin?view=lot&id=${q.id}">View details &amp; auction report &rarr;</a>
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:rgba(96,143,226,0.16);color:#9FB9F2;border-color:rgba(96,143,226,0.4)">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
@@ -1605,6 +1649,122 @@ function clientBulkBar(cid) {
 
 // Client detail page: contact, owner, their wishlists (editable) and their live
 // matches. Reached by clicking a client name in the Clients list.
+// Full detail + auction report for one matched lot (queue row). Renders entirely
+// from the lot_json snapshot taken at match time — every spec, photo, the
+// equipment/info notes and the landed-cost estimate are already captured, so the
+// page makes no extra auction-feed calls.
+function lotGalleryScript() {
+  return `<script>(function(){var hero=document.getElementById('ldHero');if(!hero)return;document.querySelectorAll('.ld-th').forEach(function(b){b.addEventListener('click',function(){var f=b.getAttribute('data-full');if(f)hero.style.backgroundImage="url('"+f+"')";document.querySelectorAll('.ld-th').forEach(function(x){x.classList.remove('on')});b.classList.add('on');});});})();</script>`;
+}
+
+export async function lotDetailPage(env, queueId, session = { role: "admin", id: 0 }) {
+  const qid = Number(queueId);
+  const back = `<a class="btn-dark" href="/admin?view=matches">Back to matches</a>`;
+  const notFound = () => shell(sidebar("matches", {}, session),
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Vehicle</h1></div>${back}</div>
+     <div class="content"><div class="card"><div class="empty">This vehicle is no longer in your queue.</div></div></div>`,
+    "Vehicle - JDM Connect");
+  if (!Number.isInteger(qid) || qid <= 0) return notFound();
+  const q = await env.DB.prepare(
+    `SELECT q.*, c.name AS client_name, w.label AS wlabel, w.rate_min AS w_rate,
+            w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.id = ?`
+  ).bind(qid).first();
+  if (!q) return notFound();
+  if (!(await clientAccessibleBy(env, q.client_id, session))) return notFound();
+
+  let lot = {};
+  try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  if (!q._landed && lot._landed) q._landed = lot._landed;
+
+  const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim() || "Vehicle";
+  const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
+
+  // Gallery — every photo, including the auction inspection sheet when present.
+  const bases = String(lot.images || "").split("#").map((u) => u.trim().replace(/[?&][hw]=\d+$/i, "")).filter(Boolean);
+  const big = (u) => `${u}&w=1000`;
+  const th = (u) => `${u}&w=220`;
+  const gallery = bases.length
+    ? `<div class="ld-gallery">
+        <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(bases[0]))}')"></div>
+        ${bases.length > 1 ? `<div class="ld-thumbs">${bases.map((u, i) => `<button type="button" class="ld-th${i === 0 ? " on" : ""}" data-full="${esc(big(u))}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}
+      </div>`
+    : `<div class="ld-gallery"><div class="ld-hero ld-noimg">No photos on this lot yet</div></div>`;
+
+  const row = (k, v) => v ? `<div class="ld-row"><span class="ld-k">${k}</span><span class="ld-v">${v}</span></div>` : "";
+  const km = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const specRows = [
+    row("Year", esc(lot.year || "")),
+    row("Chassis", esc(lot.kuzov || "")),
+    row("Grade", esc(lot.grade || "")),
+    row("Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""),
+    row("Transmission", esc(lot.kpp || lot.kpp_type || "")),
+    row("Mileage", esc(km)),
+    row("Colour", esc(lot.color || "")),
+  ].join("");
+  const aucDate = esc((lot.auction_date || "").slice(0, 16).replace("T", " "));
+  const auctionRows = [
+    row("Auction house", esc(lot.auction || "")),
+    row("Lot number", esc(lot.lot || "")),
+    row("Auction date", aucDate),
+    row("Status", esc(lot.status || "")),
+    row("Start price", Number(lot.start) > 0 ? yen(lot.start) : ""),
+    row("Recent average", Number(lot.avg_price) > 0 ? yen(lot.avg_price) : ""),
+  ].join("");
+
+  const landed = q._landed ? `<div class="ld-landed"><div class="ld-landed-k">Est. landed ${esc(q._landed.state || "")}</div><div class="ld-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : "";
+  const days = daysUntil(lot.auction_date);
+  const when = (days === 0) ? `<span class="ld-when urgent">Auction today</span>`
+    : (days === 1) ? `<span class="ld-when urgent">Auction in 1 day</span>`
+    : (days > 1) ? `<span class="ld-when">Auction in ${days} days</span>` : "";
+  const chips = whyChips(q);
+  const equip = String(lot.equip || "").trim();
+  const info = String(lot.info || "").trim();
+  const notes = `<div class="card"><h2><span class="num">&middot;</span> Auction notes</h2>
+      ${equip ? `<p class="ld-notes"><strong>Equipment.</strong> ${esc(equip)}</p>` : ""}
+      ${info ? `<p class="ld-notes">${esc(info)}</p>` : ""}
+      <p class="help" style="margin-top:${equip || info ? "12px" : "0"}">Interior and exterior condition grades are marked on the auction inspection sheet, shown in the photos above when the auction provides it. The number above is the overall auction grade.</p>
+    </div>`;
+
+  const approve = `/decide?token=${esc(q.token)}&action=approve`;
+  const skip = `/decide?token=${esc(q.token)}&action=reject`;
+  const actions = q.status === "pending"
+    ? `<div class="ld-actions"><a class="btn-skip" href="${skip}">Skip</a><a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a></div>`
+    : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
+
+  const main = `
+    <div class="topbar">
+      <div>
+        <div class="kicker">Vehicle Finder &middot; Auction report</div>
+        <h1>${title}</h1>
+        ${sub ? `<p class="subline">${sub}</p>` : ""}
+      </div>
+      ${back}
+    </div>
+    <div class="content">
+      <div class="ld-grid">
+        <div class="ld-left">
+          ${gallery}
+          ${notes}
+        </div>
+        <aside class="ld-right">
+          <div class="card ld-card">
+            <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
+            ${when ? `<div class="ld-when-row">${when}</div>` : ""}
+            <div class="ld-rows">${specRows}</div>
+            <div class="ld-sec">Auction</div>
+            <div class="ld-rows">${auctionRows}</div>
+            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "wishlist")}</div></div></div>
+            ${chips.length ? `<div class="why" style="padding:14px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
+            ${actions}
+          </div>
+        </aside>
+      </div>
+    </div>${lotGalleryScript()}`;
+  return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
+}
+
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }) {
   const cid = Number(clientId);
   const notFound = () => shell(sidebar("clients", {}, session),
