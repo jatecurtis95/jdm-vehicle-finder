@@ -11,6 +11,7 @@ import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
+import { readAuctionSheet } from "./sheet.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
@@ -197,7 +198,10 @@ export default {
         return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
       }
       if (view === "lot") {
-        return doc(await lotDetailPage(env, url.searchParams.get("id"), session));
+        return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
+          aiEnabled: !!env.ANTHROPIC_API_KEY,
+          err: url.searchParams.get("err"),
+        }));
       }
       return doc(await adminPage(env, view, session, { err: url.searchParams.get("err") }));
     }
@@ -205,6 +209,27 @@ export default {
     if (path === "/run") {
       const ran = await runMatcher(env, session);
       return Response.redirect(here(`/admin?view=matches&ran=${Number(ran) || 0}`), 303);
+    }
+
+    // AI auction-sheet reader: read one lot's inspection sheet and cache the
+    // structured result onto the lot. Gated by the ANTHROPIC_API_KEY secret.
+    if (path === "/lot/read-sheet" && request.method === "POST") {
+      const f = await request.formData();
+      const qid = Number(f.get("id"));
+      const back = (err) => Response.redirect(here(`/admin?view=lot&id=${qid}${err ? `&err=${encodeURIComponent(err)}` : ""}`), 303);
+      if (!Number.isInteger(qid) || qid <= 0) return adminOnly();
+      const q = await env.DB.prepare("SELECT id, client_id, lot_json FROM queue WHERE id = ?").bind(qid).first();
+      if (!q || !(await clientAccessibleBy(env, q.client_id, session))) return adminOnly();
+      let lot = {};
+      try { lot = JSON.parse(q.lot_json); } catch (e) {}
+      const settings = await getSettings(env);
+      const result = await readAuctionSheet(env, lot.images, settings.ai_sheet_model);
+      if (result && !result.error) {
+        lot._sheet = { ...result, read_at: new Date().toISOString() };
+        await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), qid).run();
+        return back();
+      }
+      return back((result && result.error) || "Could not read the auction sheet.");
     }
 
     // Bulk approve/skip from the Matches view. Same per-item access rules as the
