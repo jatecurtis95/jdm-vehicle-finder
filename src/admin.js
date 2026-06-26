@@ -544,6 +544,11 @@ const CSS = `
   .ld-ai-read .ld-notes:last-child{margin-bottom:0}
   .ld-ai-form{margin-top:14px}
   .ld-ai-form button:disabled{opacity:.7;cursor:default}
+  .ld-feed{margin:0 0 22px;font-size:13px}
+  .ld-feed summary{cursor:pointer;color:var(--t3);font-weight:600;list-style:none;padding:8px 0}
+  .ld-feed summary::-webkit-details-marker{display:none}
+  .ld-feed summary:hover{color:var(--ink)}
+  .ld-raw{white-space:pre-wrap;word-break:break-all;font-size:11.5px;line-height:1.5;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:8px;padding:12px 14px;margin:0;font-family:var(--mono,ui-monospace,Menlo,Consolas,monospace)}
 `;
 
 function initials(name) {
@@ -1816,6 +1821,10 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <div class="ld-grid">
         <div class="ld-left">
           ${gallery}
+          ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
+            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent — if the inspection sheet isn't here, the feed didn't include it):</p>
+            <pre class="ld-raw">${esc(lot.images || "(empty — the feed sent no images for this lot)")}</pre>
+          </details>` : ""}
           ${notes}
         </div>
         <aside class="ld-right">
