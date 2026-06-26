@@ -43,14 +43,21 @@ const SCHEMA = {
       repairs: { type: "array", items: { type: "string" }, description: "notable repair, rust, dent or damage marks from the condition diagram, in plain English" },
       equipment: { type: "array", items: { type: "string" }, description: "notable equipment/options listed on the sheet, in plain English" },
       notes_en: { type: "string", description: "a concise English summary (2-4 sentences) of the inspector's condition comments" },
+      sheet_index: { type: "integer", description: "0-based position, in the order the images were given, of the image that IS the inspection/grading sheet; -1 if no sheet is present" },
+      cover_index: { type: "integer", description: "0-based position of the best photo to use as the listing cover — prefer a clear front three-quarter view of the whole car; never the inspection sheet, interior, engine bay or close-ups; -1 if no suitable exterior photo" },
     },
-    required: ["found", "overall_grade", "exterior", "interior", "mileage_km", "repairs", "equipment", "notes_en"],
+    required: ["found", "overall_grade", "exterior", "interior", "mileage_km", "repairs", "equipment", "notes_en", "sheet_index", "cover_index"],
   },
 };
 
-const PROMPT = `These photos are from a Japanese used-car auction listing. One of them is usually the auction inspection (grading) sheet — a form with a car condition diagram, an overall grade, exterior (外装) and interior (内装) letter grades, the odometer, and handwritten Japanese condition notes.
+const PROMPT = `These photos are from a Japanese used-car auction listing, given to you in order (the first image is index 0). One of them is usually the auction inspection (grading) sheet — a form with a car condition diagram, an overall grade, exterior (外装) and interior (内装) letter grades, the odometer, and handwritten Japanese condition notes.
 
-Find the inspection sheet among the images and extract its data, translating Japanese to clear English. The exterior grade is the 外装 letter and the interior grade is the 内装 letter (A is best). List repair/rust/dent marks from the condition diagram. If no inspection sheet is visible in any image, set found=false and leave the other fields empty. Report only what is actually on the sheet — do not guess.`;
+Do three things:
+1. Find the inspection sheet and report its index as sheet_index (-1 if none).
+2. Choose the best exterior photo for a listing cover and report its index as cover_index — prefer a clear front three-quarter shot of the whole car; never pick the inspection sheet, an interior, engine-bay or close-up shot.
+3. Extract the sheet's data, translating Japanese to clear English. The exterior grade is the 外装 letter and the interior grade is the 内装 letter (A is best). List repair/rust/dent marks from the condition diagram.
+
+If no inspection sheet is visible in any image, set found=false, sheet_index=-1 and leave the text fields empty (still set cover_index if there's a usable exterior photo). Report only what is actually on the sheet — do not guess.`;
 
 // Clean full-res URLs to send to the vision model. The inspection sheet is, by
 // feed convention, the FIRST image — so take the first `max`, which always
