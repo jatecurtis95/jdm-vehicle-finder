@@ -743,7 +743,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, { settings: matchSettings });
+  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
   else if (view === "agents") body = agentsView(agents);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY });
@@ -1471,6 +1471,7 @@ function matchesView(pending, opts = {}) {
       <span class="quick">
         <button type="button" id="qStrong">Select all Strong</button>
         <button type="button" id="qSoon">Select all closing soon</button>
+        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
       </span>
     </div>
   </div>`;
@@ -1483,7 +1484,12 @@ function matchesView(pending, opts = {}) {
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
   const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return ticker + pause + controls + bulk + grid + matchesScript() + ranToast();
+  return ticker + pause + controls + bulk + grid + matchesScript() + ranToast() + fixToast();
+}
+
+// One-off toast after the "Fix photos with AI" button kicks off a background run.
+function fixToast() {
+  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;var d=document.createElement("div");d.textContent="Reading auction photos in the background — refresh in a minute to see the covers update.";d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);max-width:90vw;background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:11px 18px;border-radius:9px;font:600 14px/1.35 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22);text-align:center";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},5200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
