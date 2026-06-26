@@ -52,13 +52,15 @@ const PROMPT = `These photos are from a Japanese used-car auction listing. One o
 
 Find the inspection sheet among the images and extract its data, translating Japanese to clear English. The exterior grade is the 外装 letter and the interior grade is the 内装 letter (A is best). List repair/rust/dent marks from the condition diagram. If no inspection sheet is visible in any image, set found=false and leave the other fields empty. Report only what is actually on the sheet — do not guess.`;
 
-// Build the {thumb,medium,full} stripping logic inline: take clean full-res URLs.
+// Clean full-res URLs to send to the vision model. The inspection sheet is, by
+// feed convention, the LAST image — so take the last `max` (not the first), or
+// the reader would never see the sheet on lots with many photos.
 function cleanImageUrls(images, max = 5) {
   return String(images || "")
     .split("#")
     .map((u) => u.trim().replace(/[?&][hw]=\d+$/i, ""))
     .filter(Boolean)
-    .slice(0, max);
+    .slice(-max);
 }
 
 // Read the inspection sheet from a lot's images. Returns the parsed object on
