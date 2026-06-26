@@ -11,7 +11,7 @@ import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
-import { readAuctionSheet } from "./sheet.js";
+import { readAuctionSheet, sweepUnreadSheets } from "./sheet.js";
 import { distinctMakers, distinctModels } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
@@ -25,7 +25,7 @@ export default {
   },
 
   // -------- HTTP routes --------
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -208,6 +208,14 @@ export default {
 
     if (path === "/run") {
       const ran = await runMatcher(env, session);
+      // If auto sheet-reading is on (strong/all), catch up on a capped batch of
+      // unread matches in the background so /run still redirects immediately.
+      if (env.ANTHROPIC_API_KEY) {
+        const s = await getSettings(env);
+        if (s.ai_sheet_auto === "strong" || s.ai_sheet_auto === "all") {
+          ctx.waitUntil(sweepUnreadSheets(env, s.ai_sheet_auto, s.ai_sheet_model));
+        }
+      }
       return Response.redirect(here(`/admin?view=matches&ran=${Number(ran) || 0}`), 303);
     }
 
