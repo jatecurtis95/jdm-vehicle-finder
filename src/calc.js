@@ -54,7 +54,7 @@ function envNum(v, fallback) {
 // Live JPY-per-AUD rate (the calculator's fxRate), cached per isolate for 6h.
 // Falls back to the fixed CALC_FX (default 95) if the FX service is unreachable.
 let _fxCache = { rate: 0, exp: 0 };
-async function getLiveFx(env) {
+export async function getLiveFx(env) {
   const fallback = (() => { const f = envNum(env.CALC_FX, 95); return f > 0 ? f : 95; })();
   const now = Date.now();
   if (_fxCache.rate > 0 && now < _fxCache.exp) return _fxCache.rate;
