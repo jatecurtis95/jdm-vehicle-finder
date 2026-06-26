@@ -38,6 +38,49 @@ export async function sendEmail(env, { to, subject, html, from }) {
   return res.json();
 }
 
+// Push a phone notification (a "chime") for time-sensitive events like a new
+// signup or payment. Reaches your phone via the Pushover or ntfy app even when
+// the site isn't open — the trigger is server-side, so nothing needs to be in a
+// browser. No-ops (returns false) until one provider is configured by secret, so
+// it's safe to call unconditionally. Never throws.
+//   Pushover: set PUSHOVER_TOKEN + PUSHOVER_USER (optional PUSHOVER_SOUND).
+//   ntfy:     set NTFY_TOPIC (optional NTFY_SERVER, NTFY_PRIORITY, NTFY_TAGS).
+export async function sendPush(env, { title, message, url }) {
+  try {
+    if (env.PUSHOVER_TOKEN && env.PUSHOVER_USER) {
+      const params = { token: env.PUSHOVER_TOKEN, user: env.PUSHOVER_USER, title, message };
+      if (url) params.url = url;
+      if (env.PUSHOVER_SOUND) params.sound = env.PUSHOVER_SOUND;
+      const res = await fetch("https://api.pushover.net/1/messages.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(params),
+      });
+      if (!res.ok) throw new Error(`Pushover HTTP ${res.status}`);
+      return true;
+    }
+    if (env.NTFY_TOPIC) {
+      const base = (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/+$/, "");
+      const headers = { Title: asciiHeader(title) };
+      if (url) headers.Click = url;
+      if (env.NTFY_PRIORITY) headers.Priority = String(env.NTFY_PRIORITY);
+      if (env.NTFY_TAGS) headers.Tags = env.NTFY_TAGS;
+      const res = await fetch(`${base}/${env.NTFY_TOPIC}`, { method: "POST", headers, body: message });
+      if (!res.ok) throw new Error(`ntfy HTTP ${res.status}`);
+      return true;
+    }
+  } catch (err) {
+    console.error("Push notify failed:", err.message);
+  }
+  return false;
+}
+
+// HTTP headers must be Latin-1/ASCII-safe; strip anything that isn't so a
+// vehicle name with odd characters can't break the ntfy Title header.
+function asciiHeader(s) {
+  return String(s || "").replace(/[^\x20-\x7E]/g, "").slice(0, 200);
+}
+
 // Send an approved lot to a client across whatever channels they have set.
 // Returns { email: bool, whatsapp: bool } for status tracking.
 export async function deliverToClient(env, client, lot, wishlist) {

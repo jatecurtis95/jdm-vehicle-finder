@@ -36,16 +36,26 @@ test("gold accent token matches the dark brand gold across the admin", async () 
 
 test("the public landing page explains the service and links to start a search and to sign in", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
-  const html = landingPage(env);
+  const html = await landingPage(env);
   assert.match(html, /<!doctype html/i, "renders a full document");
   // It is a real home, not the bare form: value prop + how-it-works present.
   assert.match(html, /How it works/i, "explains how it works");
   // Both entry paths a visitor needs are present and reachable.
   assert.match(html, /href="\/request"/, "a path to start a request");
   assert.match(html, /href="\/login"/, "a path to sign in");
+  // Offer copy is aligned: Free + a single A$49 Full-access plan; no stale tiers.
+  assert.match(html, /A\$49/, "shows the Full-access price");
+  assert.ok(!/founding|importer|A\$19|A\$12|A\$39|first 100/i.test(html), "no stale/contradictory pricing");
   // Membership info answers the "is there a cost / can I sign up" question.
   assert.match(html, /Membership/i, "membership section");
   assert.ok(!FORBIDDEN_DASH.test(html), "no em or en dashes in the copy");
+});
+
+test("landing page reflects a changed membership price from settings", async () => {
+  const env = makeEnv(`INSERT INTO settings (key,value) VALUES ('membership_monthly_aud','39');`);
+  const html = await landingPage(env);
+  assert.match(html, /A\$39/, "price is driven by the setting");
+  assert.ok(!/A\$49/.test(html), "old default not shown once overridden");
 });
 
 test("the buyer portal shows an at-a-glance summary with real per-client counts", async () => {

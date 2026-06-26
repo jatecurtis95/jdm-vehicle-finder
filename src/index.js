@@ -7,7 +7,7 @@
 
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
-import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
+import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
@@ -184,7 +184,7 @@ export default {
     // Bare domain → public landing page: explains the service and offers a
     // clear path to start a search or sign in. Safe to share publicly.
     if (path === "/") {
-      return doc(landingPage(env));
+      return doc(await landingPage(env));
     }
 
     // Everything below requires a signed-in session.
@@ -542,6 +542,14 @@ async function alertNewRequest(env, req) {
   } catch (err) {
     console.error("New-request alert failed:", err.message);
   }
+  // Phone chime (Pushover/ntfy) so a new lead pings you anywhere, even with the
+  // site closed. No-ops until a push provider secret is set; never blocks.
+  const want = [req.marka_name, req.model_name].filter(Boolean).join(" ").trim();
+  await sendPush(env, {
+    title: "New JDM Finder signup",
+    message: `${req.name || "Someone"}${want ? " wants " + want : ""}${req.email ? " (" + req.email + ")" : ""}`,
+    url: `${env.PUBLIC_URL}/admin?view=clients`,
+  });
 }
 
 // Email the buyer a confirmation receipt with their reference (Fix 7). Only

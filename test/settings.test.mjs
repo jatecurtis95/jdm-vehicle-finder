@@ -1,4 +1,4 @@
-// Settings: boolean/number helpers and the founding-pricing defaults.
+// Settings: boolean/number helpers and the membership-pricing defaults.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
@@ -18,44 +18,40 @@ test("settingNum parses numbers and falls back cleanly", () => {
   assert.equal(settingNum({}, "n", 3), 3);
 });
 
-test("getSettings returns the founding-pricing defaults on an empty database", async () => {
+test("getSettings returns the membership-pricing defaults on an empty database", async () => {
   const env = makeEnv();
   const s = await getSettings(env);
-  assert.equal(s.importer_monthly_aud, "19");
-  assert.equal(s.importer_annual_aud, "190");
-  assert.equal(s.founding_monthly_aud, "12");
-  assert.equal(s.founding_seats, "100");
+  assert.equal(s.membership_monthly_aud, "49", "single Full-access plan price");
   assert.equal(s.free_result_limit, "1");
-  assert.equal(s.founding_claimed, "0");
   assert.equal(s.stripe_enabled, "0", "deposits default off");
 });
 
 test("saveSettings keeps defaults for blank or invalid numeric fields", async () => {
   const env = makeEnv();
   const f = new FormData();
-  f.set("free_result_limit", "");      // blank -> default
-  f.set("founding_seats", "abc");      // invalid -> default
-  f.set("importer_monthly_aud", "25"); // valid -> kept
-  f.set("stripe_deposit_aud", "");     // blank deposit stays off (empty)
+  f.set("free_result_limit", "");         // blank -> default
+  f.set("membership_monthly_aud", "abc"); // invalid -> default 49
+  f.set("stripe_deposit_aud", "");        // blank deposit stays off (empty)
   await saveSettings(env, f);
   const s = await getSettings(env);
   assert.equal(s.free_result_limit, "1");
-  assert.equal(s.founding_seats, "100");
-  assert.equal(s.importer_monthly_aud, "25");
+  assert.equal(s.membership_monthly_aud, "49");
   assert.equal(s.stripe_deposit_aud, "");
 });
 
-test("saveSettings does not blank the system-managed founding_claimed", async () => {
-  const env = makeEnv(`INSERT INTO settings (key,value) VALUES ('founding_claimed','7');`);
-  await saveSettings(env, new FormData());
+test("saveSettings persists a changed membership price", async () => {
+  const env = makeEnv();
+  const f = new FormData();
+  f.set("membership_monthly_aud", "59"); // valid -> kept
+  await saveSettings(env, f);
   const s = await getSettings(env);
-  assert.equal(s.founding_claimed, "7");
+  assert.equal(s.membership_monthly_aud, "59");
 });
 
 test("getSettings lets stored rows override defaults", async () => {
-  const env = makeEnv(`INSERT INTO settings (key,value) VALUES ('founding_monthly_aud','15'),('free_result_limit','3');`);
+  const env = makeEnv(`INSERT INTO settings (key,value) VALUES ('membership_monthly_aud','39'),('free_result_limit','3');`);
   const s = await getSettings(env);
-  assert.equal(s.founding_monthly_aud, "15");
+  assert.equal(s.membership_monthly_aud, "39");
   assert.equal(s.free_result_limit, "3");
-  assert.equal(s.importer_monthly_aud, "19", "untouched keys keep their default");
+  assert.equal(s.stripe_enabled, "0", "untouched keys keep their default");
 });

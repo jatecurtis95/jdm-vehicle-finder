@@ -14,6 +14,7 @@
 // Use commas, periods, or hyphens.
 
 import { LOGO, risingSun, brandDoc } from "./theme.js";
+import { getSettings, settingNum } from "./settings.js";
 
 // Landing-only layout, scoped on top of the shared theme tokens (var(--gold)
 // etc. come from themeCss, which brandDoc injects). Kept here so the shared
@@ -200,7 +201,11 @@ const tier = ({ tag, name, price, per, sub, feats, cta, ctaHref, featured }) => 
 
 // The full landing document. `env` is accepted for parity with the other page
 // builders (and future dynamic content) but the page is currently static.
-export function landingPage(env) {
+export async function landingPage(env) {
+  // The Full-access price is tunable from admin Settings (single source of truth
+  // shared with the pricing copy). Falls back to A$49 if settings are unreadable.
+  const settings = await getSettings(env).catch(() => ({}));
+  const membershipPrice = `A$${settingNum(settings, "membership_monthly_aud", 49)}`;
   const body = `
   <style>${landingCss}</style>
   <div class="lpage">
@@ -330,9 +335,9 @@ export function landingPage(env) {
           })}
           ${tier({
             name: "Full access",
-            price: "A$49",
+            price: membershipPrice,
             per: "/ month",
-            sub: "Yearly billing available.",
+            sub: "One simple plan, everything included.",
             feats: [
               "Everything in Browse",
               "Unlimited active searches",

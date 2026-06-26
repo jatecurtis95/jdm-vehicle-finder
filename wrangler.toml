@@ -82,6 +82,13 @@ CALC_DEFAULT_STATE = "VIC"
 #   STRIPE_SECRET_KEY    -> Stripe secret key (sk_live_... / sk_test_...) for buyer deposits
 #   STRIPE_WEBHOOK_SECRET-> signing secret (whsec_...) for the /webhooks/stripe endpoint
 #
+# Phone chime on new signup (optional; pings your phone even with the site closed).
+# Set ONE provider — until then it no-ops. The signup alert fires it automatically.
+#   ntfy (free):  NTFY_TOPIC      -> a hard-to-guess topic e.g. jdm-finder-7h2k9x
+#                 (optional NTFY_SERVER, NTFY_PRIORITY=high, NTFY_TAGS=moneybag)
+#                 Install the ntfy app, subscribe to that topic, set its sound.
+#   Pushover:     PUSHOVER_TOKEN + PUSHOVER_USER (optional PUSHOVER_SOUND=cashregister)
+#
 # Stripe setup (once STRIPE_SECRET_KEY is set):
 #   1) Stripe Dashboard -> Developers -> Webhooks -> Add endpoint
 #      URL:   https://finder.jdmconnect.com.au/webhooks/stripe
