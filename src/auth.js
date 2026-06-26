@@ -42,6 +42,22 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+// --- Public share tokens -----------------------------------------------------
+// A stateless, signed token for the read-only public lot view ("Share" button).
+// Distinct from the queue row's `token` (which drives approve/skip), so a shared
+// link can only VIEW a car — it can never trigger an action. No DB column needed.
+export async function makeShareToken(env, queueId) {
+  const id = Number(queueId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return `${id}.${await sign(env, `share:${id}`)}`;
+}
+export async function readShareToken(env, token) {
+  const [idStr, sig] = String(token || "").split(".");
+  const id = Number(idStr);
+  if (!Number.isInteger(id) || id <= 0 || !sig) return null;
+  return safeEqual(sig, await sign(env, `share:${id}`)) ? id : null;
+}
+
 // --- Password hashing (PBKDF2-SHA256) ---------------------------------------
 async function deriveHash(password, saltBytes) {
   const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);

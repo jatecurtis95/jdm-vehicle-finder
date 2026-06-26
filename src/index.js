@@ -8,8 +8,8 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword } from "./auth.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
@@ -40,6 +40,14 @@ export default {
 
     if (path === "/decide") {
       return handleDecision(request, env, url);
+    }
+
+    // Public, read-only shared vehicle view (the "Share" link). Token-gated and
+    // view-only — it can never trigger approve/skip. No login required.
+    if (path === "/v") {
+      const sharedId = await readShareToken(env, url.searchParams.get("t"));
+      if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
+      return doc(await publicLotPage(env, sharedId));
     }
 
     // Public vehicle-request form (no login) - for dealers and their clients.
