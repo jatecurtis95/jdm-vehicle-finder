@@ -2,7 +2,7 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, distinctMakers, refreshLotImages } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, refreshLotImages } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState } from "./calc.js";
 import { hashPassword, randomToken } from "./auth.js";
 import { getSettings, settingOn } from "./settings.js";
@@ -1748,13 +1748,12 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim() || "Vehicle";
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
-  // Images. The inspection sheet is, by feed convention, the FIRST image — pull it
-  // into its own box and keep the gallery to actual car photos. If an AI read
-  // found no sheet, leave every image in the gallery.
+  // Images. The inspection sheet (first image, by feed convention) goes in its
+  // own box; the rest are the car-photo gallery. Shared with the cards/emails via
+  // splitImages so they all agree on which image is the sheet. `bases` (all
+  // images) is kept for the admin "Feed image data" diagnostic below.
   const bases = String(lot.images || "").split("#").map((u) => u.trim().replace(/[?&][hw]=\d+$/i, "")).filter(Boolean);
-  const sheetIdx = (!(lot._sheet && lot._sheet.found === false) && bases.length >= 2) ? 0 : -1;
-  const sheetBase = sheetIdx >= 0 ? bases[sheetIdx] : null;
-  const photoBases = sheetIdx >= 0 ? bases.filter((_, i) => i !== sheetIdx) : bases;
+  const { sheet: sheetBase, photos: photoBases } = splitImages(lot);
   // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
   // transforms — arbitrary widths return nothing. Hero = full, thumbs = &w=320.
   const big = (u) => u;
