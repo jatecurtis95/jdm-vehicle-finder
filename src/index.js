@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
@@ -17,6 +17,35 @@ import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
 import { landingPage } from "./landing.js";
+
+const REQ_RL_IP = 8;       // public request submissions per IP per hour
+const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
+
+// Best-effort sliding-window limiter for the public request form. Limits per IP
+// AND per contact (email / normalized phone) so IP rotation can't flood one
+// client's searches. Fails open (no KV, or KV errors -> allowed) and only
+// increments a key when the submission is being allowed.
+export async function requestRateLimited(env, { ip, email, whatsapp }) {
+  if (!env.RL) return false;
+  const keys = [];
+  if (ip) keys.push({ k: `reqrl:ip:${ip}`, cap: REQ_RL_IP });
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push({ k: `reqrl:e:${e}`, cap: REQ_RL_CONTACT });
+  const pk = phoneKey(whatsapp);
+  if (pk.length >= 8) keys.push({ k: `reqrl:p:${pk}`, cap: REQ_RL_CONTACT });
+  const seen = [];
+  for (const { k, cap } of keys) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      if (n >= cap) return true;
+      seen.push({ k, n });
+    } catch (_) { /* fail open for this key */ }
+  }
+  for (const { k, n } of seen) {
+    try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
+  }
+  return false;
+}
 
 export default {
   // -------- Scheduled matcher --------
@@ -53,21 +82,18 @@ export default {
     // Public vehicle-request form (no login) - for dealers and their clients.
     if (path === "/request") {
       if (request.method === "POST") {
-        // Per-IP rate limit (best-effort; fails open if KV is unavailable).
-        // Over the limit we return the normal confirmation without storing
-        // anything, so bots get no signal. 8/hour is far above real use.
-        const ip = request.headers.get("CF-Connecting-IP") || "";
-        let limited = false;
-        if (env.RL && ip) {
-          try {
-            const k = `reqrl:${ip}`;
-            const n = parseInt((await env.RL.get(k)) || "0", 10);
-            if (n >= 8) limited = true;
-            else await env.RL.put(k, String(n + 1), { expirationTtl: 3600 });
-          } catch (_) { /* fail open */ }
-        }
+        // Rate limit (best-effort; fails open if KV is unavailable). Over the
+        // limit we return the normal confirmation without storing anything, so
+        // bots get no signal. Limited per IP AND per contact (email/phone) so IP
+        // rotation can't spam one client's searches.
+        const form = await request.formData();
+        const limited = await requestRateLimited(env, {
+          ip: request.headers.get("CF-Connecting-IP") || "",
+          email: form.get("email"),
+          whatsapp: form.get("whatsapp"),
+        });
         if (!limited) {
-          const result = await createRequest(env, await request.formData());
+          const result = await createRequest(env, form);
           if (result.ok) {
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
