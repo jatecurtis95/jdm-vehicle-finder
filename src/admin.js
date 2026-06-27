@@ -82,7 +82,7 @@ const CSS = `
   /* Inter is loaded via preconnected <link> tags in the document head (see shell()),
      so it no longer render-blocks behind this stylesheet's @import. */
   :root{--gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);--gold-on:#15120A;--avatar:rgba(202,163,76,0.16);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;--hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#8A909A;--bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;--hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);--field-focus:#20242C;--hover:rgba(255,255,255,0.05);--soft:rgba(255,255,255,0.06);--bad:#E2607A;--bad-bg:rgba(226,96,122,0.12);--bad-line:rgba(226,96,122,0.34);
     --ok-bg:rgba(91,192,140,0.14);--ok-fg:#7FD3A6;--warn-bg:rgba(224,169,75,0.16);--warn-fg:#E9BE6B;--neu-bg:rgba(255,255,255,0.06);--neu-fg:#C9CCD1;
     --str-bg:rgba(91,192,140,0.14);--str-fg:#7FD3A6;--good-bg:rgba(224,169,75,0.16);--good-fg:#E9BE6B;--pos-bg:rgba(255,255,255,0.06);--pos-fg:#AEB3BA;
@@ -93,7 +93,7 @@ const CSS = `
      dark root are overridden here; gold and radii are shared. */
   .main{
     color:var(--ink);
-    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;
+    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;--ph:#6C727C;
     --bg:#f4f4f1;--bg-2:#ffffff;--card:#ffffff;--card-2:#ffffff;--off:#f7f7f5;
     --hair:rgba(0,0,0,0.10);--hair-2:rgba(0,0,0,0.06);
     --field:#fbfbfc;--field-line:rgba(0,0,0,0.14);--field-focus:#ffffff;
@@ -148,7 +148,7 @@ const CSS = `
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:11px 13px;border:1px solid var(--field-line);border-radius:5px;font-size:14px;background:var(--field);color:var(--ink);font-family:${FONT}}
-  input::placeholder{color:#8A909A}
+  input::placeholder{color:var(--ph)}
   input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint);background:var(--field-focus)}
   select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236F7378' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
   .actions{display:flex;align-items:center;gap:14px;margin-top:22px}
@@ -324,6 +324,7 @@ const CSS = `
   .specline b{color:var(--t2);font-weight:600}
   .why{padding:9px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
   .why .wc{font-size:10.5px;font-weight:600;color:var(--gold-txt);background:var(--gold-tint);border:1px solid rgba(202,163,76,.3);border-radius:9999px;padding:3px 9px}
+  .why .wc.lead{color:#3B5E96;background:rgba(59,115,172,0.10);border-color:rgba(59,115,172,0.34)}
   .urg{display:inline-flex;align-items:center;gap:4px;background:#B11226;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-right:6px}
   .urg.soon{background:#C9821f}
   .nocontact{margin:10px 16px 0;padding:7px 10px;background:rgba(202,163,76,.1);border:1px solid rgba(202,163,76,.4);border-radius:6px;font-size:11px;color:var(--gold-txt);font-weight:600}
@@ -1435,7 +1436,7 @@ function matchCard(q) {
         </div>
         ${scoresChips(lot)}
         <a class="sc-more" href="/admin?view=lot&id=${q.id}">View details &amp; auction report &rarr;</a>
-        ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:rgba(96,143,226,0.16);color:#9FB9F2;border-color:rgba(96,143,226,0.4)">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
+        ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
           <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
@@ -2273,7 +2274,7 @@ const PLV_STYLE = `<style>
   .plv-k{color:#6b7079}
   .plv-v{font-weight:700;color:#1b1c1e;text-align:right}
   .plv-cta{display:flex;width:100%;margin-top:18px}
-  .plv-fine{font-size:11.5px;color:#8a8f98;margin-top:12px;line-height:1.5;text-align:center}
+  .plv-fine{font-size:11.5px;color:#6b7079;margin-top:12px;line-height:1.5;text-align:center}
   @media(max-width:920px){.plv-right{position:static}.plv-hero{height:300px}}
 </style>`;
 

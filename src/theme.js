@@ -60,7 +60,7 @@ export const themeCss = `
      no longer render-blocks behind this stylesheet's @import. */
   :root{
     --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#7A808A;
     --bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;
     --hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);
@@ -76,7 +76,7 @@ export const themeCss = `
      so they stay fully dark. Mirrors the staff admin's dark-rail/light-content. */
   .main{
     color:var(--ink);
-    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;
+    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;--ph:#6C717A;
     --bg:#f4f4f1;--bg-2:#ffffff;--card:#ffffff;--card-2:#ffffff;--off:#f7f7f5;
     --hair:rgba(0,0,0,0.10);--hair-2:rgba(0,0,0,0.06);
     --field:#fbfbfc;--field-line:rgba(0,0,0,0.14);
@@ -147,7 +147,7 @@ export const themeCss = `
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--field-line);border-radius:7px;font-size:14px;background:var(--field);color:var(--ink);font-family:${FONT};transition:border-color .15s,box-shadow .15s}
-  input::placeholder,textarea::placeholder{color:#7A808A}
+  input::placeholder,textarea::placeholder{color:var(--ph)}
   select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239BA0A7' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint);background:#20242C}
   .actions{display:flex;align-items:center;gap:14px;margin-top:24px;flex-wrap:wrap}

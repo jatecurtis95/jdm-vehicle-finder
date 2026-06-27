@@ -177,7 +177,7 @@ const MKT_CSS = `<style>
   .mktp-kick{font-size:11px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:#6b7079}
   .mktp-n{font-size:12px;color:#6b7079}
   .mktp-top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:26px 34px}
-  .mktp-k{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8a8f98;margin-bottom:5px}
+  .mktp-k{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6e727b;margin-bottom:5px}
   .mktp-v{font-size:18px;font-weight:700;color:#1b1c1e;line-height:1}
   .mktp-v.sm{font-size:13.5px;font-weight:600}
   .mktp-stat.lead .mktp-v{font-size:26px}
@@ -194,8 +194,8 @@ const MKT_CSS = `<style>
   .mktp-comp{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,.05)}
   .mktp-comp:last-child{border-bottom:0}
   .mktp-comp-t{display:block;font-size:13px;font-weight:700;color:#1b1c1e}
-  .mktp-comp-s{display:block;font-size:11.5px;color:#8a8f98;margin-top:2px}
+  .mktp-comp-s{display:block;font-size:11.5px;color:#6e727b;margin-top:2px}
   .mktp-comp-r{text-align:right;white-space:nowrap}
-  .mktp-comp-k{display:block;font-size:9.5px;font-weight:700;letter-spacing:.08em;color:#a4a8b0}
+  .mktp-comp-k{display:block;font-size:9.5px;font-weight:700;letter-spacing:.08em;color:#6e727b}
   .mktp-comp-v{display:block;font-size:14px;font-weight:700;color:#1b1c1e}
 </style>`;
