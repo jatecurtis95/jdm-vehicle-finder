@@ -74,6 +74,48 @@ export async function createCheckoutSession(env, { client, queueId, amountCents,
   return { url: session.url, paymentId };
 }
 
+// Create a Checkout Session for the recurring "Full access" membership and
+// redirect the buyer to Stripe. Returns { url, sessionId }. Reuses an existing
+// Stripe customer when we have one (so renewals attach to the same record),
+// otherwise Checkout creates one from the email. amountCents is the monthly price.
+export async function createSubscriptionCheckout(env, { client, amountCents, currency = "aud", successUrl, cancelUrl }) {
+  if (!stripeConfigured(env)) throw new Error("Stripe is not configured");
+  if (!(amountCents > 0)) throw new Error("Invalid amount");
+
+  const params = {
+    mode: "subscription",
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    client_reference_id: String(client.id),
+    line_items: { 0: { quantity: 1, price_data: {
+      currency,
+      unit_amount: amountCents,
+      recurring: { interval: "month" },
+      product_data: { name: "JDM Connect Full access" },
+    } } },
+    metadata: { client_id: String(client.id), kind: "membership" },
+    subscription_data: { metadata: { client_id: String(client.id) } },
+  };
+  if (client.stripe_customer_id) params.customer = client.stripe_customer_id;
+  else if (client.email) params.customer_email = client.email;
+
+  const session = await stripePost(env, "/checkout/sessions", params);
+  return { url: session.url, sessionId: session.id };
+}
+
+// Create a Stripe Billing Portal session so a member can manage or cancel their
+// own subscription. Requires the Customer Portal to be enabled in the Stripe
+// dashboard. Returns { url }.
+export async function createBillingPortalSession(env, { customerId, returnUrl }) {
+  if (!stripeConfigured(env)) throw new Error("Stripe is not configured");
+  if (!customerId) throw new Error("No Stripe customer for this client");
+  const session = await stripePost(env, "/billing_portal/sessions", {
+    customer: customerId,
+    return_url: returnUrl,
+  });
+  return { url: session.url };
+}
+
 // --- Webhook verification ----------------------------------------------------
 function hex(bytes) {
   let s = "";
@@ -114,6 +156,38 @@ export async function verifyAndParseEvent(env, rawBody, sigHeader) {
 export async function applyStripeEvent(env, event) {
   if (!event || !event.type) return "ignored";
   const obj = event.data?.object || {};
+
+  // Membership: a subscription Checkout completed. Mark the client a member and
+  // store the Stripe customer/subscription so renewals and cancels can resolve
+  // them. Checked before the deposit branch (both are checkout.session.completed).
+  if (event.type === "checkout.session.completed" && (obj.mode === "subscription" || obj.metadata?.kind === "membership")) {
+    const clientId = obj.client_reference_id || obj.metadata?.client_id;
+    if (clientId) {
+      await env.DB.prepare(
+        `UPDATE clients SET member = 1, sub_status = 'active',
+            stripe_customer_id = COALESCE(?, stripe_customer_id),
+            stripe_subscription_id = COALESCE(?, stripe_subscription_id)
+          WHERE id = ?`
+      ).bind(obj.customer || null, obj.subscription || null, Number(clientId)).run();
+    }
+    return "subscribed";
+  }
+
+  // Membership lifecycle: renewal, payment failure, cancellation. Drive the
+  // member flag off the subscription status. Resolve the client by subscription
+  // id (falling back to customer id if the checkout event hasn't landed yet).
+  if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+    const status = event.type === "customer.subscription.deleted" ? "canceled" : String(obj.status || "");
+    const active = status === "active" || status === "trialing";
+    await env.DB.prepare(
+      `UPDATE clients SET member = ?, sub_status = ?,
+          stripe_subscription_id = COALESCE(stripe_subscription_id, ?)
+        WHERE stripe_subscription_id = ?
+           OR (stripe_subscription_id IS NULL AND stripe_customer_id = ? AND ? <> '')`
+    ).bind(active ? 1 : 0, status, obj.id || null, obj.id || "", obj.customer || "", obj.customer || "").run();
+    return active ? "sub_active" : "sub_inactive";
+  }
+
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const paymentId = obj.metadata?.payment_id;
     const intent = obj.payment_intent || null;

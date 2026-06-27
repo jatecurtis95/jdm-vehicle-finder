@@ -143,6 +143,13 @@ export const themeCss = `
   details.morefields>summary{cursor:pointer;color:var(--gold-txt);font-weight:600;font-size:14px;list-style:none}
   details.morefields>summary::-webkit-details-marker{display:none}
   details.morefields[open]>summary{margin-bottom:16px}
+  .memcard{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;background:var(--card);border:1px solid var(--gold-line);border-left:4px solid var(--gold);border-radius:var(--radius);padding:20px 24px;margin-bottom:24px}
+  .memcard.is-member{border-color:var(--good-line);border-left-color:var(--good)}
+  .memcard .mem-tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-txt)}
+  .memcard.is-member .mem-tag{color:var(--good)}
+  .memcard .mem-h{font-size:18px;font-weight:700;margin-top:4px;color:var(--ink)}
+  .memcard .mem-s{font-size:13.5px;color:var(--t2);margin-top:4px;max-width:54ch;line-height:1.5}
+  .memcard form{margin:0;flex:0 0 auto}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}

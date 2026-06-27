@@ -10,11 +10,11 @@ import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml,
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
-import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
+import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { logoPngBytes } from "./assets.js";
-import { createCheckoutSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
+import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
 import { landingPage } from "./landing.js";
 
@@ -455,8 +455,10 @@ async function handleClientPortal(request, env, url, path, session, here) {
     const flash =
       code === "requested" ? "Thanks - we've got it. We'll pull the auction sheet, translate it, and come back to you." :
       code === "paid" ? "Payment received - thank you. We'll be in touch with the next steps." :
+      code === "member" ? "You're in - Full access is now active on your account." :
       code === "saved" ? "Saved." :
-      err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." : "";
+      err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
+      err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." : "";
     return doc(await portalPage(env, session, { flash }));
   }
 
@@ -517,8 +519,62 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/pay/success") return back("?ok=paid");
   if (path === "/portal/pay/cancel") return back();
 
+  // Start (or manage) the Full access monthly membership.
+  if (path === "/portal/subscribe" && request.method === "POST") {
+    return startSubscriptionCheckout(env, session, here);
+  }
+  if (path === "/portal/billing" && request.method === "POST") {
+    return startBillingPortal(env, session, here);
+  }
+  if (path === "/portal/subscribe/success") return back("?ok=member");
+  if (path === "/portal/subscribe/cancel") return back();
+
   // Anything else for a client → their dashboard.
   return Response.redirect(here("/portal"), 303);
+}
+
+// Start a Stripe subscription Checkout for the Full access membership and
+// redirect the buyer to Stripe. Config-gated; falls back to the portal on error.
+async function startSubscriptionCheckout(env, session, here) {
+  try {
+    const settings = await getSettings(env);
+    const priceAud = settingNum(settings, "membership_monthly_aud", 0);
+    if (!stripeConfigured(env) || !settingOn(settings, "membership_enabled") || !(priceAud > 0)) {
+      return Response.redirect(here("/portal?err=sub"), 303);
+    }
+    const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(session.id).first();
+    if (!client) return Response.redirect(here("/portal?err=sub"), 303);
+    if (client.member) return Response.redirect(here("/portal"), 303); // already a member
+    const { url } = await createSubscriptionCheckout(env, {
+      client,
+      amountCents: Math.round(priceAud * 100),
+      currency: (settings.stripe_currency || "aud").toLowerCase(),
+      successUrl: here("/portal/subscribe/success"),
+      cancelUrl: here("/portal/subscribe/cancel"),
+    });
+    return Response.redirect(url, 303);
+  } catch (err) {
+    console.error("Stripe subscription checkout failed:", err.message);
+    return Response.redirect(here("/portal?err=sub"), 303);
+  }
+}
+
+// Open the Stripe Billing Portal so a member can manage or cancel their plan.
+async function startBillingPortal(env, session, here) {
+  try {
+    const client = await env.DB.prepare("SELECT stripe_customer_id FROM clients WHERE id = ?").bind(session.id).first();
+    if (!stripeConfigured(env) || !client || !client.stripe_customer_id) {
+      return Response.redirect(here("/portal?err=sub"), 303);
+    }
+    const { url } = await createBillingPortalSession(env, {
+      customerId: client.stripe_customer_id,
+      returnUrl: here("/portal"),
+    });
+    return Response.redirect(url, 303);
+  } catch (err) {
+    console.error("Stripe billing portal failed:", err.message);
+    return Response.redirect(here("/portal?err=sub"), 303);
+  }
 }
 
 // Create a Stripe Checkout Session for the configured deposit and redirect the
