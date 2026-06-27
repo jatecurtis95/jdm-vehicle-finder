@@ -139,6 +139,7 @@ const CSS = `
   .card>h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card>h2 .num{color:var(--gold);font-weight:700}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 22px}
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:11px 13px;border:1px solid var(--field-line);border-radius:5px;font-size:14px;background:var(--field);color:var(--ink);font-family:${FONT}}
@@ -177,6 +178,15 @@ const CSS = `
   .toggle .tg-txt{display:flex;flex-direction:column;gap:2px}
   .toggle .tg-title{font-size:14px;font-weight:600;color:var(--ink)}
   .toggle .tg-desc{font-size:12px;color:var(--t3);line-height:1.4}
+  .toggle:has(input:checked){background:var(--gold-tint);border-color:var(--gold-line)}
+  .set-nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+  .set-nav a{font-size:12.5px;font-weight:600;color:var(--t2);background:var(--field);border:1px solid var(--field-line);border-radius:9999px;padding:7px 14px;text-decoration:none}
+  .set-nav a:hover{color:var(--ink);border-color:var(--gold-line)}
+  .set-card{scroll-margin-top:24px}
+  .set-disc{margin-top:14px;font-size:13px}
+  .set-disc summary{cursor:pointer;color:var(--gold-txt);font-weight:600;list-style:none}
+  .set-disc summary::-webkit-details-marker{display:none}
+  .save-bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--hair);padding:14px 0;display:flex;justify-content:flex-end;z-index:5}
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:16px 22px;background:var(--card);border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:6px}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:var(--bad);display:inline-block}
   .banner .txt{font-size:14px;color:var(--t2)}
@@ -255,6 +265,7 @@ const CSS = `
   }
   @media(max-width:640px){
     .grid{grid-template-columns:1fr}
+    .grid2{grid-template-columns:1fr}
     .topbar,.content{padding-left:20px;padding-right:20px}
     /* M3: tighten the stacked header so the form starts higher */
     .side{padding:12px 20px}.topbar{padding-top:22px;padding-bottom:20px}
@@ -642,7 +653,7 @@ const HEADERS = {
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
-  settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email, notifications and payments.", btn: "" },
+  settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Manage alerts, client-facing pricing, payments and AI reading.", btn: "" },
 };
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
@@ -807,57 +818,82 @@ function settingsView(settings, opts = {}) {
   const s = settings || {};
   const stripeSecret = !!opts.stripeSecret;
   const webhookUrl = (opts.publicUrl || "") + "/webhooks/stripe";
+  const aiOpts = (sel, map, dflt) => Object.entries(map).map(([id, label]) => `<option value="${id}"${(sel || dflt) === id ? " selected" : ""}>${esc(label)}</option>`).join("");
   return `
-    <div class="card">
-      <h2><span class="num">✱</span> Notifications &amp; payments</h2>
-      <form method="POST" action="/settings">
-        <div style="max-width:560px">
-          <label>Alert email <span class="opt">(where new-match alerts are sent)</span></label>
-          <input name="digest_email" type="email" value="${esc(s.digest_email || "")}" placeholder="support@jdmconnect.com.au">
+    <form method="POST" action="/settings">
+      <nav class="set-nav" aria-label="Settings sections">
+        <a href="#set-notifications">Notifications</a>
+        <a href="#set-client">Client-facing</a>
+        <a href="#set-payments">Payments</a>
+        <a href="#set-pricing">Pricing</a>
+        <a href="#set-ai">AI reader</a>
+      </nav>
+
+      <div class="card set-card" id="set-notifications">
+        <h2><span class="num">1</span> Notifications</h2>
+        <div style="max-width:640px">
+          <label for="set-digest">Alert email <span class="opt">(where new-match alerts are sent)</span></label>
+          <input id="set-digest" name="digest_email" type="email" value="${esc(s.digest_email || "")}" placeholder="support@jdmconnect.com.au">
           <div class="toggles">
-            ${toggleRow("request_alerts", "Email me new vehicle requests", "When someone submits the public request form, email me their details.", settingOn(s, "request_alerts"))}
+            ${toggleRow("request_alerts", "Email me new vehicle requests", "Email me when someone submits the public request form.", settingOn(s, "request_alerts"))}
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
-            ${toggleRow("send_to_client", "Email matches to clients on approval", "When you press “Approve & send” on a match, actually email that car to the client. Off = approving just files the match without emailing anyone.", settingOn(s, "send_to_client"))}
-            ${toggleRow("client_landed", "Show landed (AUD) price to clients", "Show the indicative AUD landed price in client emails and the buyer portal. Off = clients see only the Japanese auction price; staff always see landed cost.", settingOn(s, "client_landed"))}
-            ${toggleRow("market_for_clients", "Show recent market average to clients", "Show the recent market-average sold price on each car in the buyer portal (a members perk). Staff always see the full market panel on the lot page.", settingOn(s, "market_for_clients"))}
+            ${toggleRow("send_to_client", "Email matches to clients on approval", "Email the car to the client when you approve a match.", settingOn(s, "send_to_client"))}
           </div>
-
-          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
-            <div style="font-size:15px;font-weight:600;margin-bottom:4px">Payments (Stripe)</div>
-            <p class="help" style="margin:0 0 16px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> - deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
-            <div class="toggles" style="margin-top:0">
-              ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client has asked us to chase.", settingOn(s, "stripe_enabled"))}
-            </div>
-            <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-top:16px">
-              <div><label>Deposit amount <span class="opt">(AUD)</span></label><input name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
-              <div><label>Currency</label><input name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
-            </div>
-            <p class="help" style="margin-top:14px;font-size:12px;line-height:1.55">Stripe webhook endpoint: <strong>${esc(webhookUrl)}</strong> - add it in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>.</p>
-          </div>
-
-          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
-            <div style="font-size:15px;font-weight:600;margin-bottom:4px">Membership pricing</div>
-            <p class="help" style="margin:0 0 16px">One paid plan — “Full access”. This is the price shown on the public pricing page. Billing isn't live yet; “Start free” is the only active path, so changing this just updates the advertised price.</p>
-            <div class="grid" style="grid-template-columns:repeat(2,1fr);max-width:640px">
-              <div><label>Full access <span class="opt">(A$/month)</span></label><input name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
-              <div><label>Free result limit <span class="opt">(per search — reserved, not yet enforced)</span></label><input name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
-            </div>
-          </div>
-
-          <div style="margin-top:30px;border-top:1px solid var(--hair);padding-top:22px">
-            <div style="font-size:15px;font-weight:600;margin-bottom:4px">AI auction-sheet reader</div>
-            <p class="help" style="margin:0 0 16px">Reads the Japanese inspection sheet from a car's photos and pulls out the exterior/interior grades, repairs and a translated summary. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> - the “Read auction sheet” button stays hidden until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
-            <div class="grid" style="grid-template-columns:repeat(2,1fr);max-width:640px">
-              <div><label>When to read</label><select name="ai_sheet_auto">${Object.entries(SHEET_AUTO_MODES).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_auto || "off") === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
-              <div><label>Model <span class="opt">(cached per car)</span></label><select name="ai_sheet_model">${Object.entries(SHEET_MODELS).map(([id, label]) => `<option value="${id}"${(s.ai_sheet_model || DEFAULT_SHEET_MODEL) === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
-            </div>
-            <p class="help" style="margin-top:10px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is only read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
-          </div>
-
-          <div class="actions"><button class="btn-gold" type="submit">Save settings</button></div>
         </div>
-      </form>
-    </div>`;
+      </div>
+
+      <div class="card set-card" id="set-client">
+        <h2><span class="num">2</span> Client-facing visibility</h2>
+        <div class="toggles" style="max-width:640px;margin-top:4px">
+          ${toggleRow("client_landed", "Show landed (AUD) price to clients", "Show the indicative AUD landed price to clients.", settingOn(s, "client_landed"))}
+          ${toggleRow("market_for_clients", "Show recent market average to clients", "Show the recent market-average price to clients (members).", settingOn(s, "market_for_clients"))}
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-payments">
+        <h2><span class="num">3</span> Payments <span class="opt" style="font-weight:400">&middot; Stripe</span></h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 14px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> -deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client asked us to chase.", settingOn(s, "stripe_enabled"))}
+          </div>
+          <div class="grid2" style="margin-top:16px">
+            <div><label for="set-deposit">Deposit amount <span class="opt">(AUD)</span></label><input id="set-deposit" name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
+            <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
+          </div>
+          <details class="set-disc"><summary>Webhook setup</summary>
+            <p class="help" style="margin-top:10px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong></p>
+          </details>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-pricing">
+        <h2><span class="num">4</span> Membership pricing</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 14px">The “Full access” price shown on the public pricing page. Billing isn't live yet, so this just sets the advertised price.</p>
+          <div class="grid2">
+            <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
+            <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-ai">
+        <h2><span class="num">5</span> AI auction-sheet reader</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 14px">Reads the Japanese inspection sheet from a car's photos. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> -the reader stays off until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
+          <div class="grid2">
+            <div><label for="set-when">When to read</label><select id="set-when" name="ai_sheet_auto">${aiOpts(s.ai_sheet_auto, SHEET_AUTO_MODES, "off")}</select></div>
+            <div><label for="set-model">Model <span class="opt">(cached per car)</span></label><select id="set-model" name="ai_sheet_model">${aiOpts(s.ai_sheet_model, SHEET_MODELS, DEFAULT_SHEET_MODEL)}</select></div>
+          </div>
+          <details class="set-disc"><summary>How auto-read works</summary>
+            <p class="help" style="margin-top:10px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
+          </details>
+        </div>
+      </div>
+
+      <div class="save-bar"><button class="btn-gold" type="submit">Save settings</button></div>
+    </form>`;
 }
 
 // Admin-only: list of Stripe deposits taken through the buyer portal.
