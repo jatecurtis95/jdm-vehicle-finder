@@ -547,7 +547,7 @@ const CSS = `
   .ld-client{display:flex;align-items:center;gap:11px;padding:14px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
   .ld-cl-n{font-size:13px;font-weight:600;color:var(--ink)}
   .ld-cl-w{font-size:11.5px;color:var(--t3);margin-top:1px}
-  .ld-actions{display:flex;gap:10px;margin-top:18px}
+  .ld-actions{display:flex;gap:10px;margin:16px 0 20px}
   .ld-actions .btn-skip{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:8px;color:var(--t2);font-weight:600;padding:13px}
   .ld-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
   .ld-actions .btn-notify{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:8px;padding:13px}
@@ -565,8 +565,8 @@ const CSS = `
   .ld-feed summary:hover{color:var(--ink)}
   .ld-raw{white-space:pre-wrap;word-break:break-all;font-size:11.5px;line-height:1.5;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:8px;padding:12px 14px;margin:0;font-family:var(--mono,ui-monospace,Menlo,Consolas,monospace)}
   .ld-sheet h2{margin-bottom:14px}
-  .ld-sheet-link{position:relative;display:block;border-radius:10px;overflow:hidden;border:1px solid var(--hair);background:var(--off);line-height:0}
-  .ld-sheet-img{display:block;width:100%;height:auto}
+  .ld-sheet-link{position:relative;display:block;border-radius:10px;overflow:hidden;border:1px solid var(--hair);background:var(--off);line-height:0;aspect-ratio:3/2}
+  .ld-sheet-img{display:block;width:100%;height:100%;object-fit:contain}
   .ld-sheet-open{position:absolute;top:10px;right:10px;background:rgba(20,20,22,.72);color:#fff;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;letter-spacing:.02em;line-height:1}
   .ld-sheet-link:hover .ld-sheet-open{background:rgba(20,20,22,.92)}
   .ld-topbtns{display:flex;gap:10px;align-items:center}
@@ -1945,12 +1945,12 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <div class="card ld-card">
             <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
+            ${actions}
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div></div></div>
             ${chips.length ? `<div class="why" style="padding:14px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
-            ${actions}
           </div>
         </aside>
       </div>
@@ -2249,8 +2249,8 @@ const PLV_STYLE = `<style>
   .plv-th.on{opacity:1;border-color:#CAA34C;box-shadow:0 0 0 1px #CAA34C}
   .plv-sheet{margin-bottom:22px}
   .plv-sheet h2{font-size:15px;margin-bottom:14px}
-  .plv-sheet-link{display:block;border-radius:10px;overflow:hidden;border:1px solid rgba(0,0,0,.10);background:#f7f7f5;line-height:0}
-  .plv-sheet-link img{display:block;width:100%;height:auto}
+  .plv-sheet-link{display:block;border-radius:10px;overflow:hidden;border:1px solid rgba(0,0,0,.10);background:#f7f7f5;line-height:0;aspect-ratio:3/2}
+  .plv-sheet-link img{display:block;width:100%;height:100%;object-fit:contain}
   .plv-right{position:sticky;top:24px}
   .plv-rows{display:flex;flex-direction:column}
   .plv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:13.5px}
