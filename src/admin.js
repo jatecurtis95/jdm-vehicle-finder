@@ -1213,17 +1213,17 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/wishlist">
         ${presetSelect()}
         <div class="grid">
-          <div><label>Client</label><select name="client_id" required>${clientOptions}</select></div>
-          <div><label>Label</label><input name="label" placeholder="e.g. under 1.5M daily"></div>
-          <div><label>Make</label>${makerField(makers, "wl-maker")}</div>
-          <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("wl-models")}</div>
-          <div><label>Year min</label><input name="year_min" type="number" placeholder="1990"></div>
-          <div><label>Year max</label><input name="year_max" type="number" placeholder="2002"></div>
-          <div><label>Max price (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
-          <div><label>Max mileage (km)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
-          <div><label>Min grade</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-          <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
-          <div><label>Grade keyword <span class="opt">(contains)</span></label><input name="grade_kw" placeholder="e.g. RS"></div>
+          <div><label>Client<select name="client_id" required>${clientOptions}</select></label></div>
+          <div><label>Label<input name="label" placeholder="e.g. under 1.5M daily"></label></div>
+          <div><label for="wl-maker">Make</label>${makerField(makers, "wl-maker")}</div>
+          <div><label>Model <span class="opt">(pick or type)</span>${modelField("wl-models")}</label></div>
+          <div><label>Year min<input name="year_min" type="number" placeholder="1990"></label></div>
+          <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
+          <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
+          <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000"></label></div>
+          <div><label>Min grade<input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></label></div>
+          <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
+          <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
@@ -1701,8 +1701,10 @@ export async function editWishlist(env, form, session) {
 // opts.portal hides the staff-only "watch only" lead control.
 function wishlistEditor(w, opts = {}) {
   const base = opts.base || "";
+  // Input nested inside the label = implicit association (screen-reader + click
+  // to focus), without ids that would collide across multiple search editors.
   const field = (label, name, type, opt) =>
-    `<div><label>${label}${opt ? ` <span class="opt">${opt}</span>` : ""}</label><input name="${name}"${type ? ` type="${type}"` : ""} value="${esc(w[name] ?? "")}"></div>`;
+    `<div><label>${label}${opt ? ` <span class="opt">${opt}</span>` : ""}<input name="${name}"${type ? ` type="${type}"` : ""} value="${esc(w[name] ?? "")}"></label></div>`;
   const summary = `${esc(displayName(w.marka_name)) || "Any maker"} ${esc(displayName(w.model_name))}`.trim()
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
@@ -2126,15 +2128,15 @@ export async function requestPage(env, opts = {}) {
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
           ${presetSelect()}
           <div class="grid">
-            <div><label>Make</label>${makerField(makers, "rq-maker")}</div>
-            <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("rq-models")}</div>
-            <div><label>Nickname <span class="opt">(optional, for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></div>
-            <div><label>Year from</label><input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></div>
-            <div><label>Year to</label><input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></div>
-            <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span></label><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></div>
-            <div><label>Max mileage <span class="opt">(km)</span></label><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-            <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-            <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></div>
+            <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker")}</div>
+            <div><label>Model <span class="opt">(pick or type)</span>${modelField("rq-models")}</label></div>
+            <div><label>Nickname <span class="opt">(optional, for your reference)</span><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></label></div>
+            <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></label></div>
+            <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></label></div>
+            <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></label></div>
+            <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
+            <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
+            <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></label></div>
           </div>
           <p id="rq-year-error" class="field-err">“Year from” can't be later than “Year to”. Please check the years.</p>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
@@ -2773,7 +2775,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
         <div class="mgrid">${lots.map(auctionResultCard).join("")}</div>
         ${(prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : ""}`;
     } else {
-      resultsBlock = `<div class="card" style="margin-top:30px"><div class="empty">No upcoming lots match that search. Try widening it — fewer filters, or a broader make/model.</div></div>`;
+      resultsBlock = `<div class="card" style="margin-top:30px"><div class="empty">No upcoming lots match that search. Try widening it - fewer filters, or a broader make/model.</div></div>`;
     }
   }
 
@@ -2781,13 +2783,13 @@ export async function portalAuctionsPage(env, session, params = {}) {
     <h2><span class="num">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
     <form method="GET" action="/portal/auctions">
       <div class="grid">
-        <div><label>Make</label><input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
-        <div><label>Model <span class="opt">(contains)</span></label><input name="model" value="${v("model")}" placeholder="e.g. SKYLINE"></div>
-        <div><label>Year from</label><input name="yearMin" type="number" min="1960" max="${yMax}" value="${v("yearMin")}" placeholder="1990"></div>
-        <div><label>Year to</label><input name="yearMax" type="number" min="1960" max="${yMax}" value="${v("yearMax")}" placeholder="2002"></div>
-        <div><label>Max price <span class="opt">(JPY)</span></label><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></div>
-        <div><label>Min grade</label><input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="e.g. 4"></div>
-        <div><label>Chassis / model code <span class="opt">(contains)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. GDB"></div>
+        <div><label>Make<input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"></label><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
+        <div><label>Model <span class="opt">(contains)</span><input name="model" value="${v("model")}" placeholder="e.g. SKYLINE"></label></div>
+        <div><label>Year from<input name="yearMin" type="number" min="1960" max="${yMax}" value="${v("yearMin")}" placeholder="1990"></label></div>
+        <div><label>Year to<input name="yearMax" type="number" min="1960" max="${yMax}" value="${v("yearMax")}" placeholder="2002"></label></div>
+        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></label></div>
+        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="e.g. 4"></label></div>
+        <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
@@ -2986,15 +2988,15 @@ export async function portalPage(env, session, opts = {}) {
     <form method="POST" action="/portal/wishlist">
       ${presetSelect()}
       <div class="grid">
-        <div><label>Label <span class="opt">(your reference)</span></label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>Make</label>${makerField(makers, "pl-maker")}</div>
-        <div><label>Model <span class="opt">(pick or type)</span></label>${modelField("pl-models")}</div>
-        <div><label>Year from</label><input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></div>
-        <div><label>Year to</label><input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></div>
-        <div><label>Max budget (JPY)</label><input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></div>
-        <div><label>Max mileage (km)</label><input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></div>
-        <div><label>Min grade</label><input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>Chassis code <span class="opt">(if known)</span></label><input name="kuzov" placeholder="e.g. JZA80"></div>
+        <div><label>Label <span class="opt">(your reference)</span><input name="label" placeholder="e.g. weekend project"></label></div>
+        <div><label for="pl-maker">Make</label>${makerField(makers, "pl-maker")}</div>
+        <div><label>Model <span class="opt">(pick or type)</span>${modelField("pl-models")}</label></div>
+        <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
+        <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
+        <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></label></div>
+        <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></label></div>
+        <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></label></div>
+        <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
