@@ -15,9 +15,10 @@ const DEFAULTS = {
   stripe_enabled: "0",   // show the "Pay deposit" button in the buyer portal
   stripe_deposit_aud: "", // deposit amount in AUD dollars (e.g. "500"); blank = off
   stripe_currency: "aud", // Checkout currency
-  // Membership pricing. One paid plan ("Full access"). The public pricing page
-  // reads this so the number is tunable without a redeploy. Billing isn't live
-  // yet — this is the advertised price; "Start free" is the only live path.
+  // Membership: one paid plan ("Full access"), billed monthly via Stripe. The
+  // price is tunable here without a redeploy; turn membership_enabled on (with a
+  // Stripe key set) to show the Subscribe button in the buyer portal.
+  membership_enabled: "0",      // show the "Full access" subscribe button in the portal
   membership_monthly_aud: "49", // Full access plan, A$ per month
   free_result_limit: "1",       // (reserved) free-tier result cap — not yet enforced
 };
@@ -73,6 +74,7 @@ export async function saveSettings(env, form) {
     stripe_enabled: form.get("stripe_enabled") ? "1" : "0",
     stripe_deposit_aud: posIntStr(form.get("stripe_deposit_aud"), ""),
     stripe_currency: (String(form.get("stripe_currency") || "aud").trim().toLowerCase()) || "aud",
+    membership_enabled: form.get("membership_enabled") ? "1" : "0",
     membership_monthly_aud: posIntStr(form.get("membership_monthly_aud"), "49"),
     free_result_limit: posIntStr(form.get("free_result_limit"), "1"),
     ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,

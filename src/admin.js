@@ -6,7 +6,7 @@ import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, f
 import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken } from "./auth.js";
-import { getSettings, settingOn } from "./settings.js";
+import { getSettings, settingOn, settingNum } from "./settings.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 
@@ -925,16 +925,19 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
-            <p class="help" style="margin-top:10px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code> event, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong></p>
+            <p class="help" style="margin-top:10px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
           </details>
         </div>
       </div>
 
       <div class="card set-card" id="set-pricing">
-        <h2><span class="num">4</span> Membership pricing</h2>
+        <h2><span class="num">4</span> Membership</h2>
         <div style="max-width:640px">
-          <p class="help" style="margin:0 0 14px">The “Full access” price shown on the public pricing page. Billing isn't live yet, so this just sets the advertised price.</p>
-          <div class="grid2">
+          <p class="help" style="margin:0 0 14px">The “Full access” plan, billed monthly via Stripe. Turn it on to show a Subscribe button in the buyer portal${stripeSecret ? "" : " (needs the <code>STRIPE_SECRET_KEY</code> secret first)"}. An active subscription makes the client a member automatically.</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("membership_enabled", "Sell Full access in the portal", "Show the “Get full access” subscribe button to non-members.", settingOn(s, "membership_enabled"))}
+          </div>
+          <div class="grid2" style="margin-top:16px">
             <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
             <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
           </div>
@@ -3149,6 +3152,23 @@ export async function portalPage(env, session, opts = {}) {
   </details>`;
 
   const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
+
+  // Membership card: an upgrade prompt for non-members (when billing is on), or a
+  // status + "manage billing" for members. A manually-comped member (no Stripe
+  // customer) sees the status without the billing-portal button.
+  const membershipOn = settingOn(settings, "membership_enabled") && !!env.STRIPE_SECRET_KEY && settingNum(settings, "membership_monthly_aud", 0) > 0;
+  const memberPrice = `A$${settingNum(settings, "membership_monthly_aud", 49)}`;
+  const memberCard = c.member
+    ? `<div class="memcard is-member">
+        <div class="mem-main"><div class="mem-tag">Full access</div><div class="mem-h">You're a member</div><div class="mem-s">Unlimited searches and priority sourcing on every match. Thank you.</div></div>
+        ${c.stripe_customer_id ? `<form method="POST" action="/portal/billing"><button class="btn-dark" type="submit">Manage billing</button></form>` : ""}
+      </div>`
+    : membershipOn
+    ? `<div class="memcard">
+        <div class="mem-main"><div class="mem-tag">Upgrade</div><div class="mem-h">Full access - ${memberPrice}/month</div><div class="mem-s">Unlimited active searches, priority sourcing, and a landed-cost estimate on every car. Cancel anytime.</div></div>
+        <form method="POST" action="/portal/subscribe"><button class="btn-gold" type="submit">Get full access</button></form>
+      </div>`
+    : "";
   // At-a-glance summary, all counts scoped to this signed-in client.
   const activeSearches = wls.filter((w) => Number(w.active ?? 1) !== 0).length;
   const inProgress = cars.filter((q) => q.client_request).length;
@@ -3171,6 +3191,7 @@ export async function portalPage(env, session, opts = {}) {
     <div class="content">
       ${flash}
       ${statsRow}
+      ${memberCard}
       <div class="psec"><h2>Cars we've found for you${cars.length ? ` <span class="ct">${cars.length}</span>` : ""}</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
       ${carsBody}
       <div class="psec" style="margin-top:34px"><h2>What you're searching for${wls.length ? ` <span class="ct">${activeSearches}/${wls.length}</span>` : ""}</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
