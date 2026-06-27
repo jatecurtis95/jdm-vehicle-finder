@@ -289,7 +289,8 @@ const CSS = `
   .msearch{position:relative;flex:1;min-width:200px;display:block;margin:0}
   .msearch input{width:100%;padding:10px 12px;border:1px solid var(--field-line);border-radius:7px;font-size:14px;background:var(--field);font-family:inherit;color:var(--ink)}
   .msearch input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,.16)}
-  select.mctl{padding:9px 11px;border:1px solid var(--field-line);border-radius:7px;font-size:13.5px;background:var(--field);color:var(--t2);cursor:pointer;font-family:inherit}
+  select.mctl{width:auto;padding:9px 28px 9px 11px;border:1px solid var(--field-line);border-radius:7px;font-size:13.5px;background:var(--field);color:var(--t2);cursor:pointer;font-family:inherit}
+  @media(max-width:640px){select.mctl{width:100%}}
   .fchips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .fchip{border:1px solid var(--field-line);background:var(--field);color:var(--t2);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
   .fchip .sd{width:8px;height:8px;border-radius:9999px;display:inline-block}
@@ -1466,6 +1467,9 @@ function matchesView(pending, opts = {}) {
     if (s === "Strong") strong++; else if (s === "Good") good++; else poss++;
     if (daysUntil(lot.auction_date) <= 2) soon++;
   }
+  // Distinct clients + makers in the current queue, for the filter dropdowns.
+  const clients = [...new Set(pending.map((q) => q.client_name).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+  const makes = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).marka_name; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
   const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
   const ticker = `<div class="mticker">
     ${tk("Awaiting review", pending.length, "", "var(--t3)")}
@@ -1496,6 +1500,10 @@ function matchesView(pending, opts = {}) {
         <option value="color">Group: Colour</option>
       </select>
     </div>
+    ${(clients.length > 1 || makes.length > 1) ? `<div class="crow crow-filters">
+      ${clients.length > 1 ? `<select id="mclient" class="mctl" aria-label="Filter by client"><option value="">Client: all</option>${clients.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
+      ${makes.length > 1 ? `<select id="mmake" class="mctl" aria-label="Filter by make"><option value="">Make: all</option>${makes.map((n) => `<option value="${esc(n)}">${esc(displayName(n))}</option>`).join("")}</select>` : ""}
+    </div>` : ""}
     <div class="fchips">
       <button type="button" class="fchip on" data-str="all">All</button>
       <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:#46B17A"></span>Strong</button>
@@ -1540,7 +1548,7 @@ function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;
   var cards=[].slice.call(grid.getElementsByClassName('mcard'));
-  var st={q:'',str:'all',soon:false,sort:'priority',group:'none'};
+  var st={q:'',str:'all',soon:false,sort:'priority',group:'none',client:'',make:''};
   function gv(c,k){return c.getAttribute('data-'+k)||''}
   function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
   function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
@@ -1578,6 +1586,8 @@ function matchesScript() {
         var ok=true;
         if(st.str!=='all'&&gv(c,'str')!==st.str)ok=false;
         if(st.soon&&gn(c,'days')>2)ok=false;
+        if(st.client&&gv(c,'client')!==st.client)ok=false;
+        if(st.make&&gv(c,'make')!==st.make)ok=false;
         if(ql&&gv(c,'search').indexOf(ql)<0)ok=false;
         c.__show=ok; if(ok)shown++;
       });
@@ -1607,6 +1617,8 @@ function matchesScript() {
   var mq=document.getElementById('mq'); if(mq)mq.addEventListener('input',function(e){st.q=e.target.value;apply();});
   var ms=document.getElementById('msort'); if(ms)ms.addEventListener('change',function(e){st.sort=e.target.value;apply();});
   var mg=document.getElementById('mgroup'); if(mg)mg.addEventListener('change',function(e){st.group=e.target.value;apply();});
+  var mc=document.getElementById('mclient'); if(mc)mc.addEventListener('change',function(e){st.client=e.target.value;apply();});
+  var mm=document.getElementById('mmake'); if(mm)mm.addEventListener('change',function(e){st.make=e.target.value;apply();});
   [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
   var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
   grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
