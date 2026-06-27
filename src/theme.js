@@ -134,6 +134,15 @@ export const themeCss = `
   .card{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);padding:26px 28px;margin-bottom:24px}
   .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px;color:var(--ink)}
   .card h2 .num{color:var(--gold);font-weight:700}
+  details.foldcard>summary{font-size:16px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:11px;cursor:pointer;list-style:none;margin:0}
+  details.foldcard>summary::-webkit-details-marker{display:none}
+  details.foldcard>summary::after{content:"+";margin-left:auto;color:var(--gold);font-weight:700;font-size:21px;line-height:1;transition:transform .15s}
+  details.foldcard[open]>summary{border-bottom:1px solid var(--hair);padding-bottom:16px;margin-bottom:20px}
+  details.foldcard[open]>summary::after{transform:rotate(45deg)}
+  details.morefields{margin:4px 0 2px;border-top:1px dashed var(--hair);padding-top:16px}
+  details.morefields>summary{cursor:pointer;color:var(--gold-txt);font-weight:600;font-size:14px;list-style:none}
+  details.morefields>summary::-webkit-details-marker{display:none}
+  details.morefields[open]>summary{margin-bottom:16px}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}

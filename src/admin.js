@@ -138,6 +138,11 @@ const CSS = `
   .card{background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
   .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card h2 .num{color:var(--gold);font-weight:700}
+  details.foldcard>summary{font-size:16px;font-weight:600;display:flex;align-items:center;gap:11px;cursor:pointer;list-style:none;margin:0}
+  details.foldcard>summary::-webkit-details-marker{display:none}
+  details.foldcard>summary::after{content:"+";margin-left:auto;color:var(--gold);font-weight:700;font-size:21px;line-height:1;transition:transform .15s}
+  details.foldcard[open]>summary{border-bottom:1px solid var(--hair);padding-bottom:16px;margin-bottom:20px}
+  details.foldcard[open]>summary::after{transform:rotate(45deg)}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 22px}
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
@@ -2033,8 +2038,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
-  const newWl = `<div class="card">
-    <h2><span class="num">+</span> ${wls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</h2>
+  const newWl = `<details class="card foldcard"${wls.length ? "" : " open"}>
+    <summary>${wls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
     <form method="POST" action="/wishlist">
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
@@ -2053,7 +2058,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${presetScript()}
-  </div>`;
+  </details>`;
 
   const wlSection = `<div class="card">
     <h2><span class="num">${wls.length}</span> ${wls.length === 1 ? "Search" : "Searches"}</h2>
@@ -2088,6 +2093,10 @@ export async function requestPage(env, opts = {}) {
   const firstName = String(req.name || "").trim().split(/\s+/)[0];
   const vals = opts.vals || {};
   const v = (k) => esc(vals[k] ?? "");
+  // Keep the form short for cold ad traffic: only Make/Model show by default,
+  // the rest fold away. Re-open the extra fields if any came back filled (e.g.
+  // a preset, or a re-render after a contact error) so nothing looks lost.
+  const moreOpen = ["label", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1; // allow next year's models in the feed
 
@@ -2137,15 +2146,20 @@ export async function requestPage(env, opts = {}) {
           <div class="grid">
             <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker")}</div>
             <div><label>Model <span class="opt">(pick or type)</span>${modelField("rq-models")}</label></div>
-            <div><label>Nickname <span class="opt">(optional, for your reference)</span><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></label></div>
-            <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></label></div>
-            <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></label></div>
-            <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></label></div>
-            <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
-            <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
-            <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></label></div>
           </div>
-          <p id="rq-year-error" class="field-err">“Year from” can't be later than “Year to”. Please check the years.</p>
+          <details class="morefields"${moreOpen ? " open" : ""}>
+            <summary>Add more detail (optional)</summary>
+            <div class="grid">
+              <div><label>Nickname <span class="opt">(optional, for your reference)</span><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></label></div>
+              <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></label></div>
+              <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></label></div>
+              <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></label></div>
+              <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
+              <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
+              <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></label></div>
+            </div>
+            <p id="rq-year-error" class="field-err">"Year from" can't be later than "Year to". Please check the years.</p>
+          </details>
           <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
             <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
           <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
@@ -3052,8 +3066,8 @@ export async function portalPage(env, session, opts = {}) {
     ? wls.map((w) => wishlistEditor(w, { base: "/portal", portal: true })).join("")
     : `<div class="empty">You don't have any searches yet - add one below.</div>`;
 
-  const addForm = `<div class="card">
-    <h2><span class="num">+</span> Add a search</h2>
+  const addForm = `<details class="card foldcard"${wls.length ? "" : " open"}>
+    <summary>Add a search</summary>
     <form method="POST" action="/portal/wishlist">
       ${presetSelect()}
       <div class="grid">
@@ -3070,7 +3084,7 @@ export async function portalPage(env, session, opts = {}) {
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
     </form>${modelScript("pl-maker", "pl-models")}${presetScript()}
-  </div>`;
+  </details>`;
 
   const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
   // At-a-glance summary, all counts scoped to this signed-in client.
