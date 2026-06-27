@@ -404,7 +404,9 @@ const CSS = `
   .abar-t{flex:1;height:8px;background:var(--hair);border-radius:5px;overflow:hidden}
   .abar-f{display:block;height:100%;background:var(--gold);border-radius:5px}
   .abar-v{width:26px;text-align:right;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;flex:0 0 auto}
-  .ov .spark{display:block;width:100%;max-width:140px;height:30px;margin-top:12px;opacity:.9}
+  a.ov-link{text-decoration:none;color:inherit;cursor:pointer}
+  a.ov-link:hover .num{text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:4px}
+  a.ov-link:hover .cap{color:var(--ink)}
   .sec-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}
   .sec-h h2{font-size:17px;font-weight:600;margin:0}
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
@@ -975,10 +977,6 @@ export function setPasswordPage(opts = {}) {
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
 }
 
-// Small inline icons for the action-card headers (inherit currentColor).
-const ICON_QUEUE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`;
-const ICON_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
-
 // Time-aware greeting (client local time) + count-up on the dashboard numbers.
 // Honours prefers-reduced-motion by showing final values immediately.
 function dashScript() {
@@ -1050,14 +1048,6 @@ function barsSvg(series, color) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>`;
 }
 
-// Tiny trend sparkline for a KPI. values: number[].
-function sparklineSvg(values, color) {
-  const n = values.length;
-  if (!n) return "";
-  const max = Math.max(1, ...values), W = 120, H = 30;
-  const pts = values.map((v, i) => `${((i / Math.max(1, n - 1)) * W).toFixed(1)},${(H - (v / max) * (H - 4) - 2).toFixed(1)}`).join(" ");
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
-}
 
 // Top agents by client load, for the dashboard activity chart (admin only).
 function agentBars(people) {
@@ -1108,7 +1098,11 @@ function dashboardView(session, data) {
   const isAdmin = session.role === "admin";
   const who = isAdmin ? "Jate" : esc((session.name || "there").split(/\s+/)[0]);
   const ovLabel = isAdmin ? "Team overview" : "Your overview";
-  const metric = (n, label, gold, spark) => `<div class="ov${gold ? " gold" : ""}"><div class="num" data-count="${Number(n) || 0}">0</div><div class="cap">${label}</div>${spark || ""}</div>`;
+  // A KPI cell; when href is given it becomes a clickable shortcut to that view.
+  const metric = (n, label, gold, href) => {
+    const inner = `<div class="num" data-count="${Number(n) || 0}">0</div><div class="cap">${label}</div>`;
+    return href ? `<a class="ov${gold ? " gold" : ""} ov-link" href="${href}">${inner}</a>` : `<div class="ov${gold ? " gold" : ""}">${inner}</div>`;
+  };
 
   const topbar = `<div class="dtop">
       <a href="/admin?view=matches" aria-label="Review queue">${ICONS.bell}</a>
@@ -1116,17 +1110,14 @@ function dashboardView(session, data) {
       <a href="/logout" aria-label="Sign out">${ICONS.account}</a>
     </div>`;
 
+  // KPI strip — each cell is a shortcut to its view. Counts live here only (the
+  // old Review-queue / Closing-soon banners repeated these same two numbers).
   const overview = `<div class="ovwrap"><span class="ovlbl">${ovLabel}</span><a href="/admin?view=clients">Manage ${ICONS.arrow}</a></div>
     <div class="overview">
-      ${metric(data.clients, "Active clients")}
-      ${isAdmin ? metric(data.agents, "Active agents") : ""}
-      ${metric(data.pending, "Matches to review", true, sparklineSvg((data.found || []).map((d) => d.n), "var(--gold)"))}
-      ${metric(data.closing, "Closing in 48h")}
-    </div>`;
-
-  const cards = `<div class="acards">
-      <div class="acard"><div class="ah"><span>Review queue</span>${ICON_QUEUE}</div><div class="ab"><span class="big" data-count="${data.pending}">0</span> ${data.pending === 1 ? "car" : "cars"} awaiting your review<br><a class="link" href="/admin?view=matches">Open review queue ${ICONS.arrow}</a></div></div>
-      <div class="acard"><div class="ah"><span>Closing soon</span>${ICON_CLOCK}</div><div class="ab"><span class="big" data-count="${data.closing}">0</span> lot${data.closing === 1 ? "" : "s"} closing within 48 hours<br><a class="link" href="/admin?view=matches">View closing soon ${ICONS.arrow}</a></div></div>
+      ${metric(data.clients, "Active clients", false, "/admin?view=clients")}
+      ${isAdmin ? metric(data.agents, "Active agents", false, "/admin?view=agents") : ""}
+      ${metric(data.pending, "Matches to review", true, "/admin?view=matches")}
+      ${metric(data.closing, "Closing in 48h", false, "/admin?view=matches")}
     </div>`;
 
   let section;
@@ -1180,7 +1171,6 @@ function dashboardView(session, data) {
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
       ${overview}
-      ${cards}
       ${charts}
       ${section}
     </div>${dashScript()}`;
@@ -1470,6 +1460,7 @@ function matchesView(pending, opts = {}) {
   // Distinct clients + makers in the current queue, for the filter dropdowns.
   const clients = [...new Set(pending.map((q) => q.client_name).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
   const makes = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).marka_name; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+  const auctions = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).auction; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
   const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
   const ticker = `<div class="mticker">
     ${tk("Awaiting review", pending.length, "", "var(--t3)")}
@@ -1500,9 +1491,10 @@ function matchesView(pending, opts = {}) {
         <option value="color">Group: Colour</option>
       </select>
     </div>
-    ${(clients.length > 1 || makes.length > 1) ? `<div class="crow crow-filters">
+    ${(clients.length > 1 || makes.length > 1 || auctions.length > 1) ? `<div class="crow crow-filters">
       ${clients.length > 1 ? `<select id="mclient" class="mctl" aria-label="Filter by client"><option value="">Client: all</option>${clients.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
       ${makes.length > 1 ? `<select id="mmake" class="mctl" aria-label="Filter by make"><option value="">Make: all</option>${makes.map((n) => `<option value="${esc(n)}">${esc(displayName(n))}</option>`).join("")}</select>` : ""}
+      ${auctions.length > 1 ? `<select id="mauction" class="mctl" aria-label="Filter by auction house"><option value="">Auction: all</option>${auctions.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
     </div>` : ""}
     <div class="fchips">
       <button type="button" class="fchip on" data-str="all">All</button>
@@ -1548,7 +1540,7 @@ function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;
   var cards=[].slice.call(grid.getElementsByClassName('mcard'));
-  var st={q:'',str:'all',soon:false,sort:'priority',group:'none',client:'',make:''};
+  var st={q:'',str:'all',soon:false,sort:'priority',group:'none',client:'',make:'',auction:''};
   function gv(c,k){return c.getAttribute('data-'+k)||''}
   function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
   function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
@@ -1588,6 +1580,7 @@ function matchesScript() {
         if(st.soon&&gn(c,'days')>2)ok=false;
         if(st.client&&gv(c,'client')!==st.client)ok=false;
         if(st.make&&gv(c,'make')!==st.make)ok=false;
+        if(st.auction&&gv(c,'auction')!==st.auction)ok=false;
         if(ql&&gv(c,'search').indexOf(ql)<0)ok=false;
         c.__show=ok; if(ok)shown++;
       });
@@ -1619,6 +1612,7 @@ function matchesScript() {
   var mg=document.getElementById('mgroup'); if(mg)mg.addEventListener('change',function(e){st.group=e.target.value;apply();});
   var mc=document.getElementById('mclient'); if(mc)mc.addEventListener('change',function(e){st.client=e.target.value;apply();});
   var mm=document.getElementById('mmake'); if(mm)mm.addEventListener('change',function(e){st.make=e.target.value;apply();});
+  var ma=document.getElementById('mauction'); if(ma)ma.addEventListener('change',function(e){st.auction=e.target.value;apply();});
   [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
   var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
   grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
