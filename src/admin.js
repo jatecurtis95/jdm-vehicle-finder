@@ -136,8 +136,8 @@ const CSS = `
   .content{padding:32px 40px 60px;max-width:1180px}
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
   .card{background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
-  .card>h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
-  .card>h2 .num{color:var(--gold);font-weight:700}
+  .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
+  .card h2 .num{color:var(--gold);font-weight:700}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 22px}
   label{display:block;font-size:12px;color:var(--t2);margin-bottom:7px;font-weight:600;letter-spacing:0.02em}
@@ -1253,7 +1253,7 @@ function clientsView(clients, wishlists, opts = {}) {
       .filter((a) => Number(a.id) !== Number(c.agent_id) && !sharedIds.has(Number(a.id)))
       .map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     const picker = opts2
-      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" onchange="if(this.value)this.form.submit()"><option value="">+ share…</option>${opts2}</select></form>`
+      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="if(this.value&&confirm('Share this client with the selected agent?')){this.form.submit()}else{this.value=''}"><option value="">+ share…</option>${opts2}</select></form>`
       : "";
     return `${chips} ${picker}`;
   };
@@ -1264,7 +1264,9 @@ function clientsView(clients, wishlists, opts = {}) {
   const ownerCell = (c) => {
     const opts = `<option value=""${!c.agent_id ? " selected" : ""}>JDM Connect</option>` +
       agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
-    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" onchange="this.form.submit()">${opts}</select></form>`;
+    // Reassigning is destructive (hands over the client + all their searches and
+    // matches), so confirm and revert on cancel — never a silent stray-click write.
+    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="if(confirm('Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')){this.form.submit()}else{this.value=this.dataset.prev}">${opts}</select></form>`;
   };
 
   const rows = clients.map((c) =>
