@@ -35,22 +35,75 @@ function modelScript(makerId, listId) {
 // known model. EDIT THIS LIST to add or refine presets - especially tricky ones
 // like the E55 (listed under "Mercedes AMG", not Mercedes-Benz). Make uses
 // best-match, so the brand word alone is enough. Verify values against the feed.
+// Curated one-tap presets, grouped for scannability. Every make/model below is a
+// real value from the live auction feed (verified via /api/models) and the model
+// is matched as "contains", so a tap always returns results. Years/chassis narrow
+// the common variant; leave them off to keep a preset broad.
 const WL_PRESETS = [
-  { name: "Mercedes E55 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2003, year_max: 2006, label: "E55 AMG" },
-  { name: "Mercedes E63 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2006, year_max: 2009, label: "E63 AMG" },
-  { name: "Nissan Skyline GT-R (R34)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR34", year_min: 1999, year_max: 2002, label: "R34 GT-R" },
-  { name: "Nissan Skyline GT-R (R33)", make: "NISSAN", model: "SKYLINE", kuzov: "BCNR33", year_min: 1995, year_max: 1998, label: "R33 GT-R" },
-  { name: "Toyota Supra (A80 / JZA80)", make: "TOYOTA", model: "SUPRA", kuzov: "JZA80", year_min: 1993, year_max: 2002, label: "A80 Supra" },
-  { name: "Honda NSX", make: "HONDA", model: "NSX", year_min: 1990, year_max: 2005, label: "NSX" },
-  { name: "Mazda RX-7 (FD3S)", make: "MAZDA", model: "RX-7", kuzov: "FD3S", year_min: 1991, year_max: 2002, label: "FD RX-7" },
-  { name: "Subaru WRX STI (GDB)", make: "SUBARU", model: "IMPREZA", kuzov: "GDB", year_min: 2000, year_max: 2007, label: "GDB STI" },
+  // Sports & performance
+  { group: "Sports & performance", name: "Nissan Skyline GT-R (R34)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR34", year_min: 1999, year_max: 2002, label: "R34 GT-R" },
+  { group: "Sports & performance", name: "Nissan Skyline GT-R (R33)", make: "NISSAN", model: "SKYLINE", kuzov: "BCNR33", year_min: 1995, year_max: 1998, label: "R33 GT-R" },
+  { group: "Sports & performance", name: "Nissan Skyline GT-R (R32)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR32", year_min: 1989, year_max: 1994, label: "R32 GT-R" },
+  { group: "Sports & performance", name: "Nissan GT-R (R35)", make: "NISSAN", model: "GT-R", year_min: 2007, year_max: 2024, label: "R35 GT-R" },
+  { group: "Sports & performance", name: "Nissan Silvia (S15)", make: "NISSAN", model: "SILVIA", year_min: 1999, year_max: 2002, label: "S15 Silvia" },
+  { group: "Sports & performance", name: "Nissan 180SX", make: "NISSAN", model: "180 SX", year_min: 1989, year_max: 1998, label: "180SX" },
+  { group: "Sports & performance", name: "Nissan Fairlady Z (350Z)", make: "NISSAN", model: "FAIRLADYZ", year_min: 2002, year_max: 2008, label: "350Z" },
+  { group: "Sports & performance", name: "Toyota Supra (A80)", make: "TOYOTA", model: "SUPRA", kuzov: "JZA80", year_min: 1993, year_max: 2002, label: "A80 Supra" },
+  { group: "Sports & performance", name: "Toyota GR Supra (A90)", make: "TOYOTA", model: "SUPRA", year_min: 2019, year_max: 2024, label: "A90 Supra" },
+  { group: "Sports & performance", name: "Toyota GR Yaris", make: "TOYOTA", model: "GR YARIS", year_min: 2020, year_max: 2024, label: "GR Yaris" },
+  { group: "Sports & performance", name: "Toyota 86 / GR86", make: "TOYOTA", model: "86", year_min: 2012, year_max: 2024, label: "86" },
+  { group: "Sports & performance", name: "Toyota Chaser (JZX100)", make: "TOYOTA", model: "CHASER", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Chaser" },
+  { group: "Sports & performance", name: "Toyota Mark II (JZX100)", make: "TOYOTA", model: "MARK II", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Mark II" },
+  { group: "Sports & performance", name: "Toyota MR2 (SW20)", make: "TOYOTA", model: "MR2", year_min: 1989, year_max: 1999, label: "SW20 MR2" },
+  { group: "Sports & performance", name: "Honda NSX", make: "HONDA", model: "NSX", year_min: 1990, year_max: 2005, label: "NSX" },
+  { group: "Sports & performance", name: "Honda S2000", make: "HONDA", model: "S2000", year_min: 1999, year_max: 2009, label: "S2000" },
+  { group: "Sports & performance", name: "Honda Integra Type R", make: "HONDA", model: "INTEGRA", year_min: 1995, year_max: 2006, label: "Integra Type R" },
+  { group: "Sports & performance", name: "Honda Civic Type R", make: "HONDA", model: "CIVIC", year_min: 2007, year_max: 2023, label: "Civic Type R" },
+  { group: "Sports & performance", name: "Mazda RX-7 (FD3S)", make: "MAZDA", model: "RX-7", kuzov: "FD3S", year_min: 1991, year_max: 2002, label: "FD RX-7" },
+  { group: "Sports & performance", name: "Mazda RX-8", make: "MAZDA", model: "RX-8", year_min: 2003, year_max: 2012, label: "RX-8" },
+  { group: "Sports & performance", name: "Subaru WRX STI (GDB)", make: "SUBARU", model: "IMPREZA", kuzov: "GDB", year_min: 2000, year_max: 2007, label: "GDB STI" },
+  { group: "Sports & performance", name: "Subaru WRX STI (VAB)", make: "SUBARU", model: "WRX STI", year_min: 2014, year_max: 2021, label: "VAB STI" },
+  { group: "Sports & performance", name: "Mitsubishi Lancer Evo (CT9A)", make: "MITSUBISHI", model: "LANCER", kuzov: "CT9A", year_min: 2001, year_max: 2007, label: "Evo 7-9" },
+  { group: "Sports & performance", name: "Mitsubishi GTO", make: "MITSUBISHI", model: "GTO", year_min: 1990, year_max: 2000, label: "GTO" },
+  { group: "Sports & performance", name: "Mercedes E55 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2003, year_max: 2006, label: "E55 AMG" },
+  { group: "Sports & performance", name: "Mercedes E63 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2006, year_max: 2009, label: "E63 AMG" },
+  // SUV, 4x4 & people movers
+  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser", make: "TOYOTA", model: "LAND CRUISER", label: "Land Cruiser" },
+  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser Prado", make: "TOYOTA", model: "LAND CRUISER PRADO", label: "Prado" },
+  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux", make: "TOYOTA", model: "HILUX", label: "Hilux" },
+  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux Surf", make: "TOYOTA", model: "HILUX SURF", label: "Hilux Surf" },
+  { group: "SUV, 4x4 & people movers", name: "Toyota Harrier", make: "TOYOTA", model: "HARRIER", label: "Harrier" },
+  { group: "SUV, 4x4 & people movers", name: "Toyota Alphard", make: "TOYOTA", model: "ALPHARD", label: "Alphard" },
+  { group: "SUV, 4x4 & people movers", name: "Nissan Elgrand", make: "NISSAN", model: "ELGRAND", label: "Elgrand" },
+  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Delica D5", make: "MITSUBISHI", model: "DELICA D5", label: "Delica D5" },
+  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Pajero", make: "MITSUBISHI", model: "PAJERO", label: "Pajero" },
+  { group: "SUV, 4x4 & people movers", name: "Subaru Forester", make: "SUBARU", model: "FORESTER", label: "Forester" },
+  // Daily, kei & convertible
+  { group: "Daily, kei & convertible", name: "Toyota Aqua", make: "TOYOTA", model: "AQUA", label: "Aqua" },
+  { group: "Daily, kei & convertible", name: "Toyota Prius", make: "TOYOTA", model: "PRIUS", label: "Prius" },
+  { group: "Daily, kei & convertible", name: "Mazda Roadster (MX-5)", make: "MAZDA", model: "ROADSTER", label: "MX-5 Roadster" },
+  { group: "Daily, kei & convertible", name: "Honda Beat", make: "HONDA", model: "BEAT", label: "Beat" },
+  { group: "Daily, kei & convertible", name: "Suzuki Jimny", make: "SUZUKI", model: "JIMNY", label: "Jimny" },
+  { group: "Daily, kei & convertible", name: "Suzuki Cappuccino", make: "SUZUKI", model: "CAPPUCCINO", label: "Cappuccino" },
+  { group: "Daily, kei & convertible", name: "Suzuki Swift Sport", make: "SUZUKI", model: "SWIFT SPORTS", label: "Swift Sport" },
 ];
 
 // Dropdown that fills a wishlist form from a preset. Works on any wishlist form
 // (matches inputs by name, relative to the form).
 function presetSelect() {
+  // Group the presets into <optgroup>s while keeping each option's value as its
+  // original index into WL_PRESETS (jdmPreset reads that index).
+  const groups = [];
+  WL_PRESETS.forEach((p, i) => {
+    let g = groups.find((x) => x.name === p.group);
+    if (!g) { g = { name: p.group || "Presets", items: [] }; groups.push(g); }
+    g.items.push({ p, i });
+  });
+  const opts = groups.map((g) =>
+    `<optgroup label="${esc(g.name)}">${g.items.map(({ p, i }) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</optgroup>`
+  ).join("");
   return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(auto-fills the fields for a known model)</span></label>
-    <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${WL_PRESETS.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</select></div>`;
+    <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${opts}</select></div>`;
 }
 function presetScript() {
   return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);}</script>`;
