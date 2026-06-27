@@ -1864,8 +1864,11 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       ${aiBtn}
     </div>`;
 
-  const approve = `/decide?token=${esc(q.token)}&action=approve`;
-  const skip = `/decide?token=${esc(q.token)}&action=reject`;
+  // Skip/Approve here are full navigations (no AJAX), so send the user back to
+  // the client they came from instead of dumping them on the Matches home.
+  const ret = `&return=${encodeURIComponent(`/admin?view=client&id=${q.client_id}`)}`;
+  const approve = `/decide?token=${esc(q.token)}&action=approve${ret}`;
+  const skip = `/decide?token=${esc(q.token)}&action=reject${ret}`;
   const actions = q.status === "pending"
     ? `<div class="ld-actions"><a class="btn-skip" href="${skip}">Skip</a><a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a></div>`
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
