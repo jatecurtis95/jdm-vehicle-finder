@@ -2295,6 +2295,9 @@ function requestFormScript() {
       var yf=parseInt(val('year_min'),10), yt=parseInt(val('year_max'),10);
       var badYear=!!(yf && yt && yf>yt);
       if(yErr) yErr.style.display=badYear?'block':'none';
+      // The year fields can live inside a collapsed "Add more detail" disclosure
+      // (e.g. a preset filled them). Open it so the error is actually visible.
+      if(badYear&&yErr){var det=yErr.closest&&yErr.closest('details');if(det)det.open=true;}
       if(noContact||badYear){
         e.preventDefault();
         var first=noContact?cErr:yErr;
@@ -2384,8 +2387,9 @@ export function accessScope(session) {
 // same "412345678", so the same person typing it differently still matches.
 export function phoneKey(s) {
   let d = String(s || "").replace(/\D/g, "");
-  if (d.startsWith("61")) d = d.slice(2);
-  if (d.startsWith("0")) d = d.slice(1);
+  if (d.startsWith("00")) d = d.slice(2); // intl dialing prefix (e.g. 0061...)
+  if (d.startsWith("61")) d = d.slice(2); // AU country code
+  if (d.startsWith("0")) d = d.slice(1);  // trunk 0
   return d;
 }
 
@@ -2731,8 +2735,12 @@ async function upsertPublicClient(env, form, email, whatsapp) {
   const existing = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
   if (existing) {
     // Backfill newly-supplied contact details without clobbering existing ones.
+    // Only set the name when the record has none yet (or the default placeholder)
+    // so a stranger who knows a client's email/phone can't rename them via the
+    // public form. A real name on file is kept.
     await env.DB.prepare(
-      `UPDATE clients SET name = ?,
+      `UPDATE clients SET
+          name = CASE WHEN name IS NULL OR name = '' OR name = 'Website enquiry' THEN ? ELSE name END,
           email = COALESCE(NULLIF(?, ''), email),
           whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
           state = COALESCE(NULLIF(?, ''), state)

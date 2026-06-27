@@ -15,6 +15,7 @@ test("phoneKey normalizes AU formats to the same national number", () => {
   assert.equal(phoneKey("0412345678"), "412345678");
   assert.equal(phoneKey("61412345678"), "412345678");
   assert.equal(phoneKey("(04) 1234 5678"), "412345678");
+  assert.equal(phoneKey("0061 412 345 678"), "412345678"); // intl 00 prefix
   // A different country code is not stripped, so it stays distinct.
   assert.notEqual(phoneKey("+44 412345678"), phoneKey("+61 412345678"));
   assert.equal(phoneKey(""), "");
@@ -70,6 +71,27 @@ test("an agent's duplicate check is scoped to their own clients, not public ones
   assert.equal(rows.length, 2);
   assert.equal(rows[0].agent_id, null);
   assert.equal(rows[1].agent_id, 7);
+});
+
+test("public merge never overwrites a real client name (anti-clobber)", async () => {
+  const env = makeEnv();
+  // A real client on file.
+  await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA" }));
+  // A stranger who knows the email submits with a bogus name.
+  await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA" }));
+  const row = await env.DB.prepare("SELECT name FROM clients WHERE lower(email)='s@example.com'").first();
+  assert.equal(row.name, "Stephen Real");
+});
+
+test("public merge does fill in a name when the record only had the placeholder", async () => {
+  const env = makeEnv();
+  // First contact via WhatsApp only with no name -> stored as "Website enquiry".
+  await createRequest(env, fd({ whatsapp: "0412345678", marka_name: "TOYOTA", model_name: "AQUA" }));
+  // Same person later gives their name + email.
+  await createRequest(env, fd({ name: "Real Name", email: "r@example.com", whatsapp: "+61412345678", marka_name: "TOYOTA", model_name: "AQUA" }));
+  const rows = (await env.DB.prepare("SELECT name FROM clients").all()).results;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "Real Name");
 });
 
 test("public request path folds a phone-only repeat into one client (Stephen's case)", async () => {
