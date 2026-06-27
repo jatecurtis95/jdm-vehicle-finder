@@ -203,7 +203,7 @@ export default {
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
-        return doc(await clientDetailPage(env, url.searchParams.get("id"), session));
+        return doc(await clientDetailPage(env, url.searchParams.get("id"), session, { dup: url.searchParams.get("dup") }));
       }
       if (view === "lot") {
         return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
@@ -282,8 +282,9 @@ export default {
 
     if (path === "/client" && request.method === "POST") {
       const r = await createClient(env, await request.formData(), session);
-      if (!r.ok) return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
-      return Response.redirect(here("/admin"), 303);
+      if (r.ok) return Response.redirect(here("/admin"), 303);
+      if (r.error === "duplicate") return Response.redirect(here(`/admin?view=client&id=${r.id}&dup=1`), 303);
+      return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
     }
 
     if (path === "/client/delete" && request.method === "POST") {

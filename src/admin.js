@@ -238,6 +238,7 @@ const CSS = `
   .reqok .reqok-ref strong{font-weight:700;letter-spacing:.02em}
   .reqok p{margin:12px 0 0;color:var(--t2);font-size:14px;line-height:1.55}
   .reqerr{margin-bottom:18px;padding:13px 16px;background:var(--bad-bg);border:1px solid var(--bad-line);border-left:4px solid var(--bad);border-radius:6px;color:var(--bad);font-size:14px;line-height:1.45}
+  .dupnote{margin-bottom:18px;padding:13px 16px;background:var(--gold-tint);border:1px solid var(--gold-line);border-left:4px solid var(--gold);border-radius:6px;color:var(--ink);font-size:14px;line-height:1.45}
   .field-err{display:none;color:var(--bad);font-size:13px;line-height:1.45;margin-top:9px;font-weight:500}
   /* Client portal */
   .reqbadge{display:inline-flex;align-items:center;gap:6px;background:rgba(91,192,140,.13);border:1px solid rgba(91,192,140,.4);color:var(--str-fg);font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:9999px}
@@ -1958,7 +1959,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
 }
 
-export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }) {
+export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
   const notFound = () => shell(sidebar("clients", {}, session),
     `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-dark" href="/admin?view=clients">Back to clients</a></div>
@@ -2073,7 +2074,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -2362,6 +2363,50 @@ export function accessScope(session) {
   };
 }
 
+// Normalize an Australian phone number to its national significant number for
+// duplicate matching: digits only, then drop a leading 61 (country code) and a
+// leading 0. "+61 412 345 678", "0412345678" and "61412345678" all key to the
+// same "412345678", so the same person typing it differently still matches.
+export function phoneKey(s) {
+  let d = String(s || "").replace(/\D/g, "");
+  if (d.startsWith("61")) d = d.slice(2);
+  if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
+// Find an existing client matching the given email OR phone within a scope
+// (public clients, or one agent's clients). Email match is case-insensitive;
+// phone match uses the normalized national number. Returns { id, name } or null.
+// This is what stops one person spawning a fresh client on every enquiry.
+export async function findClientByContact(env, { email, whatsapp, scopeSql, scopeBinds = [] }) {
+  const e = String(email || "").trim().toLowerCase();
+  if (e) {
+    const row = await env.DB.prepare(
+      `SELECT id, name FROM clients WHERE ${scopeSql} AND email IS NOT NULL AND lower(email) = ? LIMIT 1`
+    ).bind(...scopeBinds, e).first();
+    if (row) return row;
+  }
+  const key = phoneKey(whatsapp);
+  // Require a plausibly-complete number so short/garbage input can't collide.
+  if (key.length >= 8) {
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, whatsapp FROM clients WHERE ${scopeSql} AND whatsapp IS NOT NULL AND whatsapp <> ''`
+    ).bind(...scopeBinds).all();
+    for (const r of results || []) {
+      if (phoneKey(r.whatsapp) === key) return { id: r.id, name: r.name };
+    }
+  }
+  return null;
+}
+
+// The scope clause for a session: an agent sees only their own clients; admin
+// (and the public request path) operate on the shared, staff-scoped pool.
+function clientDedupeScope(agentId) {
+  return agentId == null
+    ? { scopeSql: "agent_id IS NULL AND dealer_username IS NULL", scopeBinds: [] }
+    : { scopeSql: "agent_id = ?", scopeBinds: [agentId] };
+}
+
 export async function createClient(env, form, session) {
   const name = String(form.get("name") || "").trim();
   const email = String(form.get("email") || "").trim();
@@ -2372,6 +2417,25 @@ export async function createClient(env, form, session) {
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   const state = normalizeState(form.get("state"));
   const agentId = session && session.role === "agent" ? session.id : null;
+
+  // Duplicate guard: fold a repeat into the existing client (matched by email or
+  // phone) rather than spawning a second record. Backfill any new contact detail
+  // and send staff to that client so they add the new search there. "allow_dupe"
+  // lets staff deliberately create a separate record (e.g. shared family email).
+  if (!form.get("allow_dupe")) {
+    const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(agentId) });
+    if (dup) {
+      await env.DB.prepare(
+        `UPDATE clients SET
+            email = COALESCE(NULLIF(?, ''), email),
+            whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
+            state = COALESCE(NULLIF(?, ''), state)
+          WHERE id = ?`
+      ).bind(email || "", whatsapp || "", state || "", dup.id).run();
+      return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
+    }
+  }
+
   const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
     .bind(name, email || null, whatsapp || null, state, agentId).run();
   return { ok: true, id: r.meta?.last_row_id };
@@ -2647,20 +2711,19 @@ export async function createRequest(env, form) {
 async function upsertPublicClient(env, form, email, whatsapp) {
   const name = String(form.get("name") || "").trim() || "Website enquiry";
   const state = normalizeState(form.get("state"));
-  if (email) {
-    const existing = await env.DB.prepare(
-      "SELECT id FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND lower(email) = ? LIMIT 1"
-    ).bind(email).first();
-    if (existing) {
-      // Backfill newly-supplied contact details without clobbering existing ones.
-      await env.DB.prepare(
-        `UPDATE clients SET name = ?,
-            whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
-            state = COALESCE(NULLIF(?, ''), state)
-          WHERE id = ?`
-      ).bind(name, whatsapp || "", state || "", existing.id).run();
-      return { id: existing.id, created: false };
-    }
+  // Match by email OR phone so the same person folds into one record even when
+  // they leave the email blank or change it between enquiries (Stephen's case).
+  const existing = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
+  if (existing) {
+    // Backfill newly-supplied contact details without clobbering existing ones.
+    await env.DB.prepare(
+      `UPDATE clients SET name = ?,
+          email = COALESCE(NULLIF(?, ''), email),
+          whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
+          state = COALESCE(NULLIF(?, ''), state)
+        WHERE id = ?`
+    ).bind(name, email || "", whatsapp || "", state || "", existing.id).run();
+    return { id: existing.id, created: false };
   }
   const r = await env.DB.prepare(
     "INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)"
