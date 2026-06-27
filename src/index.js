@@ -323,7 +323,7 @@ export default {
       const f = await request.formData();
       await createWishlist(env, f, undefined, session);
       const cid = f.get("client_id");
-      return Response.redirect(here(cid ? `/admin?view=client&id=${cid}` : "/admin?view=wishlists"), 303);
+      return Response.redirect(here(cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients"), 303);
     }
 
     if (path === "/wishlist/edit" && request.method === "POST") {
@@ -332,18 +332,28 @@ export default {
       // Resolve the redirect target only if this session may actually see the
       // client, so a blocked edit never leaks a foreign client_id in the URL.
       const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
-      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=wishlists";
+      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
       return Response.redirect(here(dest), 303);
     }
 
+    // Helper: a search's edits/toggle/delete should return to its client page.
+    const searchClientDest = async (id) => {
+      const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(id)).first();
+      return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
+    };
+
     if (path === "/wishlist/toggle" && request.method === "POST") {
-      await toggleWishlist(env, (await request.formData()).get("id"), session);
-      return Response.redirect(here("/admin?view=wishlists"), 303);
+      const id = (await request.formData()).get("id");
+      const dest = await searchClientDest(id);
+      await toggleWishlist(env, id, session);
+      return Response.redirect(here(dest), 303);
     }
 
     if (path === "/wishlist/delete" && request.method === "POST") {
-      await deleteWishlist(env, (await request.formData()).get("id"), session);
-      return Response.redirect(here("/admin?view=wishlists"), 303);
+      const id = (await request.formData()).get("id");
+      const dest = await searchClientDest(id); // resolve before the row is gone
+      await deleteWishlist(env, id, session);
+      return Response.redirect(here(dest), 303);
     }
 
     // Agent management - admin only.

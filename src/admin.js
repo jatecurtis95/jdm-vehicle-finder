@@ -621,7 +621,6 @@ function sidebar(active, counts, session = { role: "admin" }) {
     <nav class="nav">
       ${item("dashboard", "Dashboard", "")}
       ${item("clients", "Clients", counts.clients)}
-      ${item("wishlists", "Wishlists", counts.wishlists)}
       ${item("matches", "Matches", counts.matches || "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
@@ -640,7 +639,7 @@ const HEADERS = {
   intake: { kicker: "Vehicle Finder", title: "Add a client", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
   clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add client" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
-  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' wishlists.", btn: "Search again" },
+  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Alert email, notifications and payments.", btn: "" },
@@ -649,6 +648,7 @@ const HEADERS = {
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "dashboard";
+  if (view === "wishlists") view = "clients"; // searches now live inside the client
   if (["agents", "settings", "payments"].includes(view) && isAgent) view = "dashboard"; // admin-only areas
 
   // Rows this session may see: all for admin, owned-or-shared for an agent.
@@ -778,7 +778,7 @@ function agentsView(agents) {
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
         <form method="POST" action="/agent/invite" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-link" type="submit">${invited ? "Resend invite" : "Reset password"}</button></form>
-        <form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, wishlists and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form>
+        <form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, searches and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form>
       </td>
     </tr>`;
   }).join("") || `<tr><td colspan="7" class="empty">No agents yet</td></tr>`;
@@ -1173,7 +1173,7 @@ function intakeView(clients, makers, opts = {}) {
       </form>
     </div>
     <div class="card">
-      <h2><span class="num">02</span> New wishlist</h2>
+      <h2><span class="num">02</span> Their search</h2>
       <form method="POST" action="/wishlist">
         ${presetSelect()}
         <div class="grid">
@@ -1190,7 +1190,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Grade keyword <span class="opt">(contains)</span></label><input name="grade_kw" placeholder="e.g. RS"></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
-        <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
+        <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
     </div>
@@ -1240,7 +1240,7 @@ function clientsView(clients, wishlists, opts = {}) {
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
-        ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their wishlists? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
+        ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their searches? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
         : ""}</td>
     </tr>`
   ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
@@ -1258,7 +1258,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
   return `${bulkBar}<div class="card" style="padding:0;overflow:hidden">
-    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Wishlists</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
@@ -1403,7 +1403,7 @@ function matchCard(q) {
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc" style="background:rgba(96,143,226,0.16);color:#9FB9F2;border-color:rgba(96,143,226,0.4)">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
-          <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "wishlist")}</div></div>
+          <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
         </div>
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
@@ -1418,7 +1418,7 @@ function matchCard(q) {
 function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every wishlist.</div></div>` + ranToast();
+      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
   let strong = 0, good = 0, poss = 0, soon = 0;
@@ -1672,15 +1672,15 @@ function wishlistEditor(w, opts = {}) {
   return `<div class="wlrow">
     <div class="wlhead">
       <div class="wlsum">
-        <div class="wln">${esc(w.label || "Wishlist")} ${w.active ? "" : `<span class="chip muted">paused</span>`}</div>
+        <div class="wln">${esc(w.label || "Search")} ${w.active ? "" : `<span class="chip muted">paused</span>`}</div>
         <div class="wlc">${summary || "Matches anything"}</div>
       </div>
       <div class="wlacts">
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
-        <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
+        <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
       </div>
     </div>
-    <details class="wledit">
+    <details class="wledit"${opts.open ? " open" : ""}>
       <summary>${opts.portal ? "Edit this search" : "Edit what they're chasing"}</summary>
       <form method="POST" action="${base}/wishlist/edit">
         <input type="hidden" name="id" value="${w.id}">
@@ -1902,7 +1902,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
-            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "wishlist")}</div></div></div>
+            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div></div></div>
             ${chips.length ? `<div class="why" style="padding:14px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
             ${actions}
           </div>
@@ -1978,7 +1978,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </div>` : "";
 
   const newWl = `<div class="card">
-    <h2><span class="num">+</span> New wishlist for ${esc(c.name)}</h2>
+    <h2><span class="num">+</span> ${wls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</h2>
     <form method="POST" action="/wishlist">
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
@@ -1994,14 +1994,14 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
-      <div class="actions"><button class="btn-gold" type="submit">Add wishlist</button>
+      <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${presetScript()}
   </div>`;
 
   const wlSection = `<div class="card">
-    <h2><span class="num">${wls.length}</span> Wishlists</h2>
-    ${wls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No wishlists yet. Add one below.</div>`}
+    <h2><span class="num">${wls.length}</span> ${wls.length === 1 ? "Search" : "Searches"}</h2>
+    ${wls.map((w) => wishlistEditor(w, { open: wls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
   const matchSection = `<div class="card">
