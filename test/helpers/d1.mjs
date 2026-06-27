@@ -5,7 +5,7 @@
 // which is fine because the app always awaits them (await of a non-promise just
 // yields the value).
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -30,7 +30,11 @@ class D1 {
 // (seed rows, fixtures). Returns an env-like object: { DB, db }.
 export function makeEnv(extraSql) {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(resolve(ROOT, "migrations", "0001_baseline.sql"), "utf8"));
+  // Apply every numbered migration in order (0001_baseline, 0002_*, …) so the
+  // test schema always matches production, not just the baseline.
+  const migDir = resolve(ROOT, "migrations");
+  const files = readdirSync(migDir).filter((f) => /^\d+.*\.sql$/.test(f)).sort();
+  for (const f of files) db.exec(readFileSync(resolve(migDir, f), "utf8"));
   if (extraSql) db.exec(extraSql);
   return { DB: new D1(db), db };
 }

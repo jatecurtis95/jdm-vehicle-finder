@@ -2,7 +2,7 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, refreshLotImages } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, fetchLot } from "./avtonet.js";
 import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken } from "./auth.js";
@@ -1969,6 +1969,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" onsubmit="return confirm('Revoke this client&#39;s portal access and clear their password?')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
+    ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--hair)">
+      <div style="flex:1">
+        <div class="pa-k">MEMBERSHIP</div>
+        <div style="font-weight:600;margin-top:3px">${c.member ? "Member &middot; can use Auction search" : "Not a member"}</div>
+      </div>
+      <div class="pwrap">
+        <form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>
+      </div>
+    </div>` : ""}
   </div>` : "";
 
   const reqSection = requested.length ? `<div class="card">
@@ -2676,15 +2685,156 @@ async function enablePortalSelfSignup(env, clientId, password) {
 // ===========================================================================
 const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function portalSidebar(c) {
+function portalSidebar(c, active = "garage") {
+  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}" href="${href}"><span class="bar"></span><span class="lbl">${label}</span></a>`;
+  // The auction search page is a paid-member perk, gated on clients.member.
+  const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
-    <nav class="nav"><a class="active" href="/portal"><span class="bar"></span><span class="lbl">Your garage</span></a></nav>
+    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}</nav>
     <div class="side-foot">
-      <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">Client</span></div>
+      <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">${c && c.member ? "Member" : "Client"}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
   </aside>`;
+}
+
+const DIRECT_REQUESTS_LABEL = "Direct requests";
+
+// Member-only auction search page (the "Auction page"): search the live feed and
+// request any lot. Gated on clients.member.
+export async function portalAuctionsPage(env, session, params = {}) {
+  const cid = Number(session.id);
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  if (!c) {
+    return brandShell(portalSidebar(null),
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
+      "Auction search - JDM Connect");
+  }
+  if (!c.member) {
+    return brandShell(portalSidebar(c, "auctions"),
+      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction search</h1><p class="subline">Search every live Japanese auction yourself.</p></div></div>
+       <div class="content"><div class="card"><div class="empty">Auction search is a members feature. Ask JDM Connect to upgrade your account and you'll be able to search every live lot from here.</div></div></div>`,
+      "Auction search - JDM Connect");
+  }
+
+  const makers = await distinctMakers(env);
+  const yMax = new Date().getFullYear() + 1;
+  const v = (k) => esc(params[k] ?? "");
+  const hasQuery = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(params[k] || "").trim());
+
+  let resultsBlock = "";
+  if (hasQuery) {
+    const { lots, page, hasMore } = await searchLots(env, params);
+    if (lots.length) {
+      const q = (over) => "/portal/auctions?" + new URLSearchParams({ ...stripBlank(params), page: String(over) }).toString();
+      const prev = page > 1 ? `<a class="btn-dark" href="${esc(q(page - 1))}">&larr; Newer</a>` : "";
+      const next = hasMore ? `<a class="btn-dark" href="${esc(q(page + 1))}">Older &rarr;</a>` : "";
+      resultsBlock = `<div class="psec" style="margin-top:30px"><h2>Live lots${page > 1 ? ` &middot; page ${page}` : ""}</h2><p class="psub">Soonest auctions first. Tap “Request this car” and we'll chase it for you.</p></div>
+        <div class="mgrid">${lots.map(auctionResultCard).join("")}</div>
+        ${(prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : ""}`;
+    } else {
+      resultsBlock = `<div class="card" style="margin-top:30px"><div class="empty">No upcoming lots match that search. Try widening it — fewer filters, or a broader make/model.</div></div>`;
+    }
+  }
+
+  const form = `<div class="card">
+    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
+    <form method="GET" action="/portal/auctions">
+      <div class="grid">
+        <div><label>Make</label><input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
+        <div><label>Model <span class="opt">(contains)</span></label><input name="model" value="${v("model")}" placeholder="e.g. SKYLINE"></div>
+        <div><label>Year from</label><input name="yearMin" type="number" min="1960" max="${yMax}" value="${v("yearMin")}" placeholder="1990"></div>
+        <div><label>Year to</label><input name="yearMax" type="number" min="1960" max="${yMax}" value="${v("yearMax")}" placeholder="2002"></div>
+        <div><label>Max price <span class="opt">(JPY)</span></label><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></div>
+        <div><label>Min grade</label><input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="e.g. 4"></div>
+        <div><label>Chassis / model code <span class="opt">(contains)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. GDB"></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
+        <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
+    </form>
+  </div>`;
+
+  const flash = params._flash ? `<div class="banner"><span class="txt">${esc(params._flash)}</span></div>` : "";
+  const main = `
+    <div class="topbar">
+      <div class="topbar-in">
+        <div class="kicker">Members</div>
+        <h1>Auction search</h1>
+        <p class="subline">Search every live Japanese auction, then ask us to chase any car.</p>
+      </div>
+    </div>
+    <div class="content">${flash}${form}${resultsBlock}</div>`;
+  return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
+}
+
+// Drop blank values so pagination links stay clean.
+function stripBlank(params) {
+  const out = {};
+  for (const k of ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"]) {
+    const val = String(params[k] ?? "").trim();
+    if (val) out[k] = val;
+  }
+  return out;
+}
+
+// A single live-auction lot in the member search results.
+function auctionResultCard(lot) {
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
+  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
+      <div class="ttl"><div class="t">${title || "Vehicle"}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    <div class="mfoot">
+      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
+      <form method="POST" action="/portal/auctions/request" style="display:inline"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify" type="submit">Request this car</button></form>
+    </div>
+  </div>`;
+}
+
+// Member requests a lot found via auction search. Files it against a per-client
+// "Direct requests" catch-all search so it shows in the admin client page, and
+// won't be re-surfaced by the matcher. Returns { ok, lot, already? } | { ok:false }.
+export async function requestAuctionLot(env, clientId, lotId) {
+  let lot = null;
+  try { lot = await fetchLot(env, lotId); } catch (e) {}
+  if (!lot || !lot.id) return { ok: false, error: "not_found" };
+  let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(clientId, DIRECT_REQUESTS_LABEL).first();
+  let wishlistId = wl?.id;
+  if (!wishlistId) {
+    const ins = await env.DB.prepare("INSERT INTO wishlists (client_id, label, active, watch_only) VALUES (?, ?, 1, 1)").bind(clientId, DIRECT_REQUESTS_LABEL).run();
+    wishlistId = ins.meta?.last_row_id;
+  }
+  const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(clientId, String(lot.id)).first();
+  if (existing) {
+    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now') WHERE id = ?").bind(existing.id).run();
+    return { ok: true, already: true, lot };
+  }
+  await env.DB.prepare(
+    "INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token, client_request, client_request_at, reason) VALUES (?, ?, ?, ?, 'pending', ?, 1, datetime('now'), 'Direct request from auction search')"
+  ).bind(wishlistId, clientId, String(lot.id), JSON.stringify(lot), randomToken()).run();
+  try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
+  return { ok: true, lot };
+}
+
+// Admin: flip a client's paid-member flag (gates the auction page).
+export async function setClientMember(env, clientId, on, session) {
+  const id = Number(clientId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  if (!(await clientAccessibleBy(env, id, session))) return;
+  await env.DB.prepare("UPDATE clients SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
 }
 
 // One car the buyer sees in their portal. opts.stripe shows a "Pay deposit"

@@ -1,0 +1,66 @@
+// Member-only auction search page: gating, live search, request-a-lot, and the
+// admin member toggle. The live feed is stubbed so no network is hit.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { makeEnv } from "./helpers/d1.mjs";
+import { portalAuctionsPage, requestAuctionLot, setClientMember } from "../src/admin.js";
+
+const TWO_LOTS = "<aj><row><id>L1</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><start>2200000</start><rate>4</rate><kuzov>BNR34</kuzov></row><row><id>L2</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>2001</year><start>1800000</start><rate>4.5</rate></row></aj>";
+const ONE_LOT = "<aj><row><id>L9</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><start>2500000</start><rate>4</rate></row></aj>";
+
+function stub(single = false) {
+  globalThis.fetch = async (u) => {
+    let q = null; try { q = new URL(u).searchParams.get("q"); } catch (e) {}
+    const sql = q ? atob(q) : "";
+    return { ok: true, status: 200, text: async () => (/WHERE id=/.test(sql) ? ONE_LOT : (single ? ONE_LOT : TWO_LOTS)) };
+  };
+}
+function env2() {
+  const e = makeEnv("INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1),(2,'Free Fred',1,0);");
+  e.API_BASE = "http://feed/api"; e.AVTONET_CODE = "c";
+  return e;
+}
+const mcards = (h) => (h.match(/class="mcard"/g) || []).length;
+
+test("auction page is gated to members", async () => {
+  stub();
+  const e = env2();
+  const free = await portalAuctionsPage(e, { role: "client", id: 2 }, {});
+  assert.match(free, /members feature/i);
+  assert.ok(!/Search the auctions/.test(free), "non-member gets no search form");
+  const member = await portalAuctionsPage(e, { role: "client", id: 1 }, {});
+  assert.match(member, /<h1>Auction search<\/h1>/);
+  assert.match(member, /Search the auctions/);
+});
+
+test("a member search renders one card per live lot", async () => {
+  stub();
+  const html = await portalAuctionsPage(env2(), { role: "client", id: 1 }, { make: "NISSAN", model: "SKYLINE" });
+  assert.match(html, /Live lots/);
+  assert.equal(mcards(html), 2);
+});
+
+test("requesting a lot files it against a catch-all search and is idempotent", async () => {
+  stub();
+  const e = env2();
+  const r1 = await requestAuctionLot(e, 1, "L9");
+  assert.ok(r1.ok && !r1.already);
+  const wl = await e.DB.prepare("SELECT watch_only FROM wishlists WHERE client_id=1 AND label='Direct requests'").first();
+  assert.equal(wl.watch_only, 1);
+  const row = await e.DB.prepare("SELECT client_request,status FROM queue WHERE client_id=1 AND lot_id='L9'").first();
+  assert.equal(row.client_request, 1);
+  assert.equal(row.status, "pending");
+  const r2 = await requestAuctionLot(e, 1, "L9");
+  assert.ok(r2.already);
+  const n = (await e.DB.prepare("SELECT COUNT(*) n FROM queue WHERE client_id=1 AND lot_id='L9'").first()).n;
+  assert.equal(n, 1);
+});
+
+test("admin member toggle flips the flag", async () => {
+  stub();
+  const e = env2();
+  await setClientMember(e, 2, true, { role: "admin", id: 0 });
+  assert.equal((await e.DB.prepare("SELECT member FROM clients WHERE id=2").first()).member, 1);
+  await setClientMember(e, 2, false, { role: "admin", id: 0 });
+  assert.equal((await e.DB.prepare("SELECT member FROM clients WHERE id=2").first()).member, 0);
+});

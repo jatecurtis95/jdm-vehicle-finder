@@ -147,6 +147,38 @@ export function imageUrls(lot) {
   };
 }
 
+// Free-form search over the live `main` feed for the member auction page.
+// Returns { lots, page, perPage, hasMore }. Upcoming auctions only, soonest
+// first. All inputs are escaped/coerced; the gateway only permits SELECT.
+export async function searchLots(env, p = {}) {
+  const where = ["auction_date >= NOW()"];
+  const make = String(p.make || "").trim();
+  if (make) {
+    const mk = sqlString(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
+    if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
+  }
+  const model = String(p.model || "").trim();
+  if (model) where.push(`UPPER(model_name) LIKE '%${sqlString(model).toUpperCase()}%'`);
+  const yMin = sqlInt(p.yearMin); if (yMin !== null) where.push(`year >= ${yMin}`);
+  const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
+  const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`((start > 0 AND start <= ${pMax}) OR start <= 0)`);
+  const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
+  const kuzov = String(p.kuzov || "").trim();
+  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlString(kuzov).toUpperCase()}%'`);
+
+  const perPage = 24;
+  const page = Math.max(1, sqlInt(p.page) || 1);
+  const offset = (page - 1) * perPage;
+  const sql = `SELECT * FROM main WHERE ${where.join(" AND ")} ORDER BY auction_date ASC LIMIT ${offset}, ${perPage}`;
+  let lots = [];
+  try {
+    lots = await query(env, sql);
+  } catch (e) {
+    console.error("searchLots failed:", e.message);
+  }
+  return { lots, page, perPage, hasMore: lots.length === perPage };
+}
+
 // Re-fetch a single lot's live row from the feed: live `main` first, then the
 // historical `stats` table (a sold lot moves out of main). Returns the row
 // object or null. Throws if the feed is unreachable — callers decide how to

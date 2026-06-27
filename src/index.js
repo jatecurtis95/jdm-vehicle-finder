@@ -8,7 +8,7 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
@@ -304,6 +304,13 @@ export default {
       await revokeClientPortal(env, id, session);
       return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
     }
+    // Flip a client's paid-member flag (gates the auction page in their portal).
+    if (path === "/client/member" && request.method === "POST") {
+      const f = await request.formData();
+      const id = f.get("id");
+      await setClientMember(env, id, f.get("member") === "1", session);
+      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+    }
 
     // Allocate clients to agents - admin only.
     if (path === "/client/assign" && request.method === "POST") {
@@ -424,6 +431,30 @@ async function handleClientPortal(request, env, url, path, session, here) {
       code === "saved" ? "Saved." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." : "";
     return doc(await portalPage(env, session, { flash }));
+  }
+
+  // Member-only auction search page + request-a-lot action.
+  if (path === "/portal/auctions" && request.method === "GET") {
+    const sp = url.searchParams;
+    const params = {
+      make: sp.get("make") || "", model: sp.get("model") || "",
+      yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1",
+      _flash: sp.get("_flash") || "",
+    };
+    return doc(await portalAuctionsPage(env, session, params));
+  }
+  if (path === "/portal/auctions/request" && request.method === "POST") {
+    const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    if (!c || !c.member) return Response.redirect(here("/portal/auctions"), 303);
+    const r = await requestAuctionLot(env, c.id, (await request.formData()).get("id"));
+    if (r.ok && !r.already) {
+      await alertClientRequest(env, { client: c, lot: r.lot, wishlist: null });
+      await sendPush(env, { title: "Member requested a car", message: `${c.name} requested ${[r.lot.year, r.lot.marka_name, r.lot.model_name].filter(Boolean).join(" ")}`.trim(), url: `${env.PUBLIC_URL}/admin?view=client&id=${c.id}` });
+    }
+    const msg = !r.ok ? "Sorry, we couldn't fetch that lot - please try again." : r.already ? "You've already requested this car - we're on it." : "Requested! We'll chase this car and be in touch.";
+    return Response.redirect(here("/portal/auctions?_flash=" + encodeURIComponent(msg)), 303);
   }
 
   if (path === "/portal/wishlist" && request.method === "POST") {
