@@ -237,7 +237,7 @@ export function digestHtml(summary, publicUrl) {
 // ---------------------------------------------------------------------------
 export function requestAlertHtml(req, publicUrl) {
   const row = (label, value) => value
-    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#7B7E82;">${esc(label)}</td>
+    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#676A6E;">${esc(label)}</td>
          <td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;font-weight:600;line-height:1.3;color:${INK};text-align:right;">${esc(value)}</td></tr>`
     : "";
   const vehicle = [req.marka_name, req.model_name].filter(Boolean).join(" ") || "Any vehicle";
@@ -272,7 +272,7 @@ export function requestAlertHtml(req, publicUrl) {
 export function requestConfirmationHtml(req, ref, publicUrl) {
   const first = String(req?.name || "there").trim().split(/\s+/)[0] || "there";
   const row = (label, value) => value
-    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#7B7E82;">${esc(label)}</td>
+    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#676A6E;">${esc(label)}</td>
          <td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;font-weight:600;line-height:1.3;color:${INK};text-align:right;">${esc(value)}</td></tr>`
     : "";
   const vehicle = [req.marka_name, req.model_name].filter(Boolean).join(" ") || "Open to suggestions";
@@ -348,7 +348,7 @@ export function clientPortalInviteHtml(name, link) {
 export function clientRequestAlertHtml(client, lot, wishlist, publicUrl) {
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const row = (label, value) => value
-    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#7B7E82;">${esc(label)}</td>
+    ? `<tr><td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;line-height:1.3;color:#676A6E;">${esc(label)}</td>
          <td style="padding:7px 0;border-top:1px solid ${HAIR};font-family:${FONT};font-size:13px;font-weight:600;line-height:1.3;color:${INK};text-align:right;">${esc(value)}</td></tr>`
     : "";
   const inner = `
