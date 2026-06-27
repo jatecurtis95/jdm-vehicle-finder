@@ -628,11 +628,15 @@ async function handleDecision(request, env, url) {
     return ajax ? new Response("invalid", { status: 400 }) : doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
   }
 
-  // If the click came from inside the app (signed-in session), return to the
-  // Matches view; otherwise (email link) show a simple confirmation page.
+  // If the click came from inside the app (signed-in session), return to where
+  // the user was — an optional &return= path (e.g. the client they were on),
+  // falling back to the Matches view. Email links (no session) get a simple
+  // confirmation page instead.
   const session = await getSession(request, url, env);
   const backToApp = !!session;
-  const toMatches = () => Response.redirect(new URL("/admin?view=matches", url).toString(), 303);
+  const ret = url.searchParams.get("return");
+  const dest = (typeof ret === "string" && ret.startsWith("/admin")) ? ret : "/admin?view=matches";
+  const toMatches = () => Response.redirect(new URL(dest, url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
   if (!item) return ajax ? ok200() : doc(infoPage("Item not found", "This match no longer exists."), 404);
