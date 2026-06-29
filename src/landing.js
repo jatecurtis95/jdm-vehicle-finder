@@ -81,10 +81,18 @@ const landingCss = `
   .sp-cell{background:var(--card);padding:13px 22px}
   .sp-cell .k{font-size:10px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--faint)}
   .sp-cell .v{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--ink);margin-top:5px}
-  .sp-land{display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:15px 22px;background:rgba(202,163,76,0.08);border-top:1px solid var(--gold-line)}
-  .sp-land .lk{font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--gold-txt)}
-  .sp-land .lv{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--ink)}
+  /* Price story: the Japan auction estimate, then the landed AUD, so the big
+     number is never shown without context. Mirrors the two figures in the real
+     match email. */
+  .sp-land{padding:6px 22px 14px;background:rgba(202,163,76,0.08);border-top:1px solid var(--gold-line)}
+  .sp-pl{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:9px 0}
+  .sp-pl .pk{font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase}
+  .sp-pl.from{border-bottom:1px solid var(--gold-line)}
+  .sp-pl.from .pk{font-weight:600;color:var(--faint)}
+  .sp-pl.from .pv{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--t2)}
+  .sp-pl.to .pk{color:var(--gold-txt)}
+  .sp-pl.to .pv{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--ink)}
+  .sp-note{font-size:11.5px;line-height:1.5;color:var(--faint);padding-top:8px;max-width:46ch}
   .sp-foot{display:flex;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid var(--hair)}
   .sp-foot .av{width:26px;height:26px;border-radius:9999px;background:var(--gold-tint);border:1px solid var(--gold-line);
     color:var(--gold-txt);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
@@ -247,14 +255,15 @@ export async function landingPage(env) {
               <div class="a">USS Tokyo, auction Thursday</div>
             </div>
             <div class="sp-grid">
-              <div class="sp-cell"><div class="k">Grade</div><div class="v">4</div></div>
+              <div class="sp-cell"><div class="k">Auction grade</div><div class="v">4</div></div>
               <div class="sp-cell"><div class="k">Odometer</div><div class="v">88,000 km</div></div>
               <div class="sp-cell"><div class="k">Chassis</div><div class="v">BNR34</div></div>
               <div class="sp-cell"><div class="k">Transmission</div><div class="v">6 speed</div></div>
             </div>
             <div class="sp-land">
-              <span class="lk">Landed to VIC</span>
-              <span class="lv">A$118,500</span>
+              <div class="sp-pl from"><span class="pk">Auction estimate</span><span class="pv">&yen;6,400,000</span></div>
+              <div class="sp-pl to"><span class="pk">Landed to VIC</span><span class="pv">A$118,500</span></div>
+              <div class="sp-note">Japan auction price, then the estimated total to your door: car, export, shipping, duties and GST.</div>
             </div>
             <div class="sp-foot">
               <span class="av">JR</span>
@@ -303,7 +312,7 @@ export async function landingPage(env) {
           <div class="btile">
             <div class="bi">${I.coins}</div>
             <h3>Landed cost, not just the bid</h3>
-            <p>Each car comes with an estimate to your door, from the same calculator we use internally.</p>
+            <p>Each car comes with an estimate to your door: the bid, export, shipping, duties and GST, from the same calculator we use internally.</p>
           </div>
           <div class="btile">
             <div class="bi">${I.shield}</div>
