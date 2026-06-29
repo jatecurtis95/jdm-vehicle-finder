@@ -96,3 +96,19 @@ CALC_DEFAULT_STATE = "VIC"
 #   2) Copy the endpoint's signing secret and run:
 #        npx wrangler secret put STRIPE_WEBHOOK_SECRET
 #   3) In the app: Settings -> Payments -> enable deposits + set the AUD amount.
+#
+# WhatsApp auto-send (matches go to clients over WhatsApp as well as email).
+# Provider is chosen in Settings -> WhatsApp (twilio | meta); secrets are set with
+# `wrangler secret put`. Leave them unset and the channel safely no-ops.
+#   Twilio (active path):
+#     TWILIO_ACCOUNT_SID      ACxxxx…
+#     TWILIO_AUTH_TOKEN       your Twilio auth token
+#     TWILIO_WHATSAPP_FROM    your WhatsApp sender e.g. +61… (or +14155238886 sandbox)
+#     TWILIO_WA_CONTENT_SID   HX… approved Content template (omit = free-form body,
+#                             which only delivers on the sandbox / inside 24h)
+#   Meta WhatsApp Cloud API (ready in the background; flip the setting to "meta"):
+#     META_WA_PHONE_NUMBER_ID the phone number ID from Meta
+#     META_WA_TOKEN           a system-user access token
+#     META_WA_TEMPLATE_NAME   approved template name (omit = free-form, 24h only)
+#     META_WA_TEMPLATE_LANG   template language code e.g. en_AU
+#   Then: Settings -> WhatsApp -> turn "Send matches to clients on WhatsApp" on.

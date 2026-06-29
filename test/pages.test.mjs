@@ -34,6 +34,15 @@ test("gold accent token matches the dark brand gold across the admin", async () 
   assert.match(html, /--gold:#CAA34C/);
 });
 
+test("settings page exposes the WhatsApp auto-send toggle and provider select", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = await adminPage(env, "settings", ADMIN);
+  assert.match(html, /id="set-whatsapp"/, "WhatsApp settings card present");
+  assert.match(html, /name="whatsapp_enabled"/, "on/off toggle present");
+  assert.match(html, /name="whatsapp_provider"/, "provider select present");
+  assert.ok(!FORBIDDEN_DASH.test(html), "no em or en dashes in settings copy");
+});
+
 test("the public landing page explains the service and links to start a search and to sign in", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await landingPage(env);
