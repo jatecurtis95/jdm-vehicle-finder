@@ -7,6 +7,7 @@ import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
+import { whatsappConfigured } from "./whatsapp.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 
@@ -526,7 +527,7 @@ const CSS = `
   .sc-img{position:relative;flex:0 0 auto;height:200px;background:#15171a;background-size:cover;background-position:center}
   @media(min-width:560px){.sc-img{width:40%;height:auto;min-height:236px}}
   /* On the client page these cards live in a narrow 3-up grid, too tight for the
-     row layout — keep them stacked so the Year/Grade/Odo/Bid strip never clips. */
+     row layout, so keep them stacked so the Year/Grade/Odo/Bid strip never clips. */
   .mgrid .scard{flex-direction:column}
   .mgrid .scard .sc-img{width:auto;height:200px;min-height:0}
   .sc-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0) 58%)}
@@ -820,7 +821,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
   else if (view === "agents") body = agentsView(agents);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
-  else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY });
+  else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
   const main = view === "dashboard"
@@ -880,12 +881,14 @@ function toggleRow(name, title, desc, on) {
 function settingsView(settings, opts = {}) {
   const s = settings || {};
   const stripeSecret = !!opts.stripeSecret;
+  const waConfigured = !!opts.waConfigured;
   const webhookUrl = (opts.publicUrl || "") + "/webhooks/stripe";
   const aiOpts = (sel, map, dflt) => Object.entries(map).map(([id, label]) => `<option value="${id}"${(sel || dflt) === id ? " selected" : ""}>${esc(label)}</option>`).join("");
   return `
     <form method="POST" action="/settings">
       <nav class="set-nav" aria-label="Settings sections">
         <a href="#set-notifications">Notifications</a>
+        <a href="#set-whatsapp">WhatsApp</a>
         <a href="#set-client">Client-facing</a>
         <a href="#set-payments">Payments</a>
         <a href="#set-pricing">Pricing</a>
@@ -905,8 +908,26 @@ function settingsView(settings, opts = {}) {
         </div>
       </div>
 
+      <div class="card set-card" id="set-whatsapp">
+        <h2><span class="num">2</span> WhatsApp <span class="opt" style="font-weight:400">&middot; auto-send matches</span></h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 14px">Also deliver approved matches over WhatsApp (on top of email) to clients who left a number. ${waConfigured ? "Provider detected." : "<strong>No provider configured yet</strong> -add the Twilio or Meta secrets first, then turn this on."} Automated matches send via your approved message template.</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("whatsapp_enabled", "Send matches to clients on WhatsApp", "When you approve a match, also WhatsApp it to the client if they gave a number.", settingOn(s, "whatsapp_enabled"))}
+          </div>
+          <div class="grid2" style="margin-top:16px">
+            <div><label for="set-wa-provider">Provider</label>
+              <select id="set-wa-provider" name="whatsapp_provider">
+                <option value="twilio"${(s.whatsapp_provider || "twilio") === "twilio" ? " selected" : ""}>Twilio</option>
+                <option value="meta"${s.whatsapp_provider === "meta" ? " selected" : ""}>Meta (Cloud API)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card set-card" id="set-client">
-        <h2><span class="num">2</span> Client-facing visibility</h2>
+        <h2><span class="num">3</span> Client-facing visibility</h2>
         <div class="toggles" style="max-width:640px;margin-top:4px">
           ${toggleRow("client_landed", "Show landed (AUD) price to clients", "Show the indicative AUD landed price to clients.", settingOn(s, "client_landed"))}
           ${toggleRow("market_for_clients", "Show recent market average to clients", "Show the recent market-average price to clients (members).", settingOn(s, "market_for_clients"))}
@@ -914,7 +935,7 @@ function settingsView(settings, opts = {}) {
       </div>
 
       <div class="card set-card" id="set-payments">
-        <h2><span class="num">3</span> Payments <span class="opt" style="font-weight:400">&middot; Stripe</span></h2>
+        <h2><span class="num">4</span> Payments <span class="opt" style="font-weight:400">&middot; Stripe</span></h2>
         <div style="max-width:640px">
           <p class="help" style="margin:0 0 14px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> -deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
           <div class="toggles" style="margin-top:0">
@@ -931,7 +952,7 @@ function settingsView(settings, opts = {}) {
       </div>
 
       <div class="card set-card" id="set-pricing">
-        <h2><span class="num">4</span> Membership</h2>
+        <h2><span class="num">5</span> Membership</h2>
         <div style="max-width:640px">
           <p class="help" style="margin:0 0 14px">The “Full access” plan, billed monthly via Stripe. Turn it on to show a Subscribe button in the buyer portal${stripeSecret ? "" : " (needs the <code>STRIPE_SECRET_KEY</code> secret first)"}. An active subscription makes the client a member automatically.</p>
           <div class="toggles" style="margin-top:0">
@@ -945,7 +966,7 @@ function settingsView(settings, opts = {}) {
       </div>
 
       <div class="card set-card" id="set-ai">
-        <h2><span class="num">5</span> AI auction-sheet reader</h2>
+        <h2><span class="num">6</span> AI auction-sheet reader</h2>
         <div style="max-width:640px">
           <p class="help" style="margin:0 0 14px">Reads the Japanese inspection sheet from a car's photos. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> -the reader stays off until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
           <div class="grid2">

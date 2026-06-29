@@ -13,16 +13,16 @@
 import { refreshLotImages } from "./avtonet.js";
 
 export const SHEET_MODELS = {
-  "claude-opus-4-8": "Opus 4.8 — most accurate (~5¢)",
-  "claude-sonnet-4-6": "Sonnet 4.6 — balanced (~2.5¢)",
-  "claude-haiku-4-5": "Haiku 4.5 — cheapest (~1¢)",
+  "claude-opus-4-8": "Opus 4.8 - most accurate (~5¢)",
+  "claude-sonnet-4-6": "Sonnet 4.6 - balanced (~2.5¢)",
+  "claude-haiku-4-5": "Haiku 4.5 - cheapest (~1¢)",
 };
 export const DEFAULT_SHEET_MODEL = "claude-opus-4-8";
 
 // When to run the reader. Background modes (strong/all) are capped per sweep so a
 // search run can't fire off dozens of paid reads at once.
 export const SHEET_AUTO_MODES = {
-  off: "Manual — click the button on each car",
+  off: "Manual - click the button on each car",
   open: "Auto when I open a car's page",
   strong: "Auto for Strong matches (background)",
   all: "Auto for every match (background)",
