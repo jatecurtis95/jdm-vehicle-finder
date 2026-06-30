@@ -13,10 +13,10 @@ import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js"
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
-function makerField(makers, id) {
-  if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA">`;
-  return `<select name="marka_name" id="${id}"><option value="">Any maker</option>` +
-    makers.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("") + `</select>`;
+function makerField(makers, id, placeholder = "Any maker", current = "") {
+  if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA" value="${esc(current)}">`;
+  return `<select name="marka_name" id="${id}"><option value="">${esc(placeholder)}</option>` +
+    makers.map((m) => `<option value="${esc(m)}"${m === current ? " selected" : ""}>${esc(m)}</option>`).join("") + `</select>`;
 }
 
 // Model field: a real <select> (select-only, no typing) of the chosen maker's
@@ -31,15 +31,16 @@ function modelField(listId, current) {
 // the model <select> via /api/models, clearing any previous selection. Exposes
 // window.jdmLoadModels(want) so presets can load + select a model. No-op if the
 // maker fell back to a text input.
-function modelScript(makerId, listId) {
+function modelScript(makerId, listId, emptyLabel = "Any model") {
   return `<script>(function(){
     var mk=document.getElementById(${JSON.stringify(makerId)}),sel=document.getElementById(${JSON.stringify(listId)});
     if(!mk||!sel)return;
+    var EMPTY=${JSON.stringify(emptyLabel)};
     function fill(want){
       if(mk.tagName!=="SELECT"||!mk.value){sel.innerHTML='<option value="">Pick a maker first</option>';sel.disabled=true;return;}
       sel.disabled=false;sel.innerHTML='<option value="">Loading…</option>';
       fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){
-        sel.innerHTML='<option value="">Any model</option>';
+        sel.innerHTML='<option value="">'+EMPTY+'</option>';
         (l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
         if(want){var f=false;for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===want){f=true;break;}}if(!f){var o=document.createElement("option");o.value=want;o.textContent=want;sel.appendChild(o);}sel.value=want;}
       }).catch(function(){sel.innerHTML='<option value="">Any model</option>';});
@@ -2341,7 +2342,7 @@ export async function requestPage(env, opts = {}) {
   // Keep the form short for cold ad traffic: only Make/Model show by default,
   // the rest fold away. Re-open the extra fields if any came back filled (e.g.
   // a preset, or a re-render after a contact error) so nothing looks lost.
-  const moreOpen = ["year_min", "year_max", "mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
+  const moreOpen = ["mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1; // allow next year's models in the feed
 
@@ -2363,9 +2364,13 @@ export async function requestPage(env, opts = {}) {
           ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:600">Sign in</a> instead.'
           : opts.error === "password"
             ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
-            : opts.error === "budget"
-              ? "Please enter your maximum all-in budget in AUD (at least A$5,000) so we can match you realistically."
-              : "Please enter your email so we can set up your account and reach you when a match comes up."
+            : opts.error === "vehicle"
+              ? "Please choose a make and model so we know what car to look for."
+              : opts.error === "year"
+                ? "Please enter the year range you're after (and make sure 'from' isn't later than 'to')."
+                : opts.error === "budget"
+                  ? "Please enter your maximum all-in budget in AUD (at least A$5,000) so we can match you realistically."
+                  : "Please enter your email so we can set up your account and reach you when a match comes up."
       }</div>`
     : "";
 
@@ -2406,24 +2411,25 @@ export async function requestPage(env, opts = {}) {
           </div>
           ${presetSelect()}
           <div class="grid">
-            <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker")}</div>
+            <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name)}</div>
             <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name)}</div>
           </div>
+          <p id="rq-vehicle-error" class="field-err">Please choose a make and model so we know what to look for.</p>
           <div class="grid">
-            <div><label for="rq-budget">Your maximum budget <span class="opt">(AUD, all-in to your door)</span></label><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="e.g. 35,000" required></div>
+            <div><label for="rq-ymin">Year from</label><input id="rq-ymin" name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990" required></div>
+            <div><label for="rq-ymax">Year to</label><input id="rq-ymax" name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002" required></div>
+            <div><label for="rq-budget">Max budget <span class="opt">(AUD, all-in to your door)</span></label><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="e.g. 35,000" required></div>
           </div>
+          <p id="rq-year-error" class="field-err">Please enter the year range you're after ("from" can't be later than "to").</p>
           <p id="rq-budget-error" class="field-err">Please enter your maximum all-in budget in AUD — a realistic figure helps us match you faster.</p>
-          <p class="help" style="margin:8px 0 0;font-size:12px;opacity:.85">This is your total <strong>landed budget</strong> — the car plus shipping, duties and on-road costs, delivered to your door. The more realistic your number, the better and faster we can find the right car. Wildly low budgets just slow things down for everyone.</p>
+          <p class="help" style="margin:8px 0 0;font-size:12px;opacity:.85">Budget is your total <strong>landed</strong> cost — the car plus shipping, duties and on-road costs, delivered to your door. The more realistic your year range and budget, the better and faster we can find the right car. Wildly low budgets just slow things down for everyone.</p>
           <details class="morefields"${moreOpen ? " open" : ""}>
             <summary>Add more detail (optional)</summary>
             <div class="grid">
-              <div><label>Year from<input name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990"></label></div>
-              <div><label>Year to<input name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002"></label></div>
               <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
               <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
               <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></label></div>
             </div>
-            <p id="rq-year-error" class="field-err">"Year from" can't be later than "Year to". Please check the years.</p>
           </details>
           <div class="actions"><button class="btn-gold" type="submit">Create account &amp; submit</button>
             <span class="help">We set up a free account with your email and password so you can track your search. Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
@@ -2431,7 +2437,7 @@ export async function requestPage(env, opts = {}) {
         </form>
       </div>
     </div>
-    ${modelScript("rq-maker", "rq-models")}${presetScript()}${requestFormScript()}`;
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${presetScript()}${requestFormScript()}`;
   const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
     <nav class="nav">
       <a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a>
@@ -2551,6 +2557,7 @@ function requestFormScript() {
     var form=document.getElementById('requestForm'); if(!form) return;
     var eErr=document.getElementById('rq-email-error');
     var pErr=document.getElementById('rq-pass-error');
+    var vErr=document.getElementById('rq-vehicle-error');
     var yErr=document.getElementById('rq-year-error');
     var bErr=document.getElementById('rq-budget-error');
     var btn=form.querySelector('button[type=submit]');
@@ -2560,23 +2567,21 @@ function requestFormScript() {
     function val(n){var el=form.querySelector('[name="'+n+'"]');return el?String(el.value||'').trim():'';}
     function emailBad(){var v=val('email');return !v || !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
     function pwBad(){var v=(pw?pw.value:'')||'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
+    function vehicleBad(){return !val('marka_name')||!val('model_name');}
+    function yearBad(){var f=parseInt(val('year_min'),10),t=parseInt(val('year_max'),10);return !val('year_min')||!val('year_max')||!isFinite(f)||!isFinite(t)||f>t;}
     function budgetBad(){var n=parseFloat(val('budget_aud'));return !isFinite(n)||n<BMIN;}
     // Live feedback: flag a disallowed character (or bad length) as they type.
     if(pw){pw.addEventListener('input',function(){if(pErr)pErr.style.display=(pw.value&&pwBad())?'block':'none';});}
     form.addEventListener('submit',function(e){
-      var eb=emailBad(), pb=pwBad(), bb=budgetBad();
+      var eb=emailBad(), pb=pwBad(), vb=vehicleBad(), yb=yearBad(), bb=budgetBad();
       if(eErr) eErr.style.display=eb?'block':'none';
       if(pErr) pErr.style.display=pb?'block':'none';
+      if(vErr) vErr.style.display=vb?'block':'none';
+      if(yErr) yErr.style.display=yb?'block':'none';
       if(bErr) bErr.style.display=bb?'block':'none';
-      var yf=parseInt(val('year_min'),10), yt=parseInt(val('year_max'),10);
-      var badYear=!!(yf && yt && yf>yt);
-      if(yErr) yErr.style.display=badYear?'block':'none';
-      // The year fields can live inside a collapsed "Add more detail" disclosure
-      // (e.g. a preset filled them). Open it so the error is actually visible.
-      if(badYear&&yErr){var det=yErr.closest&&yErr.closest('details');if(det)det.open=true;}
-      if(eb||pb||bb||badYear){
+      if(eb||pb||vb||yb||bb){
         e.preventDefault();
-        var first=eb?eErr:(pb?pErr:(bb?bErr:yErr));
+        var first=eb?eErr:(pb?pErr:(vb?vErr:(yb?yErr:bErr)));
         if(first&&first.scrollIntoView)first.scrollIntoView({behavior:'smooth',block:'center'});
         return;
       }
@@ -3025,6 +3030,7 @@ export async function createRequest(env, form) {
   // Re-render payload, kept so a rejected submission preserves what they typed.
   const vals = {
     name: g("name"), email, whatsapp, state: g("state"), label: g("label"),
+    marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), budget_aud: g("budget_aud"),
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
   };
@@ -3048,6 +3054,17 @@ export async function createRequest(env, form) {
   if (!match) {
     const pwErr = passwordPolicyError(selfPw);
     if (pwErr) return { ok: false, error: "password", pwError: pwErr, vals };
+  }
+
+  // Make + model are required so the search is actionable (we can't hunt the
+  // auctions for "a car"). The matcher needs at least one of these to run.
+  if (!g("marka_name") || !g("model_name")) return { ok: false, error: "vehicle", vals };
+
+  // A year range is required and must be sane — JDM generations and SEVS
+  // eligibility are year-bound, so an open-ended request isn't searchable.
+  const yMinReq = Number(g("year_min")), yMaxReq = Number(g("year_max"));
+  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1960 || yMaxReq > 2100 || yMinReq > yMaxReq) {
+    return { ok: false, error: "year", vals };
   }
 
   // Budget is mandatory: a realistic all-in AUD figure qualifies the lead and

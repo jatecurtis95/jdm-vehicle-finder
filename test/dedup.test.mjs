@@ -5,9 +5,10 @@ import { phoneKey, createClient, createRequest } from "../src/admin.js";
 
 const fd = (obj) => {
   const f = new FormData();
-  // Budget is mandatory on the public request form; default it so these dedupe
-  // tests aren't tripped by the budget guard (admin intake ignores the field).
-  for (const [k, v] of Object.entries({ budget_aud: "35000", ...obj })) f.set(k, v);
+  // The public request form now requires model + year range + budget; default
+  // them so these dedupe tests aren't tripped by the search-field guards (admin
+  // intake ignores the extra fields).
+  for (const [k, v] of Object.entries({ budget_aud: "35000", model_name: "SUPRA", year_min: "1990", year_max: "2005", ...obj })) f.set(k, v);
   return f;
 };
 const ADMIN = { role: "admin", id: 0 };
