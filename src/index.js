@@ -330,7 +330,19 @@ export default {
           err: url.searchParams.get("err"),
         }));
       }
-      return doc(await adminPage(env, view, session, { err: url.searchParams.get("err") }));
+      const adminOpts = { err: url.searchParams.get("err") };
+      if (view === "auctions") {
+        const sp = url.searchParams;
+        adminOpts.tab = sp.get("tab") || "live";
+        adminOpts.found = sp.get("found") || "";
+        adminOpts.search = {
+          make: sp.get("make") || "", model: sp.get("model") || "",
+          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+          kuzov: sp.get("kuzov") || "",
+        };
+      }
+      return doc(await adminPage(env, view, session, adminOpts));
     }
 
     if (path === "/run") {
@@ -430,8 +442,14 @@ export default {
       const f = await request.formData();
       const id = Number(f.get("client_id")) || "";
       const r = await addLotToClient(env, id, f.get("lot_id"), session);
-      const q = String(f.get("q") || "").replace(/^[?&]+/, "");
       const flash = r.ok ? (r.already ? "dup" : "added") : "err";
+      // From the Auctions workspace, a `back` path returns to the same search.
+      const back = String(f.get("back") || "");
+      if (back.startsWith("/admin")) {
+        return Response.redirect(here(`${back}${back.includes("?") ? "&" : "?"}found=${flash}`), 303);
+      }
+      // From a client's own page: keep the in-client search query and anchor.
+      const q = String(f.get("q") || "").replace(/^[?&]+/, "");
       const base = `/admin?view=client&id=${id}&found=${flash}`;
       return Response.redirect(here(`${base}${q ? "&" + q : ""}#find`), 303);
     }
@@ -467,7 +485,9 @@ export default {
     if (path === "/clients/bulk" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
-      await bulkAllocate(env, f.get("action"), f.get("agent_id"), f.getAll("ids"), session);
+      // The "Delete selected" button posts do=delete; Apply uses the action select.
+      const action = f.get("do") === "delete" ? "delete" : f.get("action");
+      await bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session);
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 

@@ -711,6 +711,8 @@ const ICONS = {
   clients: svgIcon(`<circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><path d="M16 3.2a3 3 0 0 1 0 7.6"/><path d="M21 21v-1a5 5 0 0 0-3.5-4.8"/>`),
   wishlists: svgIcon(`<path d="M12 21C12 21 4 13.7 4 8.6A4.6 4.6 0 0 1 12 6a4.6 4.6 0 0 1 8 2.6C20 13.7 12 21 12 21Z"/>`),
   matches: svgIcon(`<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 13l1.6-7a2 2 0 0 1 2-1.6h6.8a2 2 0 0 1 2 1.6L19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/>`),
+  auctions: svgIcon(`<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>`),
+  trash: svgIcon(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>`),
   agents: svgIcon(`<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/>`),
   payments: svgIcon(`<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/>`),
   settings: svgIcon(`<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="8" cy="18" r="2" fill="var(--card)"/>`),
@@ -735,6 +737,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${item("dashboard", "Dashboard", "")}
       ${item("clients", "Clients", counts.clients)}
       ${item("matches", "Matches", counts.matches || "")}
+      ${item("auctions", "Auctions", "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
       ${isAdmin ? item("settings", "Settings", "") : ""}
@@ -753,6 +756,7 @@ const HEADERS = {
   clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add client" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
+  auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Manage alerts, client-facing pricing, payments and AI reading.", btn: "" },
@@ -846,7 +850,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
-    : ["agents", "settings", "payments"].includes(view)
+    : ["agents", "settings", "payments", "auctions"].includes(view)
     ? ""
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
@@ -858,14 +862,16 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
   else if (view === "agents") body = agentsView(agents);
+  else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
+  const wide = view === "matches" || view === "auctions";
   const main = view === "dashboard"
     ? `<div class="content dash">${body}</div>`
     : `
-    <div class="topbar${view === "matches" ? " unstick wide" : ""}">
+    <div class="topbar${view === "matches" ? " unstick wide" : view === "auctions" ? " wide" : ""}">
       <div>
         <div class="kicker">${esc(h.kicker)}</div>
         <h1>${esc(h.title)}</h1>
@@ -873,7 +879,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
       </div>
       ${primary}
     </div>
-    <div class="content${view === "matches" ? " wide" : ""}">${body}</div>`;
+    <div class="content${wide ? " wide" : ""}">${body}</div>`;
 
   return shell(sidebar(view, counts, session), main, esc(h.title) + " - JDM Connect");
 }
@@ -1445,18 +1451,21 @@ function clientsView(clients, wishlists, opts = {}) {
     </tr>`
   ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
-  // Admin bulk bar. Shows for any admin (even with no agents) so bulk delete is
-  // always available; assign/share only appear when there are agents to pick.
-  // Delete asks for confirmation, naming the count, and blocks if nothing is ticked.
+  // Admin bulk bar. "Delete selected" is its own red button (not buried in a
+  // dropdown) so it's obvious; assign/share only appear when there are agents.
+  // Each button checks something is ticked; delete also confirms with the count.
   const bulkBar = isAdmin
-    ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar" onsubmit="return jdmBulkClients(this)">
+    ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
         <span class="bulk-label">With selected clients:</span>
-        <select name="action" class="share-pick" onchange="this.form.dataset.act=this.value">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="delete"${agents.length ? "" : " selected"}>Delete</option></select>
-        ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
-        <button class="btn-gold" type="submit">Apply</button>
-        <span class="help" style="margin-left:4px">Tick clients on the left, then apply.</span>
+        ${agents.length ? `<select name="action" class="share-pick"><option value="assign">Assign owner</option><option value="share">Share with</option></select>
+        <select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+        <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this.form)">Apply</button>` : ""}
+        <button class="btn-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
+        <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
-      <script>function jdmBulkClients(f){var a=f.querySelector('select[name=action]').value;var n=f.querySelectorAll('input[name=ids]:checked').length;if(!n){alert('Tick the clients you want first, then Apply.');return false;}if(a==='delete'){return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}return true;}</script>`
+      <script>function jdmBulkTicked(f){return f.querySelectorAll('input[name=ids]:checked').length;}
+      function jdmBulkApply(f){if(!jdmBulkTicked(f)){alert('Tick the clients you want first, then Apply.');return false;}return true;}
+      function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
     : "";
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
@@ -3388,6 +3397,126 @@ function staffFindCard(lot, clientId, firstName, qsBack) {
     </div>
   </div>`;
 }
+
+// Staff Auctions workspace: a standalone live-auction search and a sold-price
+// history lookup. Live results carry an "Add to client" picker (reuses the same
+// /client/find flow as the in-client search); sold history reuses marketIntel +
+// marketPanel. Hits the live feed only when a query is present.
+export async function adminAuctionsPage(env, session, opts = {}) {
+  const tab = opts.tab === "sold" ? "sold" : "live";
+  const sp = opts.search || {};
+  const sv = (k) => esc(sp[k] || "");
+  const makers = await distinctMakers(env);
+  const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
+  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}" href="/admin?view=auctions&tab=${t}">${label}</a>`;
+  const tabs = `<div class="auc-tabs">${tabLink("live", "Live auctions")}${tabLink("sold", "Sold-price history")}</div>`;
+
+  let panel = "";
+  if (tab === "live") {
+    const keys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
+    const hasQuery = keys.some((k) => String(sp[k] || "").trim());
+    let results = "";
+    if (hasQuery) {
+      const { lots } = await searchLots(env, sp);
+      if (lots.length) {
+        const acc = accessScope(session);
+        const stmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+        const clients = ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
+        const qs = new URLSearchParams({ view: "auctions", tab: "live" });
+        for (const k of keys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+        const back = "/admin?" + qs.toString();
+        results = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>`;
+      } else {
+        results = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+      }
+    }
+    const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue — it's under their Live matches, ready to Approve &amp; send.</div>`
+      : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
+      : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot — please try again.</div>` : "";
+    panel = `${flash}<div class="card">
+      <form method="GET" action="/admin">
+        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">
+        <div class="grid">
+          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN"></label>${datalist}</div>
+          <div><label>Model <span class="opt">(contains)</span><input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE"></label></div>
+          <div><label>Year from<input name="yearMin" type="number" min="1960" value="${sv("yearMin")}" placeholder="1990"></label></div>
+          <div><label>Year to<input name="yearMax" type="number" min="1960" value="${sv("yearMax")}" placeholder="2002"></label></div>
+          <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${sv("priceMax")}" placeholder="3,000,000"></label></div>
+          <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${sv("gradeMin")}" placeholder="e.g. 4"></label></div>
+          <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${sv("kuzov")}" placeholder="e.g. GDB"></label></div>
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Search live auctions</button>
+          <span class="help">Upcoming Japanese auctions, soonest first. Add any lot to a client to queue it for review.</span></div>
+      </form>${results}
+    </div>`;
+  } else {
+    const make = String(sp.make || "").trim();
+    const model = String(sp.model || "").trim();
+    let intel = "";
+    if (make && model) {
+      const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
+      intel = (m && m.count)
+        ? `<div style="margin-top:18px">${marketPanel(m, fx)}</div>`
+        : `<div class="empty" style="margin-top:14px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
+    }
+    panel = `<div class="card">
+      <form method="GET" action="/admin">
+        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="sold">
+        <div class="grid2">
+          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN" required></label>${datalist}</div>
+          <div><label>Model<input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE" required></label></div>
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Show sold prices</button>
+          <span class="help">Recent sold-auction results: average, median, range, a 12-week trend and recent comparables.</span></div>
+      </form>${intel}
+    </div>`;
+  }
+  return `${tabs}${panel}${AUC_CSS}`;
+}
+
+// One live-auction lot in the Auctions workspace, with a client picker that
+// queues it via /client/find (returning to the same search via `back`).
+function staffFindCardWithPicker(lot, clients, back) {
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
+  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
+  const soldLink = (lot.marka_name && lot.model_name)
+    ? `/admin?view=auctions&tab=sold&make=${encodeURIComponent(lot.marka_name)}&model=${encodeURIComponent(lot.model_name)}` : "";
+  const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    ${soldLink ? `<a class="auc-sold" href="${soldLink}">View sold-price history &rarr;</a>` : ""}
+    <div class="mfoot">
+      ${clients.length
+        ? `<form method="POST" action="/client/find" style="display:flex;gap:8px;width:100%">
+            <input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}">
+            <select name="client_id" class="auc-cl" required aria-label="Add this car to a client"><option value="">Add to client…</option>${options}</select>
+            <button class="btn-notify" type="submit">Add</button>
+          </form>`
+        : `<span class="help">Add a client first to queue cars.</span>`}
+    </div>
+  </div>`;
+}
+
+const AUC_CSS = `<style>
+  .auc-tabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:4px;margin-bottom:18px}
+  .auc-tab{padding:8px 16px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--t2);text-decoration:none}
+  .auc-tab:hover{color:var(--ink)}
+  .auc-tab.on{background:var(--gold-tint);color:var(--gold-txt)}
+  .auc-sold{display:inline-block;margin:0 16px 12px;font-size:12.5px;font-weight:600;color:var(--gold-txt)}
+  .auc-cl{flex:1;min-width:0}
+</style>`;
 
 // Admin: flip a client's paid-member flag (gates the auction page).
 export async function setClientMember(env, clientId, on, session) {

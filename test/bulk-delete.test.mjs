@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
-import { bulkAllocate } from "../src/admin.js";
+import { bulkAllocate, adminPage } from "../src/admin.js";
 
 const FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
@@ -58,4 +58,11 @@ test("bulk delete with no ids is a safe no-op", async () => {
   const env = makeEnv(FIXTURE);
   await bulkAllocate(env, "delete", "", [], ADMIN);
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 3);
+});
+
+test("the Clients page shows a clear 'Delete selected' button (not buried in a dropdown)", async () => {
+  const env = makeEnv(FIXTURE);
+  const html = await adminPage(env, "clients", ADMIN);
+  assert.match(html, /Delete selected/, "a visible delete button");
+  assert.match(html, /name="do" value="delete"/, "wired to the bulk-delete action");
 });
