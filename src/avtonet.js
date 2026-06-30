@@ -119,9 +119,17 @@ export function splitImages(lot) {
   const ai = lot && lot._sheet;
   const inRange = (n) => Number.isInteger(n) && n >= 0 && n < bases.length;
 
+  // The auction house's initial upload is just [front, rear] (sometimes a third
+  // interior shot) — the inspection sheet only arrives later, as part of a fuller
+  // set. So image[0] is the FRONT photo on those small snapshots, not a sheet.
+  // Blindly treating it as the sheet dropped the front and showed the REAR as the
+  // cover. Only fall back to the "first image is the sheet" convention once the
+  // set is large enough to plausibly contain one; trust the AI's index otherwise.
+  const MIN_IMAGES_FOR_SHEET = 4;
+
   let sheetIdx = -1;
   if (ai && inRange(ai.sheet_index)) sheetIdx = ai.sheet_index;          // AI-identified
-  else if (!(ai && ai.found === false) && bases.length >= 2) sheetIdx = 0; // convention
+  else if (!(ai && ai.found === false) && bases.length >= MIN_IMAGES_FOR_SHEET) sheetIdx = 0; // convention (full set only)
 
   const sheet = sheetIdx >= 0 ? bases[sheetIdx] : null;
   let photos = sheetIdx >= 0 ? bases.filter((_, i) => i !== sheetIdx) : bases.slice();
