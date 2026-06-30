@@ -1463,7 +1463,7 @@ function clientsView(clients, wishlists, opts = {}) {
         ${agents.length ? `<select name="action" class="share-pick"><option value="assign">Assign owner</option><option value="share">Share with</option></select>
         <select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
         <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this.form)">Apply</button>` : ""}
-        <button class="btn-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
+        <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
         <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
       <script>function jdmBulkTicked(f){return f.querySelectorAll('input[name=ids]:checked').length;}
@@ -2289,14 +2289,25 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     }
   }
   const findMakers = canManage ? await distinctMakers(env) : [];
-  const fv = (k) => esc(sp[k] || "");
+  // Pre-fill the search with what this client is already chasing (their first
+  // saved search), so staff don't re-type it. Once they actually run a search,
+  // show that query instead.
+  const primaryWl = searchWls[0] || {};
+  const findPrefill = findHasQuery ? sp : {
+    make: primaryWl.marka_name || "", model: primaryWl.model_name || "",
+    yearMin: primaryWl.year_min || "", yearMax: primaryWl.year_max || "",
+    priceMax: primaryWl.price_max || "", gradeMin: primaryWl.rate_min || "",
+    kuzov: primaryWl.kuzov || "",
+  };
+  const prefilledFromWl = !findHasQuery && !!(primaryWl.marka_name || primaryWl.model_name);
+  const fv = (k) => esc(findPrefill[k] ?? "");
   const foundFlash = opts.found === "added"
     ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
     : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
   const findCard = canManage ? `<div class="card" id="find">
     <h2><span class="num">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
-    <p class="help" style="margin:-8px 0 16px">Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
+    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search — tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
       <div class="grid">
@@ -2327,7 +2338,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
+    <div class="content"><a class="backlink" href="/admin?view=clients">&larr; Back to clients</a>${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -2634,6 +2645,10 @@ function tableToolsScript() {
     .tbl-search{flex:0 1 340px;max-width:340px;padding:9px 13px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13.5px}
     .tbl-search:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
     .tbl-count{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+    .bulk-del{display:inline-flex;align-items:center;gap:6px}
+    .bulk-del svg{width:16px;height:16px;flex:0 0 auto}
+    .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--t2);font-size:13.5px;font-weight:600;text-decoration:none;margin-bottom:6px}
+    .backlink:hover{color:var(--ink)}
   </style><script>
   function jdmFilterTable(inp,id){var t=document.getElementById(id);if(!t)return;var q=(inp.value||'').trim().toLowerCase();var shown=0,total=0,rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;total++;var hit=!q||(r.textContent||'').toLowerCase().indexOf(q)>=0;r.style.display=hit?'':'none';if(hit)shown++;}var c=document.getElementById(id+'-count');if(c)c.textContent=q?(shown+' of '+total+' shown'):'';}
   function jdmSelectAllVisible(box,name){var t=box.closest('table');if(!t)return;var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.style.display==='none')continue;var b=r.querySelector('input[name="'+name+'"]');if(b)b.checked=box.checked;}}

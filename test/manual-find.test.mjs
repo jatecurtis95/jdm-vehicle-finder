@@ -72,6 +72,23 @@ test("client page shows the Find-a-car search and hides internal catch-all searc
   assert.doesNotMatch(html, /Manual finds/);          // internal search is hidden
 });
 
+test("the Find-a-car form pre-fills from the client's saved search", async () => {
+  const env = makeEnv(FIXTURE); stubFeed();
+  await env.DB.prepare("INSERT INTO wishlists (client_id,label,marka_name,model_name,year_min,year_max,price_max,rate_min,kuzov) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001,3000000,4,'JZX100')").run();
+  const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
+  assert.match(html, /name="make"[^>]*value="TOYOTA"/, "make pre-filled in the find form");
+  assert.match(html, /name="model"[^>]*value="CHASER"/, "model pre-filled");
+  assert.match(html, /name="yearMin"[^>]*value="1996"/, "year pre-filled");
+  assert.match(html, /Pre-filled from/);
+});
+
+test("the client page has a clear back link", async () => {
+  const env = makeEnv(FIXTURE); stubFeed();
+  const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
+  assert.match(html, /class="backlink"/);
+  assert.match(html, /Back to clients/);
+});
+
 test("a lot that can't be fetched returns not_found, queues nothing", async () => {
   const env = makeEnv(FIXTURE);
   globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => `<aj></aj>` });
