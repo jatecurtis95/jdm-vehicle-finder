@@ -76,6 +76,22 @@ export async function getLiveFx(env) {
   return fallback;
 }
 
+// Turn a buyer's maximum all-in AUD budget (car landed to their door) into an
+// approximate JPY auction-price ceiling, for the matcher's price_max. This is a
+// deliberately simple inverse of the landed model — a soft filter, not a quote —
+// so the public signup path never has to call the calculator. We back out a flat
+// import-overhead allowance and the on-value taxes, then convert at the FX rate.
+const IMPORT_OVERHEAD_AUD = 9000; // shipping + compliance + on-road + duties allowance
+const ON_VALUE_TAX = 1.13;        // GST + duties applied to the car's value
+const MIN_CAR_VALUE_AUD = 2000;   // floor so a low budget still matches cheap lots
+export function audBudgetToYen(audBudget, fx) {
+  const aud = Number(audBudget);
+  const rate = Number(fx) > 0 ? Number(fx) : 95;
+  if (!Number.isFinite(aud) || aud <= 0) return null;
+  const carValueAud = Math.max((aud - IMPORT_OVERHEAD_AUD) / ON_VALUE_TAX, MIN_CAR_VALUE_AUD);
+  return Math.round(carValueAud * rate);
+}
+
 // The lot's working purchase price in JPY (starting bid, else market estimate).
 function lotJpy(lot) {
   const s = Number(lot?.start);

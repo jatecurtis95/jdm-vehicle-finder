@@ -7,8 +7,8 @@
 
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
-import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
+import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
@@ -20,6 +20,12 @@ import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
+
+// Single public address. The other custom domains 301 here so the site can never
+// look like two different websites. The *.workers.dev URL is intentionally left
+// out so it stays a working direct fallback if a custom domain has DNS trouble.
+const CANONICAL_HOST = "jdmfinder.com.au";
+const REDIRECT_HOSTS = new Set(["finder.jdmconnect.com.au", "www.jdmfinder.com.au"]);
 
 // Best-effort sliding-window limiter for the public request form. Limits per IP
 // AND per contact (email / normalized phone) so IP rotation can't flood one
@@ -47,6 +53,46 @@ export async function requestRateLimited(env, { ip, email, whatsapp }) {
   return false;
 }
 
+// --- Login brute-force protection (KV-backed) --------------------------------
+// Tracks failed sign-ins per IP and per email. After LOGIN_MAX_FAILS within the
+// window the source is locked out, and every failed attempt also costs a fixed
+// delay so automated guessing is slow. Fails open if KV is unavailable.
+const LOGIN_MAX_FAILS = 10;
+const LOGIN_LOCK_SECONDS = 15 * 60;
+const LOGIN_FAIL_DELAY_MS = 1500;
+function loginFailKeys(ip, email) {
+  const keys = [];
+  if (ip) keys.push(`loginfail:ip:${ip}`);
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push(`loginfail:e:${e}`);
+  return keys;
+}
+async function loginLocked(env, ip, email) {
+  if (!env.RL) return false;
+  for (const k of loginFailKeys(ip, email)) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      if (n >= LOGIN_MAX_FAILS) return true;
+    } catch (_) { /* fail open */ }
+  }
+  return false;
+}
+async function recordLoginFail(env, ip, email) {
+  if (!env.RL) return;
+  for (const k of loginFailKeys(ip, email)) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      await env.RL.put(k, String(n + 1), { expirationTtl: LOGIN_LOCK_SECONDS });
+    } catch (_) { /* best effort */ }
+  }
+}
+async function clearLoginFails(env, ip, email) {
+  if (!env.RL) return;
+  for (const k of loginFailKeys(ip, email)) {
+    try { await env.RL.delete(k); } catch (_) { /* best effort */ }
+  }
+}
+
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
@@ -57,6 +103,18 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Canonicalize to one public domain. GET/HEAD only, so form POSTs and the
+    // Stripe webhook (POST) are never redirected and keep working on any host.
+    // /webhooks and /assets are exempt so already-sent email images and the
+    // configured webhook URL keep resolving verbatim on the old domain too.
+    if ((request.method === "GET" || request.method === "HEAD") &&
+        REDIRECT_HOSTS.has(url.hostname) &&
+        !path.startsWith("/webhooks/") && !path.startsWith("/assets/")) {
+      url.hostname = CANONICAL_HOST;
+      url.port = "";
+      return Response.redirect(url.toString(), 301);
+    }
 
     // Approve / skip links from the digest. Token-gated, no admin key needed
     // so they work from your inbox on any device.
@@ -95,13 +153,21 @@ export default {
         if (!limited) {
           const result = await createRequest(env, form);
           if (result.ok) {
+            // A returning, passwordless record gets a secure set-password link by
+            // email, so only the inbox owner can claim the login.
+            if (result.inviteNeeded) {
+              try {
+                const inv = await inviteClientPortal(env, result.clientId, { role: "admin", id: 0 });
+                if (inv && inv.ok && inv.token) await sendClientPortalInvite(env, inv);
+              } catch (e) { console.error("Signup set-password invite failed:", e.message); }
+            }
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req }));
           }
-          if (result.error === "contact") {
-            // No email or WhatsApp - re-render with the error and their input.
-            return doc(await requestPage(env, { error: "contact", vals: result.vals }));
+          if (result.error === "email" || result.error === "password" || result.error === "exists") {
+            // Re-render with the specific error and their input preserved.
+            return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals }));
           }
           // Honeypot/spam falls through to a generic success so bots get no signal.
         }
@@ -134,11 +200,21 @@ export default {
     if (path === "/login") {
       if (request.method === "POST") {
         const form = await request.formData();
-        const who = await authenticate(env, form.get("email"), form.get("password"));
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        const email = form.get("email");
+        // Lockout: too many recent failures for this IP/email -> refuse without
+        // even checking the password, so brute force can't keep guessing.
+        if (await loginLocked(env, ip, email)) {
+          await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
+          return doc(loginPage({ locked: true }), 429);
+        }
+        const who = await authenticate(env, email, form.get("password"));
         if (who) {
+          await clearLoginFails(env, ip, email);
           return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
-        await new Promise((r) => setTimeout(r, 600)); // throttle repeated guesses
+        await recordLoginFail(env, ip, email);
+        await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
         return doc(loginPage({ error: true }), 401);
       }
       const existing = await getSession(request, url, env);
@@ -199,7 +275,11 @@ export default {
       // Applying is idempotent (WHERE status <> 'paid'), so a 500 here just lets
       // Stripe retry a transient DB hiccup safely.
       try {
-        await applyStripeEvent(env, event);
+        const status = await applyStripeEvent(env, event);
+        // Phone chime on money in (a new member or a paid deposit). Skipped for
+        // "duplicate"/other statuses, so Stripe retries never double-ping.
+        const chime = paymentChime(event, status, env.PUBLIC_URL);
+        if (chime) await sendPush(env, chime);
       } catch (err) {
         console.error("Stripe event failed:", err.message);
         return new Response("processing error", { status: 500 });
@@ -229,7 +309,20 @@ export default {
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
-        return doc(await clientDetailPage(env, url.searchParams.get("id"), session, { dup: url.searchParams.get("dup") }));
+        const sp = url.searchParams;
+        const search = {
+          make: sp.get("make") || "", model: sp.get("model") || "",
+          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+          kuzov: sp.get("kuzov") || "",
+        };
+        return doc(await clientDetailPage(env, sp.get("id"), session, {
+          dup: sp.get("dup"),
+          saved: sp.get("saved"),
+          cerr: sp.get("cerr"),
+          found: sp.get("found"),
+          search,
+        }));
       }
       if (view === "lot") {
         return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
@@ -316,6 +409,31 @@ export default {
     if (path === "/client/delete" && request.method === "POST") {
       await deleteClient(env, (await request.formData()).get("id"), session);
       return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
+    // Edit a client's contact details (name, email, WhatsApp, state). Access and
+    // validation are enforced inside updateClient; we just route the outcome back
+    // to that client's page with a saved/error flag.
+    if (path === "/client/update" && request.method === "POST") {
+      const f = await request.formData();
+      const id = Number(f.get("id")) || "";
+      const r = await updateClient(env, f, session);
+      if (r.ok) return Response.redirect(here(`/admin?view=client&id=${id}&saved=1`), 303);
+      return Response.redirect(here(`/admin?view=client&id=${id}&cerr=${encodeURIComponent(r.error || "save")}`), 303);
+    }
+
+    // Staff add a lot they found via the in-client auction search to that client's
+    // review queue. Access + dedupe enforced inside addLotToClient. We redirect
+    // back to the same search (the "q" string) so the result list survives, with a
+    // flash and a #find anchor to keep the user in place.
+    if (path === "/client/find" && request.method === "POST") {
+      const f = await request.formData();
+      const id = Number(f.get("client_id")) || "";
+      const r = await addLotToClient(env, id, f.get("lot_id"), session);
+      const q = String(f.get("q") || "").replace(/^[?&]+/, "");
+      const flash = r.ok ? (r.already ? "dup" : "added") : "err";
+      const base = `/admin?view=client&id=${id}&found=${flash}`;
+      return Response.redirect(here(`${base}${q ? "&" + q : ""}#find`), 303);
     }
 
     // Buyer portal access - enable + (re)send a set-password link, or revoke.

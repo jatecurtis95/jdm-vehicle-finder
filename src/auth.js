@@ -81,6 +81,26 @@ export async function verifyPassword(password, saltB64, hashB64) {
   }
 }
 
+// --- Password policy ---------------------------------------------------------
+// One canonical policy, enforced everywhere a NEW password is set (public
+// self-signup, agent/client invite set-password). Length is the main lever; the
+// charset limit keeps inputs to plain keyboard characters (the set the doc
+// approved) and the max length bounds the hashing work. Existing logins are not
+// affected - this only gates newly chosen passwords.
+export const PW_MIN = 10;
+export const PW_MAX = 32;
+export const PW_SYMBOLS = "!@#$%^&*()-_=+?<>";
+const PW_ALLOWED_RE = /^[A-Za-z0-9!@#$%^&*()\-_=+?<>]+$/;
+// Returns a human-readable reason the password is rejected, or null if it passes.
+export function passwordPolicyError(password) {
+  const s = typeof password === "string" ? password : "";
+  if (s.length < PW_MIN) return `Password must be at least ${PW_MIN} characters.`;
+  if (s.length > PW_MAX) return `Password must be ${PW_MAX} characters or fewer.`;
+  if (!PW_ALLOWED_RE.test(s)) return "Password can only use letters, numbers, and these symbols: " + PW_SYMBOLS.split("").join(" ");
+  if (!/[A-Za-z]/.test(s) || !/[0-9]/.test(s)) return "Password must include at least one letter and one number.";
+  return null;
+}
+
 // --- Admin password ----------------------------------------------------------
 export function passwordValid(env, password) {
   if (typeof password !== "string" || password.length === 0) return false;
@@ -172,9 +192,8 @@ export async function agentByInviteToken(env, token) {
 
 // Set an agent's password from a valid invite token. Returns {ok, id, email}.
 export async function setAgentPassword(env, token, password) {
-  if (typeof password !== "string" || password.length < 6) {
-    return { ok: false, error: "Password must be at least 6 characters." };
-  }
+  const pwErr = passwordPolicyError(password);
+  if (pwErr) return { ok: false, error: pwErr };
   const a = await agentByInviteToken(env, token);
   if (!a) return { ok: false, error: "This link is invalid or has expired." };
   const { salt, hash } = await hashPassword(password);
@@ -197,9 +216,8 @@ export async function clientByInviteToken(env, token) {
 
 // Set a client's portal password from a valid invite token. Returns {ok,id,email}.
 export async function setClientPassword(env, token, password) {
-  if (typeof password !== "string" || password.length < 6) {
-    return { ok: false, error: "Password must be at least 6 characters." };
-  }
+  const pwErr = passwordPolicyError(password);
+  if (pwErr) return { ok: false, error: pwErr };
   const c = await clientByInviteToken(env, token);
   if (!c) return { ok: false, error: "This link is invalid or has expired." };
   const { salt, hash } = await hashPassword(password);

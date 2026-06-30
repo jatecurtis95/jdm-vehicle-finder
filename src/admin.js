@@ -3,9 +3,9 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, fetchLot } from "./avtonet.js";
-import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
@@ -19,17 +19,35 @@ function makerField(makers, id) {
     makers.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("") + `</select>`;
 }
 
-// Model field: free-text input backed by a <datalist> of the chosen maker's real
-// models (filled by modelScript on maker change). Free text still works - it's
-// matched as "contains", so "S400" or "SKYLINE" partials are fine.
-function modelField(listId) {
-  return `<input name="model_name" list="${listId}" placeholder="pick a maker, then choose or type"><datalist id="${listId}"></datalist>`;
+// Model field: a real <select> (select-only, no typing) of the chosen maker's
+// models, populated by modelScript on maker change. `current` re-selects a value
+// after a re-render. Disabled until a maker is picked.
+function modelField(listId, current) {
+  const want = current ? ` data-want="${esc(current)}"` : "";
+  return `<select name="model_name" id="${listId}"${want} disabled><option value="">Pick a maker first</option></select>`;
 }
 
-// Inline JS: when the maker <select> changes, load that maker's models into the
-// datalist via /api/models. No-op if the maker fell back to a text input.
+// Inline JS: when the maker <select> changes, (re)load that maker's models into
+// the model <select> via /api/models, clearing any previous selection. Exposes
+// window.jdmLoadModels(want) so presets can load + select a model. No-op if the
+// maker fell back to a text input.
 function modelScript(makerId, listId) {
-  return `<script>(function(){var mk=document.getElementById(${JSON.stringify(makerId)}),dl=document.getElementById(${JSON.stringify(listId)});if(!mk||!dl||mk.tagName!=="SELECT")return;mk.addEventListener("change",function(){dl.innerHTML="";if(!mk.value)return;fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){(l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;dl.appendChild(o);});}).catch(function(){});});})();</script>`;
+  return `<script>(function(){
+    var mk=document.getElementById(${JSON.stringify(makerId)}),sel=document.getElementById(${JSON.stringify(listId)});
+    if(!mk||!sel)return;
+    function fill(want){
+      if(mk.tagName!=="SELECT"||!mk.value){sel.innerHTML='<option value="">Pick a maker first</option>';sel.disabled=true;return;}
+      sel.disabled=false;sel.innerHTML='<option value="">Loading…</option>';
+      fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){
+        sel.innerHTML='<option value="">Any model</option>';
+        (l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
+        if(want){var f=false;for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===want){f=true;break;}}if(!f){var o=document.createElement("option");o.value=want;o.textContent=want;sel.appendChild(o);}sel.value=want;}
+      }).catch(function(){sel.innerHTML='<option value="">Any model</option>';});
+    }
+    mk.addEventListener("change",function(){fill("");});
+    window.jdmLoadModels=function(want){fill(want||"");};
+    if(mk.tagName==="SELECT"&&mk.value){fill(sel.getAttribute("data-want")||"");}
+  })();</script>`;
 }
 
 // Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
@@ -103,11 +121,27 @@ function presetSelect() {
   const opts = groups.map((g) =>
     `<optgroup label="${esc(g.name)}">${g.items.map(({ p, i }) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</optgroup>`
   ).join("");
-  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(auto-fills the fields for a known model)</span></label>
-    <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${opts}</select></div>`;
+  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(optional shortcut for a known model)</span></label>
+    <select onchange="jdmPreset(this)"><option value="">No preset</option>${opts}</select></div>`;
 }
 function presetScript() {
-  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);}</script>`;
+  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){
+    var form=sel.closest("form")||document;
+    function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el)el.value=(v==null?"":v);}
+    var p=WL_PRESETS[sel.value];
+    // Clear the search fields first so switching presets (or 'No preset') never
+    // leaves stale values behind.
+    set("model_name","");set("kuzov","");set("year_min","");set("year_max","");set("label","");
+    var mk=form.querySelector('[name="marka_name"]');
+    if(!p){if(mk)mk.value="";if(window.jdmLoadModels)window.jdmLoadModels("");return;}
+    if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";}else{mk.value=p.make||"";}}
+    // Model is a <select> on the public form (load + select) or a text input on
+    // the staff form (set directly).
+    var modelEl=form.querySelector('[name="model_name"]');
+    if(modelEl&&modelEl.tagName==="SELECT"&&window.jdmLoadModels){window.jdmLoadModels(p.model||"");}
+    else{set("model_name",p.model);}
+    set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);
+  }</script>`;
 }
 
 // <option> list of Australian states for the client forms.
@@ -189,6 +223,7 @@ const CSS = `
   .btn-dark:hover{background:var(--hover)}
   .content{padding:32px 40px 60px;max-width:1180px}
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
+  .content.dash{width:100%;max-width:2040px;margin-left:auto;margin-right:auto}
   .card{background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
   .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card h2 .num{color:var(--gold);font-weight:700}
@@ -473,7 +508,10 @@ const CSS = `
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
   .sec-h .btn-gold{display:inline-flex;align-items:center;gap:6px}
   .sec-h .btn-gold svg{width:15px;height:15px}
+  .dcols{display:grid;grid-template-columns:1fr;gap:8px 24px;align-items:start}
+  @media(min-width:1100px){.dcols{grid-template-columns:1fr 1fr}}
   .list{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-bottom:30px}
+  a.lrow{text-decoration:none;color:inherit}
   .lrow{display:flex;align-items:center;gap:13px;padding:13px 16px;border-bottom:1px solid var(--hair)}
   .lrow:last-child{border-bottom:0}
   .lrow:hover{background:var(--hover)}
@@ -825,7 +863,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
   const main = view === "dashboard"
-    ? `<div class="content">${body}</div>`
+    ? `<div class="content dash">${body}</div>`
     : `
     <div class="topbar${view === "matches" ? " unstick wide" : ""}">
       <div>
@@ -1016,21 +1054,24 @@ function paymentsView(payments, opts = {}) {
 
 // Styled login screen shown when there's no valid session.
 export function loginPage(opts = {}) {
-  const err = opts.error ? `<div class="login-err">Incorrect email or password. Please try again.</div>` : "";
+  const err = opts.locked
+    ? `<div class="login-err">Too many sign-in attempts. Please wait about 15 minutes and try again.</div>`
+    : opts.error
+      ? `<div class="login-err">Incorrect email or password. Please try again.</div>`
+      : "";
   const body = `<div class="login-screen">
     ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
       <h1>Welcome back</h1>
-      <p class="login-sub">Sign in to your JDM Connect account to track your searches and matches.</p>
+      <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
       ${err}
-      <label>Email <span class="opt">(agents and clients)</span></label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
-      <div class="login-note">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
+      <label>Email</label>
+      <input type="email" name="email" autocomplete="username" placeholder="you@email.com" maxlength="160">
       <label style="margin-top:14px">Password</label>
-      <input type="password" name="password" autocomplete="current-password" autofocus required>
+      <input type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:18px 0 0">New to JDM Connect? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle request</a></p>
+      <p class="login-sub" style="margin:18px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -1168,13 +1209,23 @@ async function dashboardData(env, session) {
     const spendRows = (await env.DB.prepare(`SELECT substr(paid_at,1,10) AS d, SUM(amount_cents) AS n FROM payments WHERE status='paid' AND paid_at IS NOT NULL AND paid_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
     spend = fillSeries(spendRows, days14);
   }
+  // Throughput + demand signals (all role-scoped via run()).
+  const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
+  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${acc.sql}`).first())?.n || 0;
+  const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
+  // Most-wanted makes in the live review queue — a quick read on demand.
+  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
+  const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
+  // Pending lots whose auction closes within 48h — the work that can't wait.
+  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
+
   let people;
   if (session.role === "admin") {
     people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
   } else {
     people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
   }
-  return { clients, agents, pending, closing, strength, people, reviewed, found, spend };
+  return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList };
 }
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
@@ -1202,6 +1253,9 @@ function dashboardView(session, data) {
       ${isAdmin ? metric(data.agents, "Active agents", false, "/admin?view=agents") : ""}
       ${metric(data.pending, "Matches to review", true, "/admin?view=matches")}
       ${metric(data.closing, "Closing in 48h", false, "/admin?view=matches")}
+      ${metric(data.requests, "Client requests", false, "/admin?view=matches")}
+      ${metric(data.sentWeek, "Sent this week", false, "/admin?view=matches")}
+      ${metric(data.members, "Members", false, "/admin?view=clients")}
     </div>`;
 
   let section;
@@ -1237,26 +1291,59 @@ function dashboardView(session, data) {
       </div>`
     : "";
   const agentCard = isAdmin ? agentBars(data.people) : "";
+  // New matches found per day (was computed but never shown).
+  const found = data.found || [];
+  const foundTotal = found.reduce((s, r) => s + r.n, 0);
+  const foundCard = `<div class="chart-card">
+      <div class="chart-h"><span class="ct-t">New matches per day</span><span class="ct-s">${foundTotal} in 14 days</span></div>
+      ${barsSvg(found, "#6F86A6")}
+      <div class="bars-x"><span>${dayLbl(found[0] && found[0].d)}</span><span>today</span></div>
+    </div>`;
+  // Most-wanted makes in the queue — a small horizontal bar list.
+  const maxMake = (data.topMakes || []).reduce((m, r) => Math.max(m, r.n), 0) || 1;
+  const topMakesCard = (data.topMakes || []).length
+    ? `<div class="chart-card">
+        <div class="chart-h"><span class="ct-t">Most-wanted makes</span><span class="ct-s">in the queue</span></div>
+        <div class="abars">${data.topMakes.map((r) => `<div class="abar"><span class="abar-n" title="${esc(r.name)}">${esc(r.name)}</span><span class="abar-t"><span class="abar-f" style="width:${Math.round((r.n / maxMake) * 100)}%"></span></span><span class="abar-v">${r.n}</span></div>`).join("")}</div>
+      </div>`
+    : "";
   const charts = `<div class="charts">
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Reviewed per day</span><span class="ct-s">${revTotal} in 14 days</span></div>
         ${barsSvg(rev, "var(--gold)")}
         <div class="bars-x"><span>${dayLbl(rev[0] && rev[0].d)}</span><span>today</span></div>
       </div>
+      ${foundCard}
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Pipeline quality</span><span class="ct-s">awaiting review</span></div>
         ${donutSvg(strengthParts)}
       </div>
       ${spendCard}
+      ${topMakesCard}
       ${agentCard}
     </div>`;
+
+  // Actionable list: lots whose auction closes within 48h.
+  const closingRows = (data.closingList || []).map((q) => {
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+    const d = daysUntil(lot.auction_date);
+    const when = d <= 0 ? "today" : d === 1 ? "1 day" : `${d} days`;
+    return `<a class="lrow" href="/admin?view=lot&id=${q.id}">
+        ${avatar(q.client_name)}
+        <div class="who"><div class="nm">${title}</div><div class="sub">${esc(q.client_name)}${lot.auction ? " · " + esc(lot.auction) : ""}</div></div>
+        <div class="meta"><span class="b ${d <= 1 ? "b-warn" : "b-neu"}">Closes ${when}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing closing in the next 48h.</div></div></div>`;
+  const closingSection = `<div class="sec-h"><h2>Closing soon <span class="ct">(48h)</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
+
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
       ${overview}
       ${charts}
-      ${section}
+      <div class="dcols">${closingSection}${section}</div>
     </div>${dashScript()}`;
 }
 
@@ -1358,14 +1445,18 @@ function clientsView(clients, wishlists, opts = {}) {
     </tr>`
   ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
-  const bulkBar = (isAdmin && agents.length)
-    ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
+  // Admin bulk bar. Shows for any admin (even with no agents) so bulk delete is
+  // always available; assign/share only appear when there are agents to pick.
+  // Delete asks for confirmation, naming the count, and blocks if nothing is ticked.
+  const bulkBar = isAdmin
+    ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar" onsubmit="return jdmBulkClients(this)">
         <span class="bulk-label">With selected clients:</span>
-        <select name="action" class="share-pick"><option value="assign">Assign owner</option><option value="share">Share with</option></select>
-        <select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+        <select name="action" class="share-pick" onchange="this.form.dataset.act=this.value">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="delete"${agents.length ? "" : " selected"}>Delete</option></select>
+        ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
         <button class="btn-gold" type="submit">Apply</button>
         <span class="help" style="margin-left:4px">Tick clients on the left, then apply.</span>
-      </form>`
+      </form>
+      <script>function jdmBulkClients(f){var a=f.querySelector('select[name=action]').value;var n=f.querySelectorAll('input[name=ids]:checked').length;if(!n){alert('Tick the clients you want first, then Apply.');return false;}if(a==='delete'){return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}return true;}</script>`
     : "";
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
@@ -2068,6 +2159,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Surface the snapshotted landed cost on each match card (as the Matches view does).
+  for (const q of matches) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
+  // Hide the internal catch-all searches (Direct requests / Manual finds) from the
+  // editable Searches list — they're plumbing, not searches staff manage.
+  const searchWls = wls.filter((w) => !SYSTEM_WISHLIST_LABELS.has(w.label));
+
   const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
   const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
@@ -2083,6 +2180,24 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
   </div>`;
+
+  // Edit core contact details (owner/admin only). Folded away by default, but
+  // springs open if the last save failed so the error and the form are visible.
+  const editCard = canManage ? `<details class="card foldcard"${opts.cerr ? " open" : ""}>
+    <summary>Edit details</summary>
+    ${opts.cerr ? `<div class="dupnote">${esc(clientEditErrorMessage(opts.cerr))}</div>` : ""}
+    <form method="POST" action="/client/update">
+      <input type="hidden" name="id" value="${c.id}">
+      <div class="grid">
+        <div><label>Name</label><input name="name" value="${esc(c.name || "")}" required></div>
+        <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
+        <div><label>WhatsApp <span class="opt">(+61…)</span></label><input name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
+        <div><label>State <span class="opt">(for landed-cost estimates)</span></label><input name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
+        <span class="help">Updates this client's contact details across the app.</span></div>
+    </form>
+  </details>` : "";
 
   // Buyer-portal access control (owner/admin only).
   const portalState = c.portal_enabled ? (c.pass_hash ? "Active - client can sign in" : "Invited - awaiting password") : "Not enabled";
@@ -2116,8 +2231,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
-  const newWl = `<details class="card foldcard"${wls.length ? "" : " open"}>
-    <summary>${wls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
+  const newWl = `<details class="card foldcard"${searchWls.length ? "" : " open"}>
+    <summary>${searchWls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
     <form method="POST" action="/wishlist">
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
@@ -2139,9 +2254,52 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </details>`;
 
   const wlSection = `<div class="card">
-    <h2><span class="num">${wls.length}</span> ${wls.length === 1 ? "Search" : "Searches"}</h2>
-    ${wls.map((w) => wishlistEditor(w, { open: wls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
+    <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
+    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
+
+  // Manual auction search for this client (same access as managing them). Hits the
+  // live feed only when a query is present, so a normal page load stays cheap.
+  const firstName = String(c.name || "").trim().split(/\s+/)[0] || "this client";
+  const sp = opts.search || {};
+  const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
+  const findHasQuery = findKeys.some((k) => String(sp[k] || "").trim());
+  let findResults = "";
+  if (canManage && findHasQuery) {
+    const { lots } = await searchLots(env, sp);
+    if (lots.length) {
+      try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
+      const qs = new URLSearchParams();
+      for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
+    } else {
+      findResults = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+    }
+  }
+  const findMakers = canManage ? await distinctMakers(env) : [];
+  const fv = (k) => esc(sp[k] || "");
+  const foundFlash = opts.found === "added"
+    ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
+    : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
+    : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
+  const findCard = canManage ? `<div class="card" id="find">
+    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+    <p class="help" style="margin:-8px 0 16px">Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
+    <form method="GET" action="/admin">
+      <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
+      <div class="grid">
+        <div><label>Make<input name="make" list="find-makers" value="${fv("make")}" placeholder="e.g. NISSAN"></label><datalist id="find-makers">${findMakers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
+        <div><label>Model <span class="opt">(contains)</span><input name="model" value="${fv("model")}" placeholder="e.g. SKYLINE"></label></div>
+        <div><label>Year from<input name="yearMin" type="number" min="1960" value="${fv("yearMin")}" placeholder="1990"></label></div>
+        <div><label>Year to<input name="yearMax" type="number" min="1960" value="${fv("yearMax")}" placeholder="2002"></label></div>
+        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
+        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
+        <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
+        <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
+    </form>${foundFlash}${findResults}
+  </div>` : "";
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
@@ -2157,7 +2315,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -2174,20 +2332,32 @@ export async function requestPage(env, opts = {}) {
   // Keep the form short for cold ad traffic: only Make/Model show by default,
   // the rest fold away. Re-open the extra fields if any came back filled (e.g.
   // a preset, or a re-render after a contact error) so nothing looks lost.
-  const moreOpen = ["label", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
+  const moreOpen = ["year_min", "year_max", "mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1; // allow next year's models in the feed
 
   const success = ok ? `<div class="card reqok" id="reqOk">
         <div class="reqok-badge"><span class="tick">&#10003;</span> Request received</div>
         ${ref ? `<div class="reqok-ref">Your reference: <strong>${esc(ref)}</strong></div>` : ""}
-        <p>Thanks${firstName ? " " + esc(firstName) : ""}. Your request is in and we're now watching the Japanese auctions for it. We'll ${req.email ? "email" : "be in touch"} the moment a matching car comes up. That can take days or weeks depending on what's listed, so a quiet little while is completely normal.${req.email ? ` A confirmation is on its way to <strong>${esc(req.email)}</strong>.` : ""}</p>
-        ${req.portal ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55"><strong>Your account is ready.</strong> <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> any time with your email and the password you chose to track your search and see the cars we find.</p>` : ""}
+        <p>Thanks${firstName ? " " + esc(firstName) : ""}, your search is in. We watch the Japanese auctions daily and ${req.email ? `email <strong>${esc(req.email)}</strong>` : "contact you"} the moment a match comes up. New cars list all the time, so no news for a little while is normal.</p>
+        ${req.portal
+          ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55"><strong>Your account is ready.</strong> <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> any time with your email and password to track your search.</p>`
+          : req.existing
+            ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55">You've enquired before, so we added this to your existing details. <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> to track it, or check your email for a link to set your password.</p>`
+            : ""}
       </div>
       <script>(function(){try{var el=document.getElementById('reqOk');if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}})();</script>` : "";
 
-  const contactBanner = opts.error === "contact"
-    ? `<div class="reqerr">Please add an email or a WhatsApp number so we can reach you when a match comes up.</div>`
+  const contactBanner = opts.error
+    ? `<div class="reqerr">${
+        opts.error === "exists"
+          ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:600">Sign in</a> instead.'
+          : opts.error === "password"
+            ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
+            : opts.error === "budget"
+              ? "Please enter your maximum all-in budget in AUD (at least A$5,000) so we can match you realistically."
+              : "Please enter your email so we can set up your account and reach you when a match comes up."
+      }</div>`
     : "";
 
   const main = `
@@ -2198,7 +2368,7 @@ export async function requestPage(env, opts = {}) {
         <h1>Request a vehicle</h1>
         <p class="subline">Tell us what you're after and we'll search the Japanese auctions for it.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
-          <span class="chip muted">No account needed to start</span>
+          <span class="chip muted">Free account, takes a minute</span>
           <span class="chip muted">Every match reviewed by hand</span>
           <span class="chip muted">Landed cost included</span>
         </div>
@@ -2212,34 +2382,42 @@ export async function requestPage(env, opts = {}) {
         <form id="requestForm" method="POST" action="/request" novalidate>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
           <div class="grid">
-            <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" required></div>
-            <div><label for="rq-email">Email</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
-            <div><label for="rq-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
+            <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
+            <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required></div>
+            <div><label for="rq-whatsapp">WhatsApp <span class="opt">(optional, +61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40"></div>
             <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-            <div><label for="rq-pass">Create a password <span class="opt">(optional, to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
+            <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters, your login" required></div>
           </div>
-          <p id="rq-contact-error" class="field-err">Please add an email or a WhatsApp number so we can reach you when a match comes up.</p>
+          <p id="rq-email-error" class="field-err">Please enter a valid email. This is also your login.</p>
+          <p id="rq-pass-error" class="field-err">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+          <p class="help" style="margin:8px 0 0;font-size:12px;opacity:.85">Your email and password create a free account so you can sign in and track your search.</p>
           <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
+          <div class="grid">
+            <div><label for="rq-label">Nickname <span class="opt">(optional, for your reference)</span></label><input id="rq-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
+          </div>
           ${presetSelect()}
           <div class="grid">
             <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker")}</div>
-            <div><label>Model <span class="opt">(pick or type)</span>${modelField("rq-models")}</label></div>
+            <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name)}</div>
           </div>
+          <div class="grid">
+            <div><label for="rq-budget">Your maximum budget <span class="opt">(AUD, all-in to your door)</span></label><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="e.g. 35,000" required></div>
+          </div>
+          <p id="rq-budget-error" class="field-err">Please enter your maximum all-in budget in AUD — a realistic figure helps us match you faster.</p>
+          <p class="help" style="margin:8px 0 0;font-size:12px;opacity:.85">This is your total <strong>landed budget</strong> — the car plus shipping, duties and on-road costs, delivered to your door. The more realistic your number, the better and faster we can find the right car. Wildly low budgets just slow things down for everyone.</p>
           <details class="morefields"${moreOpen ? " open" : ""}>
             <summary>Add more detail (optional)</summary>
             <div class="grid">
-              <div><label>Nickname <span class="opt">(optional, for your reference)</span><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></label></div>
-              <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></label></div>
-              <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></label></div>
-              <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></label></div>
-              <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
+              <div><label>Year from<input name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990"></label></div>
+              <div><label>Year to<input name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002"></label></div>
+              <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
               <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
-              <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></label></div>
+              <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></label></div>
             </div>
             <p id="rq-year-error" class="field-err">"Year from" can't be later than "Year to". Please check the years.</p>
           </details>
-          <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
-            <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
+          <div class="actions"><button class="btn-gold" type="submit">Create account &amp; submit</button>
+            <span class="help">We set up a free account with your email and password so you can track your search. Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
           <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
         </form>
       </div>
@@ -2362,22 +2540,34 @@ const PLV_STYLE = `<style>
 function requestFormScript() {
   return `<script>(function(){
     var form=document.getElementById('requestForm'); if(!form) return;
-    var cErr=document.getElementById('rq-contact-error');
+    var eErr=document.getElementById('rq-email-error');
+    var pErr=document.getElementById('rq-pass-error');
     var yErr=document.getElementById('rq-year-error');
+    var bErr=document.getElementById('rq-budget-error');
     var btn=form.querySelector('button[type=submit]');
+    var pw=form.querySelector('[name="portal_password"]');
+    var PMIN=${PW_MIN}, PMAX=${PW_MAX}, BMIN=${BUDGET_MIN_AUD};
+    var ALLOWED=/^[A-Za-z0-9!@#$%^&*()\\-_=+?<>]*$/;
     function val(n){var el=form.querySelector('[name="'+n+'"]');return el?String(el.value||'').trim():'';}
+    function emailBad(){var v=val('email');return !v || !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
+    function pwBad(){var v=(pw?pw.value:'')||'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
+    function budgetBad(){var n=parseFloat(val('budget_aud'));return !isFinite(n)||n<BMIN;}
+    // Live feedback: flag a disallowed character (or bad length) as they type.
+    if(pw){pw.addEventListener('input',function(){if(pErr)pErr.style.display=(pw.value&&pwBad())?'block':'none';});}
     form.addEventListener('submit',function(e){
-      var noContact=!val('email') && !val('whatsapp');
-      if(cErr) cErr.style.display=noContact?'block':'none';
+      var eb=emailBad(), pb=pwBad(), bb=budgetBad();
+      if(eErr) eErr.style.display=eb?'block':'none';
+      if(pErr) pErr.style.display=pb?'block':'none';
+      if(bErr) bErr.style.display=bb?'block':'none';
       var yf=parseInt(val('year_min'),10), yt=parseInt(val('year_max'),10);
       var badYear=!!(yf && yt && yf>yt);
       if(yErr) yErr.style.display=badYear?'block':'none';
       // The year fields can live inside a collapsed "Add more detail" disclosure
       // (e.g. a preset filled them). Open it so the error is actually visible.
       if(badYear&&yErr){var det=yErr.closest&&yErr.closest('details');if(det)det.open=true;}
-      if(noContact||badYear){
+      if(eb||pb||bb||badYear){
         e.preventDefault();
-        var first=noContact?cErr:yErr;
+        var first=eb?eErr:(pb?pErr:(bb?bErr:yErr));
         if(first&&first.scrollIntoView)first.scrollIntoView({behavior:'smooth',block:'center'});
         return;
       }
@@ -2537,6 +2727,50 @@ export async function createClient(env, form, session) {
   return { ok: true, id: r.meta?.last_row_id };
 }
 
+// Edit an existing client's core contact details (name, email, WhatsApp, state).
+// Owner/admin only, like delete and reassign. Preserves the "must stay reachable"
+// invariant and refuses a change that would collide with another client's
+// email/phone in the same scope (so editing can't quietly create a duplicate).
+export async function updateClient(env, form, session) {
+  const cid = Number(form.get("id"));
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, error: "notfound" };
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  if (!c) return { ok: false, error: "notfound" };
+  const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
+  if (!canManage) return { ok: false, error: "forbidden" };
+
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim();
+  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const state = normalizeState(form.get("state"));
+  if (!name) return { ok: false, error: "name" };
+  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  // Portal sign-in and invite links are keyed to the email, so don't let it be
+  // stripped while the client still has portal access.
+  if (c.portal_enabled && !email) return { ok: false, error: "portal_email" };
+
+  // Refuse a contact change that would duplicate another client in this client's
+  // scope. Self-match is expected (unchanged email/phone) and allowed.
+  const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(c.agent_id) });
+  if (dup && Number(dup.id) !== cid) return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
+
+  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ? WHERE id = ?")
+    .bind(name, email || null, whatsapp || null, state, cid).run();
+  return { ok: true, id: cid };
+}
+
+// Map an updateClient() error code to a plain-English message for the UI.
+export function clientEditErrorMessage(code) {
+  return ({
+    name: "Please enter the client's name.",
+    contact: "Add an email or a WhatsApp number so we can still reach them.",
+    portal_email: "This client has buyer-portal access, which needs an email. Revoke portal access first if you really need to remove the email.",
+    duplicate: "Another client already uses that email or phone number, so the change was not saved.",
+    forbidden: "Only the client's owner (or an admin) can edit their details.",
+    notfound: "That client no longer exists.",
+  })[code] || "Sorry, those changes could not be saved.";
+}
+
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
 const str = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : v; };
 
@@ -2693,6 +2927,23 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
   if (!session || session.role !== "admin") return;
   const list = (ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (!list.length) return;
+
+  // Bulk delete: cascade each client (matches, seen-lots, searches, shares) then
+  // the client itself - same order as the single deleteClient. Owner selection
+  // is irrelevant here. Admin-only, already enforced above.
+  if (action === "delete") {
+    const stmts = [];
+    for (const cid of list) {
+      stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
+    }
+    await env.DB.batch(stmts);
+    return;
+  }
+
   const aid = Number(agentId);
   const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
   if (owner) {
@@ -2724,6 +2975,10 @@ export async function toggleAgent(env, id) {
 // used by the admin-only flows, so the spam controls live here, not there).
 const REQ_MAX = { name: 120, email: 160, whatsapp: 40, label: 120, marka_name: 60, model_name: 60, kuzov: 40, grade_kw: 40 };
 const REQ_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Minimum realistic all-in import budget (AUD). Below this, an import isn't viable
+// — it's the hard floor that catches junk/lowball input; the on-form note does the
+// rest of the time-waster filtering.
+const BUDGET_MIN_AUD = 5000;
 
 function clipField(form, key, max) {
   const v = String(form.get(key) ?? "").trim().slice(0, max);
@@ -2756,48 +3011,74 @@ export async function createRequest(env, form) {
 
   const g = (k) => String(form.get(k) || "").trim();
   const whatsapp = g("whatsapp");
+  const selfPw = String(form.get("portal_password") || "");
 
-  // Fix 1 (server backstop): block a lead we could never reach. The form guards
-  // this client-side too, but never trust the client. Preserve the input so the
-  // re-rendered form keeps what they typed.
-  if (!email && !whatsapp) {
-    return {
-      ok: false,
-      error: "contact",
-      vals: {
-        name: g("name"), email: g("email"), whatsapp, state: g("state"), label: g("label"),
-        year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
-        mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
-      },
-    };
+  // Re-render payload, kept so a rejected submission preserves what they typed.
+  const vals = {
+    name: g("name"), email, whatsapp, state: g("state"), label: g("label"),
+    year_min: g("year_min"), year_max: g("year_max"), budget_aud: g("budget_aud"),
+    mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
+  };
+
+  // Accounts are mandatory: email is the login identity, so it is required.
+  if (!email) return { ok: false, error: "email", vals };
+
+  // Email-uniqueness: an email that already has a login can't open a second
+  // account from the public form - send them to sign in. We reveal only that the
+  // email is registered (the minimum needed to prevent duplicate accounts), and
+  // never any other detail.
+  const acct = await env.DB.prepare(
+    "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
+  ).bind(email).first();
+  if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
+
+  // A brand-new enquiry (no record by email or phone) must choose a
+  // policy-compliant password. A returning record is still captured without
+  // forcing one (and gets a secure set-password invite if it has no login yet).
+  const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
+  if (!match) {
+    const pwErr = passwordPolicyError(selfPw);
+    if (pwErr) return { ok: false, error: "password", pwError: pwErr, vals };
   }
 
-  // Fix 6: reuse an existing staff-scoped client with this email rather than
-  // spawning a duplicate on every submission.
+  // Budget is mandatory: a realistic all-in AUD figure qualifies the lead and
+  // weeds out time-wasters. Convert it to an approximate JPY auction-price ceiling
+  // so it feeds the matcher's price_max (the form no longer collects yen directly).
+  const audBudget = Number(g("budget_aud"));
+  if (!Number.isFinite(audBudget) || audBudget < BUDGET_MIN_AUD) {
+    return { ok: false, error: "budget", vals };
+  }
+  form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
+
+  // Fix 6: reuse an existing staff-scoped client rather than spawning a duplicate.
   const up = await upsertPublicClient(env, form, email, whatsapp);
   const clientId = up.id;
   // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged for staff).
   await createRequestWishlist(env, clientId, form);
 
-  // Portal self-signup: only when this submission created a BRAND NEW client.
-  // If the email already existed we must not set a password from the public
-  // form, or anyone who knows a passwordless client's email could take over
-  // their portal. Existing clients get portal access via a staff-sent invite.
-  let portal = false;
-  const selfPw = String(form.get("portal_password") || "");
-  if (selfPw && email && up.created) portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  // New record -> set the chosen password. Existing passwordless record -> flag
+  // for an emailed set-password link (only the inbox owner can claim it), so we
+  // never set a password on someone else's record from the public form.
+  let portal = false, inviteNeeded = false;
+  if (up.created) {
+    portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  } else {
+    const exi = await env.DB.prepare("SELECT pass_hash FROM clients WHERE id = ?").bind(clientId).first();
+    if (exi && !exi.pass_hash) inviteNeeded = true;
+  }
 
   // Fix 7: a human-readable reference, stable per client.
   const ref = `JDM-${new Date().getFullYear()}-${String(clientId).padStart(5, "0")}`;
 
   const req = {
-    portal,
+    portal, existing: !up.created,
     name: g("name") || "-", email, whatsapp, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
+    budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
-  return { ok: true, req, ref, clientId };
+  return { ok: true, req, ref, clientId, inviteNeeded };
 }
 
 // Upsert a public (staff-scoped) client by email so repeat submissions update
@@ -2853,11 +3134,11 @@ async function createRequestWishlist(env, clientId, form) {
   ).bind(clientId, marka || "", model || "", needsDetail).first();
   if (dupe) return;
 
-  // Fix 4 (server side): clamp the numbers the client checks are advisory only.
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
+  // Fix 4 (server side): clamp the numbers - the client checks are advisory only.
+  let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
   if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
-  const priceMax = clampMin(num(form, "price_max"), 0);
-  const mileageMax = clampMin(num(form, "mileage_max"), 0);
+  const priceMax = clampRange(num(form, "price_max"), 0, 100000000);
+  const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
 
   await env.DB.prepare(
@@ -2879,7 +3160,7 @@ const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo,
 // overwrite an existing login even under a race. Returns true only if a fresh
 // login was actually created.
 async function enablePortalSelfSignup(env, clientId, password) {
-  if (!clientId || typeof password !== "string" || password.length < 6) return false;
+  if (!clientId || passwordPolicyError(password)) return false;
   const { salt, hash } = await hashPassword(password);
   const r = await env.DB.prepare(
     `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
@@ -2909,6 +3190,11 @@ function portalSidebar(c, active = "garage") {
 }
 
 const DIRECT_REQUESTS_LABEL = "Direct requests";
+// Lots staff add to a client from the in-client auction search land here.
+const MANUAL_FINDS_LABEL = "Manual finds";
+// Internal catch-all searches that are plumbing, not staff-managed wishlists —
+// hidden from the client page's Searches list.
+const SYSTEM_WISHLIST_LABELS = new Set([DIRECT_REQUESTS_LABEL, MANUAL_FINDS_LABEL]);
 
 // Member-only auction search page (the "Auction page"): search the live feed and
 // request any lot. Gated on clients.member.
@@ -3036,6 +3322,71 @@ export async function requestAuctionLot(env, clientId, lotId) {
   ).bind(wishlistId, clientId, String(lot.id), JSON.stringify(lot), randomToken()).run();
   try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
   return { ok: true, lot };
+}
+
+// Staff add a lot they found (via the in-client auction search) to a client. It
+// files as a pending match in a per-client "Manual finds" search (watch_only=0,
+// so Approve & send emails the client like any normal match), dedupes by
+// client+lot, and snapshots the landed cost. Returns { ok, lot, already? } | { ok:false }.
+export async function addLotToClient(env, clientId, lotId, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, error: "bad_client" };
+  if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  let lot = null;
+  try { lot = await fetchLot(env, lotId); } catch (e) {}
+  if (!lot || !lot.id) return { ok: false, error: "not_found" };
+
+  // Already in this client's queue? Don't add a duplicate.
+  const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(cid, String(lot.id)).first();
+  if (existing) return { ok: true, already: true, lot };
+
+  let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
+  let wishlistId = wl?.id;
+  if (!wishlistId) {
+    const ins = await env.DB.prepare("INSERT INTO wishlists (client_id, label, active, watch_only) VALUES (?, ?, 1, 0)").bind(cid, MANUAL_FINDS_LABEL).run();
+    wishlistId = ins.meta?.last_row_id;
+  }
+  // Snapshot landed cost (best-effort) and tag the card as a manual find.
+  try {
+    const client = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+    await attachLanded(env, [{ lot, client: { state: client?.state } }]);
+  } catch (e) { /* card just renders without a landed figure */ }
+  lot._strength = "Manual";
+
+  await env.DB.prepare(
+    "INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token, reason) VALUES (?, ?, ?, ?, 'pending', ?, 'Added by staff from auction search')"
+  ).bind(wishlistId, cid, String(lot.id), JSON.stringify(lot), randomToken()).run();
+  try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
+  return { ok: true, lot };
+}
+
+// A live-auction search result on the admin client page, with an "Add to queue"
+// action that files it as a pending match for this client. qsBack preserves the
+// current search so the result list survives the add.
+function staffFindCard(lot, clientId, firstName, qsBack) {
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
+  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
+  const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
+    <div class="mfoot">
+      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
+      <form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>
+    </div>
+  </div>`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).

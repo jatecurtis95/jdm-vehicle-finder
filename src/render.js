@@ -242,7 +242,9 @@ export function requestAlertHtml(req, publicUrl) {
     : "";
   const vehicle = [req.marka_name, req.model_name].filter(Boolean).join(" ") || "Any vehicle";
   const years = [req.year_min, req.year_max].filter(Boolean).join("-");
-  const budget = req.price_max ? "¥" + Number(req.price_max).toLocaleString("en-US") : "";
+  const budget = req.budget_aud
+    ? "A$" + Number(req.budget_aud).toLocaleString("en-AU") + " all-in"
+    : (req.price_max ? "¥" + Number(req.price_max).toLocaleString("en-US") : "");
   const maxKm = req.mileage_max ? Number(req.mileage_max).toLocaleString("en-US") + " km" : "";
   const inner = `
   <tr><td style="padding:26px 36px 0;">
@@ -277,7 +279,9 @@ export function requestConfirmationHtml(req, ref, publicUrl) {
     : "";
   const vehicle = [req.marka_name, req.model_name].filter(Boolean).join(" ") || "Open to suggestions";
   const years = [req.year_min, req.year_max].filter(Boolean).join("-");
-  const budget = Number(req.price_max) > 0 ? yen(req.price_max) : "";
+  const budget = req.budget_aud
+    ? "A$" + Number(req.budget_aud).toLocaleString("en-AU") + " all-in"
+    : (Number(req.price_max) > 0 ? yen(req.price_max) : "");
   const maxKm = Number(req.mileage_max) > 0 ? km(req.mileage_max) : "";
 
   const inner = `

@@ -27,6 +27,22 @@ test("dashboard numbers reflect the seeded data (scoped counts, not hardcoded)",
   assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="cap">Matches to review/);
 });
 
+test("dashboard surfaces the new throughput KPIs and cards", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = await adminPage(env, "dashboard", ADMIN);
+  assert.match(html, /Client requests/);
+  assert.match(html, /Sent this week/);
+  assert.match(html, /Members/);
+  assert.match(html, /New matches per day/);   // the previously-unused found series
+  assert.match(html, /Closing soon/);          // actionable 48h list
+});
+
+test("dashboard uses the full-width container", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = await adminPage(env, "dashboard", ADMIN);
+  assert.match(html, /class="content dash"/);
+});
+
 test("dashboard respects reduced motion (the script guards on the media query)", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
