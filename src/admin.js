@@ -1902,6 +1902,21 @@ function wishlistEditor(w, opts = {}) {
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
     + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
+  // Staff-only: "Search" runs the live auction search for THIS exact vehicle,
+  // pre-filling the Find-a-car form from this search's criteria and jumping to it.
+  const searchBtn = (!opts.portal && w.client_id && (w.marka_name || w.model_name || w.kuzov))
+    ? (() => {
+        const p = new URLSearchParams();
+        if (w.marka_name) p.set("make", w.marka_name);
+        if (w.model_name) p.set("model", w.model_name);
+        if (w.year_min) p.set("yearMin", w.year_min);
+        if (w.year_max) p.set("yearMax", w.year_max);
+        if (w.price_max) p.set("priceMax", w.price_max);
+        if (w.rate_min) p.set("gradeMin", w.rate_min);
+        if (w.kuzov) p.set("kuzov", w.kuzov);
+        return `<a class="btn-gold wl-search" href="/admin?view=client&id=${w.client_id}&${p.toString()}#find">${ICONS.auctions}Search</a>`;
+      })()
+    : "";
   return `<div class="wlrow">
     <div class="wlhead">
       <div class="wlsum">
@@ -1909,6 +1924,7 @@ function wishlistEditor(w, opts = {}) {
         <div class="wlc">${summary || "Matches anything"}</div>
       </div>
       <div class="wlacts">
+        ${searchBtn}
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
         <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
       </div>
@@ -2647,6 +2663,8 @@ function tableToolsScript() {
     .tbl-count{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
     .bulk-del{display:inline-flex;align-items:center;gap:6px}
     .bulk-del svg{width:16px;height:16px;flex:0 0 auto}
+    .wl-search{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+    .wl-search svg{width:15px;height:15px;flex:0 0 auto}
     .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--t2);font-size:13.5px;font-weight:600;text-decoration:none;margin-bottom:6px}
     .backlink:hover{color:var(--ink)}
   </style><script>

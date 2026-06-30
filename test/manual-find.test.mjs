@@ -82,6 +82,16 @@ test("the Find-a-car form pre-fills from the client's saved search", async () =>
   assert.match(html, /Pre-filled from/);
 });
 
+test("each saved search has a Search button that hunts that exact car", async () => {
+  const env = makeEnv(FIXTURE); stubFeed();
+  await env.DB.prepare("INSERT INTO wishlists (client_id,label,marka_name,model_name,year_min,year_max) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001)").run();
+  const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
+  assert.match(html, /class="btn-gold wl-search"/, "a Search button on the search row");
+  assert.match(html, /make=TOYOTA/, "carries the make");
+  assert.match(html, /model=CHASER/, "carries the model");
+  assert.match(html, /id=10[^"]*#find/, "jumps to that client's find form");
+});
+
 test("the client page has a clear back link", async () => {
   const env = makeEnv(FIXTURE); stubFeed();
   const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
