@@ -339,7 +339,7 @@ export default {
           make: sp.get("make") || "", model: sp.get("model") || "",
           yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-          kuzov: sp.get("kuzov") || "",
+          kuzov: sp.get("kuzov") || "", page: sp.get("page") || "",
         };
       }
       return doc(await adminPage(env, view, session, adminOpts));

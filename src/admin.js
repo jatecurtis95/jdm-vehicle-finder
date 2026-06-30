@@ -915,8 +915,9 @@ function agentsView(agents) {
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
+    ${agents.length > 4 ? tableSearch("agentsTbl", "Search agents by name, email or company…") : ""}
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table id="agentsTbl"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -1054,8 +1055,9 @@ function paymentsView(payments, opts = {}) {
       <div class="tstat"><div class="k">Collected</div><div class="v">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
       <div class="tstat"><div class="k">Payments</div><div class="v">${payments.length}</div></div>
     </div>
+    ${payments.length ? tableSearch("paymentsTbl", "Search payments by client, status or description…") : ""}
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
+      <table id="paymentsTbl"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
 
@@ -1469,10 +1471,10 @@ function clientsView(clients, wishlists, opts = {}) {
       function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
     : "";
 
-  const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
+  const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  return `${bulkBar}<div class="card" style="padding:0;overflow:hidden">
-    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  return `${bulkBar}${tableSearch("clientsTbl", "Search clients by name, email or state…")}<div class="card" style="padding:0;overflow:hidden">
+    <table id="clientsTbl"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
@@ -2617,9 +2619,30 @@ function revealScript() {
   }catch(e){}})();<\/script>`;
 }
 
+// A search box that live-filters a table's rows by text (client-side). Pair it
+// with a <table id="tableId">; the jdmFilterTable handler lives in shell().
+function tableSearch(tableId, placeholder) {
+  return `<div class="tbl-tools"><span class="tbl-ic" aria-hidden="true">${ICONS.auctions}</span><input type="search" class="tbl-search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}" oninput="jdmFilterTable(this,'${tableId}')"><span class="tbl-count" id="${tableId}-count"></span></div>`;
+}
+
+// Global helpers shared by every admin table: live row-filtering and a
+// select-all that only ticks the rows currently visible after a filter.
+function tableToolsScript() {
+  return `<style>
+    .tbl-tools{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+    .tbl-tools .tbl-ic{display:flex;color:var(--faint)}.tbl-tools .tbl-ic svg{width:16px;height:16px}
+    .tbl-search{flex:0 1 340px;max-width:340px;padding:9px 13px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13.5px}
+    .tbl-search:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
+    .tbl-count{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+  </style><script>
+  function jdmFilterTable(inp,id){var t=document.getElementById(id);if(!t)return;var q=(inp.value||'').trim().toLowerCase();var shown=0,total=0,rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;total++;var hit=!q||(r.textContent||'').toLowerCase().indexOf(q)>=0;r.style.display=hit?'':'none';if(hit)shown++;}var c=document.getElementById(id+'-count');if(c)c.textContent=q?(shown+' of '+total+' shown'):'';}
+  function jdmSelectAllVisible(box,name){var t=box.closest('table');if(!t)return;var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.style.display==='none')continue;var b=r.querySelector('input[name="'+name+'"]');if(b)b.checked=box.checked;}}
+  </script>`;
+}
+
 function shell(side, main, title) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${revealScript()}</body></html>`;
+    <body><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3434,17 +3457,24 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const hasQuery = keys.some((k) => String(sp[k] || "").trim());
     let results = "";
     if (hasQuery) {
-      const { lots } = await searchLots(env, sp);
+      const page = Math.max(1, parseInt(sp.page, 10) || 1);
+      const { lots, hasMore } = await searchLots(env, { ...sp, page });
       if (lots.length) {
         const acc = accessScope(session);
         const stmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
         const clients = ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
         const qs = new URLSearchParams({ view: "auctions", tab: "live" });
         for (const k of keys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-        const back = "/admin?" + qs.toString();
-        results = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>`;
+        const pageLink = (p) => { const u = new URLSearchParams(qs); u.set("page", String(p)); return "/admin?" + u.toString(); };
+        const back = pageLink(page); // return to this exact page after adding a car
+        const prev = page > 1 ? `<a class="btn-dark" href="${esc(pageLink(page - 1))}">&larr; Newer</a>` : "";
+        const next = hasMore ? `<a class="btn-dark" href="${esc(pageLink(page + 1))}">Older &rarr;</a>` : "";
+        const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
+        results = `${page > 1 ? `<p class="help" style="margin:18px 0 0">Page ${page}</p>` : ""}<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>${pager}`;
       } else {
-        results = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+        results = page > 1
+          ? `<div class="empty" style="margin-top:14px">No more lots. <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600">Back to the start</a>.</div>`
+          : `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
       }
     }
     const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue — it's under their Live matches, ready to Approve &amp; send.</div>`
