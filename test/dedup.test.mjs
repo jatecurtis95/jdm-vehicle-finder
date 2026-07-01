@@ -79,7 +79,7 @@ test("an agent's duplicate check is scoped to their own clients, not public ones
 test("a second account on a registered email is refused (anti-clobber)", async () => {
   const env = makeEnv();
   // A real client signs up with an account.
-  await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA", portal_password: "Stephen12345" }));
+  await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA", portal_password: "Stephen12345", whatsapp: "0400000082" }));
   // A stranger who knows the email tries to open a second account with a bogus name.
   const hack = await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA", portal_password: "Hacker123456" }));
   assert.equal(hack.ok, false);
@@ -94,7 +94,7 @@ test("public request fills in a name on an existing passwordless record", async 
   await createClient(env, fd({ name: "Website enquiry", email: "p@example.com" }), { role: "admin", id: 0 });
   // The same person submits the public form with their real name (no password
   // needed: the record already exists, so they're not opening a new account).
-  const r = await createRequest(env, fd({ name: "Real Name", email: "p@example.com", marka_name: "TOYOTA", model_name: "AQUA" }));
+  const r = await createRequest(env, fd({ name: "Real Name", email: "p@example.com", marka_name: "TOYOTA", model_name: "AQUA", whatsapp: "0400000097" }));
   assert.equal(r.ok, true);
   assert.equal(r.req.existing, true);
   const rows = (await env.DB.prepare("SELECT name FROM clients WHERE lower(email)='p@example.com'").all()).results;
@@ -106,7 +106,7 @@ test("a returning email folds into the one client, no duplicate", async () => {
   const env = makeEnv();
   // Staff-entered passwordless client so the public form can still add to it.
   await createClient(env, fd({ name: "Stephen", email: "st@example.com", whatsapp: "0451 671 516" }), { role: "admin", id: 0 });
-  const r = await createRequest(env, fd({ name: "Stephen", email: "st@example.com", marka_name: "TOYOTA", model_name: "AQUA", year_min: "2013", year_max: "2015" }));
+  const r = await createRequest(env, fd({ name: "Stephen", email: "st@example.com", marka_name: "TOYOTA", model_name: "AQUA", year_min: "2013", year_max: "2015", whatsapp: "0451 671 516" }));
   assert.equal(r.ok, true);
   const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n;
   assert.equal(n, 1, "same person reuses the one client");

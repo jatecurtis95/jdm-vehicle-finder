@@ -3591,9 +3591,11 @@ export async function requestPage(env, opts = {}) {
   // re-render never lands the visitor on the wrong screen.
   const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
     : opts.error === "budget" ? "2"
-      : (opts.error === "email" || opts.error === "password" || opts.error === "exists") ? "4"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "exists" || opts.error === "phone") ? "4"
         : "";
-  const bannerMsg = opts.error === "google"
+  const bannerMsg = opts.error === "phone"
+    ? "Please enter a valid mobile number so we can reach you the moment a match appears."
+    : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
     : opts.error === "exists"
     ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
@@ -3713,6 +3715,10 @@ export async function requestPage(env, opts = {}) {
                     <span style="font-weight:700;color:#1b1b1b;word-break:break-all">${esc(signedIn.email || "")}</span>
                   </span>
                 </div>
+                <div class="ob-fields">
+                  <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp") || esc(signedIn.whatsapp || "")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
+                </div>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
@@ -3736,10 +3742,11 @@ export async function requestPage(env, opts = {}) {
                   <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
                   <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required></div>
                   <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required></div>
-                  <div><label for="rq-whatsapp">WhatsApp <span class="opt">(optional)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40"></div>
+                  <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
                 <p id="rq-email-error" class="field-err">Please enter a valid email. This is also your login.</p>
                 <p id="rq-pass-error" class="field-err">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
@@ -4465,7 +4472,7 @@ export async function createRequest(env, form, session) {
   let sessionClient = null;
   if (session && session.role === "client" && session.id) {
     sessionClient = await env.DB.prepare(
-      "SELECT id, name, email, google_sub FROM clients WHERE id = ?"
+      "SELECT id, name, email, whatsapp, google_sub FROM clients WHERE id = ?"
     ).bind(session.id).first();
   }
 
@@ -4535,6 +4542,19 @@ export async function createRequest(env, form, session) {
   }
   form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
 
+  // A mobile number is mandatory: matches move fast at auction and we need a
+  // direct way to reach the buyer. Accept the number typed on the form, or fall
+  // back to one already on a signed-in client's record. phoneKey() strips
+  // formatting/country code; >= 8 national digits is our validity floor.
+  const effectivePhone = phoneKey(whatsapp).length >= 8
+    ? whatsapp
+    : (sessionClient && phoneKey(sessionClient.whatsapp).length >= 8 ? sessionClient.whatsapp : "");
+  if (phoneKey(effectivePhone).length < 8) return { ok: false, error: "phone", vals };
+  // A signed-in buyer who supplied a new number gets it saved to their record.
+  if (sessionClient && phoneKey(whatsapp).length >= 8 && phoneKey(whatsapp) !== phoneKey(sessionClient.whatsapp || "")) {
+    await env.DB.prepare("UPDATE clients SET whatsapp = ? WHERE id = ?").bind(whatsapp, sessionClient.id).run();
+  }
+
   // Attach the wishlist to the right client. Signed-in -> their own record;
   // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
   let clientId, portal, existing, wishlistId, inviteNeeded = false;
@@ -4567,7 +4587,7 @@ export async function createRequest(env, form, session) {
 
   const req = {
     portal, existing,
-    name: displayName || "-", email, whatsapp, state: g("state"),
+    name: displayName || "-", email, whatsapp: effectivePhone, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)

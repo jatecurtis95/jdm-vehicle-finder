@@ -12,7 +12,7 @@ function fd(obj) {
   // The public form now requires model + year range + budget too; default them
   // so these tests exercise the path under test (email/password/dedupe), not the
   // search-field guards. Individual tests override to exercise those guards.
-  for (const [k, v] of Object.entries({ budget_aud: "35000", model_name: "SUPRA", year_min: "1990", year_max: "2005", ...obj })) f.set(k, v);
+  for (const [k, v] of Object.entries({ budget_aud: "35000", model_name: "SUPRA", year_min: "1990", year_max: "2005", whatsapp: "0412345678", ...obj })) f.set(k, v);
   return f;
 }
 
@@ -57,6 +57,14 @@ test("signup now requires an email (the login identity)", async () => {
   const r = await createRequest(env, fd({ name: "No Email", whatsapp: "0400111222", marka_name: "TOYOTA", portal_password: "Goodpass123" }));
   assert.equal(r.ok, false);
   assert.equal(r.error, "email");
+});
+
+test("signup now requires a mobile number (the form makes it mandatory)", async () => {
+  const env = makeEnv();
+  const r = await createRequest(env, fd({ name: "No Phone", email: "np@example.com", marka_name: "TOYOTA", portal_password: "Goodpass123", whatsapp: "" }));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "phone");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing created without a phone");
 });
 
 test("a brand-new signup must choose a policy-compliant password (nothing created otherwise)", async () => {

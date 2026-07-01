@@ -173,6 +173,7 @@ test("request form shows the Google signup button when configured", async () => 
   assert.match(html, /Continue with Google/);
   assert.match(html, /\/auth\/google\?intent=signup/);
   assert.match(html, /name="portal_password"/, "anonymous visitors still get the password field");
+  assert.match(html, /id="rq-whatsapp"[^>]*required/, "the mobile number field is mandatory");
 });
 
 test("createRequest attaches to the signed-in client, no password or form email", async () => {
@@ -185,6 +186,7 @@ test("createRequest attaches to the signed-in client, no password or form email"
   form.set("year_min", "1993");
   form.set("year_max", "1998");
   form.set("budget_aud", "80000");
+  form.set("whatsapp", "+61412345678"); // phone is now mandatory; a Google client has none on file
   form.set("email", "attacker@evil.com"); // must be ignored in favour of the session identity
 
   const result = await createRequest(env, form, { role: "client", id: c.id });
@@ -194,6 +196,7 @@ test("createRequest attaches to the signed-in client, no password or form email"
   assert.equal(result.inviteNeeded, false, "signed-in Google client is never nagged for a password");
   const w = db.prepare("SELECT client_id, marka_name FROM wishlists WHERE client_id=?").get(c.id);
   assert.equal(w.marka_name, "TOYOTA", "wishlist attached to the signed-in client");
+  assert.equal(db.prepare("SELECT whatsapp FROM clients WHERE id=?").get(c.id).whatsapp, "+61412345678", "the supplied phone is saved to the client");
 });
 
 test("request form collapses the account step for a signed-in buyer", async () => {

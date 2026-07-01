@@ -148,8 +148,8 @@ export default {
       const session = await getSession(request, url, env);
       let signedIn = null;
       if (session && session.role === "client" && session.id) {
-        const c = await env.DB.prepare("SELECT name, email FROM clients WHERE id = ?").bind(session.id).first();
-        if (c) signedIn = { name: c.name || "", email: c.email || "" };
+        const c = await env.DB.prepare("SELECT name, email, whatsapp FROM clients WHERE id = ?").bind(session.id).first();
+        if (c) signedIn = { name: c.name || "", email: c.email || "", whatsapp: c.whatsapp || "" };
       }
       if (request.method === "POST") {
         // Rate limit (best-effort; fails open if KV is unavailable). Over the
@@ -194,7 +194,7 @@ export default {
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
           }
-          if (result.error === "email" || result.error === "password" || result.error === "exists") {
+          if (result.error === "email" || result.error === "password" || result.error === "exists" || result.error === "phone") {
             // Re-render with the specific error and their input preserved.
             return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals, signedIn }));
           }
