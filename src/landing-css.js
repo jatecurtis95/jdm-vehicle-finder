@@ -59,7 +59,7 @@ export const landingCss = `
   .jf-nav{position:sticky;top:0;z-index:60;background:rgba(7,9,12,0.04);border-bottom:1px solid rgba(255,255,255,0);
     transition:background .3s ease,border-color .3s ease}
   .jf-nav[data-scrolled]{background:rgba(7,9,12,0.92);border-bottom-color:rgba(255,255,255,0.1);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
-  .jf-nav-in{max-width:1340px;margin:0 auto;padding:22px 40px;display:flex;align-items:center;justify-content:space-between;gap:24px;transition:padding .3s ease}
+  .jf-nav-in{max-width:1340px;margin:0 auto;padding:22px 40px;display:flex;align-items:center;justify-content:space-between;gap:24px}
   .jf-nav[data-scrolled] .jf-nav-in{padding-top:12px;padding-bottom:12px}
   .jf-brand{display:flex;align-items:center;gap:13px}
   .jf-brand svg{height:18px;width:auto}
@@ -78,6 +78,8 @@ export const landingCss = `
     background:rgba(7,9,12,0.97);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.1);padding:10px 22px 20px}
   .nav-menu a{font-size:16px;color:var(--jf-t2);padding:14px 4px;border-bottom:1px solid var(--hair-2)}
   .nav-menu a:last-child{border-bottom:0}
+  /* Sticky-nav offset so in-page anchors don't hide under the fixed header. */
+  .jf :is(#lineup,#cost,#how,#membership,#trust,#features,#start,#top){scroll-margin-top:90px}
 
   /* Photo wrappers carry a deep fallback so a slow or failed image never flashes. */
   .hero-bg,.feat-bg,.moment-bg,.cost-bg,.divlab-bg,.final-bg{background:#0b0d10}
@@ -133,7 +135,7 @@ export const landingCss = `
   .feat-callout h2{font-weight:700;font-size:clamp(36px,5.4vw,78px);line-height:0.99;letter-spacing:-0.018em;color:var(--jf-ink);max-width:15ch;text-wrap:balance}
   .feat-callout p{margin-top:26px;max-width:520px;font-size:18px;line-height:1.6;color:var(--jf-t2)}
   .feat-dots{display:flex;gap:9px;justify-content:center;margin-top:58px}
-  .feat-dots span{width:8px;height:8px;border-radius:999px;background:rgba(255,255,255,0.22);transition:background .3s ease,width .3s ease}
+  .feat-dots span{width:8px;height:8px;border-radius:999px;background:rgba(255,255,255,0.22);transform-origin:left;transition:background .3s ease,transform .3s ease}
 
   /* ===== PHOTO MOMENT (problem / culture) ===== */
   .moment{position:relative;min-height:96vh;background:var(--jf-bg);overflow:hidden;display:flex;align-items:center}
@@ -360,6 +362,11 @@ export const landingCss = `
   @media(max-width:760px){
     .sec{padding:88px 22px}
     .jf-nav-in{padding:16px 22px}
+    /* Keep the "Start free" CTA and the menu button on one row without
+       overflowing small phones: tighten the gap, shrink the logo and CTA. */
+    .jf-nav-right{gap:14px}
+    .jf-nav .jf-gold{padding:10px 16px;font-size:13px}
+    .jf-brand svg{height:16px}
     .hero-wrap{padding:96px 22px 120px}
     .hero h1{font-size:clamp(38px,10vw,68px)}
     .hero-sub{font-size:17px}
@@ -380,6 +387,12 @@ export const landingCss = `
   /* Very small screens: the auction-sheet 4-up data grid is too tight, so the
      Year/Odo/Engine/Trans cells wrap to a readable 2x2. */
   @media(max-width:420px){
+    /* Smallest phones: drop the "Finder" tag and trim the logo/CTA so the
+       "Start free" button is never clipped against the menu button. */
+    .jf-tag{display:none}
+    .jf-brand svg{height:15px}
+    .jf-nav-right{gap:9px}
+    .jf-nav .jf-gold{padding:10px 13px}
     .vc-data{grid-template-columns:repeat(2,1fr)}
     .vc-data .c{border-bottom:1px solid var(--hair)}
     .vc-data .c:nth-child(2n){border-right:0}
