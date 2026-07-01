@@ -200,12 +200,12 @@ export const onboardingCss = `
   .ob-steps li.is-done .dot:after{content:"";position:absolute;width:12px;height:12px;
     background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.3l2.4 2.4 4.6-5' stroke='%237A5E1C' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
   .ob-steps li.is-done:after{background:var(--gold-line)}
-  @media(max-width:560px){.ob-steps{padding:14px 12px}.ob-steps li{font-size:11px}.ob-steps li:not(:last-child):after{left:calc(50% + 16px);width:calc(100% - 32px)}}
+  @media(max-width:560px){.ob-steps{padding:14px 12px}.ob-steps li{font-size:11px}.ob-steps li:not(:last-child):after{left:calc(50% + 12px);width:calc(100% - 24px)}}
 
   /* Content */
   .ob-main{max-width:1080px;margin:0 auto;padding:40px 28px 80px}
   .ob-eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:12px}
-  .ob-step h1{font-size:clamp(25px,3.2vw,36px);font-weight:800;letter-spacing:-0.02em;line-height:1.1;margin:0 0 12px;color:var(--ink)}
+  .ob-step h1{font-size:clamp(25px,3.2vw,36px);font-weight:800;letter-spacing:-0.02em;line-height:1.1;margin:0 0 12px;color:var(--ink);text-wrap:balance}
   .ob-lead{font-size:16px;line-height:1.6;color:var(--t2);margin:0 0 28px;max-width:60ch}
 
   .ob-only{display:none}
@@ -215,7 +215,7 @@ export const onboardingCss = `
   .ob-on .ob-step.is-active{display:block;animation:obIn .34s var(--ease)}
   .ob-on .ob-nojs{display:none}
   @keyframes obIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @media(prefers-reduced-motion:reduce){.ob-on .ob-step.is-active{animation:none}.ob *{transition:none!important}}
+  @media(prefers-reduced-motion:reduce){.ob-on .ob-step.is-active{animation:none}.ob-recent[data-state=loading] .ob-rec-img{animation:none}.ob *{transition:none!important}}
 
   .ob-cols{display:grid;grid-template-columns:1.25fr 0.75fr;gap:34px;align-items:start}
   @media(max-width:800px){.ob-cols{grid-template-columns:1fr;gap:24px}}
@@ -269,7 +269,7 @@ export const onboardingCss = `
   }
 
   .ob-fields{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  @media(max-width:560px){.ob-fields{grid-template-columns:1fr}}
+  @media(max-width:560px){.ob-fields{grid-template-columns:1fr}.ob-budget .in input{font-size:22px;padding-left:46px}.ob-budget .in .cur{font-size:20px}}
 
   /* Budget chips */
   .ob-chips{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:18px}
@@ -344,7 +344,7 @@ export const onboardingCss = `
   .ob-success{max-width:760px;margin:0 auto}
   .ob-success .ob-badge{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:16px}
   .ob-success .ob-badge .tk{width:22px;height:22px;border-radius:999px;background:var(--gold);color:#15120A;display:flex;align-items:center;justify-content:center;font-size:12px}
-  .ob-success h1{font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-0.02em;margin:0 0 10px}
+  .ob-success h1{font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-0.02em;margin:0 0 10px;text-wrap:balance}
   .ob-success .ob-sub{font-size:16px;color:var(--t2);line-height:1.6;margin:0 0 26px;max-width:60ch}
   .ob-card{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:24px 26px;margin-bottom:22px}
   .ob-summary{list-style:none;margin:0;padding:0}

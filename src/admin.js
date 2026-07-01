@@ -189,6 +189,8 @@ const CSS = `
     --str-bg:rgba(91,192,140,0.14);--str-fg:#7FD3A6;--good-bg:rgba(224,169,75,0.16);--good-fg:#E9BE6B;--pos-bg:rgba(255,255,255,0.06);--pos-fg:#AEB3BA;
     --elig-bg:rgba(91,192,140,0.14);--elig-fg:#7FD3A6;--echk-bg:rgba(224,169,75,0.16);--echk-fg:#E9BE6B;--eno-bg:rgba(226,96,122,0.13);--eno-fg:#E2607A;
     --r:8px;--r-card:12px;}
+  .skip-link{position:absolute;left:-9999px;top:0}
+  .skip-link:focus{left:8px;top:8px;z-index:100;background:#fff;color:#111;padding:8px 12px;border-radius:8px}
   /* Light workspace: the sidebar (.side) keeps the dark brand from :root, while
      the main content area runs a light palette. Only tokens that differ from the
      dark root are overridden here; gold and radii are shared. */
@@ -404,6 +406,13 @@ const CSS = `
   .msearch input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,.16)}
   select.mctl{width:auto;padding:9px 28px 9px 11px;border:1px solid var(--field-line);border-radius:7px;font-size:13.5px;background:var(--field);color:var(--t2);cursor:pointer;font-family:inherit}
   @media(max-width:640px){select.mctl{width:100%}}
+  /* Mobile QA pass: wide data tables scroll (not clip) on phones; match cards'
+     multi-select checkbox works on touch (no hover); the match bulk bar and the
+     client-detail header wrap instead of overflowing on small screens. */
+  @media(max-width:640px){.sortable{min-width:560px}}
+  @media(max-width:920px){.mcard .msel,.scard .msel{display:block;width:26px;height:26px}}
+  @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk{flex:1 1 auto}}
+  @media(max-width:560px){.cd-head{flex-wrap:wrap}.cd-owner{text-align:left;flex-basis:100%;margin-top:8px}}
   .fchips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .fchip{border:1px solid var(--field-line);background:var(--field);color:var(--t2);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
   .fchip .sd{width:8px;height:8px;border-radius:9999px;display:inline-block}
@@ -829,7 +838,7 @@ function searchView(res) {
   if (q.length < 2) return `<div class="card"><div class="empty">Type at least two characters to search.</div></div>`;
   const total = res.clients.length + res.requests.length + res.matches.length + res.payments.length;
   if (!total) return `<div class="card"><div class="empty"><div class="rule"></div>No matches for &ldquo;${esc(q)}&rdquo;. Try a name, email, make, model, chassis code or lot number.</div></div>`;
-  const grp = (title, n, rowsHtml) => n ? `<div class="psec"><h2>${title}<span class="ct">${n}</span></h2></div><div class="card" style="padding:0;overflow:hidden"><table>${rowsHtml}</table></div>` : "";
+  const grp = (title, n, rowsHtml) => n ? `<div class="psec"><h2>${title}<span class="ct">${n}</span></h2></div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch"><table>${rowsHtml}</table></div>` : "";
   const clientRows = res.clients.map((c) => `<tr><td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td><td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td></tr>`).join("");
   const reqRows = res.requests.map((w) => `<tr><td><a class="clink" href="/admin?view=client&id=${w.client_id}">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</a>${w.kuzov ? ` <span class="chip muted">${esc(w.kuzov)}</span>` : ""}</td><td>${esc(w.client_name)}</td></tr>`).join("");
   const chip = (s) => `<span class="chip muted">${esc(s || "-")}</span>`;
@@ -1051,16 +1060,16 @@ function agentsView(agents) {
       <h2><span class="num">+</span> New agent</h2>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label>Name</label><input name="name" placeholder="Agent name" required></div>
-          <div><label>Email <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
-          <div><label>Company <span class="opt">(optional)</span></label><input name="company" placeholder="e.g. Ofuka"></div>
+          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" required></div>
+          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" required></div>
+          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -1209,7 +1218,7 @@ function paymentsView(payments, opts = {}) {
     </tr>`;
   }).join("");
   const depositsSection = deposits.length ? `<div class="psec" style="margin-top:26px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
     </div>` : "";
   return `<div class="triage">
@@ -1219,7 +1228,7 @@ function paymentsView(payments, opts = {}) {
     </div>
     ${depositsSection}
     ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
@@ -1245,10 +1254,10 @@ export function loginPage(opts = {}) {
       <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
       ${err}
       ${googleBlock}
-      <label>Email</label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@email.com" maxlength="160">
-      <label style="margin-top:14px">Password</label>
-      <input type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
+      <label for="lg-email">Email</label>
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="160">
+      <label for="lg-pass" style="margin-top:14px">Password</label>
+      <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:18px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
@@ -1271,10 +1280,10 @@ export function setPasswordPage(opts = {}) {
       <p class="login-sub">Welcome${name ? ", " + esc(name) : ""}. Choose a password to access the Vehicle Finder.</p>
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
-      <label>New password</label>
-      <input type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
-      <label style="margin-top:14px">Confirm password</label>
-      <input type="password" name="confirm" autocomplete="new-password" required minlength="6">
+      <label for="sp-pass">New password</label>
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
+      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="6">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
@@ -1694,10 +1703,10 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label>Name</label><input name="name" placeholder="Jane Citizen" required></div>
-          <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" placeholder="name@email.com"></div>
-          <div><label>WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-          <div><label>State <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
+          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" required></div>
+          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions("")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -1806,7 +1815,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
   const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow:hidden">
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
@@ -1886,7 +1895,7 @@ function requestsView(requests, opts = {}) {
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
@@ -2639,7 +2648,7 @@ function wishlistsView(wishlists) {
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
   }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
-  return `<div class="card" style="padding:0;overflow:hidden">
+  return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -3176,7 +3185,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const th = (u) => `${u}&w=320`;
   const gallery = photoBases.length
     ? `<div class="ld-gallery">
-        <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(photoBases[0]))}')"></div>
+        <div class="ld-hero" id="ldHero" role="img" aria-label="${title}" style="background-image:url('${esc(big(photoBases[0]))}')"></div>
         ${photoBases.length > 1 ? `<div class="ld-thumbs">${photoBases.map((u, i) => `<button type="button" class="ld-th${i === 0 ? " on" : ""}" data-full="${esc(big(u))}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}
       </div>`
     : `<div class="ld-gallery"><div class="ld-hero ld-noimg">No photos on this lot yet</div></div>`;
@@ -3358,10 +3367,10 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <form method="POST" action="/client/update">
       <input type="hidden" name="id" value="${c.id}">
       <div class="grid">
-        <div><label>Name</label><input name="name" value="${esc(c.name || "")}" required></div>
-        <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
-        <div><label>WhatsApp <span class="opt">(+61…)</span></label><input name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
-        <div><label>State <span class="opt">(for landed-cost estimates)</span></label><input name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+        <div><label for="ec-name">Name</label><input id="ec-name" name="name" value="${esc(c.name || "")}" required></div>
+        <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
+        <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
+        <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
@@ -3406,15 +3415,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
       <div class="grid">
-        <div><label>Label</label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>Make</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
-        <div><label>Model <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
-        <div><label>Year min</label><input name="year_min" type="number" placeholder="1990"></div>
-        <div><label>Year max</label><input name="year_max" type="number" placeholder="2002"></div>
-        <div><label>Max price (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
-        <div><label>Max mileage (km)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
-        <div><label>Min grade</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+        <div><label for="as-label">Label</label><input id="as-label" name="label" placeholder="e.g. weekend project"></div>
+        <div><label for="as-make">Make</label><input id="as-make" name="marka_name" placeholder="e.g. TOYOTA"></div>
+        <div><label for="as-model">Model <span class="opt">(contains)</span></label><input id="as-model" name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label for="as-yearmin">Year min</label><input id="as-yearmin" name="year_min" type="number" placeholder="1990"></div>
+        <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
+        <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
+        <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
+        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
@@ -3462,8 +3471,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
     : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
-  const findCard = canManage ? `<div class="card" id="find">
-    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+  const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
+    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
     <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search — tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
@@ -3571,7 +3580,7 @@ export async function requestPage(env, opts = {}) {
       : "";
     const successInner = `<div class="ob">
       ${topnav}
-      <main class="ob-main"><div class="ob-success">
+      <main class="ob-main" id="main"><div class="ob-success">
         <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
         <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
         <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
@@ -3637,7 +3646,7 @@ export async function requestPage(env, opts = {}) {
           <li><span class="dot">4</span><span class="lbl">Account</span></li>
         </ol>
       </div>
-      <main class="ob-main">
+      <main class="ob-main" id="main">
         ${banner}
         <form id="requestForm" class="ob-form" method="POST" action="/request" novalidate${errStep ? ` data-error-step="${errStep}"` : ""}>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
@@ -3665,7 +3674,7 @@ export async function requestPage(env, opts = {}) {
 
           <section class="ob-step" data-step="2" aria-label="Budget and requirements">
             <div class="ob-eyebrow">Your budget</div>
-            <h1>What's your budget?</h1>
+            <h1>What&rsquo;s your budget?</h1>
             <p class="ob-lead">Your total landed budget in AUD, the car plus shipping, duties and on-road costs, delivered to your door. A realistic figure finds the right car faster.</p>
             <div class="ob-cols">
               <div>
@@ -3677,16 +3686,16 @@ export async function requestPage(env, opts = {}) {
                 </div>
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:18px">
-                  <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+                  <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
                   <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
                 </div>
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>
                   <div class="ob-fields">
-                    <div><label>Max mileage <span class="opt">(km)</span></label><input name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label>Min auction grade <span class="opt">(1 to 6)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-                    <div><label>Chassis code <span class="opt">(if known)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
-                    <div><label>Nickname <span class="opt">(for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
+                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
+                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                    <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+                    <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
                   </div>
                 </details>
               </div>
@@ -3718,7 +3727,7 @@ export async function requestPage(env, opts = {}) {
           ${signedIn ? `<section class="ob-step" data-step="4" aria-label="Confirm and start your search">
             <div class="ob-eyebrow">Almost there</div>
             <h1>Confirm your search</h1>
-            <p class="ob-lead">You're signed in, so there's nothing else to fill in - just start your search.</p>
+            <p class="ob-lead">You&rsquo;re signed in, so there&rsquo;s nothing else to fill in - just start your search.</p>
             <div class="ob-cols">
               <div>
                 <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid rgba(0,0,0,.1);border-radius:14px;background:#f7f9fc;margin-bottom:18px">
@@ -3752,8 +3761,8 @@ export async function requestPage(env, opts = {}) {
               <div>
                 ${googleOn ? `${googleButton("signup", "Continue with Google")}<div class="ob-or">or use your email</div>` : ""}
                 <div class="ob-fields">
-                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
-                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
+                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" autocomplete="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
+                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" autocomplete="email" spellcheck="false" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
                   <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
                   <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
@@ -3798,7 +3807,7 @@ export async function publicLotPage(env, queueId) {
   if (!q) {
     return brandShell(sb,
       `<div class="topbar"><div class="topbar-in"><div class="kicker">Vehicle Finder</div><h1>Car not found</h1></div></div>
-       <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you're after</a> and we'll source it for you.</div></div></div>`,
+       <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you&rsquo;re after</a> and we&rsquo;ll source it for you.</div></div></div>`,
       "Vehicle - JDM Connect");
   }
   let lot = {};
@@ -3813,7 +3822,7 @@ export async function publicLotPage(env, queueId) {
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
   const th = (u) => `${u}&w=320`;
   const gallery = photos.length
-    ? `<div class="plv-hero" id="plvHero" style="background-image:url('${esc(photos[0])}')"></div>
+    ? `<div class="plv-hero" id="plvHero" role="img" aria-label="${title}" style="background-image:url('${esc(photos[0])}')"></div>
        ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
     : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
   const sheetBox = sheetBase
@@ -4020,8 +4029,8 @@ function tableToolsScript() {
 }
 
 function shell(side, main, title) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
+    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -4757,7 +4766,7 @@ async function enablePortalSelfSignup(env, clientId, password) {
 const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function portalSidebar(c, active = "garage") {
-  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}" href="${href}"><span class="bar"></span><span class="lbl">${label}</span></a>`;
+  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
   // The auction search page is a paid-member perk, gated on clients.member.
   const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
   return `<aside class="side">
@@ -4816,7 +4825,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
   }
 
   const form = `<div class="card">
-    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
+    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
     <form method="GET" action="/portal/auctions">
       <div class="grid">
         <div><label>Make<input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"></label><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
@@ -4980,7 +4989,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const sv = (k) => esc(sp[k] || "");
   const makers = await distinctMakers(env);
   const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
-  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}" href="/admin?view=auctions&tab=${t}">${label}</a>`;
+  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}"${tab === t ? ' aria-current="page"' : ''} href="/admin?view=auctions&tab=${t}">${label}</a>`;
   const tabs = `<div class="auc-tabs">${tabLink("live", "Live auctions")}${tabLink("sold", "Sold-price history")}</div>`;
 
   let panel = "";

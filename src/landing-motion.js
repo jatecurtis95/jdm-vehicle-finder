@@ -55,7 +55,7 @@ export function landingMotionScript(costTotal) {
 
     function updatePin(){
       if(!pin||!numEl) return;
-      if(costMq.matches){ numEl.textContent='A$'+FINAL.toLocaleString('en-AU'); lines.forEach(function(el){el.classList.add('in');}); return; }
+      if(costMq.matches||reduce){ numEl.textContent='A$'+FINAL.toLocaleString('en-AU'); lines.forEach(function(el){el.classList.add('in');}); return; }
       var r=pin.getBoundingClientRect(); var span=r.height-window.innerHeight;
       var p=span>0?(-r.top)/span:0; p=Math.max(0,Math.min(1,p));
       var n=lines.length;
@@ -67,21 +67,33 @@ export function landingMotionScript(costTotal) {
     function onScroll(){
       if(nav){ if(window.scrollY>36) nav.setAttribute('data-scrolled','1'); else nav.removeAttribute('data-scrolled'); }
       if(!reduce){
-        var trg=vh()*0.9;
+        // Batch reads before writes to avoid forced reflow: read every reveal
+        // rect first, collect the hits, then flip the classes in one pass.
+        var trg=vh()*0.9, toReveal=[];
         for(var i=0;i<revealEls.length;i++){ var el=revealEls[i]; if(el.classList.contains('in')) continue;
-          var rc=el.getBoundingClientRect(); if(rc.top<trg&&rc.bottom>-40) el.classList.add('in'); }
-        var tc=vh()*0.85;
+          var rc=el.getBoundingClientRect(); if(rc.top<trg&&rc.bottom>-40) toReveal.push(el); }
+        for(var ri=0;ri<toReveal.length;ri++){ toReveal[ri].classList.add('in'); }
+        // Count-ups read after the reveal writes (their spans ride the parent's
+        // reveal transform), then start in one pass.
+        var tc=vh()*0.85, toCount=[];
         for(var j=0;j<countEls.length;j++){ var ce=countEls[j]; if(ce.dataset.ran==='1') continue;
-          var cr=ce.getBoundingClientRect(); if(cr.top<tc&&cr.bottom>0) runCount(ce); }
+          var cr=ce.getBoundingClientRect(); if(cr.top<tc&&cr.bottom>0) toCount.push(ce); }
+        for(var ci=0;ci<toCount.length;ci++){ runCount(toCount[ci]); }
       }
       if(heroImg&&!reduce){ var hy=window.scrollY; if(hy<vh()*1.25) heroImg.style.transform='translate3d(0,'+(hy*0.16).toFixed(1)+'px,0) scale(1.16)'; }
       if(featPin&&featCallouts.length){
-        var fr=featPin.getBoundingClientRect(); var fspan=fr.height-window.innerHeight;
-        var fp=fspan>0?(-fr.top)/fspan:0; fp=Math.max(0,Math.min(0.999,fp));
-        var fidx=Math.min(featCallouts.length-1,Math.floor(fp*featCallouts.length));
-        featCallouts.forEach(function(el,i){ el.classList.toggle('show',i===fidx); });
-        featDots.forEach(function(d,i){ var on=i===fidx; d.style.background=on?'#CAA34C':'rgba(255,255,255,0.22)'; d.style.width=on?'22px':'8px'; });
-        if(featImg&&!reduce) featImg.style.transform='scale('+(1.04+fp*0.06).toFixed(3)+')';
+        if(reduce){
+          // Reduced motion: show the first callout statically, no scroll switching.
+          featCallouts.forEach(function(el,i){ el.classList.toggle('show',i===0); });
+          featDots.forEach(function(d,i){ var on=i===0; d.style.background=on?'#CAA34C':'rgba(255,255,255,0.22)'; d.style.transform=on?'scaleX(2.75)':'scaleX(1)'; });
+        } else {
+          var fr=featPin.getBoundingClientRect(); var fspan=fr.height-window.innerHeight;
+          var fp=fspan>0?(-fr.top)/fspan:0; fp=Math.max(0,Math.min(0.999,fp));
+          var fidx=Math.min(featCallouts.length-1,Math.floor(fp*featCallouts.length));
+          featCallouts.forEach(function(el,i){ el.classList.toggle('show',i===fidx); });
+          featDots.forEach(function(d,i){ var on=i===fidx; d.style.background=on?'#CAA34C':'rgba(255,255,255,0.22)'; d.style.transform=on?'scaleX(2.75)':'scaleX(1)'; });
+          if(featImg) featImg.style.transform='scale('+(1.04+fp*0.06).toFixed(3)+')';
+        }
       }
       updatePin();
     }

@@ -393,6 +393,11 @@ export const landingCss = `
     .jf-brand svg{height:15px}
     .jf-nav-right{gap:9px}
     .jf-nav .jf-gold{padding:10px 13px}
+    /* Auction card: shrink the fixed grade oval so the car name + specs aren't
+       squashed on ~320px phones. */
+    .vc-oval .o{width:66px;height:66px}
+    .vc-oval .o .g{font-size:26px}
+    .vc-grade-row{gap:12px}
     .vc-data{grid-template-columns:repeat(2,1fr)}
     .vc-data .c{border-bottom:1px solid var(--hair)}
     .vc-data .c:nth-child(2n){border-right:0}

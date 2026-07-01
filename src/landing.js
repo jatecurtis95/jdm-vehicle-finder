@@ -40,7 +40,7 @@ import {
 // (see wrangler.toml [assets]). Treatment (cool, deep-shadow) is applied in CSS.
 const IMG = "/assets/photo/web";
 const photo = (file, alt, { id = "", eager = false } = {}) =>
-  `<img src="${IMG}/${file}" alt="${alt}"${id ? ` id="${id}"` : ""} ${
+  `<img src="${IMG}/${file}" alt="${alt}" width="1600" height="1067"${id ? ` id="${id}"` : ""} ${
     eager ? `fetchpriority="high" decoding="async"` : `loading="lazy" decoding="async"`
   }>`;
 
@@ -163,7 +163,7 @@ export async function landingPage(env) {
       <div class="hero-bg" aria-hidden="true">
         ${photo("hero_r32_garage.jpg", "Nissan Skyline GT-R R32 at a Japanese auction", { id: "heroImg", eager: true })}<div class="scrim"></div>
       </div>
-      <div class="hero-wrap">
+      <div class="hero-wrap" id="main">
         <div class="hero-copy">
           <div class="eb rv in"><span class="r"></span><span class="t">Live Japanese auction access</span></div>
           <h1 id="hero-h" class="rv in rv-d1">Your dream car is at auction in Japan <em>right now.</em></h1>
