@@ -3399,6 +3399,14 @@ export async function requestPage(env, opts = {}) {
       : req.existing
         ? `You've enquired before, so we added this to your existing details. Sign in to track it, or check your email for a link to set your password.`
         : `We'll be in touch the moment a match appears.`;
+    // Conversion tracking: fire a Meta Pixel "Lead" only on a genuine, server-
+    // validated sign-up (a real req with a name) - never on the honeypot / rate-
+    // limited generic success, so bots and spam never inflate the conversion.
+    // fbq is already initialised in <head> via brandDoc's ANALYTICS_HEAD.
+    const isLead = !!(opts.req && opts.req.name);
+    const leadPixel = isLead
+      ? `<script>try{window.fbq&&fbq('track','Lead',{content_name:'Finder vehicle request',content_category:'vehicle_request'});}catch(e){}try{window.dataLayer&&window.dataLayer.push({event:'finder_signup'});}catch(e){}</script>`
+      : "";
     const successInner = `<div class="ob">
       ${topnav}
       <main class="ob-main"><div class="ob-success">
@@ -3424,7 +3432,7 @@ export async function requestPage(env, opts = {}) {
       </div></main>
     </div>
     <style>${onboardingCss}</style>
-    <script>(function(){try{localStorage.removeItem('jdmReqDraft');}catch(e){}})();</script>`;
+    <script>(function(){try{localStorage.removeItem('jdmReqDraft');}catch(e){}})();</script>${leadPixel}`;
     return brandDoc(successInner, "Your search is live - JDM Connect");
   }
 
