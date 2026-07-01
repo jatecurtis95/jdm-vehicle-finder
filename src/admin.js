@@ -1421,8 +1421,37 @@ async function dashboardData(env, session) {
       ORDER BY t.due_date ASC, t.priority='high' DESC LIMIT 6`
   ).all()).results || [];
 
+  // Scheduled follow-ups due (or overdue) today — "who needs attention today?".
+  const nextActionList = (await run(
+    `SELECT w.id, w.status, w.next_action_date, w.next_action_note, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND c.archived = 0 AND w.status NOT IN (${inTerminal})
+        AND w.next_action_date IS NOT NULL AND w.next_action_date <= date('now')
+      ORDER BY w.next_action_date ASC LIMIT 8`
+  ).all()).results || [];
+  const nextActionDue = nextActionList.length;
+
+  // Who owes money — deposits requested but not paid (the list, for the panel).
+  const depositsList = (await run(
+    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE w.deposit_status = 'requested' AND ${acc.sql} AND c.archived = 0
+      ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
+  ).all()).results || [];
+
+  // Closest to buying — interested / deposit stages, most-committed first.
+  const closestList = (await run(
+    `SELECT w.id, w.status, w.deposit_status, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND c.archived = 0
+        AND w.status IN ('interested','deposit_requested','deposit_paid')
+      ORDER BY CASE w.status WHEN 'deposit_paid' THEN 3 WHEN 'deposit_requested' THEN 2 ELSE 1 END DESC,
+               COALESCE(w.last_activity, w.created_at) DESC LIMIT 6`
+  ).all()).results || [];
+
   return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList,
-    stageCounts, openRequests, depositsOut, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList };
+    stageCounts, openRequests, depositsOut, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
+    nextActionList, nextActionDue, depositsList, closestList };
 }
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
@@ -1442,34 +1471,17 @@ function dashboardView(session, data) {
       <a href="/logout" aria-label="Sign out">${ICONS.account}</a>
     </div>`;
 
-  // KPI strip — each cell is a shortcut to its view. Counts live here only (the
-  // old Review-queue / Closing-soon banners repeated these same two numbers).
+  // Business roll-up: only the numbers NOT already surfaced as attention cards
+  // (matches/closing/deposits live there now), so the dashboard never repeats a
+  // figure three times.
   const overview = `<div class="ovwrap"><span class="ovlbl">${ovLabel}</span><a href="/admin?view=clients">Manage ${ICONS.arrow}</a></div>
     <div class="overview">
       ${metric(data.clients, "Active clients", false, "/admin?view=clients")}
       ${isAdmin ? metric(data.agents, "Active agents", false, "/admin?view=agents") : ""}
-      ${metric(data.pending, "Matches to review", true, "/admin?view=matches")}
-      ${metric(data.closing, "Closing in 48h", false, "/admin?view=matches")}
-      ${metric(data.requests, "Client requests", false, "/admin?view=matches")}
+      ${metric(data.openRequests, "Open requests", false, "/admin?view=requests")}
       ${metric(data.sentWeek, "Sent this week", false, "/admin?view=matches")}
       ${metric(data.members, "Members", false, "/admin?view=clients")}
     </div>`;
-
-  let section;
-  if (isAdmin) {
-    const rows = data.people.map((a) => `<div class="lrow">
-        ${avatar(a.name)}
-        <div class="who"><div class="nm">${esc((a.name || "").split(/\s+/)[0])}${a.company ? ` <small>· ${esc(a.company)}</small>` : ""}</div><div class="sub">${esc(a.email || "")}</div></div>
-        <div class="meta">${a.alerts ? `<span class="b b-warn">${ICONS.bell} alerts on</span>` : ""}<span class="b ${a.active ? "b-ok" : "b-neu"}">${a.active ? "active" : "paused"}</span><a class="kebab" href="/admin?view=agents" aria-label="Manage ${esc(a.name)}">${ICONS.kebab}</a></div>
-      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No agents yet. Invite one to get started.</div></div></div>`;
-    section = `<div class="sec-h"><h2>Agents <span class="ct">(${data.people.length})</span></h2><a class="btn-gold" href="/admin?view=agents">${ICONS.plus} Invite agent</a></div><div class="list">${rows}</div>`;
-  } else {
-    const rows = data.people.map((c) => `<div class="lrow">
-        ${avatar(c.name)}
-        <div class="who"><div class="nm"><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></div><div class="sub">${esc(c.email || c.state || "Client")}</div></div>
-      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No clients yet. Add one to get started.</div></div></div>`;
-    section = `<div class="sec-h"><h2>Recent clients</h2><a class="btn-gold" href="/admin?view=intake">${ICONS.plus} Add client</a></div><div class="list">${rows}</div>`;
-  }
 
   const strengthParts = [
     { label: "Strong", value: data.strength.Strong || 0, color: "#5BC08C" },
@@ -1532,7 +1544,6 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${d <= 1 ? "b-warn" : "b-neu"}">Closes ${when}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing closing in the next 48h.</div></div></div>`;
-  const closingSection = `<div class="sec-h"><h2>Closing soon <span class="ct">(48h)</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
 
   // --- Phase 2: "needs attention today" band + live pipeline strip ----------
   const ac = (n, label, href, alert) => {
@@ -1542,6 +1553,7 @@ function dashboardView(session, data) {
   const attention = `<div class="attn">
     <div class="attn-h">Needs attention today</div>
     <div class="acards">
+      ${ac(data.nextActionDue, "Follow-ups due", "/admin?view=requests", "warn")}
       ${ac(data.tasksOverdue, "Overdue tasks", "/admin?view=tasks", "bad")}
       ${ac(data.tasksToday, "Tasks due today", "/admin?view=tasks", "warn")}
       ${ac(data.depositsOut, "Deposits outstanding", isAdmin ? "/admin?view=payments" : "/admin?view=requests", "warn")}
@@ -1576,7 +1588,45 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">${esc((RSTATUS[w.status] || {}).label || w.status)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No stalled requests. Everything's moving.</div></div></div>`;
-  const stalledSection = `<div class="sec-h"><h2>Stalled requests <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div><div class="list">${stalledRows}</div>`;
+  const stalledSection = `<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div><div class="list">${stalledRows}</div>`;
+
+  // Reframe the closing-soon list as a question to match the rest of the board.
+  const closingQ = `<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
+
+  // Who needs attention today — scheduled follow-ups due (or overdue).
+  const naRows = (data.nextActionList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    const d = taskDue(w.next_action_date);
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}${w.next_action_note ? " · " + esc(w.next_action_note) : ""}</div></div>
+        <div class="meta"><span class="b ${d.tone === "over" ? "b-warn" : "b-neu"}">${esc(d.label)}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
+  const attentionSection = `<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${naRows}</div>`;
+
+  // Who owes money — deposits requested, not yet paid.
+  const owesRows = (data.depositsList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta"><span class="b b-warn">Deposit requested</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
+  const owesSection = `<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div><div class="list">${owesRows}</div>`;
+
+  // Who's closest to buying — interested / deposit stages, most-committed first.
+  const closeRows = (data.closestList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    const lbl = (RSTATUS[w.status] || {}).label || w.status;
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta"><span class="b ${w.status === "deposit_paid" ? "b-ok" : "b-warn"}">${esc(lbl)}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
+  const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
 
   return `<div class="dash">
       ${topbar}
@@ -1585,9 +1635,10 @@ function dashboardView(session, data) {
       ${attention}
       ${pipelineStrip}
       ${overview}
-      <div class="dcols">${tasksSection}${stalledSection}</div>
+      <div class="dcols">${attentionSection}${tasksSection}</div>
+      <div class="dcols">${owesSection}${closestSection}</div>
+      <div class="dcols">${stalledSection}${closingQ}</div>
       ${charts}
-      <div class="dcols">${closingSection}${section}</div>
     </div>${DASH2_CSS}${dashScript()}`;
 }
 
@@ -1801,6 +1852,7 @@ function requestsView(requests, opts = {}) {
       <td>${healthDot(r.last_activity)}<a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></td>
       <td><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></td>
       <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</td>
+      <td>${destinationCell(r.destination_country, r.client_state)}</td>
       <td style="white-space:nowrap">${budget}</td>
       <td>${statusSelect(r.id, r.status)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
@@ -1811,13 +1863,13 @@ function requestsView(requests, opts = {}) {
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="10" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
-    ${tableSearch("reqTbl", "Search requests by customer, vehicle or state…")}
+    ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     <div class="card" style="padding:0;overflow:hidden">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
 }
@@ -1841,7 +1893,18 @@ const REQ_CSS = `<style>
   .rstat-win{background:rgba(31,122,77,.2);color:#155e3a}
   .rstat-bad{background:var(--bad-bg);color:var(--bad)}
   .rstat-sel{padding:6px 26px 6px 10px;font-size:12.5px;border:1px solid var(--hair);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit}
+  .ov-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,115,172,.1);border:1px solid rgba(59,115,172,.34);color:#3B5E96;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
+  .ov-chip .ov-d{width:6px;height:6px;border-radius:9999px;background:currentColor}
 </style>`;
+
+// Destination cell for a request: the AU registration state by default, or an
+// "Overseas" badge with the country when a non-Australia destination is set.
+// Purely a marker - the AU landed-cost / eligibility flow is unchanged.
+function destinationCell(country, state) {
+  const c = String(country || "").trim();
+  if (c) return `<span class="ov-chip" title="Overseas destination"><span class="ov-d"></span>${esc(c)}</span>`;
+  return state ? esc(state) : '<span class="chip muted">-</span>';
+}
 
 // Record one timeline event (Priority 8). Best-effort; never throws into a handler.
 export async function logActivity(env, { wishlist_id = null, client_id = null, type, detail = null, actor = null }) {
@@ -2070,6 +2133,29 @@ export async function assignRequestOwner(env, id, ownerId, session) {
   return { ok: true, client_id: w.client_id };
 }
 
+// Schedule (or clear) a request's next follow-up. A date drives the dashboard's
+// "who needs attention today?" list; the optional note says what the step is.
+export async function setNextAction(env, id, { date, note, clear } = {}, session) {
+  const wid = Number(id);
+  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  if (!w) return { ok: false, error: "not_found" };
+  if (clear) {
+    await env.DB.prepare("UPDATE wishlists SET next_action_date = NULL, next_action_note = NULL WHERE id = ?").bind(wid).run();
+    return { ok: true, client_id: w.client_id, cleared: true };
+  }
+  // Accept only a plain ISO date (YYYY-MM-DD); anything else clears the schedule.
+  const d = String(date || "").trim();
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  const n = String(note || "").trim().slice(0, 160) || null;
+  await env.DB.prepare("UPDATE wishlists SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
+  if (iso) {
+    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: `Follow-up set for ${iso}${n ? `: ${n}` : ""}`, actor });
+  }
+  return { ok: true, client_id: w.client_id };
+}
+
 // Access guard for a task row: admin, the assignee, or someone who can see its
 // client. Unassigned client-less tasks are admin-only.
 async function taskAccessible(env, t, session) {
@@ -2223,6 +2309,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     ["Email", w.client_email ? `<a href="mailto:${esc(w.client_email)}">${esc(w.client_email)}</a>` : ""],
     ["Phone", w.client_whatsapp ? esc(w.client_whatsapp) : ""],
     ["State", w.client_state ? esc(w.client_state) : ""],
+    ["Destination", w.destination_country ? `<span class="ov-chip"><span class="ov-d"></span>${esc(w.destination_country)}</span>` : ""],
     ["Portal", w.portal_enabled ? "Enabled" : "Not enabled"],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="rd-row"><span class="rd-k">${k}</span><span class="rd-v">${v}</span></div>`).join("");
   const contactBtns = [
@@ -2293,6 +2380,18 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         ${w.status !== "lost" ? `<form method="POST" action="/request/status" onsubmit="return confirm('Mark this request as lost?')"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
       </div>
       ${statusPipeline(w.status)}
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Next action</div>
+      ${w.next_action_date
+        ? `<div class="rd-na-cur"><span class="tk-due tk-${taskDue(w.next_action_date).tone}">${esc(taskDue(w.next_action_date).label)}</span>${w.next_action_note ? ` <span class="rd-na-note">${esc(w.next_action_note)}</span>` : ""}</div>`
+        : `<div class="rd-empty">No follow-up scheduled.</div>`}
+      <form method="POST" action="/request/next-action" class="rd-na">
+        <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
+        <input type="date" name="next_action_date" value="${esc(w.next_action_date || "")}" aria-label="Next action date">
+        <input name="next_action_note" value="${esc(w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
+        <div class="rd-naact"><button class="rd-cta rd-cta-gold" type="submit">Set follow-up</button>${w.next_action_date ? `<button class="rd-cta rd-cta-bad" type="submit" name="clear" value="1">Clear</button>` : ""}</div>
+      </form>
     </div>
     <div class="rdcard">
       <div class="rd-h">Add a note</div>
@@ -2392,6 +2491,11 @@ const RD_CSS = `<style>
   .rd-lost{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px}
   .rd-note{width:100%;background:var(--field,var(--card));border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--ink);resize:vertical}
   .rd-noteact{margin-top:9px}
+  .rd-na-cur{font-size:12.5px;color:var(--t2);margin-bottom:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .rd-na-note{color:var(--ink)}
+  .rd-na{display:flex;flex-direction:column;gap:8px}
+  .rd-na input{background:var(--field,var(--card));border:1px solid var(--hair);border-radius:9px;padding:9px 11px;font-family:inherit;font-size:12.5px;color:var(--ink);width:100%}
+  .rd-naact{display:flex;gap:8px}
   .rd-tasks{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
   .rd-newtask{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .rd-newtask input[name=title]{flex:1;min-width:120px}
@@ -3510,6 +3614,7 @@ export async function requestPage(env, opts = {}) {
                 <p id="rq-budget-error" class="field-err">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:18px">
                   <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+                  <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
                 </div>
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>
@@ -4276,6 +4381,7 @@ export async function createRequest(env, form) {
   clipField(form, "model_name", REQ_MAX.model_name);
   clipField(form, "kuzov", REQ_MAX.kuzov);
   clipField(form, "grade_kw", REQ_MAX.grade_kw);
+  clipField(form, "destination_country", 60);
 
   // Drop a malformed email rather than storing junk that breaks alert delivery.
   let email = clipField(form, "email", REQ_MAX.email).toLowerCase();
@@ -4292,6 +4398,7 @@ export async function createRequest(env, form) {
     marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), budget_aud: g("budget_aud"),
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
+    destination_country: g("destination_country"),
   };
 
   // Accounts are mandatory: email is the login identity, so it is required.
@@ -4426,13 +4533,18 @@ async function createRequestWishlist(env, clientId, form) {
   const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
 
+  // Overseas flag: any non-Australia country value marks the request for manual,
+  // non-AU handling. "Australia"/"AU" is treated as the default (no flag).
+  let dest = str(form, "destination_country");
+  if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
+
   await env.DB.prepare(
     `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
   ).bind(
     clientId, str(form, "label"), marka, model,
-    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail
+    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
   ).run();
 }
 
