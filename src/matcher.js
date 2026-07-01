@@ -4,6 +4,7 @@
 import { query, sqlString, sqlInt, sqlNum, gradeValue } from "./avtonet.js";
 import { deliverToClient } from "./notify.js";
 import { attachLanded } from "./calc.js";
+import { getSettings, settingNum } from "./settings.js";
 
 // Build the SQL for one wishlist. Only upcoming auctions, filtered by the
 // numeric/text criteria we can express in SQL. Grade is refined in code
@@ -201,6 +202,70 @@ export async function runAll(env, session) {
     }
   }
   return summary;
+}
+
+// Free-tier welcome: the moment a buyer signs up, find their best live match(es)
+// and send them straight away as a first taste of the service. The count is
+// capped by the `free_result_limit` setting (default 1); the paywall/upsell for
+// unlimited lives on the confirmation page and in the portal. Best-effort - it
+// never throws, so a signup always completes even if the search or send fails.
+// Returns { found, emailed, count, lot } for the confirmation page to render.
+export async function sendWelcomeMatch(env, wishlistId) {
+  const none = { found: false, emailed: false, count: 0, lot: null };
+  try {
+    const w = await env.DB.prepare(
+      `SELECT w.*, c.id AS client_id, c.name AS client_name, c.email AS client_email,
+              c.whatsapp AS client_whatsapp, c.state AS client_state
+         FROM wishlists w JOIN clients c ON c.id = w.client_id
+        WHERE w.id = ?`
+    ).bind(wishlistId).first();
+    // A wishlist with no real search term would match the whole feed, so skip it.
+    if (!w || !(w.marka_name || w.model_name || w.kuzov || w.grade_kw)) return none;
+
+    const candidates = refine(await query(env, buildSql(w)), w).filter((l) => l.id);
+    if (!candidates.length) return none;
+    for (const lot of candidates) lot._score = scoreMatch(lot, w);
+    candidates.sort((a, b) => b._score - a._score);
+
+    const settings = await getSettings(env);
+    const limit = Math.max(1, settingNum(settings, "free_result_limit", 1));
+    const picks = candidates.slice(0, limit);
+    for (const lot of picks) {
+      const st = strengthFor(lot._score);
+      lot._strength = st.label; lot._strengthColor = st.color; lot._watch = 0;
+    }
+    // Landed-cost estimate is a nice-to-have; never let it abort the welcome.
+    try {
+      await attachLanded(env, picks.map((lot) => ({ lot, client: { state: w.client_state } })));
+    } catch (e) { /* estimate unavailable - send without it */ }
+
+    const client = { id: w.client_id, name: w.client_name, email: w.client_email, whatsapp: w.client_whatsapp, state: w.client_state };
+    let emailed = 0;
+    for (const lot of picks) {
+      const token = crypto.randomUUID().replace(/-/g, "");
+      await env.DB.prepare(
+        `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, token) VALUES (?, ?, ?, ?, ?)`
+      ).bind(w.id, w.client_id, lot.id, JSON.stringify(lot), token).run();
+      await env.DB.prepare(`INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)`).bind(w.id, lot.id).run();
+      let sent = false;
+      try {
+        const r = await deliverToClient(env, client, lot, w);
+        sent = !!(r && r.email);
+      } catch (e) {
+        console.error(`Welcome match send failed (wishlist ${w.id}, lot ${lot.id}):`, e.message);
+      }
+      // Mark sent only if it actually went out; otherwise it stays 'pending' in
+      // the normal staff review queue so the lead is never lost.
+      if (sent) {
+        emailed++;
+        await env.DB.prepare("UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE token = ?").bind(token).run();
+      }
+    }
+    return { found: true, emailed: emailed > 0, count: picks.length, lot: picks[0] };
+  } catch (e) {
+    console.error(`sendWelcomeMatch failed (wishlist ${wishlistId}):`, e.message);
+    return none;
+  }
 }
 
 // Deliver each fresh match for an auto-notify wishlist now, marking the queued
