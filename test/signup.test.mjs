@@ -5,10 +5,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
 import { createClient, createRequest } from "../src/admin.js";
+import { passwordPolicyError } from "../src/auth.js";
 
 function fd(obj) {
   const f = new FormData();
-  for (const [k, v] of Object.entries(obj)) f.set(k, v);
+  // The public form now requires model + year range + budget too; default them
+  // so these tests exercise the path under test (email/password/dedupe), not the
+  // search-field guards. Individual tests override to exercise those guards.
+  for (const [k, v] of Object.entries({ budget_aud: "35000", model_name: "SUPRA", year_min: "1990", year_max: "2005", ...obj })) f.set(k, v);
   return f;
 }
 
@@ -37,4 +41,53 @@ test("self-signup creates a login for a brand-new client", async () => {
   const c = env.DB.prepare("SELECT pass_hash, portal_enabled FROM clients WHERE email = ?").bind("new@example.com").first();
   assert.ok(c.pass_hash, "new client gets a password hash");
   assert.equal(c.portal_enabled, 1);
+});
+
+test("password policy rejects short/long/weak/bad-charset and accepts a good one", () => {
+  assert.ok(passwordPolicyError("short1"));               // too short
+  assert.ok(passwordPolicyError("a".repeat(33) + "1"));   // too long
+  assert.ok(passwordPolicyError("alllettersonly"));       // no number
+  assert.ok(passwordPolicyError("1234567890"));           // no letter
+  assert.ok(passwordPolicyError("hasUmlautÜ12"));    // disallowed character
+  assert.equal(passwordPolicyError("Goodpass123"), null); // valid
+});
+
+test("signup now requires an email (the login identity)", async () => {
+  const env = makeEnv();
+  const r = await createRequest(env, fd({ name: "No Email", whatsapp: "0400111222", marka_name: "TOYOTA", portal_password: "Goodpass123" }));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "email");
+});
+
+test("a brand-new signup must choose a policy-compliant password (nothing created otherwise)", async () => {
+  const env = makeEnv();
+  const r = await createRequest(env, fd({ name: "Weak", email: "weak@example.com", marka_name: "TOYOTA", portal_password: "weak" }));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "password");
+  const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n;
+  assert.equal(n, 0, "no client is created when the password is rejected");
+});
+
+test("the request form now requires a make and a model", async () => {
+  const env = makeEnv();
+  const r = await createRequest(env, fd({ name: "X", email: "v1@example.com", marka_name: "NISSAN", model_name: "", portal_password: "Goodpass123" }));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "vehicle");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing created");
+});
+
+test("the request form now requires a sane year range", async () => {
+  const env = makeEnv();
+  const missing = await createRequest(env, fd({ name: "X", email: "v2@example.com", marka_name: "NISSAN", model_name: "SKYLINE", year_min: "", year_max: "", portal_password: "Goodpass123" }));
+  assert.equal(missing.error, "year", "both years required");
+  const inverted = await createRequest(env, fd({ name: "X", email: "v3@example.com", marka_name: "NISSAN", model_name: "SKYLINE", year_min: "2005", year_max: "1999", portal_password: "Goodpass123" }));
+  assert.equal(inverted.error, "year", "from must not be after to");
+});
+
+test("a second signup on an email that already has a login is refused", async () => {
+  const env = makeEnv();
+  await createRequest(env, fd({ name: "First", email: "dupe@example.com", marka_name: "TOYOTA", portal_password: "Goodpass123" }));
+  const r = await createRequest(env, fd({ name: "Second", email: "dupe@example.com", marka_name: "HONDA", portal_password: "Another12345" }));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "exists");
 });

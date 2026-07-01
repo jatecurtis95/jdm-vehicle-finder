@@ -1,390 +1,396 @@
 // Public landing page (the front door for jdmfinder.com.au and
-// finder.jdmconnect.com.au). Replaces the old bare redirect into the request
-// form with a real home that explains the service and gives a clear path to
-// start a search or sign in.
+// finder.jdmconnect.com.au). Rebuilt to the JDMFinder v2 design handoff: a long,
+// conversion-focused marketing page whose single job is to turn a curious
+// enthusiast into a free signup, with the A$49/month membership as the warm
+// upgrade. "Start your search" repeats down the page.
 //
-// Visual direction (frontend-design skill): dark luxury, editorial, with
-// auction-sheet precision. It deliberately rhymes with the spec-sheet Matches
-// cards in the staff app: tabular mono numerals, a divided stat strip, a sample
-// match panel. One directed load reveal, no scattered micro-interactions.
+// Visual direction (v2): dark, premium, editorial, auction-sheet precision. The
+// v2 handoff dropped the display serif, so the whole page is Inter (loaded by
+// brandDoc) with a system monospace stack for the spec-sheet voice (eyebrows,
+// labels, prices, the ticker). Gold (#CAA34C / #E6C879) is the only accent, used
+// for a rule, a label, a single number, never a flood fill. The page carries two
+// scroll-pinned moments (a 300vh feature stage and a 260vh landed-cost card) and
+// a handful of count-up numbers; all motion is restrained and reduced-motion safe.
 //
-// Standalone marketing page (no sidebar). Reuses the dark brand layer from
-// theme.js: charcoal background, warm gold accent, rising-sun motif used
-// sparingly, Inter for UI text. Copy rule: no em dashes or en dashes anywhere.
-// Use commas, periods, or hyphens.
+// The handoff ships as a .dc.html prototype that must NOT be shipped as-is; this
+// is the production rebuild in the worker's own idiom (HTML string + theme.js
+// tokens + scoped .jf styles), so portal and landing stay one design language.
+//
+// Copy rule (from the handoff): no em or en dashes anywhere. Use commas,
+// periods, or hyphens; the middot ( . ) separator is fine. The membership price
+// is read from admin Settings and templated through `price`, never hardcoded, so
+// the page and billing stay one source of truth.
+//
+// Photography note: the handoff's reference photos are placeholder/unlicensed, so
+// every full-bleed image is an atmospheric CSS placeholder here, with a comment
+// marking exactly where a licensed <img> (carrying the id the motion script
+// parallaxes) is dropped in. Nothing else needs to change when real photos land.
 
-import { LOGO, risingSun, brandDoc } from "./theme.js";
+import { LOGO, brandDoc } from "./theme.js";
 import { getSettings, settingNum } from "./settings.js";
+import { landingCss } from "./landing-css.js";
+import { landingMotionScript } from "./landing-motion.js";
+import {
+  TICKER, FEATURES, NUMBERS, STEPS, LINEUP, COST_LINES, COST_TOTAL, REVIEWS, FAQS,
+} from "./landing-data.js";
 
-// Landing-only layout, scoped on top of the shared theme tokens (var(--gold)
-// etc. come from themeCss, which brandDoc injects). Kept here so the shared
-// stylesheet does not carry marketing-only classes onto every admin page.
-const landingCss = `
-  :root{--mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace}
-  .lpage{position:relative;overflow:hidden;background:var(--bg)}
+// --- small render helpers --------------------------------------------------
 
-  /* Atmosphere: a warm glow pooled top-right plus a faint precision grid, so the
-     page reads as a layered surface rather than a flat fill. */
-  .latmos{position:absolute;inset:0;z-index:0;pointer-events:none;
-    background:
-      radial-gradient(1100px 560px at 82% -8%,rgba(202,163,76,0.16),transparent 60%),
-      radial-gradient(900px 600px at 10% 4%,rgba(202,163,76,0.05),transparent 55%),
-      linear-gradient(rgba(255,255,255,0.018) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(255,255,255,0.018) 1px,transparent 1px);
-    background-size:auto,auto,46px 46px,46px 46px;
-    -webkit-mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%);
-            mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%)}
+// JDM Connect's licensed auction photography, served at the edge from /public
+// (see wrangler.toml [assets]). Treatment (cool, deep-shadow) is applied in CSS.
+const IMG = "/assets/photo/web";
+const photo = (file, alt, { id = "", eager = false } = {}) =>
+  `<img src="${IMG}/${file}" alt="${alt}"${id ? ` id="${id}"` : ""} ${
+    eager ? `fetchpriority="high" decoding="async"` : `loading="lazy" decoding="async"`
+  }>`;
 
-  .lnav{position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:space-between;gap:16px;
-    padding:18px 32px;background:rgba(10,12,15,0.7);backdrop-filter:blur(10px);border-bottom:1px solid var(--hair)}
-  .lnav .ln-brand svg{width:166px}
-  .lnav .ln-right{display:flex;align-items:center;gap:10px}
-  .lnav a.ln-signin{color:var(--t2);font-size:14px;font-weight:600;padding:9px 14px;border-radius:8px}
-  .lnav a.ln-signin:hover{color:var(--ink);background:rgba(255,255,255,0.05)}
+const eyebrow = (label, extra = "") =>
+  `<div class="eb rv${extra}"><span class="r"></span><span class="t">${label}</span></div>`;
 
-  /* HERO: editorial, asymmetric. Copy on the left, a sample match panel offset
-     to the right so the two layers overlap and create depth. */
-  .lhero{position:relative;z-index:1}
-  .lhero .risingsun{right:-90px;top:-130px;z-index:0}
-  .hero-grid{position:relative;z-index:1;max-width:1140px;margin:0 auto;padding:72px 32px 36px;
-    display:grid;grid-template-columns:1.08fr 0.92fr;gap:54px;align-items:center}
-  .hero-copy{min-width:0}
-  .hero-copy h1{font-size:clamp(38px,5vw,62px);font-weight:800;line-height:1.02;letter-spacing:-0.03em;margin:18px 0 0}
-  .hero-copy h1 .accent{color:var(--gold-txt)}
-  .hero-copy .lsub{color:var(--t2);font-size:clamp(15px,1.35vw,18px);line-height:1.58;margin:20px 0 0;max-width:52ch}
-  .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
-  .cta-row .btn-gold,.cta-row .btn-dark{padding:14px 24px;font-size:15px}
-  .hero-proof{margin:22px 0 0;display:flex;align-items:center;gap:9px;color:var(--faint);font-size:13px}
-  .hero-proof .hp-dots{display:inline-flex}
-  .hero-proof .hp-dots i{width:20px;height:20px;border-radius:9999px;border:1.5px solid var(--bg);margin-left:-7px;
-    display:inline-block;background:var(--card-2)}
-  .hero-proof .hp-dots i:first-child{margin-left:0}
+// Atmospheric placeholder, kept as a fallback for any photo slot left empty.
+const placeholder = (tag = "") =>
+  `<div class="ph"></div>${tag ? `<div class="ph-tag">${tag}</div>` : ""}`;
 
-  /* Sample match panel: a clean auction spec sheet, mono numerals, gold landed
-     line. Mirrors the staff Matches card so the brand is one language. */
-  .specpanel{position:relative;background:linear-gradient(180deg,var(--card-2),var(--card));
-    border:1px solid var(--hair);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
-  .specpanel:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold)}
-  .sp-tag{position:absolute;top:14px;right:14px;z-index:2;font-size:10px;font-weight:700;letter-spacing:0.1em;
-    text-transform:uppercase;color:var(--faint);background:rgba(0,0,0,0.35);border:1px solid var(--hair);
-    padding:4px 9px;border-radius:9999px}
-  .sp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 22px 0}
-  .sp-lot{font-family:var(--mono);font-size:12px;letter-spacing:0.06em;color:var(--t3)}
-  .sp-str{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:0.04em;
-    text-transform:uppercase;color:var(--good)}
-  .sp-str .sd{width:8px;height:8px;border-radius:9999px;background:var(--good);box-shadow:0 0 0 4px var(--good-bg)}
-  .sp-title{padding:12px 22px 0}
-  .sp-title .t{font-size:21px;font-weight:700;letter-spacing:-0.015em}
-  .sp-title .a{font-size:12.5px;color:var(--t3);margin-top:4px}
-  .sp-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair);
-    margin:18px 0 0;border-top:1px solid var(--hair)}
-  .sp-cell{background:var(--card);padding:13px 22px}
-  .sp-cell .k{font-size:10px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--faint)}
-  .sp-cell .v{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--ink);margin-top:5px}
-  /* Price story: the Japan auction estimate, then the landed AUD, so the big
-     number is never shown without context. Mirrors the two figures in the real
-     match email. */
-  .sp-land{padding:6px 22px 14px;background:rgba(202,163,76,0.08);border-top:1px solid var(--gold-line)}
-  .sp-pl{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:9px 0}
-  .sp-pl .pk{font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase}
-  .sp-pl.from{border-bottom:1px solid var(--gold-line)}
-  .sp-pl.from .pk{font-weight:600;color:var(--faint)}
-  .sp-pl.from .pv{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--t2)}
-  .sp-pl.to .pk{color:var(--gold-txt)}
-  .sp-pl.to .pv{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--ink)}
-  .sp-note{font-size:11.5px;line-height:1.5;color:var(--faint);padding-top:8px;max-width:46ch}
-  .sp-foot{display:flex;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid var(--hair)}
-  .sp-foot .av{width:26px;height:26px;border-radius:9999px;background:var(--gold-tint);border:1px solid var(--gold-line);
-    color:var(--gold-txt);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
-  .sp-foot .ft{font-size:12.5px;color:var(--t2)}
-  .sp-foot .ft b{color:var(--ink);font-weight:600}
-
-  /* Divided stat strip, in the app's auction-sheet idiom. Honest facts, no
-     invented metrics. */
-  .lstats{position:relative;z-index:1;max-width:1140px;margin:14px auto 0;padding:0 32px}
-  .lstats-in{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--hair);border-radius:14px;
-    background:var(--bg-2);overflow:hidden}
-  .lstat{padding:20px 22px;border-left:1px solid var(--hair)}
-  .lstat:first-child{border-left:0}
-  .lstat .sv{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold-txt);letter-spacing:-0.01em}
-  .lstat .sl{font-size:12.5px;color:var(--t3);margin-top:6px;line-height:1.4}
-
-  .lwrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:0 32px}
-  .lsec{padding:72px 0;border-bottom:1px solid var(--hair-2)}
-  .lsec-head{max-width:60ch}
-  .lsec-head.center{text-align:center;margin:0 auto}
-  .lsec-head h2{font-size:clamp(25px,2.7vw,34px);font-weight:700;letter-spacing:-0.025em;margin:10px 0 0}
-  .lsec-head p{color:var(--t3);font-size:15.5px;line-height:1.55;margin:13px 0 0}
-
-  /* HOW IT WORKS: an editorial numbered flow, not a card pile. Oversized ghost
-     numerals, a connecting hairline, generous whitespace. */
-  .flow{margin-top:42px;display:grid;grid-template-columns:repeat(3,1fr);gap:28px;position:relative}
-  .flow:before{content:"";position:absolute;top:34px;left:8%;right:8%;height:1px;
-    background:linear-gradient(90deg,transparent,var(--gold-line),transparent)}
-  .fstep{position:relative}
-  .fstep .fn{font-family:var(--mono);font-size:54px;font-weight:700;line-height:1;color:transparent;
-    -webkit-text-stroke:1.2px var(--gold-line);background:var(--bg);display:inline-block;padding:0 14px;position:relative}
-  .fstep h3{font-size:18px;font-weight:700;letter-spacing:-0.01em;margin:20px 0 0}
-  .fstep p{color:var(--t3);font-size:14px;line-height:1.58;margin:10px 0 0;max-width:34ch}
-
-  /* WHY: a bento layout, asymmetric on purpose. One lead tile spans, the rest
-     stack, so emphasis is uneven instead of a flat 2x2. */
-  .bento{margin-top:42px;display:grid;grid-template-columns:1.25fr 1fr;grid-auto-rows:1fr;gap:18px}
-  .btile{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:26px 26px;position:relative;
-    transition:border-color .2s,transform .2s}
-  .btile:hover{border-color:var(--gold-line);transform:translateY(-3px)}
-  .btile .bi{width:42px;height:42px;border-radius:11px;background:var(--gold-tint);border:1px solid var(--gold-line);
-    color:var(--gold-txt);display:flex;align-items:center;justify-content:center}
-  .btile .bi svg{width:22px;height:22px}
-  .btile h3{font-size:17px;font-weight:700;letter-spacing:-0.01em;margin:18px 0 0}
-  .btile p{color:var(--t3);font-size:14px;line-height:1.58;margin:9px 0 0}
-  .btile.lead{grid-row:span 2;display:flex;flex-direction:column;
-    background:linear-gradient(180deg,rgba(202,163,76,0.09),var(--card))}
-  .btile.lead h3{font-size:22px;margin-top:auto}
-  .btile.lead p{font-size:15px;max-width:38ch}
-
-  .lprice .lsec-head{margin-bottom:36px}
-  .lprice-note{text-align:center;color:var(--faint);font-size:13px;margin:24px auto 0;max-width:54ch;line-height:1.5}
-  .tier .tier-price{font-family:var(--mono)}
-
-  .lcta{position:relative;z-index:1;text-align:center;padding:84px 24px;overflow:hidden}
-  .lcta .risingsun{left:50%;top:-40px;transform:translateX(-50%)}
-  .lcta-in{position:relative;z-index:1}
-  .lcta h2{font-size:clamp(28px,3.2vw,40px);font-weight:800;letter-spacing:-0.025em;margin:0}
-  .lcta p{color:var(--t2);font-size:16px;margin:15px auto 0;max-width:46ch;line-height:1.55}
-  .lcta .cta-row{justify-content:center;margin-top:28px}
-
-  .lfoot{position:relative;z-index:1;border-top:1px solid var(--hair);background:var(--bg-2);padding:36px 32px}
-  .lfoot-in{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
-  .lfoot svg{width:150px}
-  .lfoot .lf-links{display:flex;gap:20px;flex-wrap:wrap}
-  .lfoot .lf-links a{color:var(--t3);font-size:14px;font-weight:500}
-  .lfoot .lf-links a:hover{color:var(--ink)}
-  .lfoot .lf-fine{color:var(--faint);font-size:12.5px;width:100%;margin-top:18px;border-top:1px solid var(--hair-2);padding-top:16px}
-
-  /* One directed load reveal. Pure CSS so no-JS still shows everything; fully
-     skipped under reduced-motion. */
-  @media(prefers-reduced-motion:no-preference){
-    .reveal{opacity:0;animation:lrise .72s cubic-bezier(0.16,1,0.3,1) forwards}
-    .d1{animation-delay:.04s}.d2{animation-delay:.12s}.d3{animation-delay:.2s}
-    .d4{animation-delay:.28s}.d5{animation-delay:.4s}.d6{animation-delay:.52s}
-  }
-  @keyframes lrise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-
-  @media(max-width:900px){
-    .hero-grid{grid-template-columns:1fr;gap:36px;padding-top:52px}
-    .hero-panel{max-width:440px}
-    .lstats-in{grid-template-columns:repeat(2,1fr)}
-    .lstat:nth-child(-n+2){border-top:0}.lstat:nth-child(3),.lstat:nth-child(4){border-top:1px solid var(--hair)}
-    .lstat:nth-child(odd){border-left:0}
-    .flow{grid-template-columns:1fr;gap:14px}.flow:before{display:none}
-    .fstep{display:flex;align-items:baseline;gap:18px}.fstep .fn{font-size:40px;padding:0}
-    .fstep h3{margin-top:0}
-    .bento{grid-template-columns:1fr}.btile.lead{grid-row:auto}.btile.lead h3{margin-top:0}
-  }
-  @media(max-width:560px){.lnav{padding:14px 18px}.hero-grid,.lstats,.lwrap,.lfoot{padding-left:20px;padding-right:20px}
-    .lsec{padding:54px 0}}
-`;
-
-// Inline icons for the feature tiles (inherit currentColor).
-const I = {
-  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`,
-  coins: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>`,
-  shield: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.4 7.7-8 9-4.6-1.3-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>`,
-  layout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`,
-};
-
-const fstep = (n, title, body) =>
-  `<div class="fstep"><span class="fn">${n}</span><h3>${title}</h3><p>${body}</p></div>`;
-
-const tier = ({ tag, name, price, per, sub, feats, cta, ctaHref, featured }) => `
-  <div class="tier${featured ? " feature" : ""}">
-    ${tag ? `<span class="tier-tag">${tag}</span>` : ""}
-    <div class="tier-name">${name}</div>
-    <div class="tier-price">${price}${per ? `<span class="per"> ${per}</span>` : ""}</div>
-    <div class="tier-sub">${sub}</div>
-    <ul>${feats.map((f) => `<li>${f}</li>`).join("")}</ul>
-    <a class="${featured ? "btn-gold" : "btn-dark"}" href="${ctaHref}">${cta}</a>
+const featureCallout = (f) => `
+  <div class="feat-callout" data-feat>
+    <div class="k">${f.k}</div>
+    <h2>${f.big}</h2>
+    <p>${f.sub}</p>
   </div>`;
 
-// The full landing document. `env` is accepted for parity with the other page
-// builders (and future dynamic content) but the page is currently static.
+const stepEl = (s) => `
+  <div class="step rv">
+    <div class="sn">STEP ${s.n}</div>
+    <h3>${s.title}</h3>
+    <p>${s.body}</p>
+  </div>`;
+
+// Auction-sheet card. Photo is a placeholder until licensed auction imagery is
+// wired in; the whole card links to /request so any tap starts a search.
+const lineupCard = (c) => `
+  <a class="vcard rv" href="/request">
+    <div class="vc-photo">
+      ${c.photo ? photo(c.photo, c.name) : placeholder()}<div class="scrim"></div>
+      <span class="vc-lot">Lot ${c.lot}</span>
+      <span class="vc-sevs">SEVS Eligible</span>
+      <span class="vc-tier">${c.tier}</span>
+    </div>
+    <div class="vc-sheet">
+      <div class="vc-chassis"><span>${c.chassis}</span></div>
+      <div class="vc-grade-row">
+        <div class="vc-oval">
+          <div class="o"><span class="g">${c.grade}</span><span class="gl">GRADE</span></div>
+          <span class="int">INT &middot; ${c.intGrade}</span>
+        </div>
+        <div class="vc-meta">
+          <div class="nm">${c.name}</div>
+          <div class="sb">${c.sub}</div>
+          <div class="vc-equip">${c.equip.map((e) => `<span>${e}</span>`).join("")}</div>
+        </div>
+      </div>
+      <div class="vc-marks">
+        <span class="lab">Marks</span>
+        <div class="mk">${c.marks.map((m) => `<span>${m}</span>`).join("")}</div>
+        <span class="dot"></span>
+      </div>
+    </div>
+    <div class="vc-foot">
+      <div class="vc-data">
+        <div class="c"><div class="k">Year</div><div class="v">${c.year}</div></div>
+        <div class="c"><div class="k">Odo</div><div class="v">${c.odo}</div></div>
+        <div class="c"><div class="k">Engine</div><div class="v">${c.engine}</div></div>
+        <div class="c"><div class="k">Trans</div><div class="v">${c.trans}</div></div>
+      </div>
+      <div class="vc-watch"><span class="wk">Watch this lot</span><span class="card-cta">&rarr;</span></div>
+    </div>
+  </a>`;
+
+const costLine = (ln) =>
+  `<div class="cl" data-costline><span class="lab">${ln.label}</span><span class="amt">${ln.amount}</span></div>`;
+
+const numberStat = (m) => `
+  <div class="num rv">
+    <div class="v"><span data-count-to="${m.to}" data-pre="${m.pre}" data-post="${m.post}">${m.start}</span></div>
+    <div class="l">${m.label}</div>
+  </div>`;
+
+const reviewEl = (r) =>
+  `<figure class="review rv"><div class="q">&ldquo;</div><blockquote>${r.quote}</blockquote><figcaption>${r.who}</figcaption></figure>`;
+
+const faqEl = (q, a) =>
+  `<details class="faq rv"><summary>${q}<span class="sign">+</span></summary><p>${a}</p></details>`;
+
+// The four in-page anchors used by both the desktop nav and the mobile drawer.
+const NAV_LINKS = [
+  ["#lineup", "The lineup"],
+  ["#cost", "Real cost"],
+  ["#how", "How it works"],
+  ["#membership", "Membership"],
+  ["/login", "Sign in"],
+];
+
+// --- the page --------------------------------------------------------------
+
 export async function landingPage(env) {
-  // The Full-access price is tunable from admin Settings (single source of truth
-  // shared with the pricing copy). Falls back to A$49 if settings are unreadable.
   const settings = await getSettings(env).catch(() => ({}));
-  const membershipPrice = `A$${settingNum(settings, "membership_monthly_aud", 49)}`;
+  const priceNum = settingNum(settings, "membership_monthly_aud", 49);
+  const price = `A$${priceNum}`;
+
+  const navLinks = NAV_LINKS.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
+  const menuLinks = NAV_LINKS.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
+
   const body = `
   <style>${landingCss}</style>
-  <div class="lpage">
-    <div class="latmos" aria-hidden="true"></div>
 
-    <header class="lnav">
-      <a class="ln-brand" href="/" aria-label="JDM Connect home">${LOGO}</a>
-      <div class="ln-right">
-        <a class="ln-signin" href="/login">Sign in</a>
-        <a class="btn-gold" href="/request">Start your search</a>
+  <div class="jf">
+
+    <header class="jf-nav" id="jdmNav">
+      <div class="jf-nav-in">
+        <a class="jf-brand" href="/" aria-label="JDM Connect Finder home">${LOGO}<span class="jf-tag">Finder</span></a>
+        <div class="jf-nav-right">
+          <nav class="jf-nav-links" aria-label="Primary">${navLinks}</nav>
+          <a class="jf-gold" href="/request">Start free</a>
+          <button id="navBurger" class="nav-burger" type="button" aria-label="Open menu" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+        </div>
       </div>
+      <div class="nav-menu" id="navMenu">${menuLinks}<a href="/request">Start free</a></div>
     </header>
 
-    <section class="lhero">
-      ${risingSun({ size: 540, tone: "soft" })}
-      <div class="hero-grid">
+    <!-- HERO -->
+    <section class="hero" id="top" aria-labelledby="hero-h">
+      <div class="hero-bg" aria-hidden="true">
+        ${photo("hero_r32_garage.jpg", "Nissan Skyline GT-R R32 at a Japanese auction", { id: "heroImg", eager: true })}<div class="scrim"></div>
+      </div>
+      <div class="hero-wrap">
         <div class="hero-copy">
-          <div class="kicker reveal d1">Vehicle Finder</div>
-          <h1 class="reveal d2">The car you want, pulled from the <span class="accent">Japanese auctions</span>.</h1>
-          <p class="lsub reveal d3">Tell us what you are after. We watch the auctions across Japan every day, check every match by hand, and bring you the ones worth importing, landed cost and eligibility included.</p>
-          <div class="cta-row reveal d4">
-            <a class="btn-gold" href="/request">Start your search</a>
-            <a class="btn-dark" href="/login">Sign in to your account</a>
+          <div class="eb rv in"><span class="r"></span><span class="t">Live Japanese auction access</span></div>
+          <h1 id="hero-h" class="rv in rv-d1">Your dream car is at auction in Japan <em>right now.</em></h1>
+          <p class="hero-sub rv in rv-d2">Tell us what you&rsquo;re after and start free. Or unlock full auction access for ${price} a month and watch the floor yourself, with the real landed price and import eligibility on every lot.</p>
+          <div class="hero-btns rv in rv-d3">
+            <a class="jf-gold" href="/request">Start your search, free <span class="ar">&rarr;</span></a>
+            <a class="jf-dark" href="#lineup">See what&rsquo;s landing</a>
           </div>
-          <div class="hero-proof reveal d4">
-            <span class="hp-dots"><i></i><i></i><i></i></span>
-            Buyers across Australia, sourcing from USS, TAA, ZIP and more.
+          <div class="hero-fine rv in rv-d4">No card to start &middot; Cancel anytime &middot; Membership credits toward your import fee</div>
+        </div>
+      </div>
+      <div class="scroll-cue" aria-hidden="true"><span class="l">Scroll</span><span class="b"></span></div>
+      <div class="ticker" aria-hidden="true"><div class="ticker-row"><span>${TICKER}</span><span>${TICKER}</span></div></div>
+    </section>
+
+    <!-- FEATURE PIN -->
+    <section class="feat" id="features" aria-label="Under the hood">
+      <div class="feat-pin" id="featPin">
+        <div class="feat-stage">
+          <div class="feat-bg" aria-hidden="true">
+            ${photo("s14_garage.jpg", "JDMFinder scanning the Japanese auctions", { id: "featImg" })}<div class="scrim"></div>
+          </div>
+          <div class="feat-in">
+            <div class="feat-eb">Under the hood</div>
+            <div class="feat-deck">${FEATURES.map(featureCallout).join("")}</div>
+            <div class="feat-dots">${FEATURES.map(() => `<span data-featdot></span>`).join("")}</div>
           </div>
         </div>
-        <div class="hero-panel reveal d5">
-          <div class="specpanel">
-            <span class="sp-tag">Sample match</span>
-            <div class="sp-head">
-              <span class="sp-lot">LOT 65333</span>
-              <span class="sp-str"><span class="sd"></span> Strong match</span>
+      </div>
+    </section>
+
+    <!-- PROBLEM MOMENT -->
+    <section class="moment" aria-label="The way it's usually done">
+      <div class="moment-bg bw" aria-hidden="true">
+        ${photo("r34_highway_bw.jpg", "Nissan Skyline R34 on the highway at night")}<div class="scrim"></div>
+      </div>
+      <div class="moment-in">
+        <div class="box">
+          ${eyebrow("The way it&rsquo;s usually done")}
+          <h2 class="rv rv-d1">Most import agents want <span class="g">a hefty deposit</span> up front, before you&rsquo;ve seen a single car that&rsquo;s actually yours.</h2>
+          <p class="rv rv-d2">You commit the big money, then start looking. We think that&rsquo;s backwards. Look first, for ${price} a month, and commit only when you&rsquo;ve found the one.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="sec lp-cream how" id="how">
+      <div class="sec-in" style="max-width:1180px">
+        ${eyebrow("How it works")}
+        <h2 class="rv rv-d1">Find your car first. Commit when you&rsquo;re ready.</h2>
+        <div class="steps">${STEPS.map(stepEl).join("")}</div>
+      </div>
+    </section>
+
+    <!-- LINEUP -->
+    <section class="sec" id="lineup">
+      <div class="sec-in">
+        <div class="list-head">
+          <div>
+            ${eyebrow("Live from the floor")}
+            <h2 class="rv rv-d1">A car for every budget, not just the halo cars.</h2>
+          </div>
+          <p class="note rv rv-d2">Every lot checked for SEVS and age eligibility before it reaches you. No guessing, no surprises later.</p>
+        </div>
+        <div class="marks-legend rv rv-d2">
+          <span>Sheet marks</span><span class="ln"></span>
+          <span><b>A</b> scratch</span><span><b>U</b> dent</span><span><b>1-3</b> severity</span>
+        </div>
+        <div class="cards">${LINEUP.map(lineupCard).join("")}</div>
+      </div>
+    </section>
+
+    <!-- PINNED LANDED COST -->
+    <section class="cost" id="cost" aria-label="Real landed cost">
+      <div class="cost-pin" id="costPin">
+        <div class="cost-sticky">
+          <div class="cost-bg" aria-hidden="true">
+            ${photo("tokyo_r34_night.jpg", "Tokyo at night")}<div class="scrim"></div>
+          </div>
+          <div class="cost-grid">
+            <div class="cost-copy">
+              ${eyebrow("The bit nobody shows you", " in")}
+              <h2>The auction price is not the price.</h2>
+              <p>The bid, Japan-side fees, shipping, GST, compliance and on-road costs, all the way to your door. We show the real number before you bid. Here&rsquo;s a worked example.</p>
+              <div class="ex">Worked example &middot; &yen;5,000,000 bid &middot; landed Fremantle, WA</div>
             </div>
-            <div class="sp-title">
-              <div class="t">1999 Nissan Skyline GT-R</div>
-              <div class="a">USS Tokyo, auction Thursday</div>
-            </div>
-            <div class="sp-grid">
-              <div class="sp-cell"><div class="k">Auction grade</div><div class="v">4</div></div>
-              <div class="sp-cell"><div class="k">Odometer</div><div class="v">88,000 km</div></div>
-              <div class="sp-cell"><div class="k">Chassis</div><div class="v">BNR34</div></div>
-              <div class="sp-cell"><div class="k">Transmission</div><div class="v">6 speed</div></div>
-            </div>
-            <div class="sp-land">
-              <div class="sp-pl from"><span class="pk">Auction estimate</span><span class="pv">&yen;6,400,000</span></div>
-              <div class="sp-pl to"><span class="pk">Landed to VIC</span><span class="pv">A$118,500</span></div>
-              <div class="sp-note">Japan auction price, then the estimated total to your door: car, export, shipping, duties and GST.</div>
-            </div>
-            <div class="sp-foot">
-              <span class="av">JR</span>
-              <span class="ft"><b>Match for Jordan</b>, reviewed by our team</span>
+            <div class="cost-card">
+              <span class="ck">Landed, to your door</span>
+              <div class="cost-num" id="costNum">A$0</div>
+              <div class="cost-lines">${COST_LINES.map(costLine).join("")}</div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <div class="lstats reveal d6">
-      <div class="lstats-in">
-        <div class="lstat"><div class="sv">Every 6 hours</div><div class="sl">We sweep the Japanese auction feeds</div></div>
-        <div class="lstat"><div class="sv">By hand</div><div class="sl">Every match reviewed before you see it</div></div>
-        <div class="lstat"><div class="sv">To your door</div><div class="sl">Landed cost estimated on each car</div></div>
-        <div class="lstat"><div class="sv">SEVS + age</div><div class="sl">Import eligibility checked up front</div></div>
+    <!-- DIVISION OF LABOUR -->
+    <section class="divlab" aria-label="We handle it">
+      <div class="divlab-bg" aria-hidden="true">
+        ${photo("s15_enginebay.jpg", "Engine bay, compliance and prep")}<div class="scrim"></div>
       </div>
-    </div>
-
-    <div class="lwrap">
-      <section class="lsec">
-        <div class="lsec-head">
-          <div class="kicker">How it works</div>
-          <h2>Three steps to your next car</h2>
-          <p>No account needed to start. Tell us what you are after and we take it from there.</p>
-        </div>
-        <div class="flow">
-          ${fstep("01", "Tell us what you want", "Make, model, years, budget and condition. It takes a couple of minutes, and you do not need an account to begin.")}
-          ${fstep("02", "We watch the auctions", "Every day across Japan's auction houses. We check the grade, the mileage and the auction sheet on every match.")}
-          ${fstep("03", "You get reviewed matches", "We only send cars we would buy ourselves, each with a landed-cost estimate and eligibility. Place a deposit when you are ready.")}
-        </div>
-      </section>
-
-      <section class="lsec">
-        <div class="lsec-head">
-          <div class="kicker">Why JDM Connect</div>
-          <h2>Real cars, checked by real people</h2>
-          <p>We import JDM vehicles to Australia for a living. The finder is the same process we use ourselves, opened up to you.</p>
-        </div>
-        <div class="bento">
-          <div class="btile lead">
-            <div class="bi">${I.check}</div>
-            <h3>Every match checked by hand</h3>
-            <p>No spam listings, no auto-blasted alerts. A person reviews the grade, the auction sheet and the history before a car ever reaches you, so what lands in your inbox is worth your time.</p>
+      <div class="divlab-in">
+        <div class="box">
+          ${eyebrow("The division of labour")}
+          <h2 class="rv rv-d1">You find it. We handle the scary part.</h2>
+          <p class="rv rv-d2">Finding your car is the fun part, enjoy it. Winning the bid, compliance and asbestos, shipping, customs and rego on a car you&rsquo;ve never seen in person? That&rsquo;s the part you want handled by people who do it <span class="g">20-plus times a month.</span></p>
+          <div class="dl-split rv rv-d3">
+            <span class="ln">JDMFinder lets you look.</span>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="ln">JDM Connect does the doing.</span>
           </div>
-          <div class="btile">
-            <div class="bi">${I.coins}</div>
-            <h3>Landed cost, not just the bid</h3>
-            <p>Each car comes with an estimate to your door: the bid, export, shipping, duties and GST, from the same calculator we use internally.</p>
-          </div>
-          <div class="btile">
-            <div class="bi">${I.shield}</div>
-            <h3>Eligibility built in</h3>
-            <p>We flag SEVS and age eligibility up front, so you never chase a car you cannot register here.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="lsec lprice">
-        <div class="lsec-head center">
-          <div class="kicker" style="justify-content:center">Membership</div>
-          <h2>Start free, upgrade when you are serious</h2>
-          <p>Browse and request for free. Members get unlimited searches and first look at every car we source.</p>
-        </div>
-        <div class="pricegrid">
-          ${tier({
-            name: "Browse",
-            price: "Free",
-            sub: "Tell us what you want and track your search.",
-            feats: [
-              "Submit a vehicle request",
-              "Your own dashboard",
-              "See matches we have reviewed",
-              "Email when a car comes up",
-            ],
-            cta: "Start free",
-            ctaHref: "/request",
-          })}
-          ${tier({
-            name: "Full access",
-            price: membershipPrice,
-            per: "/ month",
-            sub: "One simple plan, everything included.",
-            feats: [
-              "Everything in Browse",
-              "Unlimited active searches",
-              "Priority sourcing on every match",
-              "Landed-cost estimate on each car",
-              "Place a deposit to secure a car",
-            ],
-            cta: "Start your search",
-            ctaHref: "/request",
-            featured: true,
-          })}
-        </div>
-        <p class="lprice-note">Start free today. We will set up your membership when your search goes live, no card needed to begin.</p>
-      </section>
-    </div>
-
-    <section class="lcta">
-      ${risingSun({ size: 460, tone: "faint" })}
-      <div class="lcta-in">
-        <h2>Ready to find your car?</h2>
-        <p>Tell us what you are after. We will start watching the auctions today.</p>
-        <div class="cta-row">
-          <a class="btn-gold" href="/request">Start your search</a>
-          <a class="btn-dark" href="/login">Sign in</a>
         </div>
       </div>
     </section>
 
-    <footer class="lfoot">
-      <div class="lfoot-in">
-        ${LOGO}
-        <nav class="lf-links" aria-label="Footer">
-          <a href="/request">Start a request</a>
-          <a href="/login">Sign in</a>
-        </nav>
-        <p class="lf-fine">JDM Connect. Japanese vehicle imports to Australia. We use your details only to search for and contact you about matching vehicles, and never share them with third parties.</p>
+    <!-- CULTURE BAND -->
+    <section class="moment culture" aria-label="On the floor">
+      <div class="moment-bg" aria-hidden="true">
+        ${photo("shibuya_night.jpg", "Shibuya at night, Japan auction culture")}<div class="scrim"></div>
+      </div>
+      <div class="moment-in">
+        <h2 class="rv">We&rsquo;re on the auction floor in Japan, every week.</h2>
+        <p class="rv rv-d1">USS, TAA and ASNET, the same feeds, the same people, the same relationships we&rsquo;ve built over 15 years. <span class="jp">入庫 &middot; arrival.</span></p>
+      </div>
+    </section>
+
+    <!-- NUMBERS STRIP -->
+    <section class="sec numbers" aria-label="By the numbers">
+      <div class="sec-in" style="max-width:1180px">
+        ${eyebrow("By the numbers")}
+        <div class="num-grid">${NUMBERS.map(numberStat).join("")}</div>
+      </div>
+    </section>
+
+    <!-- TRUST -->
+    <section class="sec lp-cream" id="trust">
+      <div class="sec-in">
+        ${eyebrow("Why trust us")}
+        <div class="trust-stats">
+          <div class="rv"><div class="v"><span data-count-to="20" data-post="+">20+</span></div><div class="l">cars imported every month</div></div>
+          <div class="rv rv-d1"><div class="v"><span data-count-to="15">15</span></div><div class="l">years importing from Japan</div></div>
+          <div class="rv rv-d2"><div class="v">100s</div><div class="l">of Aussies already in their dream cars</div></div>
+        </div>
+        <div class="reviews">${REVIEWS.map(reviewEl).join("")}</div>
+      </div>
+    </section>
+
+    <!-- MEMBERSHIP -->
+    <section class="sec price" id="membership">
+      <div class="price-glow" aria-hidden="true"></div>
+      <div class="price-in">
+        ${eyebrow("Membership")}
+        <div class="tiers">
+          <div class="tier rv">
+            <div class="tlabel">Browse</div>
+            <div class="tprice"><span class="amt">Free</span></div>
+            <div class="tsub">No card. Two minutes to set up.</div>
+            <div class="trule"></div>
+            <ul>
+              <li><span class="tk">&#10003;</span>Submit a vehicle request</li>
+              <li><span class="tk">&#10003;</span>Your own dashboard</li>
+              <li><span class="tk">&#10003;</span>Hand-picked matches</li>
+              <li><span class="tk">&#10003;</span>Email alerts when a car comes up</li>
+            </ul>
+            <a class="jf-dark" href="/request">Start free</a>
+          </div>
+          <div class="tier feat rv rv-d1">
+            <div class="tpill">Full access</div>
+            <div class="tlabel">Member</div>
+            <div class="tprice"><span class="amt">${price}</span><span class="per">/ month</span></div>
+            <div class="tsub">Cancel anytime, one click. No lock-in.</div>
+            <div class="trule"></div>
+            <ul>
+              <li><span class="tk">&#10003;</span>Live auction access</li>
+              <li><span class="tk">&#10003;</span>Unlimited searches</li>
+              <li><span class="tk">&#10003;</span>Real landed cost on every car</li>
+              <li><span class="tk">&#10003;</span>More matches every scan</li>
+              <li><span class="tk">&#10003;</span>Priority sourcing</li>
+            </ul>
+            <a class="jf-gold" href="/request">Start membership</a>
+          </div>
+        </div>
+        <div class="price-callout rv">
+          <span class="co-tag">The bit that matters</span>
+          <div class="co-body">
+            <p class="co-h">Up to <span class="g">six months</span> of membership, credited back.</p>
+            <p>Go ahead with us and that comes straight off your import fee. So looking around basically pays for itself the moment you commit.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="sec" style="background:var(--jf-bg2)">
+      <div class="faq-wrap">
+        ${eyebrow("Questions")}
+        ${FAQS.map((f) => faqEl(f.q.replaceAll("{price}", price), f.a.replaceAll("{price}", price))).join("")}
+        <div class="faq-end"></div>
+      </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="final" id="start">
+      <div class="final-bg" aria-hidden="true">
+        ${photo("hero_r32_garage.jpg", "Nissan Skyline GT-R R32")}<div class="scrim"></div>
+      </div>
+      <div class="final-in">
+        <h2 class="rv">Find your car first. Commit when you&rsquo;re ready.</h2>
+        <p class="rv rv-d1">Tell us what you&rsquo;re after and start watching the auctions today. Free, no card.</p>
+        <div class="final-btns rv rv-d2">
+          <a class="jf-gold" href="/request">Start your search, free <span class="ar">&rarr;</span></a>
+          <a class="jf-dark" href="#membership">See membership</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="jf-foot">
+      <div class="jf-foot-in">
+        <a class="jf-brand" href="/" aria-label="JDM Connect home">${LOGO}<span class="jf-tag">Finder</span></a>
+        <div class="fmid">Connecting JDM &middot; ジェー・ディー・エムをつなぐ</div>
+        <div class="fcopy">&copy; 2026 JDM Connect. Find it. We&rsquo;ll handle the rest.</div>
       </div>
     </footer>
-  </div>`;
-  return brandDoc(body, "JDM Connect Vehicle Finder, find your JDM car at Japanese auction");
+
+  </div>
+  ${landingMotionScript(COST_TOTAL)}`;
+
+  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction");
 }

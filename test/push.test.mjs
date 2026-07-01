@@ -3,7 +3,33 @@
 // until a provider is configured; never throws.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sendPush } from "../src/notify.js";
+import { sendPush, paymentChime } from "../src/notify.js";
+
+test("paymentChime fires for a new membership, with name + amount", () => {
+  const ev = { data: { object: { customer_details: { name: "Jane" }, amount_total: 4900, currency: "aud" } } };
+  const c = paymentChime(ev, "subscribed", "https://x");
+  assert.ok(c);
+  assert.match(c.title, /member/i);
+  assert.match(c.message, /Jane/);
+  assert.match(c.message, /\$49\.00 AUD/);
+  assert.match(c.message, /Full access/);
+});
+
+test("paymentChime fires for a paid deposit", () => {
+  const ev = { data: { object: { customer_details: { email: "b@x.com" }, amount_total: 50000, currency: "aud" } } };
+  const c = paymentChime(ev, "paid", "https://x");
+  assert.ok(c);
+  assert.match(c.title, /deposit/i);
+  assert.match(c.message, /b@x\.com/);
+  assert.match(c.message, /\$500\.00 AUD/);
+});
+
+test("paymentChime is null for duplicate/other statuses (no double-ping on retries)", () => {
+  const ev = { data: { object: {} } };
+  assert.equal(paymentChime(ev, "duplicate", "https://x"), null);
+  assert.equal(paymentChime(ev, "sub_active", "https://x"), null);
+  assert.equal(paymentChime(ev, "ignored", "https://x"), null);
+});
 
 test("uses Pushover when its secrets are set", async () => {
   let url = null, body = null;
@@ -30,6 +56,19 @@ test("uses ntfy when NTFY_TOPIC is set, with an ASCII-safe Title header", async 
   assert.equal(headers.Priority, "high");
   assert.equal(headers.Click, "https://x/admin");
   assert.equal(body, "wants a Supra");
+});
+
+test("uses Telegram when its bot token + chat id are set, ahead of ntfy", async () => {
+  let url = null, body = null;
+  globalThis.fetch = async (u, opts) => { url = String(u); body = opts.body; return { ok: true, status: 200 }; };
+  const ok = await sendPush({ TELEGRAM_BOT_TOKEN: "123:abc", TELEGRAM_CHAT_ID: "999", NTFY_TOPIC: "t" },
+    { title: "New signup", message: "jate wants a Supra", url: "https://x/admin" });
+  assert.equal(ok, true);
+  assert.match(url, /api\.telegram\.org\/bot123:abc\/sendMessage/);
+  const p = JSON.parse(body);
+  assert.equal(p.chat_id, "999");
+  assert.match(p.text, /New signup/);
+  assert.match(p.text, /Supra/);
 });
 
 test("no-ops (returns false, no fetch) when no provider is configured", async () => {

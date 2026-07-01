@@ -79,14 +79,22 @@ export async function sendWhatsApp(env, toNumber, msg = {}, settings = {}) {
 
 // --- Twilio (REST 2010-04-01 Messages API) ----------------------------------
 async function sendViaTwilio(env, to, msg, params) {
-  const sid = env.TWILIO_ACCOUNT_SID;
+  // Trim every credential before use. A stray newline or trailing space pasted
+  // into `wrangler secret put` (a known Windows gotcha) would otherwise be baked
+  // into the Basic-auth pair by btoa() and the request URL, and Twilio rejects
+  // the malformed pair with HTTP 401 / code 20003 before any message is created.
+  // btoa() does not throw on a newline (it is Latin-1 safe), so the corruption
+  // is silent. Twilio SIDs/tokens never legitimately carry surrounding space.
+  const sid = String(env.TWILIO_ACCOUNT_SID || "").trim();
+  const token = String(env.TWILIO_AUTH_TOKEN || "").trim();
+  const contentSid = String(env.TWILIO_WA_CONTENT_SID || "").trim();
   const from = "whatsapp:+" + String(env.TWILIO_WHATSAPP_FROM).replace(/\D/g, "");
   const body = new URLSearchParams({ From: from, To: `whatsapp:+${to}` });
-  if (env.TWILIO_WA_CONTENT_SID) {
+  if (contentSid) {
     // Approved Content template: pass the SID and its {{1}},{{2}},... variables.
     const vars = {};
     params.forEach((p, i) => { vars[String(i + 1)] = String(p ?? ""); });
-    body.set("ContentSid", env.TWILIO_WA_CONTENT_SID);
+    body.set("ContentSid", contentSid);
     body.set("ContentVariables", JSON.stringify(vars));
   } else {
     body.set("Body", msg.bodyText || msg.summary || "");
@@ -94,7 +102,7 @@ async function sendViaTwilio(env, to, msg, params) {
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
     headers: {
-      Authorization: "Basic " + btoa(`${sid}:${env.TWILIO_AUTH_TOKEN}`),
+      Authorization: "Basic " + btoa(`${sid}:${token}`),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body,
@@ -105,8 +113,13 @@ async function sendViaTwilio(env, to, msg, params) {
 
 // --- Meta WhatsApp Cloud API (Graph) ----------------------------------------
 async function sendViaMeta(env, to, msg, params) {
+  // Trim credentials for the same reason as the Twilio path: a stray newline in
+  // the token or phone-number ID would corrupt the Bearer header or the URL and
+  // draw a 401 from Graph.
   const ver = env.META_WA_API_VERSION || META_API_VERSION;
-  const url = `https://graph.facebook.com/${ver}/${env.META_WA_PHONE_NUMBER_ID}/messages`;
+  const token = String(env.META_WA_TOKEN || "").trim();
+  const phoneId = String(env.META_WA_PHONE_NUMBER_ID || "").trim();
+  const url = `https://graph.facebook.com/${ver}/${phoneId}/messages`;
   const payload = env.META_WA_TEMPLATE_NAME
     ? {
         messaging_product: "whatsapp",
@@ -121,7 +134,7 @@ async function sendViaMeta(env, to, msg, params) {
     : { messaging_product: "whatsapp", to, type: "text", text: { body: msg.bodyText || msg.summary || "" } };
   const res = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${env.META_WA_TOKEN}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Meta WhatsApp HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);

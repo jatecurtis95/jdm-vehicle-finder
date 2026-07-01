@@ -3,33 +3,53 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, fetchLot } from "./avtonet.js";
-import { attachLanded, auStates, normalizeState, getLiveFx } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
+import { onboardingCss, wizardScript, popularCards, recentExamplesShell, socialProofStrip, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
-function makerField(makers, id) {
-  if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA">`;
-  return `<select name="marka_name" id="${id}"><option value="">Any maker</option>` +
-    makers.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("") + `</select>`;
+function makerField(makers, id, placeholder = "Any maker", current = "") {
+  if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA" value="${esc(current)}">`;
+  return `<select name="marka_name" id="${id}"><option value="">${esc(placeholder)}</option>` +
+    makers.map((m) => `<option value="${esc(m)}"${m === current ? " selected" : ""}>${esc(m)}</option>`).join("") + `</select>`;
 }
 
-// Model field: free-text input backed by a <datalist> of the chosen maker's real
-// models (filled by modelScript on maker change). Free text still works - it's
-// matched as "contains", so "S400" or "SKYLINE" partials are fine.
-function modelField(listId) {
-  return `<input name="model_name" list="${listId}" placeholder="pick a maker, then choose or type"><datalist id="${listId}"></datalist>`;
+// Model field: a real <select> (select-only, no typing) of the chosen maker's
+// models, populated by modelScript on maker change. `current` re-selects a value
+// after a re-render. Disabled until a maker is picked.
+function modelField(listId, current) {
+  const want = current ? ` data-want="${esc(current)}"` : "";
+  return `<select name="model_name" id="${listId}"${want} disabled><option value="">Select a make to see models</option></select>`;
 }
 
-// Inline JS: when the maker <select> changes, load that maker's models into the
-// datalist via /api/models. No-op if the maker fell back to a text input.
-function modelScript(makerId, listId) {
-  return `<script>(function(){var mk=document.getElementById(${JSON.stringify(makerId)}),dl=document.getElementById(${JSON.stringify(listId)});if(!mk||!dl||mk.tagName!=="SELECT")return;mk.addEventListener("change",function(){dl.innerHTML="";if(!mk.value)return;fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){(l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;dl.appendChild(o);});}).catch(function(){});});})();</script>`;
+// Inline JS: when the maker <select> changes, (re)load that maker's models into
+// the model <select> via /api/models, clearing any previous selection. Exposes
+// window.jdmLoadModels(want) so presets can load + select a model. No-op if the
+// maker fell back to a text input.
+function modelScript(makerId, listId, emptyLabel = "Any model") {
+  return `<script>(function(){
+    var mk=document.getElementById(${JSON.stringify(makerId)}),sel=document.getElementById(${JSON.stringify(listId)});
+    if(!mk||!sel)return;
+    var EMPTY=${JSON.stringify(emptyLabel)};
+    function fill(want){
+      if(mk.tagName!=="SELECT"||!mk.value){sel.innerHTML='<option value="">Select a make to see models</option>';sel.disabled=true;return;}
+      sel.disabled=false;sel.innerHTML='<option value="">Loading models…</option>';
+      fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){
+        sel.innerHTML='<option value="">'+EMPTY+'</option>';
+        (l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
+        if(want){var f=false;for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===want){f=true;break;}}if(!f){var o=document.createElement("option");o.value=want;o.textContent=want;sel.appendChild(o);}sel.value=want;}
+      }).catch(function(){sel.innerHTML='<option value="">Any model</option>';});
+    }
+    mk.addEventListener("change",function(){fill("");});
+    window.jdmLoadModels=function(want){fill(want||"");};
+    if(mk.tagName==="SELECT"&&mk.value){fill(sel.getAttribute("data-want")||"");}
+  })();</script>`;
 }
 
 // Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
@@ -103,11 +123,27 @@ function presetSelect() {
   const opts = groups.map((g) =>
     `<optgroup label="${esc(g.name)}">${g.items.map(({ p, i }) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</optgroup>`
   ).join("");
-  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(auto-fills the fields for a known model)</span></label>
-    <select onchange="jdmPreset(this)"><option value="">Choose a preset…</option>${opts}</select></div>`;
+  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(optional shortcut for a known model)</span></label>
+    <select onchange="jdmPreset(this)"><option value="">No preset</option>${opts}</select></div>`;
 }
 function presetScript() {
-  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){var p=WL_PRESETS[sel.value];if(!p){return;}var form=sel.closest("form")||document;function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el&&v!=null&&v!=="")el.value=v;}var mk=form.querySelector('[name="marka_name"]');if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";try{mk.dispatchEvent(new Event("change"));}catch(e){}}else{mk.value=p.make||"";}}set("model_name",p.model);set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);}</script>`;
+  return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){
+    var form=sel.closest("form")||document;
+    function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el)el.value=(v==null?"":v);}
+    var p=WL_PRESETS[sel.value];
+    // Clear the search fields first so switching presets (or 'No preset') never
+    // leaves stale values behind.
+    set("model_name","");set("kuzov","");set("year_min","");set("year_max","");set("label","");
+    var mk=form.querySelector('[name="marka_name"]');
+    if(!p){if(mk)mk.value="";if(window.jdmLoadModels)window.jdmLoadModels("");return;}
+    if(mk){if(mk.tagName==="SELECT"){var want=(p.make||"").toUpperCase();var tok=want.split(/[\\s-]+/)[0];var opt=null;for(var i=0;i<mk.options.length;i++){var ov=(mk.options[i].value||"").toUpperCase();if(ov===want){opt=mk.options[i];break;}if(!opt&&tok&&ov.indexOf(tok)>=0){opt=mk.options[i];}}mk.value=opt?opt.value:"";}else{mk.value=p.make||"";}}
+    // Model is a <select> on the public form (load + select) or a text input on
+    // the staff form (set directly).
+    var modelEl=form.querySelector('[name="model_name"]');
+    if(modelEl&&modelEl.tagName==="SELECT"&&window.jdmLoadModels){window.jdmLoadModels(p.model||"");}
+    else{set("model_name",p.model);}
+    set("kuzov",p.kuzov);set("year_min",p.year_min);set("year_max",p.year_max);set("label",p.label);
+  }</script>`;
 }
 
 // <option> list of Australian states for the client forms.
@@ -165,6 +201,11 @@ const CSS = `
   .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:var(--bg-2);position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
   .side .brand{padding:4px 6px 20px;margin-bottom:18px;border-bottom:1px solid var(--hair)}
   .brand svg path,.brand svg polygon,.login-logo svg path,.login-logo svg polygon{fill:var(--ink)}
+  .side-search{position:relative;margin-bottom:16px}
+  .side-search .ss-ic{position:absolute;left:11px;top:50%;transform:translateY(-50%);display:flex;color:var(--faint);pointer-events:none}
+  .side-search .ss-ic svg{width:15px;height:15px}
+  .side-search input[type=search]{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;font-family:inherit}
+  .side-search input[type=search]:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
   .nav{margin-top:0;display:flex;flex-direction:column;gap:2px}
   .nav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:6px;font-size:15px;color:var(--t2)}
   .nav a .bar{width:3px;height:17px;border-radius:2px;background:transparent}
@@ -189,6 +230,7 @@ const CSS = `
   .btn-dark:hover{background:var(--hover)}
   .content{padding:32px 40px 60px;max-width:1180px}
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
+  .content.dash{width:100%;max-width:2040px;margin-left:auto;margin-right:auto}
   .card{background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:24px 26px;margin-bottom:24px}
   .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px}
   .card h2 .num{color:var(--gold);font-weight:700}
@@ -473,7 +515,10 @@ const CSS = `
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
   .sec-h .btn-gold{display:inline-flex;align-items:center;gap:6px}
   .sec-h .btn-gold svg{width:15px;height:15px}
+  .dcols{display:grid;grid-template-columns:1fr;gap:8px 24px;align-items:start}
+  @media(min-width:1100px){.dcols{grid-template-columns:1fr 1fr}}
   .list{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-bottom:30px}
+  a.lrow{text-decoration:none;color:inherit}
   .lrow{display:flex;align-items:center;gap:13px;padding:13px 16px;border-bottom:1px solid var(--hair)}
   .lrow:last-child{border-bottom:0}
   .lrow:hover{background:var(--hover)}
@@ -671,8 +716,12 @@ const svgIcon = (inner, fill = "none") => `<svg viewBox="0 0 24 24" fill="${fill
 const ICONS = {
   dashboard: svgIcon(`<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>`),
   clients: svgIcon(`<circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><path d="M16 3.2a3 3 0 0 1 0 7.6"/><path d="M21 21v-1a5 5 0 0 0-3.5-4.8"/>`),
+  requests: svgIcon(`<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6V6H9z"/><path d="M8.5 11h7M8.5 15h4"/>`),
+  tasks: svgIcon(`<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1.2 1.2L7.5 5"/><path d="M4 12l1.2 1.2L7.5 11"/><path d="M4 18l1.2 1.2L7.5 17"/>`),
   wishlists: svgIcon(`<path d="M12 21C12 21 4 13.7 4 8.6A4.6 4.6 0 0 1 12 6a4.6 4.6 0 0 1 8 2.6C20 13.7 12 21 12 21Z"/>`),
   matches: svgIcon(`<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 13l1.6-7a2 2 0 0 1 2-1.6h6.8a2 2 0 0 1 2 1.6L19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/>`),
+  auctions: svgIcon(`<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>`),
+  trash: svgIcon(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>`),
   agents: svgIcon(`<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/>`),
   payments: svgIcon(`<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/>`),
   settings: svgIcon(`<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="8" cy="18" r="2" fill="var(--card)"/>`),
@@ -693,10 +742,18 @@ function sidebar(active, counts, session = { role: "admin" }) {
   const whoSub = isAdmin ? "Admin" : "Agent";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
+    <form class="side-search" method="GET" action="/admin" role="search">
+      <input type="hidden" name="view" value="search">
+      <span class="ss-ic" aria-hidden="true">${ICONS.auctions}</span>
+      <input type="search" name="q" placeholder="Search customers, vehicles, chassis, lots…" aria-label="Global search" autocomplete="off">
+    </form>
     <nav class="nav">
       ${item("dashboard", "Dashboard", "")}
-      ${item("clients", "Clients", counts.clients)}
+      ${item("requests", "Requests", counts.requests || "")}
+      ${item("tasks", "Tasks", counts.tasks || "")}
       ${item("matches", "Matches", counts.matches || "")}
+      ${item("clients", "Customers", counts.clients)}
+      ${item("auctions", "Auctions", "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
       ${isAdmin ? item("settings", "Settings", "") : ""}
@@ -712,13 +769,103 @@ function sidebar(active, counts, session = { role: "admin" }) {
 const HEADERS = {
   dashboard: { kicker: "Vehicle Finder", title: "Dashboard", sub: "Your desk at a glance.", btn: "" },
   intake: { kicker: "Vehicle Finder", title: "Add a client", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
-  clients: { kicker: "Vehicle Finder", title: "Clients", sub: "Your buyer directory.", btn: "Add client" },
+  clients: { kicker: "Vehicle Finder", title: "Customers", sub: "Your buyer directory.", btn: "Add client" },
+  requests: { kicker: "Vehicle Finder", title: "Requests", sub: "Every active vehicle search and where it sits in the pipeline.", btn: "" },
+  tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
+  auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
   settings: { kicker: "Vehicle Finder", title: "Settings", sub: "Manage alerts, client-facing pricing, payments and AI reading.", btn: "" },
+  search: { kicker: "Vehicle Finder", title: "Search", sub: "Results across customers, requests, matches and payments.", btn: "" },
 };
+
+// Global search across the objects a session can see: customers, their requests
+// (wishlists), matched lots, and payments. LIKE-based, scoped by accessScope.
+async function adminSearch(env, session, q) {
+  q = String(q || "").trim();
+  const out = { q, clients: [], requests: [], matches: [], payments: [] };
+  if (q.length < 2) return out;
+  const acc = accessScope(session);
+  const like = `%${q.replace(/[%_\\]/g, "")}%`;
+  out.clients = (await env.DB.prepare(
+    `SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} AND (c.name LIKE ? OR c.email LIKE ? OR c.whatsapp LIKE ?) ORDER BY c.name LIMIT 25`
+  ).bind(...acc.binds, like, like, like).all()).results || [];
+  out.requests = (await env.DB.prepare(
+    `SELECT w.id, w.label, w.marka_name, w.model_name, w.kuzov, c.id AS client_id, c.name AS client_name
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND (w.marka_name LIKE ? OR w.model_name LIKE ? OR w.kuzov LIKE ? OR w.label LIKE ?) ORDER BY c.name LIMIT 25`
+  ).bind(...acc.binds, like, like, like, like).all()).results || [];
+  out.matches = (await env.DB.prepare(
+    `SELECT q.id, q.lot_id, q.status, c.id AS client_id, c.name AS client_name
+       FROM queue q JOIN clients c ON c.id = q.client_id
+      WHERE ${acc.sql} AND (q.lot_id LIKE ? OR q.lot_json LIKE ?) ORDER BY q.created_at DESC LIMIT 25`
+  ).bind(...acc.binds, like, like).all()).results || [];
+  if (session.role === "admin") {
+    out.payments = (await env.DB.prepare(
+      `SELECT p.id, p.amount_cents, p.currency, p.status, p.description, c.name AS client_name
+         FROM payments p LEFT JOIN clients c ON c.id = p.client_id
+        WHERE (c.name LIKE ? OR p.description LIKE ? OR p.stripe_session LIKE ?) ORDER BY p.created_at DESC LIMIT 25`
+    ).bind(like, like, like).all()).results || [];
+  }
+  return out;
+}
+
+// Search results page: grouped, scannable, each row links to the right place.
+function searchView(res) {
+  const q = res.q || "";
+  if (q.length < 2) return `<div class="card"><div class="empty">Type at least two characters to search.</div></div>`;
+  const total = res.clients.length + res.requests.length + res.matches.length + res.payments.length;
+  if (!total) return `<div class="card"><div class="empty"><div class="rule"></div>No matches for &ldquo;${esc(q)}&rdquo;. Try a name, email, make, model, chassis code or lot number.</div></div>`;
+  const grp = (title, n, rowsHtml) => n ? `<div class="psec"><h2>${title}<span class="ct">${n}</span></h2></div><div class="card" style="padding:0;overflow:hidden"><table>${rowsHtml}</table></div>` : "";
+  const clientRows = res.clients.map((c) => `<tr><td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td><td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td></tr>`).join("");
+  const reqRows = res.requests.map((w) => `<tr><td><a class="clink" href="/admin?view=client&id=${w.client_id}">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</a>${w.kuzov ? ` <span class="chip muted">${esc(w.kuzov)}</span>` : ""}</td><td>${esc(w.client_name)}</td></tr>`).join("");
+  const chip = (s) => `<span class="chip muted">${esc(s || "-")}</span>`;
+  const aud = (cents, cur) => `${String(cur || "aud").toUpperCase()} $${(Number(cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`;
+  const matchRows = res.matches.map((m) => `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`).join("");
+  const payRows = res.payments.map((p) => `<tr><td>${esc(p.client_name || "-")}</td><td>${aud(p.amount_cents, p.currency)}</td><td>${esc(p.description || "-")}</td><td>${chip(p.status)}</td></tr>`).join("");
+  return `${grp("Customers", res.clients.length, clientRows)}${grp("Requests", res.requests.length, reqRows)}${grp("Matches", res.matches.length, matchRows)}${grp("Payments", res.payments.length, payRows)}`;
+}
+
+// Customer drawer fragment: a compact side-panel view of a client (info, request
+// summary, recent matches and payments), loaded by the shell's drawer script so
+// clicking a customer previews them without leaving the list. Access-scoped:
+// returns "not found" for a client this session can't see.
+export async function clientDrawerFragment(env, clientId, session = { role: "admin", id: 0 }) {
+  const id = Number(clientId);
+  const acc = accessScope(session);
+  const c = await env.DB.prepare(`SELECT c.* FROM clients c WHERE c.id = ? AND ${acc.sql}`).bind(id, ...acc.binds).first();
+  if (!c) return `<div class="dw-empty">Customer not found, or you don't have access.</div>`;
+  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY active DESC, id DESC").bind(id).all()).results || [];
+  const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
+  const pays = (await env.DB.prepare("SELECT amount_cents, currency, status, created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 5").bind(id).all()).results || [];
+
+  const info = [
+    ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
+    ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${esc(v)}</span></div>`).join("");
+
+  const wlList = wls.length
+    ? wls.map((w) => `<div class="dw-item"><div class="dw-item-t">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</div><div class="dw-item-s">${esc(yearRange(w.year_min, w.year_max))}${w.active ? "" : " &middot; paused"}</div></div>`).join("")
+    : `<div class="dw-empty-sm">No searches yet.</div>`;
+  const mList = matches.length
+    ? matches.map((m) => `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s"><span class="chip muted">${esc(m.status)}</span> &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`).join("")
+    : `<div class="dw-empty-sm">No matches yet.</div>`;
+  const pList = pays.length
+    ? pays.map((p) => `<div class="dw-item"><div class="dw-item-t">${String(p.currency || "aud").toUpperCase()} $${(Number(p.amount_cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}</div><div class="dw-item-s"><span class="chip muted">${esc(p.status)}</span> &middot; ${esc(String(p.created_at || "").slice(0, 10))}</div></div>`).join("")
+    : `<div class="dw-empty-sm">No payments.</div>`;
+
+  return `
+    <div class="dw-head">
+      <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
+      <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
+    </div>
+    ${info ? `<div class="dw-card">${info}</div>` : ""}
+    <div class="dw-sec">Requests <span class="ct">${wls.length}</span></div><div class="dw-list">${wlList}</div>
+    <div class="dw-sec">Recent matches <span class="ct">${matches.length}</span></div><div class="dw-list">${mList}</div>
+    <div class="dw-sec">Payments <span class="ct">${pays.length}</span></div><div class="dw-list">${pList}</div>`;
+}
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
@@ -730,7 +877,8 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const acc = accessScope(session);
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
 
-  const clients = (await run(`SELECT * FROM clients c WHERE ${acc.sql} ORDER BY name`).all()).results || [];
+  const showArchived = !!opts.showArchived;
+  const clients = (await run(`SELECT * FROM clients c WHERE ${acc.sql}${showArchived ? "" : " AND c.archived = 0"} ORDER BY name`).all()).results || [];
   const wishlists = (await run(
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
   ).all()).results || [];
@@ -797,6 +945,23 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
         "SELECT p.*, c.name AS client_name FROM payments p LEFT JOIN clients c ON c.id = p.client_id ORDER BY p.created_at DESC LIMIT 200"
       ).all()).results || []
     : [];
+  // Deposits outstanding: requests whose deposit is requested but not yet paid.
+  const deposits = (view === "payments" && !isAgent)
+    ? (await env.DB.prepare(
+        `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+           FROM wishlists w JOIN clients c ON c.id = w.client_id
+          WHERE w.deposit_status = 'requested' ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 100`
+      ).all()).results || []
+    : [];
+  // Tasks board, scoped to this session.
+  const tasks = (view === "tasks") ? await tasksData(env, session) : [];
+  // Requests view: each wishlist as a pipeline request, with its owner's name.
+  const requests = (view === "requests") ? ((await run(
+    `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       LEFT JOIN agents ow ON ow.id = w.owner_id
+      WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
+  ).all()).results || []) : [];
   const matchSettings = view === "matches" ? await getSettings(env) : null;
   if (isAgent) {
     const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
@@ -804,11 +969,16 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   }
 
   const agentTotal = !isAgent ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0) : 0;
-  const counts = { clients: clients.length, wishlists: wishlists.length, matches: pending.length, agents: agentTotal };
+  // Sidebar Tasks badge: open tasks that are overdue or due today, scoped.
+  const tsc = taskScope(session);
+  const taskBadge = ((await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date <= date('now') AND ${tsc.sql}`
+  ).bind(...tsc.binds).first())?.n) || 0;
+  const counts = { clients: clients.length, wishlists: wishlists.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, tasks: taskBadge };
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
-    : ["agents", "settings", "payments"].includes(view)
+    : ["agents", "settings", "payments", "auctions"].includes(view)
     ? ""
     : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
 
@@ -816,18 +986,23 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
   else if (view === "agents") body = agentsView(agents);
-  else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY });
+  else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
+  else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
+  else if (view === "search") body = searchView(await adminSearch(env, session, opts.q || ""));
+  else if (view === "requests") body = requestsView(requests);
+  else if (view === "tasks") body = tasksView(tasks);
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
+  const wide = view === "matches" || view === "auctions";
   const main = view === "dashboard"
-    ? `<div class="content">${body}</div>`
+    ? `<div class="content dash">${body}</div>`
     : `
-    <div class="topbar${view === "matches" ? " unstick wide" : ""}">
+    <div class="topbar${view === "matches" ? " unstick wide" : view === "auctions" ? " wide" : ""}">
       <div>
         <div class="kicker">${esc(h.kicker)}</div>
         <h1>${esc(h.title)}</h1>
@@ -835,7 +1010,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
       </div>
       ${primary}
     </div>
-    <div class="content${view === "matches" ? " wide" : ""}">${body}</div>`;
+    <div class="content${wide ? " wide" : ""}">${body}</div>`;
 
   return shell(sidebar(view, counts, session), main, esc(h.title) + " - JDM Connect");
 }
@@ -852,8 +1027,11 @@ function agentsView(agents) {
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
-        <form method="POST" action="/agent/invite" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-link" type="submit">${invited ? "Resend invite" : "Reset password"}</button></form>
-        <form method="POST" action="/agent/delete" style="display:inline" onsubmit="return confirm('Delete this agent and ALL their clients, searches and matches? This cannot be undone.')"><input type="hidden" name="id" value="${a.id}"><button class="btn-del" type="submit">Delete</button></form>
+        ${rowMenu([
+          { label: invited ? "Resend invite" : "Reset password", action: "/agent/invite", id: a.id },
+          { sep: true },
+          { label: "Delete", action: "/agent/delete", id: a.id, confirm: "Delete this agent and ALL their clients, searches and matches? This cannot be undone.", icon: ICONS.trash, danger: true },
+        ])}
       </td>
     </tr>`;
   }).join("") || `<tr><td colspan="7" class="empty">No agents yet</td></tr>`;
@@ -870,8 +1048,9 @@ function agentsView(agents) {
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
+    ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -1005,32 +1184,55 @@ function paymentsView(payments, opts = {}) {
     <td style="font-size:11px;color:var(--t3)">${esc(p.stripe_session || "-")}</td>
   </tr>`).join("") || `<tr><td colspan="6" class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</td></tr>`;
   const totalPaid = payments.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_cents || 0), 0);
+  const paidCount = payments.filter((p) => p.status === "paid").length;
+  const deposits = opts.deposits || [];
+  // Deposits outstanding: requests marked "deposit requested" but not yet paid.
+  const depRows = deposits.map((d) => {
+    const veh = displayName([d.marka_name, d.model_name].filter(Boolean).join(" ")) || "Vehicle";
+    return `<tr>
+      <td><a class="clink" href="/admin?view=request&id=${d.id}">REQ-${d.id}</a></td>
+      <td><a class="clink" href="/admin?view=client&id=${d.client_id}">${esc(d.client_name)}</a></td>
+      <td>${esc(veh)}</td>
+      <td style="white-space:nowrap">${esc(lastActivityLabel(d.last_activity))}</td>
+      <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
+    </tr>`;
+  }).join("");
+  const depositsSection = deposits.length ? `<div class="psec" style="margin-top:26px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
+    </div>` : "";
   return `<div class="triage">
       <div class="tstat"><div class="k">Collected</div><div class="v">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
-      <div class="tstat"><div class="k">Payments</div><div class="v">${payments.length}</div></div>
+      <div class="tstat"><div class="k">Paid payments</div><div class="v">${paidCount}</div></div>
+      <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
+    ${depositsSection}
+    ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
     <div class="card" style="padding:0;overflow:hidden">
-      <table><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
+      <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
 
 // Styled login screen shown when there's no valid session.
 export function loginPage(opts = {}) {
-  const err = opts.error ? `<div class="login-err">Incorrect email or password. Please try again.</div>` : "";
+  const err = opts.locked
+    ? `<div class="login-err">Too many sign-in attempts. Please wait about 15 minutes and try again.</div>`
+    : opts.error
+      ? `<div class="login-err">Incorrect email or password. Please try again.</div>`
+      : "";
   const body = `<div class="login-screen">
     ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
       <h1>Welcome back</h1>
-      <p class="login-sub">Sign in to your JDM Connect account to track your searches and matches.</p>
+      <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
       ${err}
-      <label>Email <span class="opt">(agents and clients)</span></label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@email.com">
-      <div class="login-note">Agents and clients: sign in with your email and password. JDM Connect admin: leave the email blank and enter the admin password.</div>
+      <label>Email</label>
+      <input type="email" name="email" autocomplete="username" placeholder="you@email.com" maxlength="160">
       <label style="margin-top:14px">Password</label>
-      <input type="password" name="password" autocomplete="current-password" autofocus required>
+      <input type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:18px 0 0">New to JDM Connect? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle request</a></p>
+      <p class="login-sub" style="margin:18px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -1149,7 +1351,7 @@ function agentBars(people) {
 async function dashboardData(env, session) {
   const acc = accessScope(session);
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
-  const clients = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE ${acc.sql}`).first())?.n || 0;
+  const clients = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE ${acc.sql} AND c.archived = 0`).first())?.n || 0;
   const agents = session.role === "admin"
     ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
     : 0;
@@ -1168,13 +1370,88 @@ async function dashboardData(env, session) {
     const spendRows = (await env.DB.prepare(`SELECT substr(paid_at,1,10) AS d, SUM(amount_cents) AS n FROM payments WHERE status='paid' AND paid_at IS NOT NULL AND paid_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
     spend = fillSeries(spendRows, days14);
   }
+  // Throughput + demand signals (all role-scoped via run()).
+  const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
+  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${acc.sql}`).first())?.n || 0;
+  const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
+  // Most-wanted makes in the live review queue — a quick read on demand.
+  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
+  const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
+  // Pending lots whose auction closes within 48h — the work that can't wait.
+  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
+
   let people;
   if (session.role === "admin") {
     people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
   } else {
-    people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
+    people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} AND c.archived = 0 ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
   }
-  return { clients, agents, pending, closing, strength, people, reviewed, found, spend };
+
+  // --- Phase 2 "needs attention" signals (all role-scoped) -----------------
+  // Live pipeline: count per stage across this session's requests.
+  const TERMINAL = ["delivered", "lost"];
+  const stageRows = (await run(`SELECT w.status AS st, COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} GROUP BY w.status`).all()).results || [];
+  const stageCounts = {};
+  for (const s of REQUEST_STATUSES) stageCounts[s.id] = 0;
+  for (const r of stageRows) if (r.st in stageCounts) stageCounts[r.st] = r.n;
+  const openRequests = REQUEST_STATUSES.filter((s) => !TERMINAL.includes(s.id)).reduce((n, s) => n + (stageCounts[s.id] || 0), 0);
+
+  // Deposits requested but not paid.
+  const depositsOut = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.deposit_status = 'requested' AND ${acc.sql}`).first())?.n || 0;
+
+  // Stalled: active-pipeline requests with no activity in 14 days.
+  const inTerminal = TERMINAL.map((s) => `'${s}'`).join(",");
+  const stalledList = (await run(
+    `SELECT w.id, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0
+        AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))
+      ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
+  ).all()).results || [];
+  const stalled = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0 AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))`).first())?.n || 0;
+
+  // Tasks: overdue + due-today counts and the actual list (scoped to me/my clients).
+  const tsc = taskScope(session);
+  const tbind = (sql) => { const s = env.DB.prepare(sql); return tsc.binds.length ? s.bind(...tsc.binds) : s; };
+  const tasksOverdue = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date < date('now') AND ${tsc.sql}`).first())?.n || 0;
+  const tasksToday = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date = date('now') AND ${tsc.sql}`).first())?.n || 0;
+  const tasksDueList = (await tbind(
+    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+      WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date <= date('now') AND ${tsc.sql}
+      ORDER BY t.due_date ASC, t.priority='high' DESC LIMIT 6`
+  ).all()).results || [];
+
+  // Scheduled follow-ups due (or overdue) today — "who needs attention today?".
+  const nextActionList = (await run(
+    `SELECT w.id, w.status, w.next_action_date, w.next_action_note, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND c.archived = 0 AND w.status NOT IN (${inTerminal})
+        AND w.next_action_date IS NOT NULL AND w.next_action_date <= date('now')
+      ORDER BY w.next_action_date ASC LIMIT 8`
+  ).all()).results || [];
+  const nextActionDue = nextActionList.length;
+
+  // Who owes money — deposits requested but not paid (the list, for the panel).
+  const depositsList = (await run(
+    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE w.deposit_status = 'requested' AND ${acc.sql} AND c.archived = 0
+      ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
+  ).all()).results || [];
+
+  // Closest to buying — interested / deposit stages, most-committed first.
+  const closestList = (await run(
+    `SELECT w.id, w.status, w.deposit_status, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND c.archived = 0
+        AND w.status IN ('interested','deposit_requested','deposit_paid')
+      ORDER BY CASE w.status WHEN 'deposit_paid' THEN 3 WHEN 'deposit_requested' THEN 2 ELSE 1 END DESC,
+               COALESCE(w.last_activity, w.created_at) DESC LIMIT 6`
+  ).all()).results || [];
+
+  return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList,
+    stageCounts, openRequests, depositsOut, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
+    nextActionList, nextActionDue, depositsList, closestList };
 }
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
@@ -1194,31 +1471,17 @@ function dashboardView(session, data) {
       <a href="/logout" aria-label="Sign out">${ICONS.account}</a>
     </div>`;
 
-  // KPI strip — each cell is a shortcut to its view. Counts live here only (the
-  // old Review-queue / Closing-soon banners repeated these same two numbers).
+  // Business roll-up: only the numbers NOT already surfaced as attention cards
+  // (matches/closing/deposits live there now), so the dashboard never repeats a
+  // figure three times.
   const overview = `<div class="ovwrap"><span class="ovlbl">${ovLabel}</span><a href="/admin?view=clients">Manage ${ICONS.arrow}</a></div>
     <div class="overview">
       ${metric(data.clients, "Active clients", false, "/admin?view=clients")}
       ${isAdmin ? metric(data.agents, "Active agents", false, "/admin?view=agents") : ""}
-      ${metric(data.pending, "Matches to review", true, "/admin?view=matches")}
-      ${metric(data.closing, "Closing in 48h", false, "/admin?view=matches")}
+      ${metric(data.openRequests, "Open requests", false, "/admin?view=requests")}
+      ${metric(data.sentWeek, "Sent this week", false, "/admin?view=matches")}
+      ${metric(data.members, "Members", false, "/admin?view=clients")}
     </div>`;
-
-  let section;
-  if (isAdmin) {
-    const rows = data.people.map((a) => `<div class="lrow">
-        ${avatar(a.name)}
-        <div class="who"><div class="nm">${esc((a.name || "").split(/\s+/)[0])}${a.company ? ` <small>· ${esc(a.company)}</small>` : ""}</div><div class="sub">${esc(a.email || "")}</div></div>
-        <div class="meta">${a.alerts ? `<span class="b b-warn">${ICONS.bell} alerts on</span>` : ""}<span class="b ${a.active ? "b-ok" : "b-neu"}">${a.active ? "active" : "paused"}</span><a class="kebab" href="/admin?view=agents" aria-label="Manage ${esc(a.name)}">${ICONS.kebab}</a></div>
-      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No agents yet. Invite one to get started.</div></div></div>`;
-    section = `<div class="sec-h"><h2>Agents <span class="ct">(${data.people.length})</span></h2><a class="btn-gold" href="/admin?view=agents">${ICONS.plus} Invite agent</a></div><div class="list">${rows}</div>`;
-  } else {
-    const rows = data.people.map((c) => `<div class="lrow">
-        ${avatar(c.name)}
-        <div class="who"><div class="nm"><a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></div><div class="sub">${esc(c.email || c.state || "Client")}</div></div>
-      </div>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No clients yet. Add one to get started.</div></div></div>`;
-    section = `<div class="sec-h"><h2>Recent clients</h2><a class="btn-gold" href="/admin?view=intake">${ICONS.plus} Add client</a></div><div class="list">${rows}</div>`;
-  }
 
   const strengthParts = [
     { label: "Strong", value: data.strength.Strong || 0, color: "#5BC08C" },
@@ -1237,28 +1500,167 @@ function dashboardView(session, data) {
       </div>`
     : "";
   const agentCard = isAdmin ? agentBars(data.people) : "";
+  // New matches found per day (was computed but never shown).
+  const found = data.found || [];
+  const foundTotal = found.reduce((s, r) => s + r.n, 0);
+  const foundCard = `<div class="chart-card">
+      <div class="chart-h"><span class="ct-t">New matches per day</span><span class="ct-s">${foundTotal} in 14 days</span></div>
+      ${barsSvg(found, "#6F86A6")}
+      <div class="bars-x"><span>${dayLbl(found[0] && found[0].d)}</span><span>today</span></div>
+    </div>`;
+  // Most-wanted makes in the queue — a small horizontal bar list.
+  const maxMake = (data.topMakes || []).reduce((m, r) => Math.max(m, r.n), 0) || 1;
+  const topMakesCard = (data.topMakes || []).length
+    ? `<div class="chart-card">
+        <div class="chart-h"><span class="ct-t">Most-wanted makes</span><span class="ct-s">in the queue</span></div>
+        <div class="abars">${data.topMakes.map((r) => `<div class="abar"><span class="abar-n" title="${esc(r.name)}">${esc(r.name)}</span><span class="abar-t"><span class="abar-f" style="width:${Math.round((r.n / maxMake) * 100)}%"></span></span><span class="abar-v">${r.n}</span></div>`).join("")}</div>
+      </div>`
+    : "";
   const charts = `<div class="charts">
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Reviewed per day</span><span class="ct-s">${revTotal} in 14 days</span></div>
         ${barsSvg(rev, "var(--gold)")}
         <div class="bars-x"><span>${dayLbl(rev[0] && rev[0].d)}</span><span>today</span></div>
       </div>
+      ${foundCard}
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Pipeline quality</span><span class="ct-s">awaiting review</span></div>
         ${donutSvg(strengthParts)}
       </div>
       ${spendCard}
+      ${topMakesCard}
       ${agentCard}
     </div>`;
+
+  // Actionable list: lots whose auction closes within 48h.
+  const closingRows = (data.closingList || []).map((q) => {
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+    const d = daysUntil(lot.auction_date);
+    const when = d <= 0 ? "today" : d === 1 ? "1 day" : `${d} days`;
+    return `<a class="lrow" href="/admin?view=lot&id=${q.id}">
+        ${avatar(q.client_name)}
+        <div class="who"><div class="nm">${title}</div><div class="sub">${esc(q.client_name)}${lot.auction ? " · " + esc(lot.auction) : ""}</div></div>
+        <div class="meta"><span class="b ${d <= 1 ? "b-warn" : "b-neu"}">Closes ${when}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing closing in the next 48h.</div></div></div>`;
+
+  // --- Phase 2: "needs attention today" band + live pipeline strip ----------
+  const ac = (n, label, href, alert) => {
+    const tone = (Number(n) || 0) > 0 ? alert : "calm";
+    return `<a class="acard acard-${tone}" href="${href}"><div class="ac-n" data-count="${Number(n) || 0}">0</div><div class="ac-l">${label}</div></a>`;
+  };
+  const attention = `<div class="attn">
+    <div class="attn-h">Needs attention today</div>
+    <div class="acards">
+      ${ac(data.nextActionDue, "Follow-ups due", "/admin?view=requests", "warn")}
+      ${ac(data.tasksOverdue, "Overdue tasks", "/admin?view=tasks", "bad")}
+      ${ac(data.tasksToday, "Tasks due today", "/admin?view=tasks", "warn")}
+      ${ac(data.depositsOut, "Deposits outstanding", isAdmin ? "/admin?view=payments" : "/admin?view=requests", "warn")}
+      ${ac(data.stalled, "Stalled requests", "/admin?view=requests", "bad")}
+      ${ac(data.closing, "Closing in 48h", "/admin?view=matches", "warn")}
+      ${ac(data.pending, "Matches to review", "/admin?view=matches", "gold")}
+    </div>
+  </div>`;
+
+  const JOURNEY = ["new", "qualified", "searching", "vehicles_sent", "interested", "deposit_paid", "purchased", "delivered"];
+  const pipelineStrip = `<div class="pipestrip">${JOURNEY.map((id) => {
+    const s = RSTATUS[id] || { label: id };
+    return `<a class="ps-c" href="/admin?view=requests" title="${esc(s.label)}"><span class="ps-n">${(data.stageCounts && data.stageCounts[id]) || 0}</span><span class="ps-l">${esc(s.label)}</span></a>`;
+  }).join('<span class="ps-arrow">&rsaquo;</span>')}</div>`;
+
+  // My tasks due (overdue + today), from the scoped list.
+  const dueColor = (t) => t === "over" ? "var(--bad)" : t === "today" ? "#C98A00" : "var(--t3)";
+  const taskRows = (data.tasksDueList || []).map((t) => {
+    const d = taskDue(t.due_date);
+    return `<a class="lrow" href="${t.wishlist_id ? `/admin?view=request&id=${t.wishlist_id}` : "/admin?view=tasks"}">
+        <div class="who"><div class="nm">${esc(t.title)}</div><div class="sub">${t.client_name ? esc(t.client_name) + " · " : ""}<span style="color:${dueColor(d.tone)};font-weight:600">${esc(d.label)}</span></div></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing due today. Nice.</div></div></div>`;
+  const tasksSection = `<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div><div class="list">${taskRows}</div>`;
+
+  // Stalled requests — no movement in 14 days.
+  const stalledRows = (data.stalledList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(veh)}</div><div class="sub">${esc(w.client_name)} · ${esc(lastActivityLabel(w.last_activity))}</div></div>
+        <div class="meta"><span class="b b-warn">${esc((RSTATUS[w.status] || {}).label || w.status)}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">No stalled requests. Everything's moving.</div></div></div>`;
+  const stalledSection = `<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div><div class="list">${stalledRows}</div>`;
+
+  // Reframe the closing-soon list as a question to match the rest of the board.
+  const closingQ = `<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
+
+  // Who needs attention today — scheduled follow-ups due (or overdue).
+  const naRows = (data.nextActionList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    const d = taskDue(w.next_action_date);
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}${w.next_action_note ? " · " + esc(w.next_action_note) : ""}</div></div>
+        <div class="meta"><span class="b ${d.tone === "over" ? "b-warn" : "b-neu"}">${esc(d.label)}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
+  const attentionSection = `<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${naRows}</div>`;
+
+  // Who owes money — deposits requested, not yet paid.
+  const owesRows = (data.depositsList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta"><span class="b b-warn">Deposit requested</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
+  const owesSection = `<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div><div class="list">${owesRows}</div>`;
+
+  // Who's closest to buying — interested / deposit stages, most-committed first.
+  const closeRows = (data.closestList || []).map((w) => {
+    const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
+    const lbl = (RSTATUS[w.status] || {}).label || w.status;
+    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+        ${avatar(w.client_name)}
+        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta"><span class="b ${w.status === "deposit_paid" ? "b-ok" : "b-warn"}">${esc(lbl)}</span></div>
+      </a>`;
+  }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
+  const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
+
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
+      ${attention}
+      ${pipelineStrip}
       ${overview}
+      <div class="dcols">${attentionSection}${tasksSection}</div>
+      <div class="dcols">${owesSection}${closestSection}</div>
+      <div class="dcols">${stalledSection}${closingQ}</div>
       ${charts}
-      ${section}
-    </div>${dashScript()}`;
+    </div>${DASH2_CSS}${dashScript()}`;
 }
+
+const DASH2_CSS = `<style>
+  .attn{margin:24px 0 4px}
+  .attn-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
+  .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:16px 18px;transition:border-color .15s,transform .15s}
+  .acard:hover{transform:translateY(-2px)}
+  .ac-n{font-size:28px;font-weight:800;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ac-l{font-size:12px;color:var(--t3);margin-top:8px}
+  .acard-bad{border-color:var(--bad-line,var(--bad-bg))}.acard-bad .ac-n{color:var(--bad)}
+  .acard-warn{border-color:var(--gold-line)}.acard-warn .ac-n{color:#C98A00}
+  .acard-gold{border-color:var(--gold-line)}.acard-gold .ac-n{color:var(--gold-txt)}
+  .acard-calm .ac-n{color:var(--t2)}
+  .pipestrip{display:flex;align-items:center;gap:2px;flex-wrap:nowrap;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:14px 12px;margin:16px 0 4px;overflow-x:auto}
+  .ps-c{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;padding:4px 10px;border-radius:9px;min-width:62px}
+  .ps-c:hover{background:var(--hover,rgba(0,0,0,.04))}
+  .ps-n{font-size:19px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ps-l{font-size:10px;color:var(--t3);text-align:center;line-height:1.2}
+  .ps-arrow{color:var(--faint);font-size:15px;flex:none}
+</style>`;
 
 function intakeView(clients, makers, opts = {}) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
@@ -1347,32 +1749,843 @@ function clientsView(clients, wishlists, opts = {}) {
   const rows = clients.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}">${esc(c.name)}</a></td>
+      <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
-        ? `<form method="POST" action="/client/delete" style="display:inline" onsubmit="return confirm('Delete this client and all their searches? This cannot be undone.')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>`
+        ? rowMenu([
+            { label: "View", href: `/admin?view=client&id=${c.id}` },
+            { label: "Edit", href: `/admin?view=client&id=${c.id}#edit` },
+            { sep: true },
+            c.archived
+              ? { label: "Restore", action: "/client/unarchive", id: c.id }
+              : { label: "Archive", action: "/client/archive", id: c.id },
+            { label: "Delete", action: "/client/delete", id: c.id, confirm: "Delete this client and all their searches? This cannot be undone.", icon: ICONS.trash, danger: true },
+          ])
         : ""}</td>
     </tr>`
   ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
-  const bulkBar = (isAdmin && agents.length)
+  // Admin bulk bar. "Delete selected" is its own red button (not buried in a
+  // dropdown) so it's obvious; assign/share only appear when there are agents.
+  // Each button checks something is ticked; delete also confirms with the count.
+  const bulkBar = isAdmin
     ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
         <span class="bulk-label">With selected clients:</span>
-        <select name="action" class="share-pick"><option value="assign">Assign owner</option><option value="share">Share with</option></select>
-        <select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
-        <button class="btn-gold" type="submit">Apply</button>
-        <span class="help" style="margin-left:4px">Tick clients on the left, then apply.</span>
-      </form>`
+        <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
+        ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
+        <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this.form)">Apply</button>
+        <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
+        <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
+      </form>
+      <script>function jdmBulkTicked(f){return f.querySelectorAll('input[name=ids]:checked').length;}
+      function jdmBulkApply(f){if(!jdmBulkTicked(f)){alert('Tick the clients you want first, then Apply.');return false;}return true;}
+      function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
     : "";
 
-  const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="for(const b of document.querySelectorAll('input[name=ids]'))b.checked=this.checked" title="Select all"></th>` : "";
+  const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  return `${bulkBar}<div class="card" style="padding:0;overflow:hidden">
-    <table><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow:hidden">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
+
+// ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
+const REQUEST_STATUSES = [
+  { id: "new", label: "New", tone: "pending" },
+  { id: "qualified", label: "Qualified", tone: "active" },
+  { id: "searching", label: "Searching", tone: "active" },
+  { id: "vehicles_sent", label: "Vehicles sent", tone: "active" },
+  { id: "interested", label: "Interested", tone: "warn" },
+  { id: "deposit_requested", label: "Deposit requested", tone: "warn" },
+  { id: "deposit_paid", label: "Deposit paid", tone: "good" },
+  { id: "purchased", label: "Purchased", tone: "good" },
+  { id: "shipping", label: "Shipping", tone: "good" },
+  { id: "compliance", label: "Compliance", tone: "good" },
+  { id: "ready_delivery", label: "Ready for delivery", tone: "good" },
+  { id: "delivered", label: "Delivered", tone: "win" },
+  { id: "lost", label: "Lost", tone: "bad" },
+];
+const RSTATUS = Object.fromEntries(REQUEST_STATUSES.map((s) => [s.id, s]));
+const validStatus = (s) => !!RSTATUS[s];
+function statusBadge(id) {
+  const s = RSTATUS[id] || RSTATUS.new;
+  return `<span class="rstat rstat-${s.tone}">${esc(s.label)}</span>`;
+}
+function statusSelect(reqId, current, back) {
+  return `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${reqId}">${back ? `<input type="hidden" name="back" value="${esc(back)}">` : ""}<select name="status" class="rstat-sel" aria-label="Change status" onchange="this.form.submit()">${
+    REQUEST_STATUSES.map((s) => `<option value="${s.id}"${s.id === (current || "new") ? " selected" : ""}>${esc(s.label)}</option>`).join("")
+  }</select></form>`;
+}
+// Customer health from last activity (Priority 4): green <7d, amber 7-14d, red 14d+.
+function healthDot(lastActivity) {
+  const t = Date.parse(lastActivity || "");
+  const days = Number.isFinite(t) ? (Date.now() - t) / 86400000 : 999;
+  const tone = days <= 7 ? "green" : days <= 14 ? "amber" : "red";
+  const title = days > 900 ? "No activity yet" : `Last activity ${Math.floor(days)} day${Math.floor(days) === 1 ? "" : "s"} ago`;
+  return `<span class="health health-${tone}" title="${title}" aria-label="${title}"></span>`;
+}
+function lastActivityLabel(iso) {
+  const t = Date.parse(iso || "");
+  if (!Number.isFinite(t)) return "no activity";
+  const days = Math.floor((Date.now() - t) / 86400000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+// Requests list: the operational pipeline. Each row is a customer's search, with
+// a health dot, live status change, owner and last-activity. Pipeline cards along
+// the top show the count at each stage and filter the table on click.
+function requestsView(requests, opts = {}) {
+  const counts = {};
+  REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
+  requests.forEach((r) => { const st = r.status || "new"; counts[st] = (counts[st] || 0) + 1; });
+  const cards = REQUEST_STATUSES.filter((s) => s.tone !== "bad").map((s) =>
+    `<button type="button" class="pipe-card" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
+  ).join("");
+
+  const rows = requests.map((r) => {
+    const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "-";
+    return `<tr data-st="${r.status || "new"}">
+      <td>${healthDot(r.last_activity)}<a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></td>
+      <td><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></td>
+      <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</td>
+      <td>${destinationCell(r.destination_country, r.client_state)}</td>
+      <td style="white-space:nowrap">${budget}</td>
+      <td>${statusSelect(r.id, r.status)}</td>
+      <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
+      <td>${esc(r.owner_name || "JDM Connect")}</td>
+      <td style="white-space:nowrap">${esc(lastActivityLabel(r.last_activity))}</td>
+      <td style="text-align:right">${rowMenu([
+        { label: "Open request", href: `/admin?view=request&id=${r.id}` },
+        { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
+      ])}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="10" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+
+  return `${REQ_CSS}
+    <div class="pipe">${cards}</div>
+    ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
+    <div class="card" style="padding:0;overflow:hidden">
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+    </div>
+    <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
+}
+
+const REQ_CSS = `<style>
+  .pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:10px;margin-bottom:18px}
+  .pipe-card{text-align:left;background:var(--card);border:1px solid var(--hair);border-radius:11px;padding:13px 15px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+  .pipe-card:hover{border-color:var(--gold-line)}
+  .pipe-card.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+  .pipe-card .pc-n{font-size:22px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .pipe-card .pc-l{font-size:11.5px;color:var(--t3);margin-top:6px;line-height:1.25}
+  .reqid{font-family:var(--mono,monospace);font-size:12px;font-weight:600;color:var(--t2);text-decoration:none}
+  a.reqid:hover{color:var(--gold-txt)}
+  .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
+  .health-green{background:#1F7A4D}.health-amber{background:#C98A00}.health-red{background:#B11226}
+  .rstat{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;padding:3px 9px;border-radius:9999px}
+  .rstat-pending{background:rgba(0,0,0,.06);color:#5b606a}
+  .rstat-active{background:var(--gold-tint);color:var(--gold-txt)}
+  .rstat-warn{background:rgba(201,138,0,.14);color:#8a5e10}
+  .rstat-good{background:rgba(31,122,77,.14);color:#1F7A4D}
+  .rstat-win{background:rgba(31,122,77,.2);color:#155e3a}
+  .rstat-bad{background:var(--bad-bg);color:var(--bad)}
+  .rstat-sel{padding:6px 26px 6px 10px;font-size:12.5px;border:1px solid var(--hair);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit}
+  .ov-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,115,172,.1);border:1px solid rgba(59,115,172,.34);color:#3B5E96;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
+  .ov-chip .ov-d{width:6px;height:6px;border-radius:9999px;background:currentColor}
+</style>`;
+
+// Destination cell for a request: the AU registration state by default, or an
+// "Overseas" badge with the country when a non-Australia destination is set.
+// Purely a marker - the AU landed-cost / eligibility flow is unchanged.
+function destinationCell(country, state) {
+  const c = String(country || "").trim();
+  if (c) return `<span class="ov-chip" title="Overseas destination"><span class="ov-d"></span>${esc(c)}</span>`;
+  return state ? esc(state) : '<span class="chip muted">-</span>';
+}
+
+// Record one timeline event (Priority 8). Best-effort; never throws into a handler.
+export async function logActivity(env, { wishlist_id = null, client_id = null, type, detail = null, actor = null }) {
+  try {
+    await env.DB.prepare("INSERT INTO activity (wishlist_id, client_id, type, detail, actor) VALUES (?,?,?,?,?)")
+      .bind(wishlist_id, client_id, type, detail, actor).run();
+  } catch (e) { console.error("logActivity failed:", e.message); }
+}
+
+// Deposit state on a request (Priority 6): none -> requested -> paid.
+const DEPOSIT_LABELS = { none: "No deposit", requested: "Deposit requested", paid: "Deposit paid" };
+const validDeposit = (s) => s === "none" || s === "requested" || s === "paid";
+function depositBadge(status) {
+  const s = status || "none";
+  const tone = s === "paid" ? "good" : s === "requested" ? "warn" : "pending";
+  return `<span class="rstat rstat-${tone}">${esc(DEPOSIT_LABELS[s] || DEPOSIT_LABELS.none)}</span>`;
+}
+
+// Moving a request INTO one of these stages seeds a follow-up task so nothing
+// stalls silently (Priority 3). title(firstName) builds the human label.
+const STATUS_TASKS = {
+  vehicles_sent: { title: (n) => `Follow up with ${n} on the vehicles sent`, days: 3, priority: "normal", type: "follow_up" },
+  interested: { title: (n) => `Call ${n} to close`, days: 1, priority: "high", type: "call" },
+  deposit_requested: { title: (n) => `Chase the deposit from ${n}`, days: 2, priority: "high", type: "deposit" },
+  deposit_paid: { title: (n) => `Confirm the purchase plan with ${n}`, days: 2, priority: "normal", type: "purchase" },
+  purchased: { title: (n) => `Send ${n} a purchase confirmation`, days: 1, priority: "normal", type: "admin" },
+};
+
+// Insert one task. Best-effort; never throws into a handler. due is a Date|null.
+async function insertTask(env, { title, type = null, wishlist_id = null, client_id = null, assigned_to = null, due = null, priority = "normal" }) {
+  try {
+    const dueStr = due instanceof Date ? due.toISOString().slice(0, 10) : (due || null);
+    const r = await env.DB.prepare(
+      "INSERT INTO tasks (title, type, wishlist_id, client_id, assigned_to, due_date, priority) VALUES (?,?,?,?,?,?,?)"
+    ).bind(title, type, wishlist_id, client_id, assigned_to, dueStr, priority).run();
+    return r.meta.last_row_id;
+  } catch (e) { console.error("insertTask failed:", e.message); return null; }
+}
+
+// Move a request along the pipeline: validates the stage, checks access, stamps
+// last_activity, applies the deposit side-effect, records the change on the
+// timeline and seeds any follow-up task for the new stage.
+export async function updateRequestStatus(env, id, status, session) {
+  const wid = Number(id);
+  if (!validStatus(status)) return { ok: false, error: "status" };
+  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  const w = await env.DB.prepare(
+    "SELECT w.id, w.client_id, w.status, w.owner_id, w.deposit_status, c.name AS client_name, c.agent_id FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+  ).bind(wid).first();
+  if (!w) return { ok: false, error: "not_found" };
+  const prev = w.status || "new";
+  if (prev === status) return { ok: true, client_id: w.client_id, unchanged: true };
+  const now = new Date().toISOString();
+  // Deposit side-effect: keep the deposit flag in step with the pipeline stage.
+  let deposit = w.deposit_status || "none";
+  if (status === "deposit_requested" && deposit === "none") deposit = "requested";
+  if (status === "deposit_paid") deposit = "paid";
+  await env.DB.prepare("UPDATE wishlists SET status = ?, last_activity = ?, deposit_status = ? WHERE id = ?")
+    .bind(status, now, deposit, wid).run();
+  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "status", detail: `${RSTATUS[prev]?.label || prev} to ${RSTATUS[status]?.label || status}`, actor });
+
+  // Seed a follow-up task for the new stage, assigned to the request owner (or
+  // the client's agent). Skip if an identical open task already exists so a
+  // back-and-forth status change doesn't pile up duplicates.
+  const rule = STATUS_TASKS[status];
+  if (rule) {
+    const firstName = String(w.client_name || "this client").trim().split(/\s+/)[0] || "this client";
+    const title = rule.title(firstName);
+    const dupe = await env.DB.prepare("SELECT id FROM tasks WHERE wishlist_id = ? AND title = ? AND status != 'done'").bind(wid, title).first();
+    if (!dupe) {
+      const due = new Date(Date.now() + rule.days * 86400000);
+      await insertTask(env, { title, type: rule.type, wishlist_id: wid, client_id: w.client_id, assigned_to: w.owner_id || w.agent_id || null, due, priority: rule.priority });
+    }
+  }
+  return { ok: true, client_id: w.client_id };
+}
+
+// ===========================================================================
+// Phase 2: request detail, activity timeline, tasks, match tracking, deposits
+// ===========================================================================
+
+// Robust relative time for both ISO ("...Z") and SQLite datetime ("YYYY-MM-DD
+// HH:MM:SS", treated as UTC) timestamps.
+function tsMs(s) {
+  if (!s) return NaN;
+  const hasTz = /[zZ]|[+-]\d\d:?\d\d$/.test(s);
+  return Date.parse(hasTz ? s : s.replace(" ", "T") + "Z");
+}
+function relTime(s) {
+  const t = tsMs(s);
+  if (!Number.isFinite(t)) return "";
+  const diff = Date.now() - t;
+  const m = Math.round(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.round(h / 24);
+  if (d < 30) return d + "d ago";
+  return new Date(t).toISOString().slice(0, 10);
+}
+const firstNameOf = (name) => String(name || "").trim().split(/\s+/)[0] || "there";
+
+// Timeline event styling: a coloured dot tone + a short label per activity type.
+const ACT_TONE = {
+  created: "neu", status: "gold", owner: "neu", match_sent: "blue",
+  viewed: "blue", note: "neu", deposit: "warn", task: "gold", interested: "good",
+};
+function activityTimeline(acts) {
+  if (!acts.length) return `<div class="rd-empty">No activity yet.</div>`;
+  return `<ol class="tl">${acts.map((a) => `<li class="tl-i">
+    <span class="tl-dot tl-${ACT_TONE[a.type] || "neu"}"></span>
+    <div class="tl-b">
+      <div class="tl-d">${esc(a.detail || a.type)}</div>
+      <div class="tl-m">${esc(a.actor || "System")} &middot; ${esc(relTime(a.created_at))}</div>
+    </div></li>`).join("")}</ol>`;
+}
+
+// Vertical pipeline stepper: past stages ticked, current highlighted.
+function statusPipeline(current) {
+  const cur = current || "new";
+  if (cur === "lost") {
+    return `<div class="rd-lost">This request is marked <strong>Lost</strong>. Change the status below to reopen it.</div>`;
+  }
+  const flow = REQUEST_STATUSES.filter((s) => s.id !== "lost");
+  const curIdx = flow.findIndex((s) => s.id === cur);
+  return `<ol class="rd-steps">${flow.map((s, i) => {
+    const state = i < curIdx ? "done" : i === curIdx ? "now" : "todo";
+    return `<li class="rd-step rd-${state}"><span class="rd-sd"></span><span class="rd-sl">${esc(s.label)}</span></li>`;
+  }).join("")}</ol>`;
+}
+
+// Due-date meta for a task: relative label + tone (overdue red, today amber).
+function taskDue(due) {
+  if (!due) return { label: "No due date", tone: "none" };
+  const t = Date.parse(due + "T00:00:00Z");
+  if (!Number.isFinite(t)) return { label: esc(due), tone: "none" };
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const days = Math.round((t - today.getTime()) / 86400000);
+  if (days < 0) return { label: days === -1 ? "Yesterday" : `${-days} days overdue`, tone: "over" };
+  if (days === 0) return { label: "Today", tone: "today" };
+  if (days === 1) return { label: "Tomorrow", tone: "soon" };
+  if (days <= 7) return { label: `In ${days} days`, tone: "soon" };
+  return { label: due, tone: "none" };
+}
+function taskRow(t, opts = {}) {
+  const done = t.status === "done";
+  const due = taskDue(t.due_date);
+  const veh = t.marka_name || t.model_name ? displayName([t.marka_name, t.model_name].filter(Boolean).join(" ")) : "";
+  const back = opts.back || "/admin?view=tasks";
+  const ctx = [
+    t.client_name ? `<a class="clink" href="/admin?view=client&id=${t.client_id}">${esc(t.client_name)}</a>` : "",
+    t.wishlist_id ? `<a class="clink" href="/admin?view=request&id=${t.wishlist_id}">REQ-${t.wishlist_id}${veh ? " &middot; " + esc(veh) : ""}</a>` : "",
+  ].filter(Boolean).join(" &middot; ");
+  return `<div class="tk${done ? " tk-done" : ""}">
+    <form method="POST" action="/task/toggle" class="tk-check"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" class="tk-box${done ? " on" : ""}" aria-label="${done ? "Mark not done" : "Mark done"}">${done ? "&#10003;" : ""}</button></form>
+    <div class="tk-b">
+      <div class="tk-t">${esc(t.title)}${t.priority === "high" && !done ? ` <span class="tk-pri">High</span>` : ""}</div>
+      ${ctx ? `<div class="tk-c">${ctx}</div>` : ""}
+    </div>
+    <div class="tk-r">
+      ${done ? `<span class="tk-due tk-none">Done ${esc(relTime(t.done_at))}</span>` : `<span class="tk-due tk-${due.tone}">${esc(due.label)}</span>`}
+      <form method="POST" action="/task/delete" class="tk-del" onsubmit="return confirm('Delete this task?')"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
+    </div>
+  </div>`;
+}
+
+// One sent/pending match row on the request detail, with engagement tracking.
+function matchTrackRow(q, back) {
+  let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
+  const sent = q.status === "sent";
+  // Engagement stage: Not sent -> Sent -> Viewed -> Interested.
+  const stage = q.response === "interested" ? "Interested"
+    : q.response === "not_interested" ? "Passed"
+    : q.viewed_at ? "Viewed"
+    : sent ? "Sent"
+    : q.status === "pending" ? "In review" : esc(q.status || "-");
+  const tone = stage === "Interested" ? "good" : stage === "Passed" ? "bad" : stage === "Viewed" ? "blue" : stage === "Sent" ? "warn" : "pending";
+  const when = sent && q.sent_at ? `sent ${esc(relTime(q.sent_at))}` : q.status === "pending" ? "awaiting review" : "";
+  const acts = sent ? `<div class="mt-acts">
+      <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-yes" type="submit"${q.response === "interested" ? " disabled" : ""}>Interested</button></form>
+      <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="not_interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-no" type="submit"${q.response === "not_interested" ? " disabled" : ""}>Pass</button></form>
+    </div>` : "";
+  return `<div class="mt">
+    <a class="mt-v" href="/admin?view=lot&id=${q.id}">${esc(veh)}</a>
+    <div class="mt-meta"><span class="rstat rstat-${tone}">${esc(stage)}</span>${when ? `<span class="mt-when">${when}</span>` : ""}</div>
+    ${acts}
+  </div>`;
+}
+
+// ---- Quick-action + task + match mutation handlers -------------------------
+
+// Add a free-text note to a request's timeline.
+export async function addRequestNote(env, id, note, session) {
+  const wid = Number(id);
+  const text = String(note || "").trim().slice(0, 500);
+  if (!text) return { ok: false, error: "empty" };
+  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  if (!w) return { ok: false, error: "not_found" };
+  await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), wid).run();
+  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: text, actor });
+  return { ok: true, client_id: w.client_id };
+}
+
+// (Re)assign a request's owner. null = JDM Connect (unassigned).
+export async function assignRequestOwner(env, id, ownerId, session) {
+  const wid = Number(id);
+  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  if (!w) return { ok: false, error: "not_found" };
+  const oid = Number(ownerId);
+  const owner = Number.isInteger(oid) && oid > 0 ? oid : null;
+  let name = "JDM Connect";
+  if (owner) {
+    const a = await env.DB.prepare("SELECT name FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    if (!a) return { ok: false, error: "owner" };
+    name = a.name;
+  }
+  await env.DB.prepare("UPDATE wishlists SET owner_id = ?, last_activity = ? WHERE id = ?").bind(owner, new Date().toISOString(), wid).run();
+  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "owner", detail: `Assigned to ${name}`, actor });
+  return { ok: true, client_id: w.client_id };
+}
+
+// Schedule (or clear) a request's next follow-up. A date drives the dashboard's
+// "who needs attention today?" list; the optional note says what the step is.
+export async function setNextAction(env, id, { date, note, clear } = {}, session) {
+  const wid = Number(id);
+  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  if (!w) return { ok: false, error: "not_found" };
+  if (clear) {
+    await env.DB.prepare("UPDATE wishlists SET next_action_date = NULL, next_action_note = NULL WHERE id = ?").bind(wid).run();
+    return { ok: true, client_id: w.client_id, cleared: true };
+  }
+  // Accept only a plain ISO date (YYYY-MM-DD); anything else clears the schedule.
+  const d = String(date || "").trim();
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  const n = String(note || "").trim().slice(0, 160) || null;
+  await env.DB.prepare("UPDATE wishlists SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
+  if (iso) {
+    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: `Follow-up set for ${iso}${n ? `: ${n}` : ""}`, actor });
+  }
+  return { ok: true, client_id: w.client_id };
+}
+
+// Access guard for a task row: admin, the assignee, or someone who can see its
+// client. Unassigned client-less tasks are admin-only.
+async function taskAccessible(env, t, session) {
+  if (!session || session.role === "admin") return true;
+  if (t.assigned_to != null && Number(t.assigned_to) === Number(session.id)) return true;
+  if (t.client_id) return await clientAccessibleBy(env, t.client_id, session);
+  return false;
+}
+
+export async function createTask(env, form, session) {
+  const title = String(form.get("title") || "").trim().slice(0, 160);
+  if (!title) return { ok: false, error: "title" };
+  const wid = form.get("wishlist_id") ? Number(form.get("wishlist_id")) : null;
+  let cid = form.get("client_id") ? Number(form.get("client_id")) : null;
+  if (wid) {
+    if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+    if (!cid) { const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first(); cid = w ? w.client_id : null; }
+  } else if (cid) {
+    if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  }
+  const due = form.get("due_date") ? String(form.get("due_date")).slice(0, 10) : null;
+  const priority = ["low", "normal", "high"].includes(form.get("priority")) ? form.get("priority") : "normal";
+  // An agent's manual task is theirs; an admin can target an agent via assigned_to.
+  const assigned = session.role === "agent" ? session.id : (form.get("assigned_to") ? Number(form.get("assigned_to")) : null);
+  const tid = await insertTask(env, { title, type: form.get("type") || "manual", wishlist_id: wid, client_id: cid, assigned_to: assigned, due, priority });
+  if (tid && (wid || cid)) {
+    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    await logActivity(env, { wishlist_id: wid, client_id: cid, type: "task", detail: `Task added: ${title}`, actor });
+  }
+  return { ok: !!tid, client_id: cid, wishlist_id: wid };
+}
+
+export async function toggleTask(env, id, session) {
+  const tid = Number(id);
+  const t = await env.DB.prepare("SELECT * FROM tasks WHERE id = ?").bind(tid).first();
+  if (!t) return { ok: false, error: "not_found" };
+  if (!(await taskAccessible(env, t, session))) return { ok: false, error: "forbidden" };
+  const done = t.status === "done";
+  await env.DB.prepare("UPDATE tasks SET status = ?, done_at = ? WHERE id = ?")
+    .bind(done ? "todo" : "done", done ? null : new Date().toISOString(), tid).run();
+  return { ok: true, wishlist_id: t.wishlist_id, client_id: t.client_id };
+}
+
+export async function deleteTask(env, id, session) {
+  const tid = Number(id);
+  const t = await env.DB.prepare("SELECT * FROM tasks WHERE id = ?").bind(tid).first();
+  if (!t) return { ok: false, error: "not_found" };
+  if (!(await taskAccessible(env, t, session))) return { ok: false, error: "forbidden" };
+  await env.DB.prepare("DELETE FROM tasks WHERE id = ?").bind(tid).run();
+  return { ok: true, wishlist_id: t.wishlist_id, client_id: t.client_id };
+}
+
+// Match tracking (Priority 5). Called when a match is approved & sent: stamp
+// sent_at and drop a "Vehicle sent" event on the request timeline.
+export async function recordMatchSent(env, queueId, session) {
+  try {
+    const q = await env.DB.prepare("SELECT id, client_id, wishlist_id, lot_json, sent_at FROM queue WHERE id = ?").bind(Number(queueId)).first();
+    if (!q) return;
+    if (!q.sent_at) await env.DB.prepare("UPDATE queue SET sent_at = datetime('now') WHERE id = ?").bind(q.id).run();
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
+    if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
+    const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+    await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
+  } catch (e) { console.error("recordMatchSent failed:", e.message); }
+}
+
+// Stamp the first time a sent vehicle is opened on its public link (the client
+// viewing it). Best-effort; only fires once per match.
+export async function stampMatchViewed(env, queueId) {
+  try {
+    const q = await env.DB.prepare("SELECT id, client_id, wishlist_id, lot_json, viewed_at, status FROM queue WHERE id = ?").bind(Number(queueId)).first();
+    if (!q || q.viewed_at || q.status !== "sent") return;
+    await env.DB.prepare("UPDATE queue SET viewed_at = datetime('now') WHERE id = ?").bind(q.id).run();
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
+    await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "viewed", detail: `Customer viewed ${veh}`, actor: "Customer" });
+  } catch (e) { console.error("stampMatchViewed failed:", e.message); }
+}
+
+// Record a client's response to a sent vehicle. "Interested" nudges the request
+// forward in the pipeline; both responses land on the timeline.
+export async function setMatchResponse(env, queueId, response, session) {
+  const qid = Number(queueId);
+  const resp = response === "interested" ? "interested" : response === "not_interested" ? "not_interested" : null;
+  if (!resp) return { ok: false, error: "response" };
+  const q = await env.DB.prepare("SELECT id, client_id, wishlist_id, lot_json FROM queue WHERE id = ?").bind(qid).first();
+  if (!q) return { ok: false, error: "not_found" };
+  if (session && session.role === "agent" && !(await clientAccessibleBy(env, q.client_id, session))) return { ok: false, error: "forbidden" };
+  await env.DB.prepare("UPDATE queue SET response = ?, viewed_at = COALESCE(viewed_at, datetime('now')) WHERE id = ?").bind(resp, qid).run();
+  let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
+  const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+  if (resp === "interested" && q.wishlist_id) {
+    const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
+    if (w && ["new", "qualified", "searching", "vehicles_sent"].includes(w.status)) {
+      await updateRequestStatus(env, q.wishlist_id, "interested", session); // logs its own event
+      await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "interested", detail: `Interested in ${veh}`, actor });
+      return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
+    }
+  }
+  if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
+  await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: resp === "interested" ? "interested" : "note", detail: resp === "interested" ? `Interested in ${veh}` : `Passed on ${veh}`, actor });
+  return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
+}
+
+// Soft-archive / restore a customer (Phase 1 deferred item, now wired).
+export async function archiveClient(env, id, on, session) {
+  const cid = Number(id);
+  if (!(await clientOwnedBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  await env.DB.prepare("UPDATE clients SET archived = ? WHERE id = ?").bind(on ? 1 : 0, cid).run();
+  return { ok: true };
+}
+
+// ---- Request detail page (Priority 1 + Priority 9 quick actions) -----------
+export async function requestDetailPage(env, wishlistId, session = { role: "admin", id: 0 }, opts = {}) {
+  const wid = Number(wishlistId);
+  const notFound = () => shell(sidebar("requests", {}, session),
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Request</h1></div><a class="btn-dark" href="/admin?view=requests">Back to requests</a></div>
+     <div class="content"><div class="card"><div class="empty">Request not found, or you don't have access.</div></div></div>`,
+    "Request - JDM Connect");
+  if (!Number.isInteger(wid) || wid <= 0) return notFound();
+  if (!(await wishlistAccessibleBy(env, wid, session))) return notFound();
+  const w = await env.DB.prepare(
+    `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state, c.agent_id AS client_agent, c.portal_enabled
+       FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?`
+  ).bind(wid).first();
+  if (!w) return notFound();
+
+  const back = `/admin?view=request&id=${wid}`;
+  const matches = (await env.DB.prepare(
+    `SELECT id, lot_id, lot_json, status, sent_at, viewed_at, response, created_at, decided_at
+       FROM queue WHERE wishlist_id = ? ORDER BY (status='sent') DESC, created_at DESC LIMIT 40`
+  ).bind(wid).all()).results || [];
+  const acts = (await env.DB.prepare("SELECT * FROM activity WHERE wishlist_id = ? ORDER BY created_at DESC, id DESC LIMIT 40").bind(wid).all()).results || [];
+  const tasks = (await env.DB.prepare(
+    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+      WHERE t.wishlist_id = ? ORDER BY (t.status='done'), COALESCE(t.due_date,'9999-99-99'), t.id DESC LIMIT 30`
+  ).bind(wid).all()).results || [];
+  const agents = session.role === "admin" ? ((await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || []) : [];
+  const ownerId = w.owner_id || w.client_agent || null;
+  const owner = ownerId ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(ownerId).first() : null;
+  const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
+
+  const first = firstNameOf(w.client_name);
+  const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Any vehicle";
+  const waNum = String(w.client_whatsapp || "").replace(/[^\d]/g, "");
+
+  // -- Left column: customer + contact + deposit -----------------------------
+  const contactRows = [
+    ["Email", w.client_email ? `<a href="mailto:${esc(w.client_email)}">${esc(w.client_email)}</a>` : ""],
+    ["Phone", w.client_whatsapp ? esc(w.client_whatsapp) : ""],
+    ["State", w.client_state ? esc(w.client_state) : ""],
+    ["Destination", w.destination_country ? `<span class="ov-chip"><span class="ov-d"></span>${esc(w.destination_country)}</span>` : ""],
+    ["Portal", w.portal_enabled ? "Enabled" : "Not enabled"],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="rd-row"><span class="rd-k">${k}</span><span class="rd-v">${v}</span></div>`).join("");
+  const contactBtns = [
+    waNum ? `<a class="rd-cta" href="https://wa.me/${waNum}" target="_blank" rel="noopener">WhatsApp</a>` : "",
+    w.client_whatsapp ? `<a class="rd-cta" href="tel:${esc(w.client_whatsapp)}">Call</a>` : "",
+    w.client_email ? `<a class="rd-cta" href="mailto:${esc(w.client_email)}">Email</a>` : "",
+  ].filter(Boolean).join("");
+  const customerCol = `<div class="rdcol">
+    <div class="rdcard">
+      <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))}</div></div></div>
+      ${contactRows ? `<div class="rd-rows">${contactRows}</div>` : ""}
+      ${contactBtns ? `<div class="rd-ctas">${contactBtns}</div>` : ""}
+      <a class="rd-open" href="/admin?view=client&id=${w.client_id}">Open full customer profile &rarr;</a>
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Owner</div>
+      <div class="rd-ownerline">${ownerLabel}</div>
+      ${session.role === "admin" ? `<form method="POST" action="/request/owner" class="rd-owner">
+        <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
+        <select name="owner_id" class="rstat-sel" onchange="this.form.submit()">
+          <option value=""${!w.owner_id ? " selected" : ""}>JDM Connect</option>
+          ${agents.map((a) => `<option value="${a.id}"${Number(w.owner_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("")}
+        </select></form>` : ""}
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Deposit</div>
+      <div class="rd-dep">${depositBadge(w.deposit_status)}</div>
+      <div class="rd-depbtns">
+        ${(w.deposit_status || "none") === "none" ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="deposit_requested"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta" type="submit">Request deposit</button></form>` : ""}
+        ${(w.deposit_status || "none") !== "paid" ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-gold" type="submit">Mark deposit paid</button></form>` : ""}
+      </div>
+    </div>
+  </div>`;
+
+  // -- Middle column: requirements + matches ---------------------------------
+  const reqRows = [
+    ["Vehicle", esc(veh)],
+    ["Years", esc(yearRange(w.year_min, w.year_max))],
+    ["Max price", w.price_max ? "&yen;" + Number(w.price_max).toLocaleString("en-US") : "Any"],
+    ["Max mileage", w.mileage_max ? Number(w.mileage_max).toLocaleString() + " km" : "Any"],
+    ["Min grade", w.rate_min ? esc(w.rate_min) : "Any"],
+    ["Chassis / code", w.kuzov ? esc(w.kuzov) : "-"],
+  ].map(([k, v]) => `<div class="rd-spec"><span class="rd-sk">${k}</span><span class="rd-sv">${v}</span></div>`).join("");
+  const sentCount = matches.filter((m) => m.status === "sent").length;
+  const matchList = matches.length
+    ? matches.map((m) => matchTrackRow(m, back)).join("")
+    : `<div class="rd-empty">No vehicles matched or sent yet.</div>`;
+  const requirementsCol = `<div class="rdcol">
+    <div class="rdcard">
+      <div class="rd-toph"><div class="rd-h" style="margin:0">Request REQ-${wid}</div>${statusBadge(w.status)}</div>
+      <div class="rd-specs">${reqRows}</div>
+      <a class="rd-find" href="/admin?view=client&id=${w.client_id}#find">Find a vehicle for ${esc(first)} &rarr;</a>
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Vehicles &amp; engagement <span class="rd-ct">${sentCount} sent</span></div>
+      <div class="rd-matches">${matchList}</div>
+    </div>
+  </div>`;
+
+  // -- Right column: workflow (pipeline + quick actions + tasks + timeline) ---
+  const openTasks = tasks.filter((t) => t.status !== "done");
+  const workflowCol = `<div class="rdcol">
+    <div class="rdcard">
+      <div class="rd-h">Status</div>
+      ${statusSelect(wid, w.status, back)}
+      <div class="rd-quick">
+        ${w.status !== "purchased" ? `<form method="POST" action="/request/status"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="purchased"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta" type="submit">Mark purchased</button></form>` : ""}
+        ${w.status !== "lost" ? `<form method="POST" action="/request/status" onsubmit="return confirm('Mark this request as lost?')"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
+      </div>
+      ${statusPipeline(w.status)}
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Next action</div>
+      ${w.next_action_date
+        ? `<div class="rd-na-cur"><span class="tk-due tk-${taskDue(w.next_action_date).tone}">${esc(taskDue(w.next_action_date).label)}</span>${w.next_action_note ? ` <span class="rd-na-note">${esc(w.next_action_note)}</span>` : ""}</div>`
+        : `<div class="rd-empty">No follow-up scheduled.</div>`}
+      <form method="POST" action="/request/next-action" class="rd-na">
+        <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
+        <input type="date" name="next_action_date" value="${esc(w.next_action_date || "")}" aria-label="Next action date">
+        <input name="next_action_note" value="${esc(w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
+        <div class="rd-naact"><button class="rd-cta rd-cta-gold" type="submit">Set follow-up</button>${w.next_action_date ? `<button class="rd-cta rd-cta-bad" type="submit" name="clear" value="1">Clear</button>` : ""}</div>
+      </form>
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Add a note</div>
+      <form method="POST" action="/request/note">
+        <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
+        <textarea name="note" rows="2" class="rd-note" placeholder="Call notes, next step, anything worth logging…" maxlength="500"></textarea>
+        <div class="rd-noteact"><button class="rd-cta rd-cta-gold" type="submit">Log note</button></div>
+      </form>
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Tasks <span class="rd-ct">${openTasks.length} open</span></div>
+      <div class="rd-tasks">${tasks.length ? tasks.map((t) => taskRow(t, { back })).join("") : `<div class="rd-empty">No tasks. Add one below.</div>`}</div>
+      <form method="POST" action="/task/create" class="rd-newtask">
+        <input type="hidden" name="wishlist_id" value="${wid}"><input type="hidden" name="client_id" value="${w.client_id}"><input type="hidden" name="back" value="${esc(back)}">
+        <input name="title" placeholder="New task…" maxlength="160" required>
+        <input name="due_date" type="date" aria-label="Due date">
+        <button class="rd-cta rd-cta-gold" type="submit">Add</button>
+      </form>
+    </div>
+    <div class="rdcard">
+      <div class="rd-h">Activity</div>
+      ${activityTimeline(acts)}
+    </div>
+  </div>`;
+
+  const flash = opts.saved ? `<div class="flash">${esc(opts.saved)}</div>` : "";
+  const main = `
+    <div class="topbar">
+      <div>
+        <div class="kicker">Vehicle Finder · Request</div>
+        <h1>${esc(veh)}</h1>
+        <p class="subline">${esc(w.client_name)} &middot; REQ-${wid}</p>
+      </div>
+      <a class="btn-dark" href="/admin?view=requests">Back to requests</a>
+    </div>
+    <div class="content wide"><a class="backlink" href="/admin?view=requests">&larr; Back to requests</a>${flash}
+      ${RD_CSS}
+      <div class="rd">${customerCol}${requirementsCol}${workflowCol}</div>
+    </div>`;
+  return shell(sidebar("requests", { matches: matches.length }, session), main, `REQ-${wid} · ${esc(w.client_name)} - JDM Connect`);
+}
+
+const RD_CSS = `<style>
+  .rd{display:grid;grid-template-columns:288px minmax(0,1fr) 340px;gap:18px;align-items:start;margin-top:6px}
+  @media(max-width:1180px){.rd{grid-template-columns:1fr}}
+  .rdcol{display:flex;flex-direction:column;gap:16px}
+  .rdcard{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:17px 18px}
+  .rd-h{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .rd-ct{background:var(--gold-tint);color:var(--gold-txt);border-radius:9999px;padding:1px 8px;font-size:10.5px;margin-left:6px;letter-spacing:0}
+  .rd-toph{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+  .rd-cust{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .rd-name{font-size:16.5px;font-weight:700;color:var(--ink)}
+  .rd-sub{font-size:11.5px;color:var(--t3);margin-top:3px}
+  .rd-rows{border-top:1px solid var(--hair);padding-top:6px}
+  .rd-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05)}
+  .rd-row:last-child{border-bottom:0}
+  .rd-k{font-size:12px;color:var(--t3)}.rd-v{font-size:12.5px;font-weight:600;color:var(--ink);text-align:right;word-break:break-word}
+  .rd-ctas{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 8px}
+  .rd-cta{display:inline-block;background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;font-family:inherit;text-decoration:none;transition:border-color .15s,background .15s}
+  .rd-cta:hover{border-color:var(--gold-line)}
+  .rd-cta-gold{background:var(--gold-tint);border-color:var(--gold-line);color:var(--gold-txt)}
+  .rd-cta-bad{color:var(--bad);border-color:var(--bad-bg)}
+  .rd-open{display:inline-block;margin-top:4px;font-size:12.5px;font-weight:600;color:var(--gold-txt);text-decoration:none}
+  .rd-open:hover{text-decoration:underline}
+  .rd-ownerline{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:10px}
+  .rd-owner select,.rstat-sel{width:100%}
+  .rd-dep{margin-bottom:12px}
+  .rd-depbtns{display:flex;gap:8px;flex-wrap:wrap}
+  .rd-specs{display:flex;flex-direction:column}
+  .rd-spec{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,.05)}
+  .rd-spec:last-of-type{border-bottom:0}
+  .rd-sk{font-size:12px;color:var(--t3)}.rd-sv{font-size:13px;font-weight:600;color:var(--ink);text-align:right}
+  .rd-find{display:inline-block;margin-top:14px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;text-decoration:none}
+  .rd-find:hover{background:var(--gold-line)}
+  .rd-matches{display:flex;flex-direction:column;gap:9px}
+  .mt{border:1px solid var(--hair);border-radius:11px;padding:11px 13px}
+  .mt-v{display:block;font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none}
+  .mt-v:hover{color:var(--gold-txt)}
+  .mt-meta{display:flex;align-items:center;gap:9px;margin-top:6px}
+  .mt-when{font-size:11.5px;color:var(--t3)}
+  .mt-acts{display:flex;gap:7px;margin-top:9px}
+  .mt-btn{background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;font-family:inherit}
+  .mt-btn:hover{border-color:var(--gold-line)}
+  .mt-yes:hover{border-color:#1F7A4D;color:#1F7A4D}.mt-no:hover{border-color:var(--bad);color:var(--bad)}
+  .mt-btn:disabled{opacity:.5;cursor:default}
+  .rd-quick{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+  .rd-quick form{display:inline}
+  .rd-steps{list-style:none;margin:14px 0 0;padding:0;position:relative}
+  .rd-step{display:flex;align-items:center;gap:11px;padding:5px 0;position:relative}
+  .rd-step:not(:last-child)::before{content:"";position:absolute;left:5px;top:20px;bottom:-5px;width:2px;background:var(--hair)}
+  .rd-sd{width:12px;height:12px;border-radius:9999px;border:2px solid var(--hair);background:var(--card);flex:none;z-index:1}
+  .rd-sl{font-size:12.5px;color:var(--t3)}
+  .rd-done .rd-sd{background:var(--gold);border-color:var(--gold)}
+  .rd-done .rd-sl{color:var(--t2)}
+  .rd-now .rd-sd{background:var(--gold);border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
+  .rd-now .rd-sl{color:var(--ink);font-weight:700}
+  .rd-lost{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px}
+  .rd-note{width:100%;background:var(--field,var(--card));border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--ink);resize:vertical}
+  .rd-noteact{margin-top:9px}
+  .rd-na-cur{font-size:12.5px;color:var(--t2);margin-bottom:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .rd-na-note{color:var(--ink)}
+  .rd-na{display:flex;flex-direction:column;gap:8px}
+  .rd-na input{background:var(--field,var(--card));border:1px solid var(--hair);border-radius:9px;padding:9px 11px;font-family:inherit;font-size:12.5px;color:var(--ink);width:100%}
+  .rd-naact{display:flex;gap:8px}
+  .rd-tasks{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+  .rd-newtask{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .rd-newtask input[name=title]{flex:1;min-width:120px}
+  .rd-newtask input{background:var(--field,var(--card));border:1px solid var(--hair);border-radius:9px;padding:8px 10px;font-family:inherit;font-size:12.5px;color:var(--ink)}
+  .tk{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--hair);border-radius:10px;padding:10px 12px}
+  .tk-done{opacity:.6}
+  .tk-box{width:20px;height:20px;border:1.5px solid var(--hair);border-radius:6px;background:var(--card);cursor:pointer;color:var(--gold-on,#fff);font-size:12px;line-height:1;flex:none;margin-top:1px}
+  .tk-box.on{background:var(--gold);border-color:var(--gold)}
+  .tk-b{flex:1;min-width:0}
+  .tk-t{font-size:13px;font-weight:600;color:var(--ink);line-height:1.35}
+  .tk-done .tk-t{text-decoration:line-through}
+  .tk-pri{font-size:10px;font-weight:700;color:var(--bad);background:var(--bad-bg);border-radius:9999px;padding:1px 7px;margin-left:5px;vertical-align:middle}
+  .tk-c{font-size:11.5px;color:var(--t3);margin-top:4px}
+  .tk-r{display:flex;align-items:center;gap:8px;flex:none}
+  .tk-due{font-size:11px;font-weight:600;white-space:nowrap}
+  .tk-over{color:var(--bad)}.tk-today{color:#C98A00}.tk-soon{color:var(--t2)}.tk-none{color:var(--t3)}
+  .tk-del button{border:0;background:none;color:var(--t3);font-size:16px;cursor:pointer;line-height:1;padding:0 2px}
+  .tk-del button:hover{color:var(--bad)}
+  .tk-check{display:inline}
+  .tl{list-style:none;margin:0;padding:0}
+  .tl-i{display:flex;gap:11px;padding:0 0 14px;position:relative}
+  .tl-i:not(:last-child)::before{content:"";position:absolute;left:4px;top:14px;bottom:0;width:2px;background:var(--hair)}
+  .tl-dot{width:10px;height:10px;border-radius:9999px;flex:none;margin-top:3px;z-index:1}
+  .tl-neu{background:var(--t3)}.tl-gold{background:var(--gold)}.tl-blue{background:#6F86A6}.tl-good{background:#1F7A4D}.tl-warn{background:#C98A00}
+  .tl-d{font-size:12.5px;color:var(--ink);line-height:1.4}
+  .tl-m{font-size:11px;color:var(--t3);margin-top:2px}
+  .rd-empty{font-size:12.5px;color:var(--t3);padding:6px 2px}
+</style>`;
+
+// ---- Tasks board (Priority 3) ----------------------------------------------
+function taskScope(session) {
+  if (!session || session.role === "admin") return { sql: "1=1", binds: [] };
+  return {
+    sql: "(t.assigned_to = ? OR c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))",
+    binds: [session.id, session.id, session.id],
+  };
+}
+async function tasksData(env, session) {
+  const sc = taskScope(session);
+  const rows = (await env.DB.prepare(
+    `SELECT t.*, c.name AS client_name, w.marka_name, w.model_name
+       FROM tasks t LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN wishlists w ON w.id = t.wishlist_id
+      WHERE (t.status != 'done' OR t.done_at >= datetime('now','-7 days')) AND ${sc.sql}
+      ORDER BY COALESCE(t.due_date,'9999-99-99'), t.priority='high' DESC, t.id DESC LIMIT 400`
+  ).bind(...sc.binds).all()).results || [];
+  return rows;
+}
+function tasksView(rows, opts = {}) {
+  const open = rows.filter((t) => t.status !== "done");
+  const done = rows.filter((t) => t.status === "done");
+  const buckets = { over: [], today: [], soon: [], later: [], none: [] };
+  for (const t of open) {
+    const d = taskDue(t.due_date);
+    if (d.tone === "over") buckets.over.push(t);
+    else if (d.tone === "today") buckets.today.push(t);
+    else if (d.tone === "soon") buckets.soon.push(t);
+    else if (d.tone === "none") buckets.none.push(t);
+    else buckets.later.push(t);
+  }
+  const sec = (title, list, cls) => list.length
+    ? `<div class="tks"><div class="tks-h ${cls || ""}">${title}<span class="tks-n">${list.length}</span></div><div class="tks-l">${list.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></div>` : "";
+  const body = open.length
+    ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
+    : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
+  const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
+  return `${TASKS_CSS}
+    <div class="tk-strip">
+      <div class="tk-stat${buckets.over.length ? " bad" : ""}"><div class="n">${buckets.over.length}</div><div class="l">Overdue</div></div>
+      <div class="tk-stat${buckets.today.length ? " warn" : ""}"><div class="n">${buckets.today.length}</div><div class="l">Due today</div></div>
+      <div class="tk-stat"><div class="n">${buckets.soon.length}</div><div class="l">This week</div></div>
+      <div class="tk-stat"><div class="n">${open.length}</div><div class="l">Open total</div></div>
+    </div>
+    ${body}${doneSec}`;
+}
+const TASKS_CSS = `<style>
+  .tk-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
+  .tk-stat{background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:14px 16px}
+  .tk-stat.bad{border-color:var(--bad-bg)}.tk-stat.warn{border-color:var(--gold-line)}
+  .tk-stat .n{font-size:24px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .tk-stat.bad .n{color:var(--bad)}.tk-stat.warn .n{color:#C98A00}
+  .tk-stat .l{font-size:11.5px;color:var(--t3);margin-top:6px}
+  .tks{margin-bottom:22px}
+  .tks-h{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .tks-over{color:var(--bad)}.tks-today{color:#C98A00}
+  .tks-n{background:var(--soft,rgba(0,0,0,.06));border-radius:9999px;padding:1px 8px;font-size:11px;color:var(--t2)}
+  .tks-l{display:flex;flex-direction:column;gap:8px}
+  .tks-done{margin-top:10px}
+  .tks-done summary{font-size:12.5px;color:var(--t3);cursor:pointer;padding:8px 0}
+  .tks-done .tks-l{margin-top:10px}
+</style>`;
 
 // Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
 function yearRange(min, max) {
@@ -1799,6 +3012,21 @@ function wishlistEditor(w, opts = {}) {
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
     + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
+  // Staff-only: "Search" runs the live auction search for THIS exact vehicle,
+  // pre-filling the Find-a-car form from this search's criteria and jumping to it.
+  const searchBtn = (!opts.portal && w.client_id && (w.marka_name || w.model_name || w.kuzov))
+    ? (() => {
+        const p = new URLSearchParams();
+        if (w.marka_name) p.set("make", w.marka_name);
+        if (w.model_name) p.set("model", w.model_name);
+        if (w.year_min) p.set("yearMin", w.year_min);
+        if (w.year_max) p.set("yearMax", w.year_max);
+        if (w.price_max) p.set("priceMax", w.price_max);
+        if (w.rate_min) p.set("gradeMin", w.rate_min);
+        if (w.kuzov) p.set("kuzov", w.kuzov);
+        return `<a class="btn-gold wl-search" href="/admin?view=client&id=${w.client_id}&${p.toString()}#find">${ICONS.auctions}Search</a>`;
+      })()
+    : "";
   return `<div class="wlrow">
     <div class="wlhead">
       <div class="wlsum">
@@ -1806,6 +3034,7 @@ function wishlistEditor(w, opts = {}) {
         <div class="wlc">${summary || "Matches anything"}</div>
       </div>
       <div class="wlacts">
+        ${searchBtn}
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
         <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
       </div>
@@ -2068,6 +3297,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Surface the snapshotted landed cost on each match card (as the Matches view does).
+  for (const q of matches) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
+  // Hide the internal catch-all searches (Direct requests / Manual finds) from the
+  // editable Searches list — they're plumbing, not searches staff manage.
+  const searchWls = wls.filter((w) => !SYSTEM_WISHLIST_LABELS.has(w.label));
+
   const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
   const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
@@ -2083,6 +3318,24 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
   </div>`;
+
+  // Edit core contact details (owner/admin only). Folded away by default, but
+  // springs open if the last save failed so the error and the form are visible.
+  const editCard = canManage ? `<details class="card foldcard"${opts.cerr ? " open" : ""}>
+    <summary>Edit details</summary>
+    ${opts.cerr ? `<div class="dupnote">${esc(clientEditErrorMessage(opts.cerr))}</div>` : ""}
+    <form method="POST" action="/client/update">
+      <input type="hidden" name="id" value="${c.id}">
+      <div class="grid">
+        <div><label>Name</label><input name="name" value="${esc(c.name || "")}" required></div>
+        <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
+        <div><label>WhatsApp <span class="opt">(+61…)</span></label><input name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
+        <div><label>State <span class="opt">(for landed-cost estimates)</span></label><input name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
+        <span class="help">Updates this client's contact details across the app.</span></div>
+    </form>
+  </details>` : "";
 
   // Buyer-portal access control (owner/admin only).
   const portalState = c.portal_enabled ? (c.pass_hash ? "Active - client can sign in" : "Invited - awaiting password") : "Not enabled";
@@ -2116,8 +3369,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
-  const newWl = `<details class="card foldcard"${wls.length ? "" : " open"}>
-    <summary>${wls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
+  const newWl = `<details class="card foldcard"${searchWls.length ? "" : " open"}>
+    <summary>${searchWls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
     <form method="POST" action="/wishlist">
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
@@ -2139,9 +3392,63 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </details>`;
 
   const wlSection = `<div class="card">
-    <h2><span class="num">${wls.length}</span> ${wls.length === 1 ? "Search" : "Searches"}</h2>
-    ${wls.map((w) => wishlistEditor(w, { open: wls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
+    <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
+    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
+
+  // Manual auction search for this client (same access as managing them). Hits the
+  // live feed only when a query is present, so a normal page load stays cheap.
+  const firstName = String(c.name || "").trim().split(/\s+/)[0] || "this client";
+  const sp = opts.search || {};
+  const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
+  const findHasQuery = findKeys.some((k) => String(sp[k] || "").trim());
+  let findResults = "";
+  if (canManage && findHasQuery) {
+    const { lots } = await searchLots(env, sp);
+    if (lots.length) {
+      try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
+      const qs = new URLSearchParams();
+      for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
+    } else {
+      findResults = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+    }
+  }
+  const findMakers = canManage ? await distinctMakers(env) : [];
+  // Pre-fill the search with what this client is already chasing (their first
+  // saved search), so staff don't re-type it. Once they actually run a search,
+  // show that query instead.
+  const primaryWl = searchWls[0] || {};
+  const findPrefill = findHasQuery ? sp : {
+    make: primaryWl.marka_name || "", model: primaryWl.model_name || "",
+    yearMin: primaryWl.year_min || "", yearMax: primaryWl.year_max || "",
+    priceMax: primaryWl.price_max || "", gradeMin: primaryWl.rate_min || "",
+    kuzov: primaryWl.kuzov || "",
+  };
+  const prefilledFromWl = !findHasQuery && !!(primaryWl.marka_name || primaryWl.model_name);
+  const fv = (k) => esc(findPrefill[k] ?? "");
+  const foundFlash = opts.found === "added"
+    ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
+    : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
+    : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
+  const findCard = canManage ? `<div class="card" id="find">
+    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search — tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
+    <form method="GET" action="/admin">
+      <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
+      <div class="grid">
+        <div><label>Make<input name="make" list="find-makers" value="${fv("make")}" placeholder="e.g. NISSAN"></label><datalist id="find-makers">${findMakers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
+        <div><label>Model <span class="opt">(contains)</span><input name="model" value="${fv("model")}" placeholder="e.g. SKYLINE"></label></div>
+        <div><label>Year from<input name="yearMin" type="number" min="1960" value="${fv("yearMin")}" placeholder="1990"></label></div>
+        <div><label>Year to<input name="yearMax" type="number" min="1960" value="${fv("yearMax")}" placeholder="2002"></label></div>
+        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
+        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
+        <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
+      </div>
+      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
+        <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
+    </form>${foundFlash}${findResults}
+  </div>` : "";
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
@@ -2157,7 +3464,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${head}${portalCard}${reqSection}${wlSection}${newWl}${matchSection}</div>${matchActionScript()}`;
+    <div class="content"><a class="backlink" href="/admin?view=clients">&larr; Back to clients</a>${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -2174,85 +3481,209 @@ export async function requestPage(env, opts = {}) {
   // Keep the form short for cold ad traffic: only Make/Model show by default,
   // the rest fold away. Re-open the extra fields if any came back filled (e.g.
   // a preset, or a re-render after a contact error) so nothing looks lost.
-  const moreOpen = ["label", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
+  const moreOpen = ["mileage_max", "rate_min", "kuzov", "label"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
-  const yMax = new Date().getFullYear() + 1; // allow next year's models in the feed
 
-  const success = ok ? `<div class="card reqok" id="reqOk">
-        <div class="reqok-badge"><span class="tick">&#10003;</span> Request received</div>
-        ${ref ? `<div class="reqok-ref">Your reference: <strong>${esc(ref)}</strong></div>` : ""}
-        <p>Thanks${firstName ? " " + esc(firstName) : ""}. Your request is in and we're now watching the Japanese auctions for it. We'll ${req.email ? "email" : "be in touch"} the moment a matching car comes up. That can take days or weeks depending on what's listed, so a quiet little while is completely normal.${req.email ? ` A confirmation is on its way to <strong>${esc(req.email)}</strong>.` : ""}</p>
-        ${req.portal ? `<p style="margin-top:10px;color:var(--t2);font-size:14px;line-height:1.55"><strong>Your account is ready.</strong> <a href="/login" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Sign in</a> any time with your email and the password you chose to track your search and see the cars we find.</p>` : ""}
-      </div>
-      <script>(function(){try{var el=document.getElementById('reqOk');if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}})();</script>` : "";
+  // Focused top nav shared by the wizard and the success page (no sidebar).
+  const topnav = `<header class="ob-nav"><div class="ob-nav-in">
+        <a class="ob-brand" href="/" aria-label="JDM Connect Finder home">${LOGO}<span class="tag">Finder</span></a>
+        <a class="ob-signin" href="/login">Sign in</a>
+      </div></header>`;
 
-  const contactBanner = opts.error === "contact"
-    ? `<div class="reqerr">Please add an email or a WhatsApp number so we can reach you when a match comes up.</div>`
+  // ----- Success page (P9): a launch pad, not a dead end -----
+  if (ok) {
+    const car = [esc(req.marka_name || ""), esc(req.model_name || "")].filter(Boolean).join(" ") || "Your vehicle";
+    const yr = req.year_min && req.year_max ? `${esc(req.year_min)} to ${esc(req.year_max)}` : "";
+    const bud = req.budget_aud ? `Budget up to A$${Number(req.budget_aud).toLocaleString("en-AU")} all-in` : "";
+    const st = req.state ? `Registered in ${esc(req.state)}` : "";
+    const summaryRows = [`<b>${car}</b>`, yr, bud, st].filter(Boolean)
+      .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
+    const acct = req.portal
+      ? `<strong>Your account is ready.</strong> Sign in any time with your email and password to track your search.`
+      : req.existing
+        ? `You've enquired before, so we added this to your existing details. Sign in to track it, or check your email for a link to set your password.`
+        : `We'll be in touch the moment a match appears.`;
+    // Conversion tracking: fire a Meta Pixel "Lead" only on a genuine, server-
+    // validated sign-up (a real req with a name) - never on the honeypot / rate-
+    // limited generic success, so bots and spam never inflate the conversion.
+    // fbq is already initialised in <head> via brandDoc's ANALYTICS_HEAD.
+    const isLead = !!(opts.req && opts.req.name);
+    const leadPixel = isLead
+      ? `<script>try{window.fbq&&fbq('track','Lead',{content_name:'Finder vehicle request',content_category:'vehicle_request'});}catch(e){}try{window.dataLayer&&window.dataLayer.push({event:'finder_signup'});}catch(e){}</script>`
+      : "";
+    const successInner = `<div class="ob">
+      ${topnav}
+      <main class="ob-main"><div class="ob-success">
+        <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
+        <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
+        <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
+        <div class="ob-card">
+          <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:14px">Searching for</div>
+          <ul class="ob-summary">${summaryRows}</ul>
+        </div>
+        <div class="ob-meta">
+          <div class="c"><div class="k">Request ID</div><div class="v">${esc(ref || "-")}</div></div>
+          <div class="c"><div class="k">Search status</div><div class="v"><span class="ok">Active</span>, monitoring auctions</div></div>
+          <div class="c"><div class="k">Next update</div><div class="v">As soon as a match appears</div></div>
+        </div>
+        ${successTimeline()}
+        <p class="ob-note-sm">${acct}</p>
+        <div class="ob-cta">
+          <a class="btn-gold" href="/login">View my dashboard <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-ghost" href="/">Browse recent imports</a>
+        </div>
+        ${supportBlock()}
+      </div></main>
+    </div>
+    <style>${onboardingCss}</style>
+    <script>(function(){try{localStorage.removeItem('jdmReqDraft');}catch(e){}})();</script>${leadPixel}`;
+    return brandDoc(successInner, "Your search is live - JDM Connect");
+  }
+
+  // Bounce the wizard straight to the step that owns a server-side error, so a
+  // re-render never lands the visitor on the wrong screen.
+  const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
+    : opts.error === "budget" ? "2"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "exists") ? "4"
+        : "";
+  const bannerMsg = opts.error === "exists"
+    ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
+    : opts.error === "password"
+      ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
+      : opts.error === "vehicle"
+        ? "Please choose a make and model so we know what car to look for."
+        : opts.error === "year"
+          ? "Please enter the year range you're after (and make sure 'from' isn't later than 'to')."
+          : opts.error === "budget"
+            ? "Please enter your maximum all-in budget in AUD (at least A$5,000)."
+            : opts.error === "email"
+              ? "Please enter your email so we can set up your account and reach you when a match comes up."
+              : "";
+  const banner = opts.error
+    ? `<div style="background:#FCE9EC;border:1px solid rgba(177,18,38,0.28);color:#8A1020;border-radius:12px;padding:14px 18px;margin-bottom:24px;font-size:14px;line-height:1.5">${bannerMsg}</div>`
     : "";
 
-  const main = `
-    <div class="topbar">
-      <div style="position:absolute;right:-50px;top:-90px">${risingSun({ size: 320, tone: "soft" })}</div>
-      <div class="topbar-in">
-        <div class="kicker">Vehicle Finder</div>
-        <h1>Request a vehicle</h1>
-        <p class="subline">Tell us what you're after and we'll search the Japanese auctions for it.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
-          <span class="chip muted">No account needed to start</span>
-          <span class="chip muted">Every match reviewed by hand</span>
-          <span class="chip muted">Landed cost included</span>
-        </div>
+  const inner = `<div class="ob">
+      ${topnav}
+      <div class="ob-stepper">
+        <ol class="ob-steps" id="obSteps" aria-hidden="true">
+          <li class="is-active"><span class="dot">1</span><span class="lbl">Find car</span></li>
+          <li><span class="dot">2</span><span class="lbl">Budget</span></li>
+          <li><span class="dot">3</span><span class="lbl">Review</span></li>
+          <li><span class="dot">4</span><span class="lbl">Account</span></li>
+        </ol>
       </div>
-    </div>
-    <div class="content">
-      ${success}
-      <div class="card">
-        ${contactBanner}
-        <h2><span class="num">01</span> Your details</h2>
-        <form id="requestForm" method="POST" action="/request" novalidate>
+      <main class="ob-main">
+        ${banner}
+        <form id="requestForm" class="ob-form" method="POST" action="/request" novalidate${errStep ? ` data-error-step="${errStep}"` : ""}>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
-          <div class="grid">
-            <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" required></div>
-            <div><label for="rq-email">Email</label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com"></div>
-            <div><label for="rq-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX"></div>
-            <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-            <div><label for="rq-pass">Create a password <span class="opt">(optional, to log in and track your search)</span></label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="6" placeholder="at least 6 characters"></div>
-          </div>
-          <p id="rq-contact-error" class="field-err">Please add an email or a WhatsApp number so we can reach you when a match comes up.</p>
-          <h2 style="margin-top:26px"><span class="num">02</span> What you're looking for</h2>
-          ${presetSelect()}
-          <div class="grid">
-            <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker")}</div>
-            <div><label>Model <span class="opt">(pick or type)</span>${modelField("rq-models")}</label></div>
-          </div>
-          <details class="morefields"${moreOpen ? " open" : ""}>
-            <summary>Add more detail (optional)</summary>
-            <div class="grid">
-              <div><label>Nickname <span class="opt">(optional, for your reference)</span><input name="label" value="${v("label")}" placeholder="e.g. weekend project"></label></div>
-              <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" value="${v("year_min")}" placeholder="1990"></label></div>
-              <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" value="${v("year_max")}" placeholder="2002"></label></div>
-              <div><label>Max budget <span class="opt">(in Japanese yen, the auction price)</span><input name="price_max" type="number" min="0" step="10000" value="${v("price_max")}" placeholder="3,000,000"></label></div>
-              <div><label>Max mileage <span class="opt">(km)</span><input name="mileage_max" type="number" min="0" step="1000" value="${v("mileage_max")}" placeholder="100,000"></label></div>
-              <div><label>Min auction grade <span class="opt">(1 to 6 condition score, leave blank if unsure)</span><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></label></div>
-              <div><label>Chassis code <span class="opt">(only if you know it, e.g. JZA80)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80"></label></div>
+
+          <section class="ob-step is-active" data-step="1" aria-label="Find your car">
+            ${socialProofStrip()}
+            <div class="ob-eyebrow">Start your search</div>
+            <h1>What vehicle are you looking for?</h1>
+            <p class="ob-lead">Tell us what you're chasing and we'll search every major Japanese auction house for matching vehicles.</p>
+            <div class="ob-sub-h">Popular searches</div>
+            ${popularCards()}
+            <div class="ob-fields">
+              <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name)}</div>
+              <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name)}</div>
+              <div><label for="rq-ymin">Year from</label><input id="rq-ymin" name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990" required></div>
+              <div><label for="rq-ymax">Year to</label><input id="rq-ymax" name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002" required></div>
             </div>
-            <p id="rq-year-error" class="field-err">"Year from" can't be later than "Year to". Please check the years.</p>
-          </details>
-          <div class="actions"><button class="btn-gold" type="submit">Submit request</button>
-            <span class="help">We need your name and a way to reach you (email or WhatsApp). Tell us as much about the car as you can - the more detail, the better the match. We review every match before sending you anything.</span></div>
-          <p class="help" style="margin-top:14px;font-size:12px;line-height:1.5;opacity:.85">We use the details above only to search for and contact you about matching vehicles. We never share them with third parties.</p>
+            <p id="rq-vehicle-error" class="field-err">Please choose a make and model so we know what to look for.</p>
+            <p id="rq-year-error" class="field-err">Please enter the year range you're after ("from" can't be later than "to").</p>
+            ${recentExamplesShell()}
+            <div class="ob-nav-btns ob-only">
+              <button type="button" class="btn-gold ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
+            </div>
+          </section>
+
+          <section class="ob-step" data-step="2" aria-label="Budget and requirements">
+            <div class="ob-eyebrow">Your budget</div>
+            <h1>What's your budget?</h1>
+            <p class="ob-lead">Your total landed budget in AUD, the car plus shipping, duties and on-road costs, delivered to your door. A realistic figure finds the right car faster.</p>
+            <div class="ob-cols">
+              <div>
+                <div class="ob-sub-h">Quick pick</div>
+                ${budgetChips()}
+                <div class="ob-budget">
+                  <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required></div>
+                </div>
+                <p id="rq-budget-error" class="field-err">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
+                <div class="ob-fields" style="margin-top:18px">
+                  <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+                  <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
+                </div>
+                <details class="ob-refine"${moreOpen ? " open" : ""}>
+                  <summary>Refine my search (optional)</summary>
+                  <div class="ob-fields">
+                    <div><label>Max mileage <span class="opt">(km)</span></label><input name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
+                    <div><label>Min auction grade <span class="opt">(1 to 6)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                    <div><label>Chassis code <span class="opt">(if known)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+                    <div><label>Nickname <span class="opt">(for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
+                  </div>
+                </details>
+              </div>
+              ${testimonialPanel()}
+            </div>
+            <div class="ob-nav-btns ob-only">
+              <button type="button" class="btn-ghost ob-back" data-back><span aria-hidden="true">&larr;</span> Back</button>
+              <button type="button" class="btn-gold ob-next-btn" data-next>See my search summary <span aria-hidden="true">&rarr;</span></button>
+            </div>
+          </section>
+
+          <section class="ob-step" data-step="3" aria-label="Review your search">
+            <div class="ob-eyebrow">Review</div>
+            <h1>Great choice.</h1>
+            <div class="ob-cols">
+              <div>
+                <div class="ob-review ob-only" id="obReview"></div>
+                <p class="ob-nojs ob-lead">Check your details below, then create your free account to start the search.</p>
+                <p class="ob-note">We monitor thousands of Japanese auction listings every week and notify you as soon as a suitable vehicle appears.</p>
+              </div>
+              ${whyUs()}
+            </div>
+            <div class="ob-nav-btns ob-only">
+              <button type="button" class="btn-ghost ob-back" data-back><span aria-hidden="true">&larr;</span> Back</button>
+              <button type="button" class="btn-gold ob-next-btn" data-next>Create my free account <span aria-hidden="true">&rarr;</span></button>
+            </div>
+          </section>
+
+          <section class="ob-step" data-step="4" aria-label="Create your account">
+            <div class="ob-eyebrow">Almost there</div>
+            <h1>Create your free account</h1>
+            <p class="ob-lead">This becomes your login, so you can sign in and track your search anytime.</p>
+            <div class="ob-cols">
+              <div>
+                <div class="ob-fields">
+                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
+                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required></div>
+                  <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required></div>
+                  <div><label for="rq-whatsapp">WhatsApp <span class="opt">(optional)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40"></div>
+                </div>
+                <p id="rq-email-error" class="field-err">Please enter a valid email. This is also your login.</p>
+                <p id="rq-pass-error" class="field-err">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+                <div class="ob-human">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
+                  <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
+                </div>
+                <div class="ob-cta-row">
+                  <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
+                  <button class="btn-gold" type="submit">Start my search</button>
+                </div>
+                <p class="ob-note-sm">We use these details only to search for and contact you about matching vehicles. We never share them with third parties.</p>
+              </div>
+              ${whatHappensNext()}
+            </div>
+          </section>
         </form>
-      </div>
+      </main>
     </div>
-    ${modelScript("rq-maker", "rq-models")}${presetScript()}${requestFormScript()}`;
-  const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
-    <nav class="nav">
-      <a class="active"><span class="bar"></span><span class="lbl">Request a vehicle</span></a>
-      <a href="/login"><span class="bar"></span><span class="lbl">Sign in</span></a>
-    </nav>
-    <div class="side-foot"><a class="signout" href="/">Back to home</a></div>
-    </aside>`;
-  return brandShell(sb, main, "Request a vehicle - JDM Connect");
+    <style>${onboardingCss}</style>
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD })}`;
+  return brandDoc(inner, "Find your car - JDM Connect");
 }
 
 // Read-only public view of a shared car (the "Share" link). No login, no client
@@ -2355,36 +3786,6 @@ const PLV_STYLE = `<style>
   @media(max-width:920px){.plv-right{position:static}.plv-hero{height:300px}}
 </style>`;
 
-// Client-side guard for the public request form: require a contact method
-// (Fix 1), sanity-check the year range (Fix 4), and disable the button after a
-// valid submit so a fast double-tap can't create two leads (Fix 9). The server
-// re-checks all of this - these are UX only. No ${} interpolation inside.
-function requestFormScript() {
-  return `<script>(function(){
-    var form=document.getElementById('requestForm'); if(!form) return;
-    var cErr=document.getElementById('rq-contact-error');
-    var yErr=document.getElementById('rq-year-error');
-    var btn=form.querySelector('button[type=submit]');
-    function val(n){var el=form.querySelector('[name="'+n+'"]');return el?String(el.value||'').trim():'';}
-    form.addEventListener('submit',function(e){
-      var noContact=!val('email') && !val('whatsapp');
-      if(cErr) cErr.style.display=noContact?'block':'none';
-      var yf=parseInt(val('year_min'),10), yt=parseInt(val('year_max'),10);
-      var badYear=!!(yf && yt && yf>yt);
-      if(yErr) yErr.style.display=badYear?'block':'none';
-      // The year fields can live inside a collapsed "Add more detail" disclosure
-      // (e.g. a preset filled them). Open it so the error is actually visible.
-      if(badYear&&yErr){var det=yErr.closest&&yErr.closest('details');if(det)det.open=true;}
-      if(noContact||badYear){
-        e.preventDefault();
-        var first=noContact?cErr:yErr;
-        if(first&&first.scrollIntoView)first.scrollIntoView({behavior:'smooth',block:'center'});
-        return;
-      }
-      if(btn){btn.disabled=true;btn.textContent='Sending…';}
-    });
-  })();</script>`;
-}
 
 // Reveal cards on scroll with a staggered fade-up. Dependency-free, respects
 // reduced motion, and is a no-op without IntersectionObserver. The pre-reveal
@@ -2413,9 +3814,169 @@ function revealScript() {
   }catch(e){}})();<\/script>`;
 }
 
+// A search box that live-filters a table's rows by text (client-side). Pair it
+// with a <table id="tableId">; the jdmFilterTable handler lives in shell().
+function tableSearch(tableId, placeholder) {
+  return `<div class="tbl-tools"><span class="tbl-ic" aria-hidden="true">${ICONS.auctions}</span><input type="search" class="tbl-search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}" oninput="jdmFilterTable(this,'${tableId}')"><span class="tbl-count" id="${tableId}-count"></span></div>`;
+}
+
+// Reusable row action menu: a "three-dot" (kebab) dropdown that replaces the
+// scattered per-row buttons (especially the red Delete) with one tidy menu.
+// `items` is an ordered list; each entry is one of:
+//   { label, href, icon? }                    -> a link
+//   { label, action, id, confirm?, icon?, danger? } -> a POST form (hidden id)
+//   { sep: true }                              -> a divider (put Delete after one)
+// Delete is expected last and marked danger, per the spec. The dropdown is
+// positioned with position:fixed by the shared script (see tableToolsScript) so
+// it is never clipped by a table card's overflow:hidden.
+function rowMenu(items) {
+  const body = (items || []).map((it) => {
+    if (it.sep) return `<div class="rowmenu-sep"></div>`;
+    const ic = it.icon ? it.icon : "";
+    const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
+    if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
+    const conf = it.confirm ? ` onsubmit="return confirm('${esc(it.confirm)}')"` : "";
+    return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
+  }).join("");
+  return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
+}
+
+// "Export CSV" button for a table (client-side; exports the visible, filtered,
+// non-interactive cells). Reused across the admin tables.
+const DOWNLOAD_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg>`;
+function exportBtn(tableId, filename) {
+  return `<button type="button" class="tbl-export" onclick="jdmExportCsv('${tableId}','${filename}')">${DOWNLOAD_ICON}Export CSV</button>`;
+}
+// A toolbar row pairing the live search box with the Export button, right-aligned.
+function tableToolbar(tableId, placeholder, filename) {
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">${tableSearch(tableId, placeholder)}${exportBtn(tableId, filename)}</div>`;
+}
+
+// Global helpers shared by every admin table: live row-filtering and a
+// select-all that only ticks the rows currently visible after a filter.
+function tableToolsScript() {
+  return `<style>
+    .tbl-tools{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+    .tbl-tools .tbl-ic{display:flex;color:var(--faint)}.tbl-tools .tbl-ic svg{width:16px;height:16px}
+    .tbl-search{flex:0 1 340px;max-width:340px;padding:9px 13px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13.5px}
+    .tbl-search:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
+    .tbl-count{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+    .bulk-del{display:inline-flex;align-items:center;gap:6px}
+    .bulk-del svg{width:16px;height:16px;flex:0 0 auto}
+    .wl-search{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+    .wl-search svg{width:15px;height:15px;flex:0 0 auto}
+    .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--t2);font-size:13.5px;font-weight:600;text-decoration:none;margin-bottom:6px}
+    .backlink:hover{color:var(--ink)}
+    /* Reusable row action menu (kebab dropdown). */
+    .rowmenu{position:relative;display:inline-block}
+    .rowmenu>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:7px;border:1px solid transparent;color:var(--t3)}
+    .rowmenu>summary::-webkit-details-marker{display:none}
+    .rowmenu>summary:hover{background:rgba(0,0,0,0.05);color:var(--ink)}
+    .rowmenu[open]>summary{background:rgba(0,0,0,0.05);border-color:var(--hair);color:var(--ink)}
+    .rowmenu>summary svg{width:18px;height:18px}
+    .rowmenu-pop{position:fixed;z-index:1000;min-width:184px;background:var(--card);border:1px solid var(--hair);border-radius:11px;box-shadow:0 14px 34px rgba(0,0,0,0.14);padding:6px}
+    .rowmenu-form{margin:0}
+    .rowmenu-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:transparent;border:0;padding:9px 11px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--ink);cursor:pointer;font-family:inherit;white-space:nowrap;text-decoration:none}
+    .rowmenu-item:hover{background:rgba(0,0,0,0.05)}
+    .rowmenu-item svg{width:15px;height:15px;color:var(--t3);flex:0 0 auto}
+    .rowmenu-item.danger{color:var(--bad)}
+    .rowmenu-item.danger svg{color:var(--bad)}
+    .rowmenu-item.danger:hover{background:var(--bad-bg)}
+    .rowmenu-sep{height:1px;background:var(--hair);margin:5px 3px}
+    /* Reusable table toolbar Export button. */
+    .tbl-export{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:8px 13px;cursor:pointer;font-family:inherit;white-space:nowrap}
+    .tbl-export:hover{border-color:var(--gold-line);color:var(--ink)}
+    .tbl-export svg{width:14px;height:14px}
+    /* Sortable table headers. */
+    table.sortable th.sortcol{cursor:pointer;user-select:none;white-space:nowrap}
+    table.sortable th.sortcol:hover{color:var(--ink)}
+    table.sortable th.sortcol:after{content:"";display:inline-block;width:0;height:0;margin-left:6px;opacity:.28;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;vertical-align:middle}
+    table.sortable th.sortcol[data-sort=asc]:after{border-top:0;border-bottom:5px solid currentColor;opacity:.9}
+    table.sortable th.sortcol[data-sort=desc]:after{opacity:.9}
+  </style><script>
+  function jdmFilterTable(inp,id){var t=document.getElementById(id);if(!t)return;var q=(inp.value||'').trim().toLowerCase();var shown=0,total=0,rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;total++;var hit=!q||(r.textContent||'').toLowerCase().indexOf(q)>=0;r.style.display=hit?'':'none';if(hit)shown++;}var c=document.getElementById(id+'-count');if(c)c.textContent=q?(shown+' of '+total+' shown'):'';}
+  function jdmSelectAllVisible(box,name){var t=box.closest('table');if(!t)return;var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.style.display==='none')continue;var b=r.querySelector('input[name="'+name+'"]');if(b)b.checked=box.checked;}}
+  // Export a table's visible, non-interactive cells to a CSV download.
+  function jdmExportCsv(id,filename){var t=document.getElementById(id);if(!t)return;var rows=t.rows,out=[];for(var i=0;i<rows.length;i++){var r=rows[i];if(r.style.display==='none')continue;var cells=r.cells,line=[];for(var j=0;j<cells.length;j++){var cell=cells[j];if(cell.querySelector&&cell.querySelector('input,button,select,details,form'))continue;var txt=(cell.textContent||'').replace(/\\s+/g,' ').trim();line.push('"'+txt.replace(/"/g,'""')+'"');}if(line.join('').replace(/[",]/g,''))out.push(line.join(','));}var blob=new Blob(['\\ufeff'+out.join('\\r\\n')],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(filename||'export')+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href);},1000);}
+  // Click-to-sort. num() only treats a cell as numeric when it is wholly a number
+  // (with optional A$/, / km-style units), so codes like "S15" stay alphabetical.
+  function jdmSortNum(s){var m=String(s).replace(/[,\\s]/g,'');if(/^(A\\$|\\$)?-?\\d+(\\.\\d+)?(k|km|%)?$/i.test(m)){var v=parseFloat(m.replace(/[^0-9.\\-]/g,''));return isNaN(v)?null:v;}return null;}
+  function jdmSortTable(id,col,th){var t=document.getElementById(id);if(!t)return;var rows=[].slice.call(t.rows).filter(function(r){return !r.getElementsByTagName('th').length;});if(!rows.length)return;var dir=th.getAttribute('data-sort')==='asc'?'desc':'asc';var hs=th.parentNode.getElementsByTagName('th');for(var k=0;k<hs.length;k++)hs[k].removeAttribute('data-sort');th.setAttribute('data-sort',dir);rows.sort(function(a,b){var x=(a.cells[col]?a.cells[col].textContent:'').trim(),y=(b.cells[col]?b.cells[col].textContent:'').trim();var nx=jdmSortNum(x),ny=jdmSortNum(y);if(nx!==null&&ny!==null)return dir==='asc'?nx-ny:ny-nx;return dir==='asc'?x.toLowerCase().localeCompare(y.toLowerCase()):y.toLowerCase().localeCompare(x.toLowerCase());});var p=rows[0].parentNode;rows.forEach(function(r){p.appendChild(r);});}
+  (function(){function wire(){[].slice.call(document.querySelectorAll('table.sortable')).forEach(function(t){if(!t.id)return;var hr=t.rows[0];if(!hr)return;var ths=hr.getElementsByTagName('th');for(var i=0;i<ths.length;i++){(function(th,idx){if(th.dataset.wired)return;if(th.querySelector('input')|| !(th.textContent||'').trim())return;th.dataset.wired='1';th.classList.add('sortcol');th.addEventListener('click',function(){jdmSortTable(t.id,idx,th);});})(ths[i],i);}});}if(document.readyState!=='loading')wire();else document.addEventListener('DOMContentLoaded',wire);})();
+  (function(){
+    // Row action menu: position the dropdown with fixed coords on open (so a
+    // table card's overflow:hidden never clips it), and close on outside click,
+    // Escape, or scroll.
+    function closeAll(except){document.querySelectorAll('details.rowmenu[open]').forEach(function(d){if(d!==except)d.removeAttribute('open');});}
+    document.addEventListener('toggle',function(e){
+      var d=e.target; if(!d.classList||!d.classList.contains('rowmenu')||!d.open)return;
+      closeAll(d);
+      var pop=d.querySelector('.rowmenu-pop'), btn=d.querySelector('summary'); if(!pop||!btn)return;
+      var r=btn.getBoundingClientRect(), ph=pop.offsetHeight||220, pw=pop.offsetWidth||184;
+      pop.style.left='auto'; pop.style.right=Math.max(8,(window.innerWidth-r.right))+'px';
+      if(r.bottom+6+ph>window.innerHeight){pop.style.top='auto';pop.style.bottom=(window.innerHeight-r.top+6)+'px';}
+      else{pop.style.bottom='auto';pop.style.top=(r.bottom+6)+'px';}
+    },true);
+    document.addEventListener('click',function(e){document.querySelectorAll('details.rowmenu[open]').forEach(function(d){if(!d.contains(e.target))d.removeAttribute('open');});});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')closeAll(null);});
+    window.addEventListener('scroll',function(){closeAll(null);},true);
+  })();
+  </script>`;
+}
+
 function shell(side, main, title) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${revealScript()}</body></html>`;
+    <body><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+}
+
+// Slide-in customer drawer: shared chrome (panel + scrim) + a script that
+// intercepts clicks on any [data-drawer] link, fetches the fragment and shows it
+// without leaving the page. Links keep their href so JS-off users still navigate
+// to the full profile (progressive enhancement).
+function drawerChrome() {
+  return `<div id="dwScrim" class="dw-scrim"></div>
+  <aside id="dwPanel" class="dw-panel" aria-label="Customer preview">
+    <button class="dw-close" id="dwClose" type="button" aria-label="Close">&times;</button>
+    <div id="dwContent" class="dw-content"></div>
+  </aside>
+  <style>
+    .dw-scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:200;opacity:0;visibility:hidden;transition:opacity .25s}
+    .dw-scrim.open{opacity:1;visibility:visible}
+    .dw-panel{position:fixed;top:0;right:0;height:100vh;width:min(440px,94vw);background:var(--bg-2);border-left:1px solid var(--hair);box-shadow:-24px 0 60px rgba(0,0,0,.22);z-index:201;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);overflow-y:auto}
+    .dw-panel.open{transform:none}
+    .dw-close{position:absolute;top:14px;right:16px;width:32px;height:32px;border:0;background:rgba(0,0,0,.05);border-radius:8px;font-size:20px;line-height:1;color:var(--t2);cursor:pointer;z-index:2}
+    .dw-close:hover{background:rgba(0,0,0,.1);color:var(--ink)}
+    .dw-content{padding:22px 24px 44px}
+    .dw-loading,.dw-empty{padding:44px 4px;color:var(--faint);font-size:13.5px}
+    .dw-empty-sm{padding:6px 2px;color:var(--faint);font-size:12.5px}
+    .dw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 18px;padding-right:30px}
+    .dw-id{display:flex;align-items:center;gap:12px}
+    .dw-name{font-size:18px;font-weight:700;color:var(--ink)}
+    .dw-sub{font-size:12px;color:var(--t3);margin-top:2px}
+    .dw-open{font-size:12.5px;padding:8px 13px;white-space:nowrap}
+    .dw-card{background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:4px 16px;margin-bottom:6px}
+    .dw-row{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid rgba(0,0,0,.06)}
+    .dw-row:last-child{border-bottom:0}
+    .dw-k{font-size:12.5px;color:var(--t3)}
+    .dw-v{font-size:13.5px;font-weight:600;color:var(--ink);text-align:right}
+    .dw-sec{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin:20px 0 10px;display:flex;align-items:center;gap:8px}
+    .dw-sec .ct{background:var(--gold-tint);color:var(--gold-txt);border-radius:9999px;padding:1px 8px;font-size:11px}
+    .dw-list{display:flex;flex-direction:column;gap:8px}
+    .dw-item{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:11px 14px}
+    .dw-item-t{font-size:14px;font-weight:600;color:var(--ink)}
+    .dw-item-s{font-size:12px;color:var(--t3);margin-top:4px}
+  </style>
+  <script>(function(){
+    var panel=document.getElementById('dwPanel'),scrim=document.getElementById('dwScrim'),content=document.getElementById('dwContent'),closeBtn=document.getElementById('dwClose');
+    if(!panel)return;
+    function close(){panel.classList.remove('open');scrim.classList.remove('open');}
+    function open(url){content.innerHTML='<div class="dw-loading">Loading…</div>';panel.classList.add('open');scrim.classList.add('open');
+      fetch(url).then(function(r){return r.text();}).then(function(h){content.innerHTML=h;}).catch(function(){content.innerHTML='<div class="dw-empty">Could not load this customer.</div>';});}
+    document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-drawer]');if(a){e.preventDefault();open(a.getAttribute('data-drawer'));}});
+    closeBtn&&closeBtn.addEventListener('click',close);
+    scrim.addEventListener('click',close);
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  })();</script>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2535,6 +4096,50 @@ export async function createClient(env, form, session) {
   const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
     .bind(name, email || null, whatsapp || null, state, agentId).run();
   return { ok: true, id: r.meta?.last_row_id };
+}
+
+// Edit an existing client's core contact details (name, email, WhatsApp, state).
+// Owner/admin only, like delete and reassign. Preserves the "must stay reachable"
+// invariant and refuses a change that would collide with another client's
+// email/phone in the same scope (so editing can't quietly create a duplicate).
+export async function updateClient(env, form, session) {
+  const cid = Number(form.get("id"));
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, error: "notfound" };
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  if (!c) return { ok: false, error: "notfound" };
+  const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
+  if (!canManage) return { ok: false, error: "forbidden" };
+
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim();
+  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const state = normalizeState(form.get("state"));
+  if (!name) return { ok: false, error: "name" };
+  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  // Portal sign-in and invite links are keyed to the email, so don't let it be
+  // stripped while the client still has portal access.
+  if (c.portal_enabled && !email) return { ok: false, error: "portal_email" };
+
+  // Refuse a contact change that would duplicate another client in this client's
+  // scope. Self-match is expected (unchanged email/phone) and allowed.
+  const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(c.agent_id) });
+  if (dup && Number(dup.id) !== cid) return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
+
+  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ? WHERE id = ?")
+    .bind(name, email || null, whatsapp || null, state, cid).run();
+  return { ok: true, id: cid };
+}
+
+// Map an updateClient() error code to a plain-English message for the UI.
+export function clientEditErrorMessage(code) {
+  return ({
+    name: "Please enter the client's name.",
+    contact: "Add an email or a WhatsApp number so we can still reach them.",
+    portal_email: "This client has buyer-portal access, which needs an email. Revoke portal access first if you really need to remove the email.",
+    duplicate: "Another client already uses that email or phone number, so the change was not saved.",
+    forbidden: "Only the client's owner (or an admin) can edit their details.",
+    notfound: "That client no longer exists.",
+  })[code] || "Sorry, those changes could not be saved.";
 }
 
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
@@ -2693,6 +4298,30 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
   if (!session || session.role !== "admin") return;
   const list = (ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (!list.length) return;
+
+  // Bulk delete: cascade each client (matches, seen-lots, searches, shares) then
+  // the client itself - same order as the single deleteClient. Owner selection
+  // is irrelevant here. Admin-only, already enforced above.
+  if (action === "delete") {
+    const stmts = [];
+    for (const cid of list) {
+      stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
+    }
+    await env.DB.batch(stmts);
+    return;
+  }
+
+  // Soft archive / restore selected clients.
+  if (action === "archive" || action === "unarchive") {
+    const on = action === "archive" ? 1 : 0;
+    await env.DB.batch(list.map((cid) => env.DB.prepare("UPDATE clients SET archived = ? WHERE id = ?").bind(on, cid)));
+    return;
+  }
+
   const aid = Number(agentId);
   const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
   if (owner) {
@@ -2724,6 +4353,10 @@ export async function toggleAgent(env, id) {
 // used by the admin-only flows, so the spam controls live here, not there).
 const REQ_MAX = { name: 120, email: 160, whatsapp: 40, label: 120, marka_name: 60, model_name: 60, kuzov: 40, grade_kw: 40 };
 const REQ_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Minimum realistic all-in import budget (AUD). Below this, an import isn't viable
+// — it's the hard floor that catches junk/lowball input; the on-form note does the
+// rest of the time-waster filtering.
+const BUDGET_MIN_AUD = 5000;
 
 function clipField(form, key, max) {
   const v = String(form.get(key) ?? "").trim().slice(0, max);
@@ -2748,6 +4381,7 @@ export async function createRequest(env, form) {
   clipField(form, "model_name", REQ_MAX.model_name);
   clipField(form, "kuzov", REQ_MAX.kuzov);
   clipField(form, "grade_kw", REQ_MAX.grade_kw);
+  clipField(form, "destination_country", 60);
 
   // Drop a malformed email rather than storing junk that breaks alert delivery.
   let email = clipField(form, "email", REQ_MAX.email).toLowerCase();
@@ -2756,48 +4390,87 @@ export async function createRequest(env, form) {
 
   const g = (k) => String(form.get(k) || "").trim();
   const whatsapp = g("whatsapp");
+  const selfPw = String(form.get("portal_password") || "");
 
-  // Fix 1 (server backstop): block a lead we could never reach. The form guards
-  // this client-side too, but never trust the client. Preserve the input so the
-  // re-rendered form keeps what they typed.
-  if (!email && !whatsapp) {
-    return {
-      ok: false,
-      error: "contact",
-      vals: {
-        name: g("name"), email: g("email"), whatsapp, state: g("state"), label: g("label"),
-        year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
-        mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
-      },
-    };
+  // Re-render payload, kept so a rejected submission preserves what they typed.
+  const vals = {
+    name: g("name"), email, whatsapp, state: g("state"), label: g("label"),
+    marka_name: g("marka_name"), model_name: g("model_name"),
+    year_min: g("year_min"), year_max: g("year_max"), budget_aud: g("budget_aud"),
+    mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
+    destination_country: g("destination_country"),
+  };
+
+  // Accounts are mandatory: email is the login identity, so it is required.
+  if (!email) return { ok: false, error: "email", vals };
+
+  // Email-uniqueness: an email that already has a login can't open a second
+  // account from the public form - send them to sign in. We reveal only that the
+  // email is registered (the minimum needed to prevent duplicate accounts), and
+  // never any other detail.
+  const acct = await env.DB.prepare(
+    "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
+  ).bind(email).first();
+  if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
+
+  // A brand-new enquiry (no record by email or phone) must choose a
+  // policy-compliant password. A returning record is still captured without
+  // forcing one (and gets a secure set-password invite if it has no login yet).
+  const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
+  if (!match) {
+    const pwErr = passwordPolicyError(selfPw);
+    if (pwErr) return { ok: false, error: "password", pwError: pwErr, vals };
   }
 
-  // Fix 6: reuse an existing staff-scoped client with this email rather than
-  // spawning a duplicate on every submission.
+  // Make + model are required so the search is actionable (we can't hunt the
+  // auctions for "a car"). The matcher needs at least one of these to run.
+  if (!g("marka_name") || !g("model_name")) return { ok: false, error: "vehicle", vals };
+
+  // A year range is required and must be sane — JDM generations and SEVS
+  // eligibility are year-bound, so an open-ended request isn't searchable.
+  const yMinReq = Number(g("year_min")), yMaxReq = Number(g("year_max"));
+  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1960 || yMaxReq > 2100 || yMinReq > yMaxReq) {
+    return { ok: false, error: "year", vals };
+  }
+
+  // Budget is mandatory: a realistic all-in AUD figure qualifies the lead and
+  // weeds out time-wasters. Convert it to an approximate JPY auction-price ceiling
+  // so it feeds the matcher's price_max (the form no longer collects yen directly).
+  const audBudget = Number(g("budget_aud"));
+  if (!Number.isFinite(audBudget) || audBudget < BUDGET_MIN_AUD) {
+    return { ok: false, error: "budget", vals };
+  }
+  form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
+
+  // Fix 6: reuse an existing staff-scoped client rather than spawning a duplicate.
   const up = await upsertPublicClient(env, form, email, whatsapp);
   const clientId = up.id;
   // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged for staff).
   await createRequestWishlist(env, clientId, form);
 
-  // Portal self-signup: only when this submission created a BRAND NEW client.
-  // If the email already existed we must not set a password from the public
-  // form, or anyone who knows a passwordless client's email could take over
-  // their portal. Existing clients get portal access via a staff-sent invite.
-  let portal = false;
-  const selfPw = String(form.get("portal_password") || "");
-  if (selfPw && email && up.created) portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  // New record -> set the chosen password. Existing passwordless record -> flag
+  // for an emailed set-password link (only the inbox owner can claim it), so we
+  // never set a password on someone else's record from the public form.
+  let portal = false, inviteNeeded = false;
+  if (up.created) {
+    portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  } else {
+    const exi = await env.DB.prepare("SELECT pass_hash FROM clients WHERE id = ?").bind(clientId).first();
+    if (exi && !exi.pass_hash) inviteNeeded = true;
+  }
 
   // Fix 7: a human-readable reference, stable per client.
   const ref = `JDM-${new Date().getFullYear()}-${String(clientId).padStart(5, "0")}`;
 
   const req = {
-    portal,
+    portal, existing: !up.created,
     name: g("name") || "-", email, whatsapp, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
+    budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
-  return { ok: true, req, ref, clientId };
+  return { ok: true, req, ref, clientId, inviteNeeded };
 }
 
 // Upsert a public (staff-scoped) client by email so repeat submissions update
@@ -2853,20 +4526,25 @@ async function createRequestWishlist(env, clientId, form) {
   ).bind(clientId, marka || "", model || "", needsDetail).first();
   if (dupe) return;
 
-  // Fix 4 (server side): clamp the numbers the client checks are advisory only.
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
+  // Fix 4 (server side): clamp the numbers - the client checks are advisory only.
+  let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
   if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
-  const priceMax = clampMin(num(form, "price_max"), 0);
-  const mileageMax = clampMin(num(form, "mileage_max"), 0);
+  const priceMax = clampRange(num(form, "price_max"), 0, 100000000);
+  const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
+
+  // Overseas flag: any non-Australia country value marks the request for manual,
+  // non-AU handling. "Australia"/"AU" is treated as the default (no flag).
+  let dest = str(form, "destination_country");
+  if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
   await env.DB.prepare(
     `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
   ).bind(
     clientId, str(form, "label"), marka, model,
-    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail
+    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
   ).run();
 }
 
@@ -2879,7 +4557,7 @@ const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo,
 // overwrite an existing login even under a race. Returns true only if a fresh
 // login was actually created.
 async function enablePortalSelfSignup(env, clientId, password) {
-  if (!clientId || typeof password !== "string" || password.length < 6) return false;
+  if (!clientId || passwordPolicyError(password)) return false;
   const { salt, hash } = await hashPassword(password);
   const r = await env.DB.prepare(
     `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
@@ -2909,6 +4587,11 @@ function portalSidebar(c, active = "garage") {
 }
 
 const DIRECT_REQUESTS_LABEL = "Direct requests";
+// Lots staff add to a client from the in-client auction search land here.
+const MANUAL_FINDS_LABEL = "Manual finds";
+// Internal catch-all searches that are plumbing, not staff-managed wishlists —
+// hidden from the client page's Searches list.
+const SYSTEM_WISHLIST_LABELS = new Set([DIRECT_REQUESTS_LABEL, MANUAL_FINDS_LABEL]);
 
 // Member-only auction search page (the "Auction page"): search the live feed and
 // request any lot. Gated on clients.member.
@@ -3037,6 +4720,198 @@ export async function requestAuctionLot(env, clientId, lotId) {
   try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
   return { ok: true, lot };
 }
+
+// Staff add a lot they found (via the in-client auction search) to a client. It
+// files as a pending match in a per-client "Manual finds" search (watch_only=0,
+// so Approve & send emails the client like any normal match), dedupes by
+// client+lot, and snapshots the landed cost. Returns { ok, lot, already? } | { ok:false }.
+export async function addLotToClient(env, clientId, lotId, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, error: "bad_client" };
+  if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  let lot = null;
+  try { lot = await fetchLot(env, lotId); } catch (e) {}
+  if (!lot || !lot.id) return { ok: false, error: "not_found" };
+
+  // Already in this client's queue? Don't add a duplicate.
+  const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(cid, String(lot.id)).first();
+  if (existing) return { ok: true, already: true, lot };
+
+  let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
+  let wishlistId = wl?.id;
+  if (!wishlistId) {
+    const ins = await env.DB.prepare("INSERT INTO wishlists (client_id, label, active, watch_only) VALUES (?, ?, 1, 0)").bind(cid, MANUAL_FINDS_LABEL).run();
+    wishlistId = ins.meta?.last_row_id;
+  }
+  // Snapshot landed cost (best-effort) and tag the card as a manual find.
+  try {
+    const client = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+    await attachLanded(env, [{ lot, client: { state: client?.state } }]);
+  } catch (e) { /* card just renders without a landed figure */ }
+  lot._strength = "Manual";
+
+  await env.DB.prepare(
+    "INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token, reason) VALUES (?, ?, ?, ?, 'pending', ?, 'Added by staff from auction search')"
+  ).bind(wishlistId, cid, String(lot.id), JSON.stringify(lot), randomToken()).run();
+  try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
+  return { ok: true, lot };
+}
+
+// A live-auction search result on the admin client page, with an "Add to queue"
+// action that files it as a pending match for this client. qsBack preserves the
+// current search so the result list survives the add.
+function staffFindCard(lot, clientId, firstName, qsBack) {
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
+  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
+  const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
+    <div class="mfoot">
+      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
+      <form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>
+    </div>
+  </div>`;
+}
+
+// Staff Auctions workspace: a standalone live-auction search and a sold-price
+// history lookup. Live results carry an "Add to client" picker (reuses the same
+// /client/find flow as the in-client search); sold history reuses marketIntel +
+// marketPanel. Hits the live feed only when a query is present.
+export async function adminAuctionsPage(env, session, opts = {}) {
+  const tab = opts.tab === "sold" ? "sold" : "live";
+  const sp = opts.search || {};
+  const sv = (k) => esc(sp[k] || "");
+  const makers = await distinctMakers(env);
+  const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
+  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}" href="/admin?view=auctions&tab=${t}">${label}</a>`;
+  const tabs = `<div class="auc-tabs">${tabLink("live", "Live auctions")}${tabLink("sold", "Sold-price history")}</div>`;
+
+  let panel = "";
+  if (tab === "live") {
+    const keys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
+    const hasQuery = keys.some((k) => String(sp[k] || "").trim());
+    let results = "";
+    if (hasQuery) {
+      const page = Math.max(1, parseInt(sp.page, 10) || 1);
+      const { lots, hasMore } = await searchLots(env, { ...sp, page });
+      if (lots.length) {
+        const acc = accessScope(session);
+        const stmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+        const clients = ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
+        const qs = new URLSearchParams({ view: "auctions", tab: "live" });
+        for (const k of keys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+        const pageLink = (p) => { const u = new URLSearchParams(qs); u.set("page", String(p)); return "/admin?" + u.toString(); };
+        const back = pageLink(page); // return to this exact page after adding a car
+        const prev = page > 1 ? `<a class="btn-dark" href="${esc(pageLink(page - 1))}">&larr; Newer</a>` : "";
+        const next = hasMore ? `<a class="btn-dark" href="${esc(pageLink(page + 1))}">Older &rarr;</a>` : "";
+        const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
+        results = `${page > 1 ? `<p class="help" style="margin:18px 0 0">Page ${page}</p>` : ""}<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>${pager}`;
+      } else {
+        results = page > 1
+          ? `<div class="empty" style="margin-top:14px">No more lots. <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600">Back to the start</a>.</div>`
+          : `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+      }
+    }
+    const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue — it's under their Live matches, ready to Approve &amp; send.</div>`
+      : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
+      : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot — please try again.</div>` : "";
+    panel = `${flash}<div class="card">
+      <form method="GET" action="/admin">
+        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">
+        <div class="grid">
+          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN"></label>${datalist}</div>
+          <div><label>Model <span class="opt">(contains)</span><input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE"></label></div>
+          <div><label>Year from<input name="yearMin" type="number" min="1960" value="${sv("yearMin")}" placeholder="1990"></label></div>
+          <div><label>Year to<input name="yearMax" type="number" min="1960" value="${sv("yearMax")}" placeholder="2002"></label></div>
+          <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${sv("priceMax")}" placeholder="3,000,000"></label></div>
+          <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${sv("gradeMin")}" placeholder="e.g. 4"></label></div>
+          <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${sv("kuzov")}" placeholder="e.g. GDB"></label></div>
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Search live auctions</button>
+          <span class="help">Upcoming Japanese auctions, soonest first. Add any lot to a client to queue it for review.</span></div>
+      </form>${results}
+    </div>`;
+  } else {
+    const make = String(sp.make || "").trim();
+    const model = String(sp.model || "").trim();
+    let intel = "";
+    if (make && model) {
+      const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
+      intel = (m && m.count)
+        ? `<div style="margin-top:18px">${marketPanel(m, fx)}</div>`
+        : `<div class="empty" style="margin-top:14px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
+    }
+    panel = `<div class="card">
+      <form method="GET" action="/admin">
+        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="sold">
+        <div class="grid2">
+          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN" required></label>${datalist}</div>
+          <div><label>Model<input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE" required></label></div>
+        </div>
+        <div class="actions"><button class="btn-gold" type="submit">Show sold prices</button>
+          <span class="help">Recent sold-auction results: average, median, range, a 12-week trend and recent comparables.</span></div>
+      </form>${intel}
+    </div>`;
+  }
+  return `${tabs}${panel}${AUC_CSS}`;
+}
+
+// One live-auction lot in the Auctions workspace, with a client picker that
+// queues it via /client/find (returning to the same search via `back`).
+function staffFindCardWithPicker(lot, clients, back) {
+  const img = imageUrls(lot).medium;
+  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
+  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
+  const soldLink = (lot.marka_name && lot.model_name)
+    ? `/admin?view=auctions&tab=sold&make=${encodeURIComponent(lot.marka_name)}&model=${encodeURIComponent(lot.model_name)}` : "";
+  const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  return `<div class="mcard">
+    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      <div class="grad"></div>
+      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
+      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+    </div>
+    <div class="mstats">
+      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
+      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
+    </div>
+    ${soldLink ? `<a class="auc-sold" href="${soldLink}">View sold-price history &rarr;</a>` : ""}
+    <div class="mfoot">
+      ${clients.length
+        ? `<form method="POST" action="/client/find" style="display:flex;gap:8px;width:100%">
+            <input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}">
+            <select name="client_id" class="auc-cl" required aria-label="Add this car to a client"><option value="">Add to client…</option>${options}</select>
+            <button class="btn-notify" type="submit">Add</button>
+          </form>`
+        : `<span class="help">Add a client first to queue cars.</span>`}
+    </div>
+  </div>`;
+}
+
+const AUC_CSS = `<style>
+  .auc-tabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:4px;margin-bottom:18px}
+  .auc-tab{padding:8px 16px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--t2);text-decoration:none}
+  .auc-tab:hover{color:var(--ink)}
+  .auc-tab.on{background:var(--gold-tint);color:var(--gold-txt)}
+  .auc-sold{display:inline-block;margin:0 16px 12px;font-size:12.5px;font-weight:600;color:var(--gold-txt)}
+  .auc-cl{flex:1;min-width:0}
+</style>`;
 
 // Admin: flip a client's paid-member flag (gates the auction page).
 export async function setClientMember(env, clientId, on, session) {

@@ -9,6 +9,7 @@
 
 import { query, sqlString, sqlInt } from "./avtonet.js";
 import { esc, yen } from "./render.js";
+import { getLiveFx, carAudToLanded } from "./calc.js";
 
 const WEEK_MS = 7 * 86400000;
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
@@ -114,6 +115,83 @@ export async function marketIntel(env, make, model, nowMs = Date.now()) {
   } catch (e) {
     console.error("marketIntel failed:", e.message);
     return hit ? hit.data : null; // serve stale on error if we have it
+  }
+}
+
+const FULL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function monthLabel(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})/);
+  return m ? `${FULL_MONTHS[Number(m[2]) - 1] || ""} ${m[1]}`.trim() : "";
+}
+function pct(nums, p) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const i = Math.min(s.length - 1, Math.max(0, Math.round((s.length - 1) * p)));
+  return s[i];
+}
+
+const _snapCache = new Map(); // "MAKE|MODEL|yearW" -> { data, exp }
+
+// A compact, customer-facing snapshot of the market for a make/model (optionally
+// narrowed to a year range, which sharpens broad names like "Skyline"). Powers
+// the onboarding Step 2 Market Snapshot AND the Step 1 "recent examples" cards.
+// Self-contained (a few light queries, not the ~15 of marketIntel) and derived
+// entirely from real sold history + live FX + the matcher's landed model, so
+// nothing is invented. Returns { ok:false } when the model is too thin on data.
+export async function marketSnapshot(env, make, model, yearMin, yearMax, nowMs = Date.now()) {
+  const mk = String(make || "").trim().toUpperCase();
+  const md = String(model || "").trim().toUpperCase();
+  if (!mk || !md) return { ok: false };
+  const yMin = parseInt(yearMin, 10), yMax = parseInt(yearMax, 10);
+  const yearW = (Number.isFinite(yMin) && Number.isFinite(yMax) && yMin <= yMax) ? ` and YEAR>=${yMin} and YEAR<=${yMax}` : "";
+  const key = `${mk}|${md}|${yearW}`;
+  const hit = _snapCache.get(key);
+  if (hit && nowMs < hit.exp) return hit.data;
+
+  try {
+    const base = `MARKA_NAME='${sqlString(mk)}' and MODEL_NAME='${sqlString(md)}' and FINISH>0${yearW}`;
+    const aggSql = (w) => `select avg(FINISH),count(*),min(FINISH),max(FINISH) from stats where ${w}`;
+    const cutoff = new Date(nowMs - 84 * 86400000).toISOString().slice(0, 10);
+    let where = `${base} and AUCTION_DATE >= '${cutoff}'`, windowed = true;
+    let a = (await query(env, aggSql(where)))[0] || {};
+    if (!(sqlInt(a.tag1) > 0)) { windowed = false; where = base; a = (await query(env, aggSql(where)))[0] || {}; }
+    const count = sqlInt(a.tag1) || 0;
+    if (!count) { const empty = { ok: false }; _snapCache.set(key, { data: empty, exp: nowMs + CACHE_TTL }); return empty; }
+
+    const [rawRows, recentRows] = await Promise.all([
+      query(env, `select FINISH from stats where ${where} order by AUCTION_DATE desc limit 300`),
+      query(env, `select ${RECENT_COLS} from stats where ${base} order by AUCTION_DATE desc limit 3`),
+    ]);
+    const prices = rawRows.map((r) => sqlInt(r.finish)).filter((n) => n > 0);
+    const fx = await getLiveFx(env).catch(() => 0);
+    const rate = fx > 0 ? fx : 95;
+    const med = median(prices) || Math.round(parseFloat(a.tag0) || 0);
+    const p25 = pct(prices, 0.25) || Math.round(med * 0.82);
+    const p75 = pct(prices, 0.75) || Math.round(med * 1.25);
+    const toLanded = (jpy) => carAudToLanded(Math.round(jpy / rate));
+    const recent = recentRows.map((r) => ({
+      year: r.year || "",
+      make: mk, model: md,
+      landed: toLanded(sqlInt(r.finish)),
+    })).filter((x) => x.landed);
+
+    const data = {
+      ok: true, make: mk, model: md,
+      typicalCarAud: Math.round(med / rate),
+      landed: toLanded(med),
+      landedLow: toLanded(p25),
+      landedHigh: toLanded(p75),
+      monthly: windowed ? Math.max(1, Math.round(count / 2.8)) : null,
+      sample: count,
+      windowed,
+      lastLabel: recentRows[0] ? monthLabel(recentRows[0].auction_date) : "",
+      recent,
+    };
+    _snapCache.set(key, { data, exp: nowMs + CACHE_TTL });
+    return data;
+  } catch (e) {
+    console.error("marketSnapshot failed:", e.message);
+    return hit ? hit.data : { ok: false };
   }
 }
 

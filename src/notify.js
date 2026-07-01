@@ -26,6 +26,20 @@ function waManyMsg(env, client, items) {
   return { name: waFirstName(client.name), summary, url, bodyText };
 }
 
+// Log helpers so the WhatsApp outcome is visible in `wrangler tail`. Previously a
+// successful send logged nothing, so an operator could not tell "delivered" from
+// "skipped because the toggle was off / no number on file" - both looked silent.
+function maskPhone(s) {
+  const d = String(s || "");
+  return d.length <= 4 ? "****" : "****" + d.slice(-4);
+}
+// Provider response id: Meta -> messages[0].id, Twilio -> sid. Note that an id
+// only means the PROVIDER ACCEPTED the message, not that the handset received it
+// (a free-form send outside the 24h window can be accepted then dropped).
+function waResultId(res) {
+  return (res && (res.sid || (res.messages && res.messages[0] && res.messages[0].id))) || "accepted";
+}
+
 // Send an email through Resend (https://resend.com).
 // Requires env.RESEND_API_KEY and a verified sender domain for env.MAIL_FROM.
 export async function sendEmail(env, { to, subject, html, from }) {
@@ -69,10 +83,16 @@ export async function sendEmail(env, { to, subject, html, from }) {
 //   ntfy:     set NTFY_TOPIC (optional NTFY_SERVER, NTFY_PRIORITY, NTFY_TAGS).
 export async function sendPush(env, { title, message, url }) {
   try {
-    if (env.PUSHOVER_TOKEN && env.PUSHOVER_USER) {
-      const params = { token: env.PUSHOVER_TOKEN, user: env.PUSHOVER_USER, title, message };
+    // Trim every secret. A stray newline or trailing space pasted into
+    // `wrangler secret put` (a known Windows gotcha) would otherwise corrupt the
+    // Pushover params or the ntfy topic in the URL and silently break the chime.
+    const pushToken = String(env.PUSHOVER_TOKEN || "").trim();
+    const pushUser = String(env.PUSHOVER_USER || "").trim();
+    if (pushToken && pushUser) {
+      const params = { token: pushToken, user: pushUser, title, message };
       if (url) params.url = url;
-      if (env.PUSHOVER_SOUND) params.sound = env.PUSHOVER_SOUND;
+      const sound = String(env.PUSHOVER_SOUND || "").trim();
+      if (sound) params.sound = sound;
       const res = await fetch("https://api.pushover.net/1/messages.json", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -81,13 +101,35 @@ export async function sendPush(env, { title, message, url }) {
       if (!res.ok) throw new Error(`Pushover HTTP ${res.status}`);
       return true;
     }
-    if (env.NTFY_TOPIC) {
-      const base = (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/+$/, "");
+    // Telegram bot: free and reliable from Cloudflare Workers (api.telegram.org
+    // is token-based, not IP-rate-limited the way ntfy.sh's free tier is).
+    const tgToken = String(env.TELEGRAM_BOT_TOKEN || "").trim();
+    const tgChat = String(env.TELEGRAM_CHAT_ID || "").trim();
+    if (tgToken && tgChat) {
+      const text = (title ? title + "\n" : "") + message + (url ? "\n" + url : "");
+      const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: tgChat, text, disable_web_page_preview: true }),
+      });
+      if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`);
+      return true;
+    }
+    const ntfyTopic = String(env.NTFY_TOPIC || "").trim();
+    if (ntfyTopic) {
+      const base = String(env.NTFY_SERVER || "https://ntfy.sh").trim().replace(/\/+$/, "");
       const headers = { Title: asciiHeader(title) };
       if (url) headers.Click = url;
-      if (env.NTFY_PRIORITY) headers.Priority = String(env.NTFY_PRIORITY);
-      if (env.NTFY_TAGS) headers.Tags = env.NTFY_TAGS;
-      const res = await fetch(`${base}/${env.NTFY_TOPIC}`, { method: "POST", headers, body: message });
+      const prio = String(env.NTFY_PRIORITY || "").trim();
+      if (prio) headers.Priority = prio;
+      const tags = String(env.NTFY_TAGS || "").trim();
+      if (tags) headers.Tags = tags;
+      // An ntfy access token authenticates the publish against your account, so
+      // it uses your account's rate limit instead of ntfy.sh's per-IP limit -
+      // the per-IP limit otherwise 429s us from Cloudflare's shared Worker IPs.
+      const token = String(env.NTFY_TOKEN || "").trim();
+      if (token) headers.Authorization = "Bearer " + token;
+      const res = await fetch(`${base}/${ntfyTopic}`, { method: "POST", headers, body: message });
       if (!res.ok) throw new Error(`ntfy HTTP ${res.status}`);
       return true;
     }
@@ -95,6 +137,25 @@ export async function sendPush(env, { title, message, url }) {
     console.error("Push notify failed:", err.message);
   }
   return false;
+}
+
+// Build the phone-chime payload for a money-in Stripe event, or null if the
+// event isn't a new membership or a paid deposit. Only "subscribed"/"paid"
+// (first-seen) statuses fire, so Stripe's retries (which return "duplicate")
+// never double-ping. Exported so it can be unit-tested without a signed webhook.
+export function paymentChime(event, status, publicUrl) {
+  if (status !== "subscribed" && status !== "paid") return null;
+  const o = (event && event.data && event.data.object) || {};
+  const who = o.customer_details?.name || o.customer_details?.email || "A customer";
+  const amt = o.amount_total != null
+    ? `$${(Number(o.amount_total) / 100).toFixed(2)} ${String(o.currency || "aud").toUpperCase()}`
+    : "";
+  const isMember = status === "subscribed";
+  return {
+    title: isMember ? "New JDM Finder member" : "Deposit paid",
+    message: `${who}${amt ? " - " + amt : ""}${isMember ? " joined Full access" : " paid a deposit"}`.trim(),
+    url: `${publicUrl}/admin?view=payments`,
+  };
 }
 
 // HTTP headers must be Latin-1/ASCII-safe; strip anything that isn't so a
@@ -129,12 +190,15 @@ export async function deliverToClient(env, client, lot, wishlist) {
 
   if (client.whatsapp && settingOn(settings, "whatsapp_enabled")) {
     try {
-      await sendWhatsApp(env, client.whatsapp, waMatchMsg(env, client, lot), settings);
+      const res = await sendWhatsApp(env, client.whatsapp, waMatchMsg(env, client, lot), settings);
       result.whatsapp = true;
+      console.log(`WhatsApp accepted by provider for client ${client.id} ${maskPhone(client.whatsapp)} (id ${waResultId(res)}). Accepted is not delivered: if it does not arrive, the message likely needs an approved template (no META_WA_TEMPLATE_NAME set sends free-form, which only delivers inside the 24h window).`);
     } catch (err) {
       // WhatsApp is best-effort; a failure must not block the email delivery.
       console.error("WhatsApp send skipped/failed:", err.message);
     }
+  } else if (settingOn(settings, "whatsapp_enabled") && !client.whatsapp) {
+    console.log(`WhatsApp not sent for client ${client.id}: no number on file.`);
   }
 
   return result;
@@ -174,8 +238,9 @@ export async function deliverManyToClient(env, client, items) {
 
   if (client.whatsapp && settingOn(settings, "whatsapp_enabled")) {
     try {
-      await sendWhatsApp(env, client.whatsapp, waManyMsg(env, client, items), settings);
+      const res = await sendWhatsApp(env, client.whatsapp, waManyMsg(env, client, items), settings);
       result.whatsapp = true;
+      console.log(`WhatsApp accepted by provider for client ${client.id} ${maskPhone(client.whatsapp)} (id ${waResultId(res)}, ${items.length} lots). Accepted is not delivered: a free-form send (no template) only delivers inside the 24h window.`);
     } catch (err) {
       console.error("WhatsApp send skipped/failed:", err.message);
     }

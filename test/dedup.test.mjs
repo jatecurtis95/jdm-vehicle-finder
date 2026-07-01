@@ -5,7 +5,10 @@ import { phoneKey, createClient, createRequest } from "../src/admin.js";
 
 const fd = (obj) => {
   const f = new FormData();
-  for (const [k, v] of Object.entries(obj)) f.set(k, v);
+  // The public request form now requires model + year range + budget; default
+  // them so these dedupe tests aren't tripped by the search-field guards (admin
+  // intake ignores the extra fields).
+  for (const [k, v] of Object.entries({ budget_aud: "35000", model_name: "SUPRA", year_min: "1990", year_max: "2005", ...obj })) f.set(k, v);
   return f;
 };
 const ADMIN = { role: "admin", id: 0 };
@@ -73,35 +76,38 @@ test("an agent's duplicate check is scoped to their own clients, not public ones
   assert.equal(rows[1].agent_id, 7);
 });
 
-test("public merge never overwrites a real client name (anti-clobber)", async () => {
+test("a second account on a registered email is refused (anti-clobber)", async () => {
   const env = makeEnv();
-  // A real client on file.
-  await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA" }));
-  // A stranger who knows the email submits with a bogus name.
-  await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA" }));
+  // A real client signs up with an account.
+  await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA", portal_password: "Stephen12345" }));
+  // A stranger who knows the email tries to open a second account with a bogus name.
+  const hack = await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA", portal_password: "Hacker123456" }));
+  assert.equal(hack.ok, false);
+  assert.equal(hack.error, "exists");
   const row = await env.DB.prepare("SELECT name FROM clients WHERE lower(email)='s@example.com'").first();
-  assert.equal(row.name, "Stephen Real");
+  assert.equal(row.name, "Stephen Real", "the real name is never overwritten");
 });
 
-test("public merge does fill in a name when the record only had the placeholder", async () => {
+test("public request fills in a name on an existing passwordless record", async () => {
   const env = makeEnv();
-  // First contact via WhatsApp only with no name -> stored as "Website enquiry".
-  await createRequest(env, fd({ whatsapp: "0412345678", marka_name: "TOYOTA", model_name: "AQUA" }));
-  // Same person later gives their name + email.
-  await createRequest(env, fd({ name: "Real Name", email: "r@example.com", whatsapp: "+61412345678", marka_name: "TOYOTA", model_name: "AQUA" }));
-  const rows = (await env.DB.prepare("SELECT name FROM clients").all()).results;
+  // Staff-entered, passwordless, placeholder name.
+  await createClient(env, fd({ name: "Website enquiry", email: "p@example.com" }), { role: "admin", id: 0 });
+  // The same person submits the public form with their real name (no password
+  // needed: the record already exists, so they're not opening a new account).
+  const r = await createRequest(env, fd({ name: "Real Name", email: "p@example.com", marka_name: "TOYOTA", model_name: "AQUA" }));
+  assert.equal(r.ok, true);
+  assert.equal(r.req.existing, true);
+  const rows = (await env.DB.prepare("SELECT name FROM clients WHERE lower(email)='p@example.com'").all()).results;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].name, "Real Name");
 });
 
-test("public request path folds a phone-only repeat into one client (Stephen's case)", async () => {
+test("a returning email folds into the one client, no duplicate", async () => {
   const env = makeEnv();
-  const r1 = await createRequest(env, fd({ name: "Stephen", whatsapp: "0451 671 516", marka_name: "TOYOTA", model_name: "AQUA" }));
-  assert.equal(r1.ok, true);
-  // Re-submits later with the international format and no email.
-  const r2 = await createRequest(env, fd({ name: "Stephen Airlangga", whatsapp: "+61451671516", marka_name: "TOYOTA", model_name: "AQUA", year_min: "2013", year_max: "2015" }));
-  assert.equal(r2.ok, true);
-  assert.equal(r2.clientId, r1.clientId, "same person should reuse the one client");
+  // Staff-entered passwordless client so the public form can still add to it.
+  await createClient(env, fd({ name: "Stephen", email: "st@example.com", whatsapp: "0451 671 516" }), { role: "admin", id: 0 });
+  const r = await createRequest(env, fd({ name: "Stephen", email: "st@example.com", marka_name: "TOYOTA", model_name: "AQUA", year_min: "2013", year_max: "2015" }));
+  assert.equal(r.ok, true);
   const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n;
-  assert.equal(n, 1);
+  assert.equal(n, 1, "same person reuses the one client");
 });

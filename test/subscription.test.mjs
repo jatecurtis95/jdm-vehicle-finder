@@ -72,6 +72,50 @@ test("a one-off deposit checkout still marks the payment paid (no regression)", 
   assert.equal((await memberRow(env)).member, 0);
 });
 
+test("a redelivered event with the same id is applied once, then skipped", async () => {
+  const env = makeEnv();
+  await seedClient(env);
+  const evt = {
+    id: "evt_dupe",
+    type: "checkout.session.completed",
+    data: { object: { mode: "subscription", client_reference_id: "1", customer: "cus_1", subscription: "sub_1" } },
+  };
+  assert.equal(await applyStripeEvent(env, evt), "subscribed");
+  // Stripe redelivers the identical event; the guard must short-circuit it.
+  assert.equal(await applyStripeEvent(env, evt), "duplicate");
+  const led = await env.DB.prepare("SELECT COUNT(*) AS c FROM stripe_events WHERE id=?").bind("evt_dupe").first();
+  assert.equal(led.c, 1);
+});
+
+test("a failed event is rolled back so a Stripe retry can re-process it", async () => {
+  const base = makeEnv();
+  await seedClient(base);
+  // Wrap the DB so the clients UPDATE throws on the first attempt only; the
+  // ledger insert/delete still go through to the real in-memory DB.
+  let failNext = true;
+  const env = { DB: {
+    prepare(sql) {
+      if (failNext && sql.includes("UPDATE clients")) {
+        return { bind: () => ({ run: () => { throw new Error("transient db error"); } }) };
+      }
+      return base.DB.prepare(sql);
+    },
+  } };
+  const evt = {
+    id: "evt_retry",
+    type: "checkout.session.completed",
+    data: { object: { mode: "subscription", client_reference_id: "1", customer: "cus_1", subscription: "sub_1" } },
+  };
+  await assert.rejects(() => applyStripeEvent(env, evt));
+  // The guard row must have been rolled back, so the event is not stuck as seen.
+  const after = await base.DB.prepare("SELECT COUNT(*) AS c FROM stripe_events WHERE id=?").bind("evt_retry").first();
+  assert.equal(after.c, 0);
+  // The retry now succeeds and provisions membership.
+  failNext = false;
+  assert.equal(await applyStripeEvent(env, evt), "subscribed");
+  assert.equal((await base.DB.prepare("SELECT member FROM clients WHERE id=1").first()).member, 1);
+});
+
 test("createSubscriptionCheckout posts a monthly recurring price", async () => {
   const saved = globalThis.fetch;
   let body = "";

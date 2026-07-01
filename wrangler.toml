@@ -21,6 +21,14 @@ custom_domain = true
 pattern = "www.jdmfinder.com.au"
 custom_domain = true
 
+# Static assets: the landing-page photography, served at the edge from ./public
+# (e.g. public/assets/photo/web/hero_r32_garage.jpg -> /assets/photo/web/hero_r32_garage.jpg).
+# Assets are matched BEFORE the Worker; any path with no matching file - every
+# page route, and the worker-generated /assets/logo-gold.png - falls through to
+# the Worker exactly as before.
+[assets]
+directory = "./public"
+
 # Runs the matcher automatically. Default: 4x per day (every 6 hours).
 # Adjust once the provider confirms rate limits. Times are UTC.
 [triggers]
@@ -57,8 +65,9 @@ DIGEST_EMAIL = "support@jdmconnect.com.au"
 MAIL_FROM_INTERNAL = "matches@jdmconnect.com.au"
 MAIL_FROM_CLIENT = "hello@jdmconnect.com.au"
 # Public URL of this Worker once deployed (used to build approve/reject links).
-# e.g. https://jdm-vehicle-finder.<your-subdomain>.workers.dev
-PUBLIC_URL = "https://finder.jdmconnect.com.au"
+# Canonical public domain: jdmfinder.com.au (finder.jdmconnect.com.au and www
+# 301-redirect to it; see CANONICAL_HOST in src/index.js).
+PUBLIC_URL = "https://jdmfinder.com.au"
 
 # Landed-cost estimate — the finder reuses the live calculator at
 # calculator.jdmconnect.com.au/api/calc so numbers always match. These are the
@@ -73,6 +82,12 @@ CALC_FX = "95"
 CALC_COMPLIANCE = "2500"
 CALC_AGENCY = "0"
 CALC_DEFAULT_STATE = "VIC"
+
+# Phone chime (ntfy) for new signups. The secret topic is set separately with
+# `wrangler secret put NTFY_TOPIC`; these just shape the notification. Subscribe
+# to that topic in the ntfy app and pick a loud sound.
+NTFY_PRIORITY = "high"
+NTFY_TAGS = "moneybag,bell"
 
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
 #   AVTONET_CODE         -> your auction API password (set via the command above; not stored here)

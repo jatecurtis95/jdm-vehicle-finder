@@ -7,12 +7,13 @@
 
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
-import { sendEmail, deliverToClient, deliverManyToClient, sendPush } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
+import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
+import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
@@ -20,6 +21,12 @@ import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
+
+// Single public address. The other custom domains 301 here so the site can never
+// look like two different websites. The *.workers.dev URL is intentionally left
+// out so it stays a working direct fallback if a custom domain has DNS trouble.
+const CANONICAL_HOST = "jdmfinder.com.au";
+const REDIRECT_HOSTS = new Set(["finder.jdmconnect.com.au", "www.jdmfinder.com.au"]);
 
 // Best-effort sliding-window limiter for the public request form. Limits per IP
 // AND per contact (email / normalized phone) so IP rotation can't flood one
@@ -47,6 +54,46 @@ export async function requestRateLimited(env, { ip, email, whatsapp }) {
   return false;
 }
 
+// --- Login brute-force protection (KV-backed) --------------------------------
+// Tracks failed sign-ins per IP and per email. After LOGIN_MAX_FAILS within the
+// window the source is locked out, and every failed attempt also costs a fixed
+// delay so automated guessing is slow. Fails open if KV is unavailable.
+const LOGIN_MAX_FAILS = 10;
+const LOGIN_LOCK_SECONDS = 15 * 60;
+const LOGIN_FAIL_DELAY_MS = 1500;
+function loginFailKeys(ip, email) {
+  const keys = [];
+  if (ip) keys.push(`loginfail:ip:${ip}`);
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push(`loginfail:e:${e}`);
+  return keys;
+}
+async function loginLocked(env, ip, email) {
+  if (!env.RL) return false;
+  for (const k of loginFailKeys(ip, email)) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      if (n >= LOGIN_MAX_FAILS) return true;
+    } catch (_) { /* fail open */ }
+  }
+  return false;
+}
+async function recordLoginFail(env, ip, email) {
+  if (!env.RL) return;
+  for (const k of loginFailKeys(ip, email)) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      await env.RL.put(k, String(n + 1), { expirationTtl: LOGIN_LOCK_SECONDS });
+    } catch (_) { /* best effort */ }
+  }
+}
+async function clearLoginFails(env, ip, email) {
+  if (!env.RL) return;
+  for (const k of loginFailKeys(ip, email)) {
+    try { await env.RL.delete(k); } catch (_) { /* best effort */ }
+  }
+}
+
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
@@ -57,6 +104,18 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Canonicalize to one public domain. GET/HEAD only, so form POSTs and the
+    // Stripe webhook (POST) are never redirected and keep working on any host.
+    // /webhooks and /assets are exempt so already-sent email images and the
+    // configured webhook URL keep resolving verbatim on the old domain too.
+    if ((request.method === "GET" || request.method === "HEAD") &&
+        REDIRECT_HOSTS.has(url.hostname) &&
+        !path.startsWith("/webhooks/") && !path.startsWith("/assets/")) {
+      url.hostname = CANONICAL_HOST;
+      url.port = "";
+      return Response.redirect(url.toString(), 301);
+    }
 
     // Approve / skip links from the digest. Token-gated, no admin key needed
     // so they work from your inbox on any device.
@@ -76,6 +135,8 @@ export default {
     if (path === "/v") {
       const sharedId = await readShareToken(env, url.searchParams.get("t"));
       if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
+      // Track the first time the customer opens their sent vehicle (best-effort).
+      ctx.waitUntil(stampMatchViewed(env, sharedId));
       return doc(await publicLotPage(env, sharedId));
     }
 
@@ -95,13 +156,21 @@ export default {
         if (!limited) {
           const result = await createRequest(env, form);
           if (result.ok) {
+            // A returning, passwordless record gets a secure set-password link by
+            // email, so only the inbox owner can claim the login.
+            if (result.inviteNeeded) {
+              try {
+                const inv = await inviteClientPortal(env, result.clientId, { role: "admin", id: 0 });
+                if (inv && inv.ok && inv.token) await sendClientPortalInvite(env, inv);
+              } catch (e) { console.error("Signup set-password invite failed:", e.message); }
+            }
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req }));
           }
-          if (result.error === "contact") {
-            // No email or WhatsApp - re-render with the error and their input.
-            return doc(await requestPage(env, { error: "contact", vals: result.vals }));
+          if (result.error === "email" || result.error === "password" || result.error === "exists") {
+            // Re-render with the specific error and their input preserved.
+            return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals }));
           }
           // Honeypot/spam falls through to a generic success so bots get no signal.
         }
@@ -122,6 +191,14 @@ export default {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
       });
     }
+    // Onboarding "Market Snapshot": typical auction price, estimated landed cost
+    // and rough monthly availability for a make/model, from real sold history.
+    if (path === "/api/market") {
+      const snap = await marketSnapshot(env, url.searchParams.get("make") || "", url.searchParams.get("model") || "", url.searchParams.get("yearMin") || "", url.searchParams.get("yearMax") || "").catch(() => ({ ok: false }));
+      return new Response(JSON.stringify(snap), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=1800", "Access-Control-Allow-Origin": "*" },
+      });
+    }
 
     // Same-host redirect helper: keeps the user (and their session cookie) on
     // whichever domain they arrived on - custom domain or workers.dev.
@@ -134,11 +211,21 @@ export default {
     if (path === "/login") {
       if (request.method === "POST") {
         const form = await request.formData();
-        const who = await authenticate(env, form.get("email"), form.get("password"));
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        const email = form.get("email");
+        // Lockout: too many recent failures for this IP/email -> refuse without
+        // even checking the password, so brute force can't keep guessing.
+        if (await loginLocked(env, ip, email)) {
+          await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
+          return doc(loginPage({ locked: true }), 429);
+        }
+        const who = await authenticate(env, email, form.get("password"));
         if (who) {
+          await clearLoginFails(env, ip, email);
           return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
-        await new Promise((r) => setTimeout(r, 600)); // throttle repeated guesses
+        await recordLoginFail(env, ip, email);
+        await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
         return doc(loginPage({ error: true }), 401);
       }
       const existing = await getSession(request, url, env);
@@ -199,7 +286,11 @@ export default {
       // Applying is idempotent (WHERE status <> 'paid'), so a 500 here just lets
       // Stripe retry a transient DB hiccup safely.
       try {
-        await applyStripeEvent(env, event);
+        const status = await applyStripeEvent(env, event);
+        // Phone chime on money in (a new member or a paid deposit). Skipped for
+        // "duplicate"/other statuses, so Stripe retries never double-ping.
+        const chime = paymentChime(event, status, env.PUBLIC_URL);
+        if (chime) await sendPush(env, chime);
       } catch (err) {
         console.error("Stripe event failed:", err.message);
         return new Response("processing error", { status: 500 });
@@ -229,7 +320,20 @@ export default {
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
-        return doc(await clientDetailPage(env, url.searchParams.get("id"), session, { dup: url.searchParams.get("dup") }));
+        const sp = url.searchParams;
+        const search = {
+          make: sp.get("make") || "", model: sp.get("model") || "",
+          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+          kuzov: sp.get("kuzov") || "",
+        };
+        return doc(await clientDetailPage(env, sp.get("id"), session, {
+          dup: sp.get("dup"),
+          saved: sp.get("saved"),
+          cerr: sp.get("cerr"),
+          found: sp.get("found"),
+          search,
+        }));
       }
       if (view === "lot") {
         return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
@@ -237,7 +341,98 @@ export default {
           err: url.searchParams.get("err"),
         }));
       }
-      return doc(await adminPage(env, view, session, { err: url.searchParams.get("err") }));
+      if (view === "request") {
+        return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
+          saved: url.searchParams.get("saved") || "",
+        }));
+      }
+      const adminOpts = { err: url.searchParams.get("err") };
+      if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
+      if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
+      if (view === "auctions") {
+        const sp = url.searchParams;
+        adminOpts.tab = sp.get("tab") || "live";
+        adminOpts.found = sp.get("found") || "";
+        adminOpts.search = {
+          make: sp.get("make") || "", model: sp.get("model") || "",
+          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+          kuzov: sp.get("kuzov") || "", page: sp.get("page") || "",
+        };
+      }
+      return doc(await adminPage(env, view, session, adminOpts));
+    }
+
+    // Safe "return to" target for the CRM quick-action forms: only same-app
+    // /admin paths are honoured, otherwise fall back to the requests list.
+    const crmBack = (f, fallback = "/admin?view=requests") => {
+      const b = String(f.get("back") || "");
+      return b.startsWith("/admin") ? b : fallback;
+    };
+
+    // Move a request along the pipeline (Requests view + request detail).
+    if (path === "/request/status" && request.method === "POST") {
+      const f = await request.formData();
+      await updateRequestStatus(env, f.get("id"), f.get("status"), session);
+      return Response.redirect(here(crmBack(f)), 303);
+    }
+
+    // Add a free-text note to a request's timeline.
+    if (path === "/request/note" && request.method === "POST") {
+      const f = await request.formData();
+      await addRequestNote(env, f.get("id"), f.get("note"), session);
+      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+    }
+
+    // (Re)assign a request's owner (admin only).
+    if (path === "/request/owner" && request.method === "POST") {
+      const f = await request.formData();
+      if (session.role === "admin") await assignRequestOwner(env, f.get("id"), f.get("owner_id"), session);
+      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+    }
+
+    // Schedule / clear a request's next follow-up.
+    if (path === "/request/next-action" && request.method === "POST") {
+      const f = await request.formData();
+      await setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: f.get("clear") === "1" }, session);
+      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+    }
+
+    // Tasks: create / toggle done / delete.
+    if (path === "/task/create" && request.method === "POST") {
+      const f = await request.formData();
+      await createTask(env, f, session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+    if (path === "/task/toggle" && request.method === "POST") {
+      const f = await request.formData();
+      await toggleTask(env, f.get("id"), session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+    if (path === "/task/delete" && request.method === "POST") {
+      const f = await request.formData();
+      await deleteTask(env, f.get("id"), session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+
+    // Record a client's response to a sent vehicle (interested / passed).
+    if (path === "/match/response" && request.method === "POST") {
+      const f = await request.formData();
+      await setMatchResponse(env, f.get("id"), f.get("response"), session);
+      return Response.redirect(here(crmBack(f)), 303);
+    }
+
+    // Soft-archive / restore a customer.
+    if ((path === "/client/archive" || path === "/client/unarchive") && request.method === "POST") {
+      const f = await request.formData();
+      await archiveClient(env, f.get("id"), path === "/client/archive", session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
+    // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
+    if (path === "/admin/drawer") {
+      const frag = await clientDrawerFragment(env, url.searchParams.get("id"), session);
+      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
     if (path === "/run") {
@@ -318,6 +513,37 @@ export default {
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
+    // Edit a client's contact details (name, email, WhatsApp, state). Access and
+    // validation are enforced inside updateClient; we just route the outcome back
+    // to that client's page with a saved/error flag.
+    if (path === "/client/update" && request.method === "POST") {
+      const f = await request.formData();
+      const id = Number(f.get("id")) || "";
+      const r = await updateClient(env, f, session);
+      if (r.ok) return Response.redirect(here(`/admin?view=client&id=${id}&saved=1`), 303);
+      return Response.redirect(here(`/admin?view=client&id=${id}&cerr=${encodeURIComponent(r.error || "save")}`), 303);
+    }
+
+    // Staff add a lot they found via the in-client auction search to that client's
+    // review queue. Access + dedupe enforced inside addLotToClient. We redirect
+    // back to the same search (the "q" string) so the result list survives, with a
+    // flash and a #find anchor to keep the user in place.
+    if (path === "/client/find" && request.method === "POST") {
+      const f = await request.formData();
+      const id = Number(f.get("client_id")) || "";
+      const r = await addLotToClient(env, id, f.get("lot_id"), session);
+      const flash = r.ok ? (r.already ? "dup" : "added") : "err";
+      // From the Auctions workspace, a `back` path returns to the same search.
+      const back = String(f.get("back") || "");
+      if (back.startsWith("/admin")) {
+        return Response.redirect(here(`${back}${back.includes("?") ? "&" : "?"}found=${flash}`), 303);
+      }
+      // From a client's own page: keep the in-client search query and anchor.
+      const q = String(f.get("q") || "").replace(/^[?&]+/, "");
+      const base = `/admin?view=client&id=${id}&found=${flash}`;
+      return Response.redirect(here(`${base}${q ? "&" + q : ""}#find`), 303);
+    }
+
     // Buyer portal access - enable + (re)send a set-password link, or revoke.
     // Owner/admin only (enforced inside the handlers).
     if (path === "/client/portal-invite" && request.method === "POST") {
@@ -349,7 +575,9 @@ export default {
     if (path === "/clients/bulk" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
-      await bulkAllocate(env, f.get("action"), f.get("agent_id"), f.getAll("ids"), session);
+      // The "Delete selected" button posts do=delete; Apply uses the action select.
+      const action = f.get("do") === "delete" ? "delete" : f.get("action");
+      await bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session);
       return Response.redirect(here("/admin?view=clients"), 303);
     }
 
@@ -791,6 +1019,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
+    await recordMatchSent(env, item.id, session);
     return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Marked for follow-up", "Marked for follow-up. The client was not emailed because this is a watch-only lead.")));
   }
   const lot = JSON.parse(item.lot_json);
@@ -799,6 +1028,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
+    await recordMatchSent(env, item.id, session);
     if (ajax) return ok200();
     if (backToApp) return toMatches();
     const channels = [r.email && "email", r.whatsapp && "WhatsApp"].filter(Boolean).join(" + ") || "no channel (client has no contact set)";
@@ -858,6 +1088,7 @@ async function applyBulkDecisions(env, action, ids, session) {
   for (const item of watchOnly) {
     try {
       await env.DB.prepare("UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?").bind(item.id).run();
+      await recordMatchSent(env, item.id, session);
     } catch (err) {
       console.error(`Bulk watch-only mark failed (queue ${item.id}):`, err.message);
     }
@@ -869,6 +1100,7 @@ async function applyBulkDecisions(env, action, ids, session) {
     try {
       await deliverManyToClient(env, client, rows.map(({ lot, wishlist }) => ({ lot, wishlist })));
       await setStatus("sent");
+      for (const { item } of rows) { try { await recordMatchSent(env, item.id, session); } catch (e) { /* best effort */ } }
     } catch (err) {
       console.error(`Bulk delivery failed (client ${client?.id}):`, err.message);
       try { await setStatus("failed"); } catch (e) { /* best effort */ }

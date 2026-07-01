@@ -152,8 +152,37 @@ export async function verifyAndParseEvent(env, rawBody, sigHeader) {
   try { return JSON.parse(rawBody); } catch (e) { return null; }
 }
 
-// Apply a verified event to the payments table. Returns a short status string.
+// Apply a verified Stripe event exactly once. Stripe delivers events
+// at-least-once and retries on any non-2xx, so the same event id can arrive
+// more than once. We record each id the first time it is applied and skip
+// repeats (returns "duplicate"), so a side effect (e.g. a future import-fee
+// credit) can never run twice. If applying throws, the guard row is rolled back
+// so Stripe's retry can re-run it. Falls open if the ledger table is missing,
+// because the per-row writes in applyStripeEventInner are each idempotent.
 export async function applyStripeEvent(env, event) {
+  if (!event || !event.type) return "ignored";
+  if (!event.id) return applyStripeEventInner(env, event); // nothing to dedup on
+  let firstSeen = true;
+  try {
+    const rec = await env.DB.prepare(
+      "INSERT OR IGNORE INTO stripe_events (id, type) VALUES (?, ?)"
+    ).bind(event.id, event.type).run();
+    firstSeen = (rec?.meta?.changes ?? 0) > 0;
+  } catch (_) {
+    firstSeen = true; // ledger unavailable: process rather than drop the event
+  }
+  if (!firstSeen) return "duplicate";
+  try {
+    return await applyStripeEventInner(env, event);
+  } catch (err) {
+    try { await env.DB.prepare("DELETE FROM stripe_events WHERE id = ?").bind(event.id).run(); } catch (_) {}
+    throw err;
+  }
+}
+
+// Apply a verified event to the payments / clients tables. Returns a short
+// status string. Wrapped by applyStripeEvent above, which enforces exactly-once.
+async function applyStripeEventInner(env, event) {
   if (!event || !event.type) return "ignored";
   const obj = event.data?.object || {};
 
