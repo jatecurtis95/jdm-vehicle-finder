@@ -398,7 +398,16 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     function el(n){return form.querySelector('[name="'+n+'"]');}
     function val(n){var e=el(n);return e?String(e.value||'').trim():'';}
     function errEl(id){return document.getElementById(id);}
-    function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none';}
+    var ERR_FIELDS={
+      'rq-vehicle-error':['marka_name','model_name'],
+      'rq-year-error':['year_min','year_max'],
+      'rq-budget-error':['budget_aud'],
+      'rq-email-error':['email'],
+      'rq-pass-error':['portal_password'],
+      'rq-whatsapp-error':['whatsapp']
+    };
+    function setInvalid(id,on){(ERR_FIELDS[id]||[]).forEach(function(n){var f=el(n);if(f)f.setAttribute('aria-invalid',on?'true':'false');});}
+    function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none'; setInvalid(id,!!on);}
     function emailBad(){var v=val('email');return !v||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
     function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
     function whatsappBad(){var e=el('whatsapp');if(!e)return false;var d=String(e.value||'').replace(/\\D/g,'');return d.length<8;}

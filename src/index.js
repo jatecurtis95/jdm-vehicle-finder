@@ -1029,9 +1029,22 @@ async function runMatcher(env, session) {
 // with &ajax=1 (an in-app fetch), it returns a tiny 200/4xx instead of
 // redirecting, so the card is removed in place with no full-page reload.
 async function handleDecision(request, env, url) {
-  const token = url.searchParams.get("token");
-  const action = url.searchParams.get("action");
-  const ajax = url.searchParams.get("ajax") === "1";
+  if (request.method !== "POST") {
+    return new Response("method not allowed", { status: 405, headers: { Allow: "POST" } });
+  }
+  let form;
+  try {
+    form = await request.formData();
+  } catch (e) {
+    form = new FormData();
+  }
+  const param = (name) => {
+    const value = form.get(name);
+    return value == null || value === "" ? url.searchParams.get(name) : String(value);
+  };
+  const token = param("token");
+  const action = param("action");
+  const ajax = param("ajax") === "1";
   const ok200 = () => new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
   if (!token || !["approve", "reject"].includes(action)) {
     return ajax ? new Response("invalid", { status: 400 }) : doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
@@ -1043,7 +1056,7 @@ async function handleDecision(request, env, url) {
   // confirmation page instead.
   const session = await getSession(request, url, env);
   const backToApp = !!session;
-  const ret = url.searchParams.get("return");
+  const ret = param("return");
   const dest = (typeof ret === "string" && ret.startsWith("/admin")) ? ret : "/admin?view=matches";
   const toMatches = () => Response.redirect(new URL(dest, url).toString(), 303);
 
@@ -1059,7 +1072,7 @@ async function handleDecision(request, env, url) {
   }
 
   if (action === "reject") {
-    const reason = (url.searchParams.get("reason") || "").slice(0, 80) || null;
+    const reason = (param("reason") || "").slice(0, 80) || null;
     await env.DB.prepare(
       "UPDATE queue SET status = 'rejected', reason = ?, decided_at = datetime('now') WHERE id = ?"
     ).bind(reason, item.id).run();
