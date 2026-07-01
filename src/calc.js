@@ -92,6 +92,16 @@ export function audBudgetToYen(audBudget, fx) {
   return Math.round(carValueAud * rate);
 }
 
+// The forward direction of the same model: a rough all-in landed AUD for a car of
+// the given AUD auction value. Used by the onboarding Market Snapshot so its
+// "estimated landed" tracks exactly the assumptions the matcher filters on. Not a
+// quote; the real calculator is used once a specific lot is in hand.
+export function carAudToLanded(carAud) {
+  const v = Number(carAud);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  return Math.round(v * ON_VALUE_TAX + IMPORT_OVERHEAD_AUD);
+}
+
 // The lot's working purchase price in JPY (starting bid, else market estimate).
 function lotJpy(lot) {
   const s = Number(lot?.start);

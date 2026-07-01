@@ -21,6 +21,14 @@ custom_domain = true
 pattern = "www.jdmfinder.com.au"
 custom_domain = true
 
+# Static assets: the landing-page photography, served at the edge from ./public
+# (e.g. public/assets/photo/web/hero_r32_garage.jpg -> /assets/photo/web/hero_r32_garage.jpg).
+# Assets are matched BEFORE the Worker; any path with no matching file - every
+# page route, and the worker-generated /assets/logo-gold.png - falls through to
+# the Worker exactly as before.
+[assets]
+directory = "./public"
+
 # Runs the matcher automatically. Default: 4x per day (every 6 hours).
 # Adjust once the provider confirms rate limits. Times are UTC.
 [triggers]

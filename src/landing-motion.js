@@ -1,0 +1,95 @@
+// Landing motion: one passive scroll handler drives every animation on the
+// marketing page, ported from the JDMFinder v2 design handoff's componentDidMount.
+// Shipped as an inline <script> inside the page body (brandDoc already inlines
+// analytics + the WhatsApp widget, so the page has no nonce-CSP to fight).
+//
+// It is defensive: every element it touches is looked up by id/selector and
+// guarded, so the page still renders correctly when the photo layers are
+// placeholders (no #heroImg / #featImg to parallax) and when JS is disabled
+// (CSS shows reveals immediately under prefers-reduced-motion; the cost card and
+// numbers fall back to their final values via the static markup + this script).
+//
+// COST_TOTAL is injected so the count-up target stays in sync with the data file.
+export function landingMotionScript(costTotal) {
+  return `<script>(function(){
+  function init(){
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var root = document.querySelector('.jf'); if(!root) return;
+    var revealEls = Array.prototype.slice.call(root.querySelectorAll('.rv'));
+    var countEls  = Array.prototype.slice.call(root.querySelectorAll('[data-count-to]'));
+    var fmt = function(n){ return n.toLocaleString('en-AU'); };
+
+    function runCount(el){
+      if(el.dataset.ran==='1') return; el.dataset.ran='1';
+      var to=parseFloat(el.getAttribute('data-count-to'));
+      var pre=el.getAttribute('data-pre')||'', post=el.getAttribute('data-post')||'';
+      if(reduce){ el.textContent=pre+fmt(to)+post; return; }
+      var dur=1100, t0=performance.now();
+      (function tick(t){ var p=Math.min(1,(t-t0)/dur); var e=1-Math.pow(1-p,3);
+        el.textContent=pre+fmt(Math.round(to*e))+post; if(p<1) requestAnimationFrame(tick); })(t0);
+    }
+
+    if(reduce){ revealEls.forEach(function(el){el.classList.add('in');}); countEls.forEach(runCount); }
+
+    // mobile nav
+    var burger=document.getElementById('navBurger'), menu=document.getElementById('navMenu');
+    if(burger&&menu){
+      var close=function(){ menu.style.display='none'; burger.setAttribute('aria-expanded','false'); };
+      burger.addEventListener('click',function(){
+        var open=menu.style.display==='flex';
+        menu.style.display=open?'none':'flex';
+        burger.setAttribute('aria-expanded',open?'false':'true');
+      });
+      menu.querySelectorAll('a').forEach(function(a){ a.addEventListener('click',close); });
+    }
+
+    var nav=document.getElementById('jdmNav');
+    var heroImg=document.getElementById('heroImg');
+    var featPin=document.getElementById('featPin'), featImg=document.getElementById('featImg');
+    var featCallouts=featPin?Array.prototype.slice.call(featPin.querySelectorAll('[data-feat]')):[];
+    var featDots=Array.prototype.slice.call(root.querySelectorAll('[data-featdot]'));
+    var pin=document.getElementById('costPin'), numEl=document.getElementById('costNum');
+    var lines=pin?Array.prototype.slice.call(pin.querySelectorAll('[data-costline]')):[];
+    var FINAL=${Number(costTotal) || 0};
+    var costMq=window.matchMedia?window.matchMedia('(max-width: 920px)'):{matches:false};
+
+    function updatePin(){
+      if(!pin||!numEl) return;
+      if(costMq.matches){ numEl.textContent='A$'+FINAL.toLocaleString('en-AU'); lines.forEach(function(el){el.classList.add('in');}); return; }
+      var r=pin.getBoundingClientRect(); var span=r.height-window.innerHeight;
+      var p=span>0?(-r.top)/span:0; p=Math.max(0,Math.min(1,p));
+      var n=lines.length;
+      lines.forEach(function(el,i){ var thr=((i+1)/(n+1.4))*0.92; el.classList.toggle('in',p>=thr); });
+      numEl.textContent='A$'+Math.round(FINAL*Math.min(1,p/0.86)).toLocaleString('en-AU');
+    }
+
+    var vh=function(){ return window.innerHeight||document.documentElement.clientHeight||800; };
+    function onScroll(){
+      if(nav){ if(window.scrollY>36) nav.setAttribute('data-scrolled','1'); else nav.removeAttribute('data-scrolled'); }
+      if(!reduce){
+        var trg=vh()*0.9;
+        for(var i=0;i<revealEls.length;i++){ var el=revealEls[i]; if(el.classList.contains('in')) continue;
+          var rc=el.getBoundingClientRect(); if(rc.top<trg&&rc.bottom>-40) el.classList.add('in'); }
+        var tc=vh()*0.85;
+        for(var j=0;j<countEls.length;j++){ var ce=countEls[j]; if(ce.dataset.ran==='1') continue;
+          var cr=ce.getBoundingClientRect(); if(cr.top<tc&&cr.bottom>0) runCount(ce); }
+      }
+      if(heroImg&&!reduce){ var hy=window.scrollY; if(hy<vh()*1.25) heroImg.style.transform='translate3d(0,'+(hy*0.16).toFixed(1)+'px,0) scale(1.16)'; }
+      if(featPin&&featCallouts.length){
+        var fr=featPin.getBoundingClientRect(); var fspan=fr.height-window.innerHeight;
+        var fp=fspan>0?(-fr.top)/fspan:0; fp=Math.max(0,Math.min(0.999,fp));
+        var fidx=Math.min(featCallouts.length-1,Math.floor(fp*featCallouts.length));
+        featCallouts.forEach(function(el,i){ el.classList.toggle('show',i===fidx); });
+        featDots.forEach(function(d,i){ var on=i===fidx; d.style.background=on?'#CAA34C':'rgba(255,255,255,0.22)'; d.style.width=on?'22px':'8px'; });
+        if(featImg&&!reduce) featImg.style.transform='scale('+(1.04+fp*0.06).toFixed(3)+')';
+      }
+      updatePin();
+    }
+
+    window.addEventListener('scroll',onScroll,{passive:true});
+    window.addEventListener('resize',onScroll,{passive:true});
+    onScroll(); requestAnimationFrame(onScroll); setTimeout(onScroll,250);
+  }
+  if(document.readyState!=='loading') init(); else document.addEventListener('DOMContentLoaded',init);
+})();</script>`;
+}

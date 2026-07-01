@@ -8,11 +8,12 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
+import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage } from "./theme.js";
@@ -134,6 +135,8 @@ export default {
     if (path === "/v") {
       const sharedId = await readShareToken(env, url.searchParams.get("t"));
       if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
+      // Track the first time the customer opens their sent vehicle (best-effort).
+      ctx.waitUntil(stampMatchViewed(env, sharedId));
       return doc(await publicLotPage(env, sharedId));
     }
 
@@ -186,6 +189,14 @@ export default {
     if (path === "/api/models") {
       return new Response(JSON.stringify(await distinctModels(env, url.searchParams.get("maker") || "")), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+    // Onboarding "Market Snapshot": typical auction price, estimated landed cost
+    // and rough monthly availability for a make/model, from real sold history.
+    if (path === "/api/market") {
+      const snap = await marketSnapshot(env, url.searchParams.get("make") || "", url.searchParams.get("model") || "", url.searchParams.get("yearMin") || "", url.searchParams.get("yearMax") || "").catch(() => ({ ok: false }));
+      return new Response(JSON.stringify(snap), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=1800", "Access-Control-Allow-Origin": "*" },
       });
     }
 
@@ -330,7 +341,14 @@ export default {
           err: url.searchParams.get("err"),
         }));
       }
+      if (view === "request") {
+        return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
+          saved: url.searchParams.get("saved") || "",
+        }));
+      }
       const adminOpts = { err: url.searchParams.get("err") };
+      if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
+      if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
       if (view === "auctions") {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
@@ -343,6 +361,71 @@ export default {
         };
       }
       return doc(await adminPage(env, view, session, adminOpts));
+    }
+
+    // Safe "return to" target for the CRM quick-action forms: only same-app
+    // /admin paths are honoured, otherwise fall back to the requests list.
+    const crmBack = (f, fallback = "/admin?view=requests") => {
+      const b = String(f.get("back") || "");
+      return b.startsWith("/admin") ? b : fallback;
+    };
+
+    // Move a request along the pipeline (Requests view + request detail).
+    if (path === "/request/status" && request.method === "POST") {
+      const f = await request.formData();
+      await updateRequestStatus(env, f.get("id"), f.get("status"), session);
+      return Response.redirect(here(crmBack(f)), 303);
+    }
+
+    // Add a free-text note to a request's timeline.
+    if (path === "/request/note" && request.method === "POST") {
+      const f = await request.formData();
+      await addRequestNote(env, f.get("id"), f.get("note"), session);
+      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+    }
+
+    // (Re)assign a request's owner (admin only).
+    if (path === "/request/owner" && request.method === "POST") {
+      const f = await request.formData();
+      if (session.role === "admin") await assignRequestOwner(env, f.get("id"), f.get("owner_id"), session);
+      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+    }
+
+    // Tasks: create / toggle done / delete.
+    if (path === "/task/create" && request.method === "POST") {
+      const f = await request.formData();
+      await createTask(env, f, session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+    if (path === "/task/toggle" && request.method === "POST") {
+      const f = await request.formData();
+      await toggleTask(env, f.get("id"), session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+    if (path === "/task/delete" && request.method === "POST") {
+      const f = await request.formData();
+      await deleteTask(env, f.get("id"), session);
+      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+    }
+
+    // Record a client's response to a sent vehicle (interested / passed).
+    if (path === "/match/response" && request.method === "POST") {
+      const f = await request.formData();
+      await setMatchResponse(env, f.get("id"), f.get("response"), session);
+      return Response.redirect(here(crmBack(f)), 303);
+    }
+
+    // Soft-archive / restore a customer.
+    if ((path === "/client/archive" || path === "/client/unarchive") && request.method === "POST") {
+      const f = await request.formData();
+      await archiveClient(env, f.get("id"), path === "/client/archive", session);
+      return Response.redirect(here("/admin?view=clients"), 303);
+    }
+
+    // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
+    if (path === "/admin/drawer") {
+      const frag = await clientDrawerFragment(env, url.searchParams.get("id"), session);
+      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
     if (path === "/run") {
@@ -929,6 +1012,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
+    await recordMatchSent(env, item.id, session);
     return ajax ? ok200() : (backToApp ? toMatches() : doc(infoPage("Marked for follow-up", "Marked for follow-up. The client was not emailed because this is a watch-only lead.")));
   }
   const lot = JSON.parse(item.lot_json);
@@ -937,6 +1021,7 @@ async function handleDecision(request, env, url) {
     await env.DB.prepare(
       "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?"
     ).bind(item.id).run();
+    await recordMatchSent(env, item.id, session);
     if (ajax) return ok200();
     if (backToApp) return toMatches();
     const channels = [r.email && "email", r.whatsapp && "WhatsApp"].filter(Boolean).join(" + ") || "no channel (client has no contact set)";
@@ -996,6 +1081,7 @@ async function applyBulkDecisions(env, action, ids, session) {
   for (const item of watchOnly) {
     try {
       await env.DB.prepare("UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE id = ?").bind(item.id).run();
+      await recordMatchSent(env, item.id, session);
     } catch (err) {
       console.error(`Bulk watch-only mark failed (queue ${item.id}):`, err.message);
     }
@@ -1007,6 +1093,7 @@ async function applyBulkDecisions(env, action, ids, session) {
     try {
       await deliverManyToClient(env, client, rows.map(({ lot, wishlist }) => ({ lot, wishlist })));
       await setStatus("sent");
+      for (const { item } of rows) { try { await recordMatchSent(env, item.id, session); } catch (e) { /* best effort */ } }
     } catch (err) {
       console.error(`Bulk delivery failed (client ${client?.id}):`, err.message);
       try { await setStatus("failed"); } catch (e) { /* best effort */ }
