@@ -8,9 +8,20 @@ import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
+import { googleConfigured } from "./oauth.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 import { onboardingCss, wizardScript, popularCards, recentExamplesShell, socialProofStrip, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
+
+// "Continue with Google" button (social login). The official four-colour G mark,
+// a neutral white button, and an "or" divider - shared by the login screen and
+// the request wizard's account step. Rendered only when Google is configured.
+const GOOGLE_G_SVG = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
+const GOOGLE_BTN_CSS = `.btn-google{display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;box-sizing:border-box;padding:12px 18px;border:1px solid #dadce0;border-radius:12px;background:#fff;color:#3c4043;font:600 15px/1 Inter,system-ui,-apple-system,sans-serif;text-decoration:none;cursor:pointer;transition:box-shadow .15s ease,background .15s ease,border-color .15s ease}.btn-google:hover{background:#f8faff;border-color:#c6d2ea;box-shadow:0 1px 3px rgba(60,64,67,.16)}.btn-google:focus-visible{outline:2px solid #4285F4;outline-offset:2px}.btn-google svg{flex:0 0 auto}.ob-or{display:flex;align-items:center;gap:14px;margin:18px 0;color:#8a8f98;font-size:12px;letter-spacing:.08em;text-transform:uppercase}.ob-or::before,.ob-or::after{content:"";flex:1;height:1px;background:rgba(0,0,0,.12)}`;
+function googleButton(intent, label) {
+  const href = `/auth/google?intent=${intent === "login" ? "login" : "signup"}`;
+  return `<a class="btn-google" href="${href}" role="button">${GOOGLE_G_SVG}<span>${esc(label)}</span></a>`;
+}
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
@@ -1217,16 +1228,23 @@ function paymentsView(payments, opts = {}) {
 export function loginPage(opts = {}) {
   const err = opts.locked
     ? `<div class="login-err">Too many sign-in attempts. Please wait about 15 minutes and try again.</div>`
-    : opts.error
-      ? `<div class="login-err">Incorrect email or password. Please try again.</div>`
-      : "";
-  const body = `<div class="login-screen">
+    : opts.googleError
+      ? `<div class="login-err">We couldn't sign you in with Google. Please try again or use your email and password.</div>`
+      : opts.error
+        ? `<div class="login-err">Incorrect email or password. Please try again.</div>`
+        : "";
+  const googleBlock = opts.googleEnabled
+    ? `${googleButton("login", "Continue with Google")}<div class="ob-or">or</div>`
+    : "";
+  const styleTag = opts.googleEnabled ? `<style>${GOOGLE_BTN_CSS}</style>` : "";
+  const body = `${styleTag}<div class="login-screen">
     ${risingSun({ size: 520, tone: "faint" })}
     <form class="login-card" method="POST" action="/login">
       <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
       <h1>Welcome back</h1>
       <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
       ${err}
+      ${googleBlock}
       <label>Email</label>
       <input type="email" name="email" autocomplete="username" placeholder="you@email.com" maxlength="160">
       <label style="margin-top:14px">Password</label>
@@ -3483,6 +3501,11 @@ export async function requestPage(env, opts = {}) {
   // a preset, or a re-render after a contact error) so nothing looks lost.
   const moreOpen = ["mileage_max", "rate_min", "kuzov", "label"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
+  // Social login: the button shows only when Google is configured. `signedIn`
+  // ({name,email}) means the visitor arrived already authenticated, so the
+  // account step collapses to a one-tap confirm (no email/password re-entry).
+  const googleOn = googleConfigured(env);
+  const signedIn = opts.signedIn || null;
 
   // Focused top nav shared by the wizard and the success page (no sidebar).
   const topnav = `<header class="ob-nav"><div class="ob-nav-in">
@@ -3546,7 +3569,9 @@ export async function requestPage(env, opts = {}) {
     : opts.error === "budget" ? "2"
       : (opts.error === "email" || opts.error === "password" || opts.error === "exists") ? "4"
         : "";
-  const bannerMsg = opts.error === "exists"
+  const bannerMsg = opts.error === "google"
+    ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
+    : opts.error === "exists"
     ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
     : opts.error === "password"
       ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
@@ -3651,12 +3676,38 @@ export async function requestPage(env, opts = {}) {
             </div>
           </section>
 
-          <section class="ob-step" data-step="4" aria-label="Create your account">
+          ${signedIn ? `<section class="ob-step" data-step="4" aria-label="Confirm and start your search">
+            <div class="ob-eyebrow">Almost there</div>
+            <h1>Confirm your search</h1>
+            <p class="ob-lead">You're signed in, so there's nothing else to fill in - just start your search.</p>
+            <div class="ob-cols">
+              <div>
+                <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid rgba(0,0,0,.1);border-radius:14px;background:#f7f9fc;margin-bottom:18px">
+                  <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;background:#fff;border:1px solid #e3e7ee;border-radius:50%" aria-hidden="true">${GOOGLE_G_SVG}</span>
+                  <span style="display:flex;flex-direction:column;line-height:1.35">
+                    <span style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98">Signed in as</span>
+                    <span style="font-weight:700;color:#1b1b1b;word-break:break-all">${esc(signedIn.email || "")}</span>
+                  </span>
+                </div>
+                <div class="ob-human">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
+                  <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
+                </div>
+                <div class="ob-cta-row">
+                  <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
+                  <button class="btn-gold" type="submit">Start my search</button>
+                </div>
+                <p class="ob-note-sm">Not you? <a href="/logout" style="color:var(--gold-txt);font-weight:600">Sign out</a>.</p>
+              </div>
+              ${whatHappensNext()}
+            </div>
+          </section>` : `<section class="ob-step" data-step="4" aria-label="Create your account">
             <div class="ob-eyebrow">Almost there</div>
             <h1>Create your free account</h1>
             <p class="ob-lead">This becomes your login, so you can sign in and track your search anytime.</p>
             <div class="ob-cols">
               <div>
+                ${googleOn ? `${googleButton("signup", "Continue with Google")}<div class="ob-or">or use your email</div>` : ""}
                 <div class="ob-fields">
                   <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
                   <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required></div>
@@ -3677,12 +3728,12 @@ export async function requestPage(env, opts = {}) {
               </div>
               ${whatHappensNext()}
             </div>
-          </section>
+          </section>`}
         </form>
       </main>
     </div>
-    <style>${onboardingCss}</style>
-    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD })}`;
+    <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn })}`;
   return brandDoc(inner, "Find your car - JDM Connect");
 }
 
@@ -4368,7 +4419,7 @@ function clipField(form, key, max) {
 //   { ok:true, req, ref, clientId }        → stored; alert + confirm + receipt
 //   { ok:false, error:"contact", vals }    → no contact method; re-render w/ error
 //   { ok:false, error:"spam" }             → honeypot; pretend success, store nothing
-export async function createRequest(env, form) {
+export async function createRequest(env, form, session) {
   // Honeypot: a hidden field real visitors never see. Bots fill it - pretend
   // success and store nothing, so they get no signal.
   if (String(form.get("company_website") ?? "").trim()) return { ok: false, error: "spam" };
@@ -4383,43 +4434,61 @@ export async function createRequest(env, form) {
   clipField(form, "grade_kw", REQ_MAX.grade_kw);
   clipField(form, "destination_country", 60);
 
+  // A signed-in buyer (e.g. arrived via Google sign-in) is already a known,
+  // verified client. Their identity comes from the session cookie - NEVER from
+  // the form - so the request attaches to the right account with no password or
+  // email re-entry. `session` is optional; anonymous posts keep the old path.
+  let sessionClient = null;
+  if (session && session.role === "client" && session.id) {
+    sessionClient = await env.DB.prepare(
+      "SELECT id, name, email, google_sub FROM clients WHERE id = ?"
+    ).bind(session.id).first();
+  }
+
   // Drop a malformed email rather than storing junk that breaks alert delivery.
   let email = clipField(form, "email", REQ_MAX.email).toLowerCase();
   if (email && !REQ_EMAIL_RE.test(email)) email = "";
+  // Signed-in: identity is the session client's own email, not the form's.
+  if (sessionClient) email = String(sessionClient.email || "").toLowerCase();
   form.set("email", email);
 
   const g = (k) => String(form.get(k) || "").trim();
   const whatsapp = g("whatsapp");
   const selfPw = String(form.get("portal_password") || "");
+  const displayName = sessionClient ? String(sessionClient.name || "").trim() : g("name");
 
   // Re-render payload, kept so a rejected submission preserves what they typed.
   const vals = {
-    name: g("name"), email, whatsapp, state: g("state"), label: g("label"),
+    name: displayName, email, whatsapp, state: g("state"), label: g("label"),
     marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), budget_aud: g("budget_aud"),
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"),
     destination_country: g("destination_country"),
   };
 
-  // Accounts are mandatory: email is the login identity, so it is required.
-  if (!email) return { ok: false, error: "email", vals };
+  // Account identity is only collected and validated for anonymous submissions;
+  // a signed-in client already has a verified one.
+  if (!sessionClient) {
+    // Accounts are mandatory: email is the login identity, so it is required.
+    if (!email) return { ok: false, error: "email", vals };
 
-  // Email-uniqueness: an email that already has a login can't open a second
-  // account from the public form - send them to sign in. We reveal only that the
-  // email is registered (the minimum needed to prevent duplicate accounts), and
-  // never any other detail.
-  const acct = await env.DB.prepare(
-    "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
-  ).bind(email).first();
-  if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
+    // Email-uniqueness: an email that already has a login can't open a second
+    // account from the public form - send them to sign in. We reveal only that
+    // the email is registered (the minimum needed to prevent duplicate
+    // accounts), and never any other detail.
+    const acct = await env.DB.prepare(
+      "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
+    ).bind(email).first();
+    if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
 
-  // A brand-new enquiry (no record by email or phone) must choose a
-  // policy-compliant password. A returning record is still captured without
-  // forcing one (and gets a secure set-password invite if it has no login yet).
-  const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
-  if (!match) {
-    const pwErr = passwordPolicyError(selfPw);
-    if (pwErr) return { ok: false, error: "password", pwError: pwErr, vals };
+    // A brand-new enquiry (no record by email or phone) must choose a
+    // policy-compliant password. A returning record is still captured without
+    // forcing one (and gets a secure set-password invite if it has no login).
+    const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(null) });
+    if (!match) {
+      const pwErr = passwordPolicyError(selfPw);
+      if (pwErr) return { ok: false, error: "password", pwError: pwErr, vals };
+    }
   }
 
   // Make + model are required so the search is actionable (we can't hunt the
@@ -4442,35 +4511,86 @@ export async function createRequest(env, form) {
   }
   form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
 
-  // Fix 6: reuse an existing staff-scoped client rather than spawning a duplicate.
-  const up = await upsertPublicClient(env, form, email, whatsapp);
-  const clientId = up.id;
-  // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged for staff).
-  await createRequestWishlist(env, clientId, form);
-
-  // New record -> set the chosen password. Existing passwordless record -> flag
-  // for an emailed set-password link (only the inbox owner can claim it), so we
-  // never set a password on someone else's record from the public form.
-  let portal = false, inviteNeeded = false;
-  if (up.created) {
-    portal = await enablePortalSelfSignup(env, clientId, selfPw);
+  // Attach the wishlist to the right client. Signed-in -> their own record;
+  // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
+  let clientId, portal, existing, inviteNeeded = false;
+  if (sessionClient) {
+    clientId = sessionClient.id;
+    // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged).
+    await createRequestWishlist(env, clientId, form);
+    portal = true;   // already signed in
+    existing = true;
   } else {
-    const exi = await env.DB.prepare("SELECT pass_hash FROM clients WHERE id = ?").bind(clientId).first();
-    if (exi && !exi.pass_hash) inviteNeeded = true;
+    const up = await upsertPublicClient(env, form, email, whatsapp);
+    clientId = up.id;
+    await createRequestWishlist(env, clientId, form);
+    existing = !up.created;
+    portal = false;
+    if (up.created) {
+      // New record -> set the chosen password.
+      portal = await enablePortalSelfSignup(env, clientId, selfPw);
+    } else {
+      // Existing passwordless record -> email a set-password link (only the
+      // inbox owner can claim it). A Google-linked client already has a way in,
+      // so we never nag them for a password.
+      const exi = await env.DB.prepare("SELECT pass_hash, google_sub FROM clients WHERE id = ?").bind(clientId).first();
+      if (exi && !exi.pass_hash && !exi.google_sub) inviteNeeded = true;
+    }
   }
 
   // Fix 7: a human-readable reference, stable per client.
   const ref = `JDM-${new Date().getFullYear()}-${String(clientId).padStart(5, "0")}`;
 
   const req = {
-    portal, existing: !up.created,
-    name: g("name") || "-", email, whatsapp, state: g("state"),
+    portal, existing,
+    name: displayName || "-", email, whatsapp, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
   return { ok: true, req, ref, clientId, inviteNeeded };
+}
+
+// Find or create the (public) client behind a verified Google identity. Matches
+// by google_sub first (durable), then by verified email so an existing
+// email/password client folds into the same record and gains Google sign-in.
+// Only ever touches public, self-serve clients (never agent-owned or dealer
+// records), and never elevates anyone above the "client" role. Returns
+// {id, created}.
+export async function upsertGoogleClient(env, profile) {
+  const email = String(profile && profile.email || "").trim().toLowerCase();
+  if (!email) return null;
+  const name = String(profile.name || "").trim() || "Google user";
+  const sub = String(profile.sub || "").trim() || null;
+
+  let existing = null;
+  if (sub) {
+    existing = await env.DB.prepare(
+      "SELECT id FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
+    ).bind(sub).first();
+  }
+  if (!existing) {
+    existing = await env.DB.prepare(
+      "SELECT id FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
+    ).bind(email).first();
+  }
+
+  if (existing) {
+    // Link the Google id, enable the portal, and backfill a blank/placeholder
+    // name - but never overwrite a real name already on file.
+    await env.DB.prepare(
+      "UPDATE clients SET portal_enabled = 1, google_sub = COALESCE(google_sub, ?), " +
+      "name = CASE WHEN name IS NULL OR name = '' OR name = 'Website enquiry' THEN ? ELSE name END " +
+      "WHERE id = ?"
+    ).bind(sub, name, existing.id).run();
+    return { id: existing.id, created: false };
+  }
+
+  const res = await env.DB.prepare(
+    "INSERT INTO clients (name, email, portal_enabled, google_sub) VALUES (?, ?, 1, ?)"
+  ).bind(name, email, sub).run();
+  return { id: res.meta.last_row_id, created: true };
 }
 
 // Upsert a public (staff-scoped) client by email so repeat submissions update

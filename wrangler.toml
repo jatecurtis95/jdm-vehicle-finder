@@ -96,6 +96,20 @@ NTFY_TAGS = "moneybag,bell"
 #   ADMIN_PASSWORD       -> optional separate admin login password (else ADMIN_TOKEN works)
 #   STRIPE_SECRET_KEY    -> Stripe secret key (sk_live_... / sk_test_...) for buyer deposits
 #   STRIPE_WEBHOOK_SECRET-> signing secret (whsec_...) for the /webhooks/stripe endpoint
+#   GOOGLE_CLIENT_ID     -> Google OAuth web-client ID  ("...apps.googleusercontent.com")
+#   GOOGLE_CLIENT_SECRET -> Google OAuth web-client secret
+#
+# Google social login ("Continue with Google" on the sign-in + request pages).
+# The feature stays completely inert until BOTH secrets are set. Setup:
+#   1) Google Cloud Console -> APIs & Services -> Credentials -> Create OAuth
+#      client ID -> Web application. Configure the consent screen (scopes:
+#      openid, email, profile) and Publish it.
+#   2) Authorized redirect URIs (add exactly, https):
+#        https://jdmfinder.com.au/auth/google/callback
+#        https://finder.jdmconnect.com.au/auth/google/callback   (optional)
+#   3) Set the two secrets:
+#        npx wrangler secret put GOOGLE_CLIENT_ID
+#        npx wrangler secret put GOOGLE_CLIENT_SECRET
 #
 # Phone chime on new signup (optional; pings your phone even with the site closed).
 # Set ONE provider — until then it no-ops. The signup alert fires it automatically.

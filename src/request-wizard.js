@@ -379,7 +379,7 @@ export const onboardingCss = `
 `;
 
 // Client controller. Injected numbers only; degrades safely.
-export function wizardScript({ pwMin, pwMax, budgetMin }) {
+export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
   return `<script>(function(){
     var form=document.getElementById('requestForm'); if(!form) return;
     var root=document.querySelector('.ob'); if(!root) return;
@@ -388,6 +388,9 @@ export function wizardScript({ pwMin, pwMax, budgetMin }) {
     var stepper=document.getElementById('obSteps');
     var dots=stepper?[].slice.call(stepper.querySelectorAll('li')):[];
     var DRAFT='jdmReqDraft';
+    // Signed-in visitors confirm on step 4 with no email/password fields, so the
+    // account validation is skipped for them.
+    var SIGNEDIN=${signedIn ? "true" : "false"};
     var PMIN=${Number(pwMin)}, PMAX=${Number(pwMax)}, BMIN=${Number(budgetMin)};
     var ALLOWED=/^[A-Za-z0-9!@#$%^&*()\\-_=+?<>]*$/;
     var cur=1, max=steps.length;
@@ -404,7 +407,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin }) {
     function badField(n){
       if(n===1){var vb=vehicleBad(),yb=yearBad();showErr('rq-vehicle-error',vb);showErr('rq-year-error',yb);return vb?'rq-vehicle-error':(yb?'rq-year-error':null);}
       if(n===2){var bb=budgetBad();showErr('rq-budget-error',bb);return bb?'rq-budget-error':null;}
-      if(n===4){var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':null);}
+      if(n===4){if(SIGNEDIN)return null;var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':null);}
       return null;
     }
 
@@ -523,7 +526,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin }) {
     form.addEventListener('input',saveSoon);
     form.addEventListener('change',save);
     form.addEventListener('submit',function(e){
-      var order=[1,2,4], firstBad=0;
+      var order=SIGNEDIN?[1,2]:[1,2,4], firstBad=0;
       for(var i=0;i<order.length;i++){ if(badField(order[i])){ firstBad=order[i]; break; } }
       if(firstBad){ e.preventDefault(); if(cur!==firstBad) go(firstBad); var b=badField(firstBad); var el2=b&&errEl(b); if(el2&&el2.scrollIntoView) el2.scrollIntoView({behavior:'smooth',block:'center'}); return; }
       try{localStorage.removeItem(DRAFT);}catch(err){}

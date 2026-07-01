@@ -27,19 +27,59 @@ function toBase64Url(bytes) {
 }
 
 async function sign(env, msg) {
+  // ADMIN_TOKEN is the single HMAC key behind every signed artifact: session
+  // cookies, OAuth state, and public share links. If it were unset, signing
+  // would collapse to a known empty key and all of them would become forgeable.
+  // Fail closed instead - in production the secret is always present, so this
+  // only ever trips a misconfigured deploy (signing-free public paths, e.g. the
+  // canonical redirect and static assets, never reach here and keep working).
+  if (!env.ADMIN_TOKEN) throw new Error("ADMIN_TOKEN is not configured");
   const key = await crypto.subtle.importKey(
-    "raw", enc.encode(env.ADMIN_TOKEN || ""), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    "raw", enc.encode(env.ADMIN_TOKEN), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(msg));
   return toBase64Url(new Uint8Array(sig));
 }
 
-// Constant-time comparison.
-function safeEqual(a, b) {
+// Constant-time comparison. Exported so the OAuth layer can compare its
+// browser-bound nonce without leaking length/prefix timing.
+export function safeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+// --- OAuth state (CSRF) ------------------------------------------------------
+// A short-lived signed token that ties a social-login round-trip to us. It
+// carries the intent (signup|login) and a random nonce; the same nonce is also
+// set as a browser cookie, so the callback can prove the response belongs to the
+// browser that started the flow (defeats login-CSRF and replay). Signed with the
+// same ADMIN_TOKEN HMAC as sessions, namespaced so it can't be swapped for one.
+const OAUTH_STATE_SECONDS = 10 * 60; // 10 minutes to complete the round-trip
+const OAUTH_INTENTS = ["signup", "login"];
+export async function makeOauthState(env, intent, nonce) {
+  const i = OAUTH_INTENTS.includes(intent) ? intent : "signup";
+  // The payload is colon-delimited, so the nonce must be base64url (no colon)
+  // for readOauthState's split to be unambiguous. randomToken() already is; this
+  // asserts the invariant so a future caller can't quietly break it.
+  if (!/^[A-Za-z0-9_-]+$/.test(String(nonce || ""))) throw new Error("invalid oauth nonce");
+  const exp = Date.now() + OAUTH_STATE_SECONDS * 1000;
+  const payload = `${i}:${nonce}:${exp}`;
+  return `${payload}.${await sign(env, "oauth:" + payload)}`;
+}
+export async function readOauthState(env, token) {
+  const val = String(token || "");
+  const dot = val.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = val.slice(0, dot);
+  const sig = val.slice(dot + 1);
+  if (!safeEqual(sig, await sign(env, "oauth:" + payload))) return null;
+  const parts = payload.split(":");
+  if (parts.length !== 3) return null;
+  const [intent, nonce, expStr] = parts;
+  if (!OAUTH_INTENTS.includes(intent) || !nonce || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
+  return { intent, nonce };
 }
 
 // --- Public share tokens -----------------------------------------------------

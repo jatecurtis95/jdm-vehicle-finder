@@ -8,8 +8,9 @@
 import { runAll } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
+import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
@@ -141,7 +142,15 @@ export default {
     }
 
     // Public vehicle-request form (no login) - for dealers and their clients.
+    // A signed-in buyer (e.g. via Google) sees the account step collapse to a
+    // one-tap confirm, and their identity is taken from the session, not the form.
     if (path === "/request") {
+      const session = await getSession(request, url, env);
+      let signedIn = null;
+      if (session && session.role === "client" && session.id) {
+        const c = await env.DB.prepare("SELECT name, email FROM clients WHERE id = ?").bind(session.id).first();
+        if (c) signedIn = { name: c.name || "", email: c.email || "" };
+      }
       if (request.method === "POST") {
         // Rate limit (best-effort; fails open if KV is unavailable). Over the
         // limit we return the normal confirmation without storing anything, so
@@ -154,7 +163,7 @@ export default {
           whatsapp: form.get("whatsapp"),
         });
         if (!limited) {
-          const result = await createRequest(env, form);
+          const result = await createRequest(env, form, session);
           if (result.ok) {
             // A returning, passwordless record gets a secure set-password link by
             // email, so only the inbox owner can claim the login.
@@ -170,13 +179,14 @@ export default {
           }
           if (result.error === "email" || result.error === "password" || result.error === "exists") {
             // Re-render with the specific error and their input preserved.
-            return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals }));
+            return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals, signedIn }));
           }
           // Honeypot/spam falls through to a generic success so bots get no signal.
         }
         return doc(await requestPage(env, { submitted: true }));
       }
-      return doc(await requestPage(env));
+      const reqErr = url.searchParams.get("error") === "google" ? "google" : undefined;
+      return doc(await requestPage(env, { signedIn, error: reqErr }));
     }
 
     // Feed lookup lists for the form dropdowns (public - just car names).
@@ -209,6 +219,7 @@ export default {
 
     // Login / logout.
     if (path === "/login") {
+      const googleEnabled = googleConfigured(env);
       if (request.method === "POST") {
         const form = await request.formData();
         const ip = request.headers.get("CF-Connecting-IP") || "";
@@ -217,7 +228,7 @@ export default {
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
           await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
-          return doc(loginPage({ locked: true }), 429);
+          return doc(loginPage({ locked: true, googleEnabled }), 429);
         }
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
@@ -226,14 +237,43 @@ export default {
         }
         await recordLoginFail(env, ip, email);
         await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
-        return doc(loginPage({ error: true }), 401);
+        return doc(loginPage({ error: true, googleEnabled }), 401);
       }
       const existing = await getSession(request, url, env);
       if (existing) return Response.redirect(here(homeFor(existing.role)), 303);
-      return doc(loginPage());
+      const googleError = url.searchParams.get("error") === "google";
+      return doc(loginPage({ googleEnabled, googleError }));
     }
     if (path === "/logout") {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
+    }
+
+    // --- Social login (Google). Inert until GOOGLE_CLIENT_ID/SECRET are set. ---
+    // /auth/google starts the flow (intent=signup from the request form,
+    // intent=login from the sign-in screen); the callback verifies the round-trip,
+    // finds-or-creates the client, signs them in, and lands them appropriately.
+    if (path === "/auth/google") {
+      if (!googleConfigured(env)) return Response.redirect(here("/login"), 303);
+      const intent = url.searchParams.get("intent") === "login" ? "login" : "signup";
+      const { authUrl, cookie } = await beginGoogle(env, url.origin, intent);
+      return new Response(null, { status: 303, headers: { Location: authUrl, "Set-Cookie": cookie } });
+    }
+    if (path === "/auth/google/callback") {
+      if (!googleConfigured(env)) return Response.redirect(here("/login"), 303);
+      const res = await completeGoogle(env, request, url);
+      if (!res.ok) {
+        const to = res.intent === "login" ? "/login?error=google" : "/request?error=google";
+        return new Response(null, { status: 303, headers: { Location: here(to), "Set-Cookie": clearNonceCookie() } });
+      }
+      const person = await upsertGoogleClient(env, res.profile);
+      if (!person || !person.id) {
+        return new Response(null, { status: 303, headers: { Location: here("/login?error=google"), "Set-Cookie": clearNonceCookie() } });
+      }
+      const dest = res.intent === "login" ? "/portal" : "/request?g=1";
+      const headers = new Headers({ Location: here(dest) });
+      headers.append("Set-Cookie", await sessionCookie(env, "client", person.id));
+      headers.append("Set-Cookie", clearNonceCookie());
+      return new Response(null, { status: 303, headers });
     }
 
     // Set-password (from an emailed invite link). Public - the single-use token
