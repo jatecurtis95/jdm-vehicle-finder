@@ -3534,16 +3534,40 @@ export async function requestPage(env, opts = {}) {
     const leadPixel = isLead
       ? `<script>try{window.fbq&&fbq('track','Lead',{content_name:'Finder vehicle request',content_category:'vehicle_request'});}catch(e){}try{window.dataLayer&&window.dataLayer.push({event:'finder_signup'});}catch(e){}</script>`
       : "";
+    // Free-tier "first example": the moment they sign up we run the search once.
+    // Show the live match we already found (or that we're scanning), then the
+    // upsell to unlimited. Both are only ever passed in for non-member buyers.
+    const wlot = opts.welcome && opts.welcome.found ? opts.welcome.lot : null;
+    const welcomeCard = wlot
+      ? `<div class="ob-card" style="border:1px solid rgba(70,177,122,.45);background:linear-gradient(180deg,#F2FBF6,#fff)">
+          <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#2E9A63;margin-bottom:10px">Good news - we already found ${opts.welcome.count > 1 ? `${opts.welcome.count} live matches` : "a live match"}</div>
+          <div style="font-size:19px;font-weight:800;color:#12131a">${esc([wlot.year, wlot.marka_name, wlot.model_name].filter(Boolean).join(" ")) || "A matching vehicle"}</div>
+          ${wlot._strength ? `<div style="margin-top:6px;font-size:13px;color:#5b616b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(wlot._strengthColor || "#46B17A")};margin-right:7px;vertical-align:middle"></span>${esc(wlot._strength)} match, live at auction now</div>` : ""}
+          <p class="ob-note-sm" style="margin-top:12px">${opts.welcome.emailed ? `We've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} the full details${opts.welcome.count > 1 ? " for each" : ""}.` : "Our team is preparing the full details for you now."}</p>
+        </div>`
+      : (opts.welcome
+        ? `<div class="ob-card"><p class="ob-note-sm" style="margin:0">We're scanning every live Japanese auction for your exact car right now - we'll email you the instant one lists.</p></div>`
+        : "");
+    const upsellCard = opts.upsell
+      ? `<div class="ob-card" style="border:1px solid var(--gold);background:linear-gradient(180deg,#FFFBEF,#fff)">
+          <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
+          <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
+          <p class="ob-note-sm" style="margin:0 0 14px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
+          <a class="btn-gold" href="/login">Get full access <span aria-hidden="true">&rarr;</span></a>
+        </div>`
+      : "";
     const successInner = `<div class="ob">
       ${topnav}
       <main class="ob-main"><div class="ob-success">
         <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
         <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
         <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
+        ${welcomeCard}
         <div class="ob-card">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:14px">Searching for</div>
           <ul class="ob-summary">${summaryRows}</ul>
         </div>
+        ${upsellCard}
         <div class="ob-meta">
           <div class="c"><div class="k">Request ID</div><div class="v">${esc(ref || "-")}</div></div>
           <div class="c"><div class="k">Search status</div><div class="v"><span class="ok">Active</span>, monitoring auctions</div></div>
@@ -4513,17 +4537,17 @@ export async function createRequest(env, form, session) {
 
   // Attach the wishlist to the right client. Signed-in -> their own record;
   // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
-  let clientId, portal, existing, inviteNeeded = false;
+  let clientId, portal, existing, wishlistId, inviteNeeded = false;
   if (sessionClient) {
     clientId = sessionClient.id;
     // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged).
-    await createRequestWishlist(env, clientId, form);
+    wishlistId = await createRequestWishlist(env, clientId, form);
     portal = true;   // already signed in
     existing = true;
   } else {
     const up = await upsertPublicClient(env, form, email, whatsapp);
     clientId = up.id;
-    await createRequestWishlist(env, clientId, form);
+    wishlistId = await createRequestWishlist(env, clientId, form);
     existing = !up.created;
     portal = false;
     if (up.created) {
@@ -4549,7 +4573,7 @@ export async function createRequest(env, form, session) {
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
-  return { ok: true, req, ref, clientId, inviteNeeded };
+  return { ok: true, req, ref, clientId, wishlistId, inviteNeeded };
 }
 
 // Find or create the (public) client behind a verified Google identity. Matches
@@ -4629,7 +4653,7 @@ async function upsertPublicClient(env, form, email, whatsapp) {
 // follow up; the matcher skips it until a narrowing term is added. Fix 6: skip
 // an obvious duplicate (same maker + model) for the same client.
 async function createRequestWishlist(env, clientId, form) {
-  if (!clientId) return;
+  if (!clientId) return null;
   const marka = str(form, "marka_name");
   const model = str(form, "model_name");
   const kuzov = str(form, "kuzov");
@@ -4644,7 +4668,7 @@ async function createRequestWishlist(env, clientId, form) {
          AND COALESCE(needs_detail,0) = ?
        LIMIT 1`
   ).bind(clientId, marka || "", model || "", needsDetail).first();
-  if (dupe) return;
+  if (dupe) return dupe.id;
 
   // Fix 4 (server side): clamp the numbers - the client checks are advisory only.
   let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
@@ -4658,7 +4682,7 @@ async function createRequestWishlist(env, clientId, form) {
   let dest = str(form, "destination_country");
   if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
-  await env.DB.prepare(
+  const ins = await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
@@ -4666,6 +4690,7 @@ async function createRequestWishlist(env, clientId, form) {
     clientId, str(form, "label"), marka, model,
     yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
   ).run();
+  return ins?.meta?.last_row_id ?? null;
 }
 
 const clampMin = (v, min) => (v === null ? null : Math.max(min, v));

@@ -5,7 +5,7 @@
 // fetch(): serves the admin UI, the manual "run now" trigger, the form posts,
 //   and the approve/skip decision links from the digest.
 
-import { runAll } from "./matcher.js";
+import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
 import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
@@ -175,7 +175,24 @@ export default {
             }
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
-            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req }));
+            // Free-tier hook: for non-member buyers, run the search once now and
+            // send a first example, then show the "unlimited" upsell. Members
+            // already have the full experience, so they see neither. Best-effort:
+            // a failure here never blocks the confirmation.
+            let welcome = null, upsell = null;
+            try {
+              const cm = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(result.clientId).first();
+              if (!(cm && cm.member)) {
+                if (result.wishlistId) welcome = await sendWelcomeMatch(env, result.wishlistId);
+                const settings = await getSettings(env);
+                const priceAud = settingNum(settings, "membership_monthly_aud", 49);
+                // Only offer the upsell when membership is actually purchasable.
+                if (stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0) {
+                  upsell = { priceAud };
+                }
+              }
+            } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
+            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
           }
           if (result.error === "email" || result.error === "password" || result.error === "exists") {
             // Re-render with the specific error and their input preserved.
