@@ -17,7 +17,7 @@ import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
-import { notFoundPage, infoPage } from "./theme.js";
+import { notFoundPage, infoPage, decisionConfirmPage } from "./theme.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -125,6 +125,19 @@ export default {
       return new Response(logoPngBytes(), {
         headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
       });
+    }
+
+    // Emailed approve/skip links land here (GET) and show a confirmation page
+    // whose button POSTs to /decide. This keeps a bare GET /decide POST-only, so
+    // an email scanner / link-prefetcher can't silently approve or skip, while
+    // the one-tap-from-your-inbox flow still works.
+    if (path === "/decide/confirm" && (request.method === "GET" || request.method === "HEAD")) {
+      const action = url.searchParams.get("action");
+      const token = url.searchParams.get("token");
+      if (!token || !["approve", "reject"].includes(action)) {
+        return doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
+      }
+      return doc(decisionConfirmPage(token, action, url.searchParams.get("return") || ""));
     }
 
     if (path === "/decide") {

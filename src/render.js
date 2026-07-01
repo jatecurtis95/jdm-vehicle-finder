@@ -148,8 +148,11 @@ function strengthTag(lot) {
 function internalCard(lot, wishlist, token, publicUrl) {
   const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
-  const approve = `${publicUrl}/decide?token=${token}&action=approve`;
-  const reject = `${publicUrl}/decide?token=${token}&action=reject`;
+  // Link to a GET confirmation page (safe for email scanners, which never submit
+  // a form) whose button POSTs to /decide. A bare GET /decide is POST-only, so a
+  // link-prefetcher can't silently approve or skip a match.
+  const approve = `${publicUrl}/decide/confirm?token=${token}&action=approve`;
+  const reject = `${publicUrl}/decide/confirm?token=${token}&action=reject`;
   const sub = [esc(lot.auction || ""), esc((lot.auction_date || "").slice(0, 10))].filter(Boolean).join(" &middot; ");
   const landed = lot._landed ? "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU") : "-";
   const landedLabel = lot._landed ? `Est. landed &middot; ${esc(lot._landed.state)}` : "Est. landed";
