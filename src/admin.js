@@ -1798,7 +1798,7 @@ function clientsView(clients, wishlists, opts = {}) {
         <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
         <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
-      <script>function jdmBulkTicked(f){return f.querySelectorAll('input[name=ids]:checked').length;}
+      <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
       function jdmBulkApply(f){if(!jdmBulkTicked(f)){alert('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
     : "";

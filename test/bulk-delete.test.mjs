@@ -66,3 +66,21 @@ test("the Clients page shows a clear 'Delete selected' button (not buried in a d
   assert.match(html, /Delete selected/, "a visible delete button");
   assert.match(html, /name="do" value="delete"/, "wired to the bulk-delete action");
 });
+
+test("bulk-select counter reads form-associated checkboxes, not just form descendants", async () => {
+  const env = makeEnv(FIXTURE);
+  const html = await adminPage(env, "clients", ADMIN);
+  // The row checkboxes live OUTSIDE the <form> and are wired to it via form="bulkform".
+  assert.match(html, /name="ids"[^>]*form="bulkform"/, "row checkboxes are form-associated");
+  // Regression: the counter must read the form's controls collection (which
+  // includes form-associated elements), NOT querySelectorAll on the form subtree
+  // — the latter finds zero and wrongly reports "nothing ticked" (the delete bug).
+  assert.doesNotMatch(html, /jdmBulkTicked\(f\)\{return f\.querySelectorAll/, "not subtree-only counting");
+  const m = html.match(/function jdmBulkTicked\(f\)\{[\s\S]*?return n;\}/);
+  assert.ok(m, "jdmBulkTicked is present");
+  const jdmBulkTicked = eval("(" + m[0] + ")");
+  const el = (name, checked) => ({ name, checked });
+  const ticked = { elements: [el("ids", true), el("ids", false), el("ids", true), el("action", false), el("agent_id", false)] };
+  assert.equal(jdmBulkTicked(ticked), 2, "counts the two ticked clients across the form's controls");
+  assert.equal(jdmBulkTicked({ elements: [el("ids", false), el("ids", false)] }), 0, "zero when nothing is ticked");
+});
