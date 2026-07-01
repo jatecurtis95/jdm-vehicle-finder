@@ -17,7 +17,7 @@ import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
-import { notFoundPage, infoPage } from "./theme.js";
+import { notFoundPage, infoPage, decisionConfirmPage } from "./theme.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -127,6 +127,19 @@ export default {
       });
     }
 
+    // Emailed approve/skip links land here (GET) and show a confirmation page
+    // whose button POSTs to /decide. This keeps a bare GET /decide POST-only, so
+    // an email scanner / link-prefetcher can't silently approve or skip, while
+    // the one-tap-from-your-inbox flow still works.
+    if (path === "/decide/confirm" && (request.method === "GET" || request.method === "HEAD")) {
+      const action = url.searchParams.get("action");
+      const token = url.searchParams.get("token");
+      if (!token || !["approve", "reject"].includes(action)) {
+        return doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
+      }
+      return doc(decisionConfirmPage(token, action, url.searchParams.get("return") || ""));
+    }
+
     if (path === "/decide") {
       return handleDecision(request, env, url);
     }
@@ -148,8 +161,8 @@ export default {
       const session = await getSession(request, url, env);
       let signedIn = null;
       if (session && session.role === "client" && session.id) {
-        const c = await env.DB.prepare("SELECT name, email FROM clients WHERE id = ?").bind(session.id).first();
-        if (c) signedIn = { name: c.name || "", email: c.email || "" };
+        const c = await env.DB.prepare("SELECT name, email, whatsapp FROM clients WHERE id = ?").bind(session.id).first();
+        if (c) signedIn = { name: c.name || "", email: c.email || "", whatsapp: c.whatsapp || "" };
       }
       if (request.method === "POST") {
         // Rate limit (best-effort; fails open if KV is unavailable). Over the
@@ -194,7 +207,7 @@ export default {
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
           }
-          if (result.error === "email" || result.error === "password" || result.error === "exists") {
+          if (result.error === "email" || result.error === "password" || result.error === "exists" || result.error === "phone") {
             // Re-render with the specific error and their input preserved.
             return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals, signedIn }));
           }
@@ -1029,9 +1042,22 @@ async function runMatcher(env, session) {
 // with &ajax=1 (an in-app fetch), it returns a tiny 200/4xx instead of
 // redirecting, so the card is removed in place with no full-page reload.
 async function handleDecision(request, env, url) {
-  const token = url.searchParams.get("token");
-  const action = url.searchParams.get("action");
-  const ajax = url.searchParams.get("ajax") === "1";
+  if (request.method !== "POST") {
+    return new Response("method not allowed", { status: 405, headers: { Allow: "POST" } });
+  }
+  let form;
+  try {
+    form = await request.formData();
+  } catch (e) {
+    form = new FormData();
+  }
+  const param = (name) => {
+    const value = form.get(name);
+    return value == null || value === "" ? url.searchParams.get(name) : String(value);
+  };
+  const token = param("token");
+  const action = param("action");
+  const ajax = param("ajax") === "1";
   const ok200 = () => new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
   if (!token || !["approve", "reject"].includes(action)) {
     return ajax ? new Response("invalid", { status: 400 }) : doc(infoPage("Invalid link", "That approve or skip link is not valid."), 400);
@@ -1043,7 +1069,7 @@ async function handleDecision(request, env, url) {
   // confirmation page instead.
   const session = await getSession(request, url, env);
   const backToApp = !!session;
-  const ret = url.searchParams.get("return");
+  const ret = param("return");
   const dest = (typeof ret === "string" && ret.startsWith("/admin")) ? ret : "/admin?view=matches";
   const toMatches = () => Response.redirect(new URL(dest, url).toString(), 303);
 
@@ -1059,7 +1085,7 @@ async function handleDecision(request, env, url) {
   }
 
   if (action === "reject") {
-    const reason = (url.searchParams.get("reason") || "").slice(0, 80) || null;
+    const reason = (param("reason") || "").slice(0, 80) || null;
     await env.DB.prepare(
       "UPDATE queue SET status = 'rejected', reason = ?, decided_at = datetime('now') WHERE id = ?"
     ).bind(reason, item.id).run();

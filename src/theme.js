@@ -429,3 +429,34 @@ export function infoPage(title, message, opts = {}) {
   </div>`;
   return brandDoc(inner, escHtml(title) + " - JDM Connect");
 }
+
+// Confirmation page for an emailed approve/skip link. The email links here with
+// a GET (safe: an email scanner or link-prefetcher renders this page but never
+// submits the form); the visible button POSTs to /decide to actually apply the
+// decision. `token` is the queue row's capability token, so no login is needed.
+export function decisionConfirmPage(token, action, ret) {
+  const isApprove = action === "approve";
+  const title = isApprove ? "Approve this match?" : "Skip this match?";
+  const desc = isApprove
+    ? "This sends the vehicle to the client and marks the match handled."
+    : "This removes the match from your review queue. The client is not contacted.";
+  const label = isApprove ? "Approve and send" : "Skip this match";
+  const cls = isApprove ? "btn-gold" : "btn-dark";
+  const retField = ret && String(ret).startsWith("/admin")
+    ? `<input type="hidden" name="return" value="${escHtml(ret)}">` : "";
+  const inner = `<div class="infowrap">
+    ${risingSun({ size: 460, tone: "faint" })}
+    <div class="infocard">
+      <div class="ico">${LOGO}</div>
+      <h1>${escHtml(title)}</h1>
+      <p>${escHtml(desc)}</p>
+      <form method="POST" action="/decide" style="display:flex;flex-direction:column;gap:12px;align-items:center;margin-top:4px">
+        <input type="hidden" name="token" value="${escHtml(token)}">
+        <input type="hidden" name="action" value="${escHtml(action)}">
+        ${retField}
+        <button class="${cls}" type="submit">${escHtml(label)}</button>
+      </form>
+    </div>
+  </div>`;
+  return brandDoc(inner, escHtml(title) + " - JDM Connect");
+}

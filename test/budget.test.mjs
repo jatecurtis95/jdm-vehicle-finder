@@ -9,7 +9,7 @@ import { audBudgetToYen } from "../src/calc.js";
 
 // Default the other now-required search fields (model + year) so these tests
 // reach the budget check specifically; budget_aud is left to each test.
-const fd = (obj) => { const f = new FormData(); for (const [k, v] of Object.entries({ model_name: "SKYLINE", year_min: "1995", year_max: "2002", ...obj })) f.set(k, v); return f; };
+const fd = (obj) => { const f = new FormData(); for (const [k, v] of Object.entries({ model_name: "SKYLINE", year_min: "1995", year_max: "2002", whatsapp: "0412345678", ...obj })) f.set(k, v); return f; };
 
 test("audBudgetToYen backs out import overhead + tax and converts at FX", () => {
   const y = audBudgetToYen(35000, 95);

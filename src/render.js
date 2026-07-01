@@ -148,8 +148,11 @@ function strengthTag(lot) {
 function internalCard(lot, wishlist, token, publicUrl) {
   const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
-  const approve = `${publicUrl}/decide?token=${token}&action=approve`;
-  const reject = `${publicUrl}/decide?token=${token}&action=reject`;
+  // Link to a GET confirmation page (safe for email scanners, which never submit
+  // a form) whose button POSTs to /decide. A bare GET /decide is POST-only, so a
+  // link-prefetcher can't silently approve or skip a match.
+  const approve = `${publicUrl}/decide/confirm?token=${token}&action=approve`;
+  const reject = `${publicUrl}/decide/confirm?token=${token}&action=reject`;
   const sub = [esc(lot.auction || ""), esc((lot.auction_date || "").slice(0, 10))].filter(Boolean).join(" &middot; ");
   const landed = lot._landed ? "A$" + Number(lot._landed.grandTotal).toLocaleString("en-AU") : "-";
   const landedLabel = lot._landed ? `Est. landed &middot; ${esc(lot._landed.state)}` : "Est. landed";
@@ -384,7 +387,7 @@ function keySpec(label, value) {
   </td>`;
 }
 
-export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded = true) {
+export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded = true, upsell = null) {
   const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
@@ -402,6 +405,21 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
   if (wishlist?.kuzov) chips.push(`Correct chassis (${wishlist.kuzov})`);
   if (wishlist?.grade_kw) chips.push(`${wishlist.grade_kw} grade`);
   if (chips.length === 0) chips.push("Matches your saved search");
+
+  // Free-tier upsell: shown only when the caller passes an `upsell` (i.e. the
+  // recipient is a non-member and Full access is purchasable). Email-safe,
+  // table-based, inline styles - and a plain hyphen (no em/en dashes).
+  const upsellRow = upsell ? `
+  <tr><td style="padding:24px 36px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${GOLD_TINT};border:1px solid ${GOLD_BORDER};border-radius:12px;">
+      <tr><td style="padding:18px 20px;">
+        <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.1em;text-transform:uppercase;color:${GOLDTXT};">Want the full picture?</div>
+        <div style="font-family:${FONT};font-size:17px;font-weight:600;line-height:1.25;color:${INK};margin-top:7px;">Unlock unlimited searches - A$${Number(upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
+        <p style="margin:8px 0 14px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears, no waiting.</p>
+        ${btn(`${publicUrl}/login`, "Get full access", { bg: GOLD, color: INK, w: 190 })}
+      </td></tr>
+    </table>
+  </td></tr>` : "";
 
   const inner = `
   <tr><td style="padding:26px 36px 0;">
@@ -471,7 +489,8 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
           <span style="vertical-align:middle;margin-left:10px;">${esc(t)}</span>
         </td></tr>`).join("")}
     </table>
-  </td></tr>`;
+  </td></tr>
+  ${upsellRow}`;
 
   const ft = footer(`<div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:8px;">Eligibility subject to SEVS/RAWS. We'll confirm import compliance before you commit.</div>`);
   return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + ft, `${title} - a match for your search`);

@@ -2,7 +2,7 @@
 
 import { clientHtml, clientMultiHtml, carText } from "./render.js";
 import { estimateLanded } from "./calc.js";
-import { getSettings, settingOn } from "./settings.js";
+import { getSettings, settingOn, settingNum } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
 
 // --- WhatsApp message builders ----------------------------------------------
@@ -164,6 +164,26 @@ function asciiHeader(s) {
   return String(s || "").replace(/[^\x20-\x7E]/g, "").slice(0, 200);
 }
 
+// The Full-access upsell to attach to a NON-member's match email, or null.
+// Shown only when membership is actually purchasable (Stripe key set, selling
+// enabled, a price). Members - and everyone when membership selling is off -
+// get nothing. Falls back to a DB lookup when the caller didn't join `member`.
+async function upsellFor(env, settings, client) {
+  const purchasable = !!env.STRIPE_SECRET_KEY
+    && settingOn(settings, "membership_enabled")
+    && settingNum(settings, "membership_monthly_aud", 0) > 0;
+  if (!purchasable) return null;
+  let isMember = false;
+  if (client && client.member != null) {
+    isMember = !!client.member;
+  } else if (client && client.id) {
+    const row = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(client.id).first();
+    isMember = !!(row && row.member);
+  }
+  if (isMember) return null;
+  return { priceAud: settingNum(settings, "membership_monthly_aud", 49) };
+}
+
 // Send an approved lot to a client across whatever channels they have set.
 // Returns { email: bool, whatsapp: bool } for status tracking.
 export async function deliverToClient(env, client, lot, wishlist) {
@@ -178,11 +198,12 @@ export async function deliverToClient(env, client, lot, wishlist) {
     // client sees the same real landed figure staff reviewed (toggle-gated).
     const showLanded = settingOn(settings, "client_landed");
     const landed = showLanded ? (lot._landed || await estimateLanded(env, lot, client)) : null;
+    const upsell = await upsellFor(env, settings, client);
     const subject = `${lot.year} ${lot.marka_name} ${lot.model_name} - a match for your search`;
     await sendEmail(env, {
       to: client.email,
       subject,
-      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed, showLanded),
+      html: clientHtml(lot, client, wishlist, env.PUBLIC_URL, landed, showLanded, upsell),
       from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
     });
     result.email = true;
@@ -221,8 +242,9 @@ export async function deliverManyToClient(env, client, items) {
       enriched.push({ lot: it.lot, wishlist: it.wishlist, landed });
     }
     const one = enriched[0];
+    const upsell = enriched.length === 1 ? await upsellFor(env, settings, client) : null;
     const html = enriched.length === 1
-      ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed, showLanded)
+      ? clientHtml(one.lot, client, one.wishlist, env.PUBLIC_URL, one.landed, showLanded, upsell)
       : clientMultiHtml(client, enriched, env.PUBLIC_URL, showLanded);
     const subject = enriched.length === 1
       ? `${one.lot.year} ${one.lot.marka_name} ${one.lot.model_name} - a match for your search`

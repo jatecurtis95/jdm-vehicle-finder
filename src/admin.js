@@ -218,12 +218,12 @@ const CSS = `
   .side-search input[type=search]{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;font-family:inherit}
   .side-search input[type=search]:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
   .nav{margin-top:0;display:flex;flex-direction:column;gap:2px}
-  .nav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:6px;font-size:15px;color:var(--t2)}
-  .nav a .bar{width:3px;height:17px;border-radius:2px;background:transparent}
-  .nav a .lbl{flex:1}
+  .nav a,.nav span.active{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:6px;font-size:15px;color:var(--t2)}
+  .nav a .bar,.nav span.active .bar{width:3px;height:17px;border-radius:2px;background:transparent}
+  .nav a .lbl,.nav span.active .lbl{flex:1}
   .nav a .ct{font-size:13px;color:var(--faint);font-weight:500}
-  .nav a.active{background:var(--gold-tint);color:var(--ink);font-weight:600}
-  .nav a.active .bar{background:var(--gold)}
+  .nav a.active,.nav span.active{background:var(--gold-tint);color:var(--ink);font-weight:600}
+  .nav a.active .bar,.nav span.active .bar{background:var(--gold)}
   .nav a.active .ct{color:var(--gold-txt)}
   .nav a:hover:not(.active){background:var(--hover)}
   .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:16px;padding-top:20px}
@@ -991,7 +991,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
     : ["agents", "settings", "payments", "auctions"].includes(view)
     ? ""
-    : `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>`;
+    : h.btn ? `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>` : "";
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
@@ -1798,7 +1798,7 @@ function clientsView(clients, wishlists, opts = {}) {
         <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
         <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
-      <script>function jdmBulkTicked(f){return f.querySelectorAll('input[name=ids]:checked').length;}
+      <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
       function jdmBulkApply(f){if(!jdmBulkTicked(f)){alert('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
     : "";
@@ -2940,7 +2940,8 @@ function matchesScript() {
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
     var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
-    fetch(a.getAttribute('href')+'&ajax=1').then(function(r){ if(!r.ok)throw 0;
+    var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
+    fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       var i=cards.indexOf(card); if(i>=0)cards.splice(i,1);
       toast(approve?'Sent to client':'Skipped');
       if(matchMedia('(prefers-reduced-motion: reduce)').matches){
@@ -2966,7 +2967,8 @@ function matchActionScript() {
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
     var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
-    fetch(a.getAttribute('href')+'&ajax=1').then(function(r){ if(!r.ok)throw 0;
+    var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
+    fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       card.style.transition='opacity .2s'; card.style.opacity='0';
       setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); },200);
       toast(approve?'Sent to client':'Skipped');
@@ -3149,8 +3151,8 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <div class="ld-share-pop">
         <div class="ld-share-h">Share with a client</div>
         <p class="ld-share-p">A view-only link to this car — no login needed.</p>
-        <div class="ld-share-row"><input id="shareUrl" readonly value="" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
-        <a id="shareWa" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
+        <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
+        <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
       </div>
     </details>` : "";
   const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" \\u2014 "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
@@ -3243,11 +3245,22 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
 
   // Skip/Approve here are full navigations (no AJAX), so send the user back to
   // the client they came from instead of dumping them on the Matches home.
-  const ret = `&return=${encodeURIComponent(`/admin?view=client&id=${q.client_id}`)}`;
-  const approve = `/decide?token=${esc(q.token)}&action=approve${ret}`;
-  const skip = `/decide?token=${esc(q.token)}&action=reject${ret}`;
+  const ret = `/admin?view=client&id=${q.client_id}`;
   const actions = q.status === "pending"
-    ? `<div class="ld-actions"><a class="btn-skip" href="${skip}">Skip</a><a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a></div>`
+    ? `<div class="ld-actions">
+        <form method="POST" action="/decide">
+          <input type="hidden" name="token" value="${esc(q.token)}">
+          <input type="hidden" name="action" value="reject">
+          <input type="hidden" name="return" value="${esc(ret)}">
+          <button class="btn-skip" type="submit">Skip</button>
+        </form>
+        <form method="POST" action="/decide" onsubmit="return confirm('Approve and send this match to the client?')">
+          <input type="hidden" name="token" value="${esc(q.token)}">
+          <input type="hidden" name="action" value="approve">
+          <input type="hidden" name="return" value="${esc(ret)}">
+          <button class="btn-notify" type="submit">${lot._watch ? "Mark done" : "Approve &amp; send"}</button>
+        </form>
+      </div>`
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
 
   const main = `
@@ -3591,9 +3604,11 @@ export async function requestPage(env, opts = {}) {
   // re-render never lands the visitor on the wrong screen.
   const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
     : opts.error === "budget" ? "2"
-      : (opts.error === "email" || opts.error === "password" || opts.error === "exists") ? "4"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "exists" || opts.error === "phone") ? "4"
         : "";
-  const bannerMsg = opts.error === "google"
+  const bannerMsg = opts.error === "phone"
+    ? "Please enter a valid mobile number so we can reach you the moment a match appears."
+    : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
     : opts.error === "exists"
     ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
@@ -3635,13 +3650,13 @@ export async function requestPage(env, opts = {}) {
             <div class="ob-sub-h">Popular searches</div>
             ${popularCards()}
             <div class="ob-fields">
-              <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name)}</div>
-              <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name)}</div>
-              <div><label for="rq-ymin">Year from</label><input id="rq-ymin" name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990" required></div>
-              <div><label for="rq-ymax">Year to</label><input id="rq-ymax" name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002" required></div>
+              <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name).replace('id="rq-maker"', 'id="rq-maker" aria-describedby="rq-vehicle-error"')}</div>
+              <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name).replace('id="rq-models"', 'id="rq-models" aria-describedby="rq-vehicle-error"')}</div>
+              <div><label for="rq-ymin">Year from</label><input id="rq-ymin" name="year_min" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_min")}" placeholder="1990" required aria-describedby="rq-year-error"></div>
+              <div><label for="rq-ymax">Year to</label><input id="rq-ymax" name="year_max" type="number" inputmode="numeric" min="1970" max="2050" value="${v("year_max")}" placeholder="2002" required aria-describedby="rq-year-error"></div>
             </div>
-            <p id="rq-vehicle-error" class="field-err">Please choose a make and model so we know what to look for.</p>
-            <p id="rq-year-error" class="field-err">Please enter the year range you're after ("from" can't be later than "to").</p>
+            <p id="rq-vehicle-error" class="field-err" role="alert">Please choose a make and model so we know what to look for.</p>
+            <p id="rq-year-error" class="field-err" role="alert">Please enter the year range you're after ("from" can't be later than "to").</p>
             ${recentExamplesShell()}
             <div class="ob-nav-btns ob-only">
               <button type="button" class="btn-gold ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
@@ -3658,9 +3673,9 @@ export async function requestPage(env, opts = {}) {
                 ${budgetChips()}
                 <div class="ob-budget">
                   <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
-                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required></div>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
                 </div>
-                <p id="rq-budget-error" class="field-err">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
+                <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:18px">
                   <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
                   <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
@@ -3713,6 +3728,10 @@ export async function requestPage(env, opts = {}) {
                     <span style="font-weight:700;color:#1b1b1b;word-break:break-all">${esc(signedIn.email || "")}</span>
                   </span>
                 </div>
+                <div class="ob-fields">
+                  <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp") || esc(signedIn.whatsapp || "")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
+                </div>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
@@ -3734,12 +3753,13 @@ export async function requestPage(env, opts = {}) {
                 ${googleOn ? `${googleButton("signup", "Continue with Google")}<div class="ob-or">or use your email</div>` : ""}
                 <div class="ob-fields">
                   <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
-                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required></div>
-                  <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required></div>
-                  <div><label for="rq-whatsapp">WhatsApp <span class="opt">(optional)</span></label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40"></div>
+                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
+                  <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
+                  <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
-                <p id="rq-email-error" class="field-err">Please enter a valid email. This is also your login.</p>
-                <p id="rq-pass-error" class="field-err">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+                <p id="rq-email-error" class="field-err" role="alert">Please enter a valid email. This is also your login.</p>
+                <p id="rq-pass-error" class="field-err" role="alert">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
@@ -3769,7 +3789,7 @@ export async function requestPage(env, opts = {}) {
 export async function publicLotPage(env, queueId) {
   const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
     <nav class="nav">
-      <a class="active"><span class="bar"></span><span class="lbl">Vehicle</span></a>
+      <span class="active" aria-current="page"><span class="bar"></span><span class="lbl">Vehicle</span></span>
       <a href="/request"><span class="bar"></span><span class="lbl">Request a car</span></a>
     </nav>
     <div class="side-foot"><a class="signout" href="/">JDM Connect</a></div>
@@ -4001,7 +4021,7 @@ function tableToolsScript() {
 
 function shell(side, main, title) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+    <body><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -4010,14 +4030,14 @@ function shell(side, main, title) {
 // to the full profile (progressive enhancement).
 function drawerChrome() {
   return `<div id="dwScrim" class="dw-scrim"></div>
-  <aside id="dwPanel" class="dw-panel" aria-label="Customer preview">
+  <aside id="dwPanel" class="dw-panel" role="dialog" aria-modal="true" aria-label="Customer preview" tabindex="-1">
     <button class="dw-close" id="dwClose" type="button" aria-label="Close">&times;</button>
-    <div id="dwContent" class="dw-content"></div>
+    <div id="dwContent" class="dw-content" aria-live="polite"></div>
   </aside>
   <style>
     .dw-scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:200;opacity:0;visibility:hidden;transition:opacity .25s}
     .dw-scrim.open{opacity:1;visibility:visible}
-    .dw-panel{position:fixed;top:0;right:0;height:100vh;width:min(440px,94vw);background:var(--bg-2);border-left:1px solid var(--hair);box-shadow:-24px 0 60px rgba(0,0,0,.22);z-index:201;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);overflow-y:auto}
+    .dw-panel{position:fixed;top:0;right:0;height:100vh;width:min(440px,94vw);background:var(--bg-2);border-left:1px solid var(--hair);box-shadow:-24px 0 60px rgba(0,0,0,.22);z-index:201;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);overflow-y:auto;overscroll-behavior:contain}
     .dw-panel.open{transform:none}
     .dw-close{position:absolute;top:14px;right:16px;width:32px;height:32px;border:0;background:rgba(0,0,0,.05);border-radius:8px;font-size:20px;line-height:1;color:var(--t2);cursor:pointer;z-index:2}
     .dw-close:hover{background:rgba(0,0,0,.1);color:var(--ink)}
@@ -4044,13 +4064,19 @@ function drawerChrome() {
   <script>(function(){
     var panel=document.getElementById('dwPanel'),scrim=document.getElementById('dwScrim'),content=document.getElementById('dwContent'),closeBtn=document.getElementById('dwClose');
     if(!panel)return;
-    function close(){panel.classList.remove('open');scrim.classList.remove('open');}
+    var lastFocus=null;
+    var focusable='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    function visible(nodes){return nodes.filter(function(n){return n.offsetWidth||n.offsetHeight||n.getClientRects().length;});}
+    function close(){panel.classList.remove('open');scrim.classList.remove('open');if(lastFocus&&lastFocus.focus){try{lastFocus.focus({preventScroll:true});}catch(e){lastFocus.focus();}}}
+    function focusPanel(){var f=visible([].slice.call(panel.querySelectorAll(focusable)));try{(f[0]||panel).focus({preventScroll:true});}catch(e){(f[0]||panel).focus();}}
     function open(url){content.innerHTML='<div class="dw-loading">Loading…</div>';panel.classList.add('open');scrim.classList.add('open');
-      fetch(url).then(function(r){return r.text();}).then(function(h){content.innerHTML=h;}).catch(function(){content.innerHTML='<div class="dw-empty">Could not load this customer.</div>';});}
-    document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-drawer]');if(a){e.preventDefault();open(a.getAttribute('data-drawer'));}});
+      fetch(url).then(function(r){return r.text();}).then(function(h){content.innerHTML=h;focusPanel();}).catch(function(){content.innerHTML='<div class="dw-empty">Could not load this customer.</div>';focusPanel();});}
+    function openDrawer(url,trigger){lastFocus=trigger||document.activeElement;open(url);focusPanel();}
+    function trap(e){if(e.key!=='Tab'||!panel.classList.contains('open'))return;var f=visible([].slice.call(panel.querySelectorAll(focusable)));if(!f.length){e.preventDefault();panel.focus();return;}var first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+    document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-drawer]');if(a){e.preventDefault();openDrawer(a.getAttribute('data-drawer'),a);}});
     closeBtn&&closeBtn.addEventListener('click',close);
     scrim.addEventListener('click',close);
-    document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')close();else trap(e);});
   })();</script>`;
 }
 
@@ -4465,7 +4491,7 @@ export async function createRequest(env, form, session) {
   let sessionClient = null;
   if (session && session.role === "client" && session.id) {
     sessionClient = await env.DB.prepare(
-      "SELECT id, name, email, google_sub FROM clients WHERE id = ?"
+      "SELECT id, name, email, whatsapp, google_sub FROM clients WHERE id = ?"
     ).bind(session.id).first();
   }
 
@@ -4535,6 +4561,19 @@ export async function createRequest(env, form, session) {
   }
   form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
 
+  // A mobile number is mandatory: matches move fast at auction and we need a
+  // direct way to reach the buyer. Accept the number typed on the form, or fall
+  // back to one already on a signed-in client's record. phoneKey() strips
+  // formatting/country code; >= 8 national digits is our validity floor.
+  const effectivePhone = phoneKey(whatsapp).length >= 8
+    ? whatsapp
+    : (sessionClient && phoneKey(sessionClient.whatsapp).length >= 8 ? sessionClient.whatsapp : "");
+  if (phoneKey(effectivePhone).length < 8) return { ok: false, error: "phone", vals };
+  // A signed-in buyer who supplied a new number gets it saved to their record.
+  if (sessionClient && phoneKey(whatsapp).length >= 8 && phoneKey(whatsapp) !== phoneKey(sessionClient.whatsapp || "")) {
+    await env.DB.prepare("UPDATE clients SET whatsapp = ? WHERE id = ?").bind(whatsapp, sessionClient.id).run();
+  }
+
   // Attach the wishlist to the right client. Signed-in -> their own record;
   // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
   let clientId, portal, existing, wishlistId, inviteNeeded = false;
@@ -4567,7 +4606,7 @@ export async function createRequest(env, form, session) {
 
   const req = {
     portal, existing,
-    name: displayName || "-", email, whatsapp, state: g("state"),
+    name: displayName || "-", email, whatsapp: effectivePhone, state: g("state"),
     label: g("label"), marka_name: g("marka_name"), model_name: g("model_name"),
     year_min: g("year_min"), year_max: g("year_max"), price_max: g("price_max"),
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
@@ -5215,10 +5254,10 @@ export async function portalPage(env, session, opts = {}) {
   const inProgress = cars.filter((q) => q.client_request).length;
   const awaiting = cars.length - inProgress;
   const statsRow = `<div class="pstats">
-      <div class="pstat lead"><div class="pk">New for you</div><div class="pv" data-count="${awaiting}">0</div><div class="ps">Matches waiting on your go-ahead</div></div>
-      <div class="pstat"><div class="pk">Cars found</div><div class="pv" data-count="${cars.length}">0</div><div class="ps">Hand-reviewed for your searches</div></div>
-      <div class="pstat"><div class="pk">In progress</div><div class="pv" data-count="${inProgress}">0</div><div class="ps">We're chasing these for you</div></div>
-      <div class="pstat"><div class="pk">Active searches</div><div class="pv" data-count="${activeSearches}">0</div><div class="ps">Running on every auction sweep</div></div>
+      <div class="pstat lead"><div class="pk">New for you</div><div class="pv" data-count="${awaiting}" aria-live="polite">${awaiting}</div><div class="ps">Matches waiting on your go-ahead</div></div>
+      <div class="pstat"><div class="pk">Cars found</div><div class="pv" data-count="${cars.length}" aria-live="polite">${cars.length}</div><div class="ps">Hand-reviewed for your searches</div></div>
+      <div class="pstat"><div class="pk">In progress</div><div class="pv" data-count="${inProgress}" aria-live="polite">${inProgress}</div><div class="ps">We're chasing these for you</div></div>
+      <div class="pstat"><div class="pk">Active searches</div><div class="pv" data-count="${activeSearches}" aria-live="polite">${activeSearches}</div><div class="ps">Running on every auction sweep</div></div>
     </div>`;
   const main = `
     <div class="topbar">

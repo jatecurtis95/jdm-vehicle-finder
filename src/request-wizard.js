@@ -398,16 +398,26 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     function el(n){return form.querySelector('[name="'+n+'"]');}
     function val(n){var e=el(n);return e?String(e.value||'').trim():'';}
     function errEl(id){return document.getElementById(id);}
-    function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none';}
+    var ERR_FIELDS={
+      'rq-vehicle-error':['marka_name','model_name'],
+      'rq-year-error':['year_min','year_max'],
+      'rq-budget-error':['budget_aud'],
+      'rq-email-error':['email'],
+      'rq-pass-error':['portal_password'],
+      'rq-whatsapp-error':['whatsapp']
+    };
+    function setInvalid(id,on){(ERR_FIELDS[id]||[]).forEach(function(n){var f=el(n);if(f)f.setAttribute('aria-invalid',on?'true':'false');});}
+    function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none'; setInvalid(id,!!on);}
     function emailBad(){var v=val('email');return !v||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
     function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
+    function whatsappBad(){var e=el('whatsapp');if(!e)return false;var d=String(e.value||'').replace(/\\D/g,'');return d.length<8;}
     function vehicleBad(){return !val('marka_name')||!val('model_name');}
     function yearBad(){var f=parseInt(val('year_min'),10),t=parseInt(val('year_max'),10);return !val('year_min')||!val('year_max')||!isFinite(f)||!isFinite(t)||f>t;}
     function budgetBad(){var n=parseFloat(val('budget_aud'));return !isFinite(n)||n<BMIN;}
     function badField(n){
       if(n===1){var vb=vehicleBad(),yb=yearBad();showErr('rq-vehicle-error',vb);showErr('rq-year-error',yb);return vb?'rq-vehicle-error':(yb?'rq-year-error':null);}
       if(n===2){var bb=budgetBad();showErr('rq-budget-error',bb);return bb?'rq-budget-error':null;}
-      if(n===4){if(SIGNEDIN)return null;var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':null);}
+      if(n===4){var wb=whatsappBad();showErr('rq-whatsapp-error',wb);if(SIGNEDIN)return wb?'rq-whatsapp-error':null;var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':(wb?'rq-whatsapp-error':null));}
       return null;
     }
 
@@ -506,7 +516,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
       if(f.marka_name&&window.jdmLoadModels){window.jdmLoadModels(f.model_name||'');}
       var want=Math.min(max,Math.max(1,parseInt(d.step,10)||1)), reach=1;
       while(reach<want && !badField(reach)) reach++;
-      ['rq-vehicle-error','rq-year-error','rq-budget-error','rq-email-error','rq-pass-error'].forEach(function(id){showErr(id,false);});
+      ['rq-vehicle-error','rq-year-error','rq-budget-error','rq-email-error','rq-pass-error','rq-whatsapp-error'].forEach(function(id){showErr(id,false);});
       return reach;
     }
 
@@ -521,12 +531,13 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     }
     liveField('email','rq-email-error',emailBad);
     liveField('portal_password','rq-pass-error',pwBad);
+    liveField('whatsapp','rq-whatsapp-error',whatsappBad);
     liveField('budget_aud','rq-budget-error',budgetBad);
 
     form.addEventListener('input',saveSoon);
     form.addEventListener('change',save);
     form.addEventListener('submit',function(e){
-      var order=SIGNEDIN?[1,2]:[1,2,4], firstBad=0;
+      var order=[1,2,4], firstBad=0;
       for(var i=0;i<order.length;i++){ if(badField(order[i])){ firstBad=order[i]; break; } }
       if(firstBad){ e.preventDefault(); if(cur!==firstBad) go(firstBad); var b=badField(firstBad); var el2=b&&errEl(b); if(el2&&el2.scrollIntoView) el2.scrollIntoView({behavior:'smooth',block:'center'}); return; }
       try{localStorage.removeItem(DRAFT);}catch(err){}
