@@ -10,13 +10,15 @@ import { adminPage, matchesChunk } from "../src/admin.js";
 
 const ADMIN = { role: "admin", id: 0 };
 
-// One pending queue row. Auction dates are in the future so nothing expires.
+// One pending queue row. Auction dates are exact offsets from now (not a
+// calendar day at a fixed hour), so daysUntil() rounds the same way at any
+// time of day and the tests never go flaky near midnight.
 function lotJson(id, strength, daysOut) {
-  const d = new Date(Date.now() + daysOut * 86400000).toISOString().slice(0, 10);
+  const d = new Date(Date.now() + daysOut * 86400000).toISOString().replace("T", " ").slice(0, 19);
   return JSON.stringify({
     id, lot: "1" + id, marka_name: "NISSAN", model_name: "SKYLINE", year: 1999,
     rate: "4", start: 1000000, mileage: 80000, auction: "USS Tokyo",
-    auction_date: d + " 10:00:00", images: "", _strength: strength,
+    auction_date: d, images: "", _strength: strength,
   });
 }
 
