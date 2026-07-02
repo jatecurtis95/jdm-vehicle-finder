@@ -379,6 +379,10 @@ const CSS = `
     .topbar{top:52px}
     .mtools{top:52px}
   }
+  /* Health dots (last-contact recency) - shared by Requests, Customers and
+     the drawer. Green under 7 days, amber 7 to 14, red 14+ or never. */
+  .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
+  .health-green{background:#1F7A4D}.health-amber{background:#C98A00}.health-red{background:#B11226}
   /* Mobile card lists: below 640px the wide tables (Requests, Customers,
      Agents, Payments) swap for these server-rendered card rows. Both are in
      the HTML; CSS decides which shows, so desktop keeps the tables. */
@@ -912,11 +916,19 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
             MAX(viewed_at) AS last_viewed
        FROM queue WHERE client_id = ?`
   ).bind(id).first()) || {};
+  // Derived last-contacted: newest of any sent vehicle, note or contact tap.
+  const lc = (await env.DB.prepare(
+    `SELECT MAX(ts) AS t FROM (
+        SELECT sent_at AS ts FROM queue WHERE client_id = ?1 AND sent_at IS NOT NULL
+        UNION ALL SELECT created_at FROM activity WHERE client_id = ?1 AND type IN ('note','contact')
+      )`
+  ).bind(id).first()) || {};
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
     ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
+    ["Last contacted", `${healthDot(lc.t)}${esc(lastActivityLabel(lc.t))}`],
     ["Examples sent", Number(eng.sent) ? `${eng.sent}${Number(eng.viewed) ? ` &middot; ${eng.viewed} viewed` : " &middot; none opened yet"}` : null],
     ["Last viewed", eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : null],
     ["Last login", c.last_seen ? String(c.last_seen).slice(0, 10) : null],
@@ -931,7 +943,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
     ? matches.map((m) => {
         let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
         const strength = lot._strength ? `<span class="dw-str dw-str-${String(lot._strength).toLowerCase()}">${esc(lot._strength)} match</span>` : "";
-        const stage = m.response === "interested" ? `<span class="eng eng-viewed">Interested</span>`
+        const stage = m.response === "interested" ? `<span class="eng eng-int">Interested</span>`
           : m.viewed_at ? `<span class="eng eng-viewed">Viewed</span>`
           : m.sent_at ? `<span class="eng eng-sent">Sent</span>`
           : `<span class="chip muted">${esc(m.status)}</span>`;
@@ -947,7 +959,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
       <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
       <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
     </div>
-    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
+    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" data-clog="${c.id}:call" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
     ${info ? `<div class="dw-card">${info}</div>` : ""}
     <div class="dw-sec">Requests <span class="ct">${wls.length}</span></div><div class="dw-list">${wlList}</div>
     <div class="dw-sec">Recent matches <span class="ct">${matches.length}</span></div><div class="dw-list">${mList}</div>
@@ -990,13 +1002,24 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 
   // For the Clients view: active agents (for the Share picker) and existing
   // shares (chips), so owners can share/unshare.
-  let shareAgents = [], sharesByClient = {};
+  let shareAgents = [], sharesByClient = {}, lastContact = {};
   if (view === "clients") {
     shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
       "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN agents a ON a.id = cs.agent_id"
     ).all()).results || [];
     for (const r of sh) (sharesByClient[r.client_id] = sharesByClient[r.client_id] || []).push({ id: r.agent_id, name: r.agent_name });
+    // Derived last-contacted per client: the newest of any sent vehicle, note
+    // or logged contact tap. Read-only aggregation, no manual upkeep.
+    try {
+      const lc = (await env.DB.prepare(
+        `SELECT client_id, MAX(ts) AS t FROM (
+            SELECT client_id, sent_at AS ts FROM queue WHERE sent_at IS NOT NULL
+            UNION ALL SELECT client_id, created_at FROM activity WHERE type IN ('note','contact')
+          ) GROUP BY client_id`
+      ).all()).results || [];
+      for (const r of lc) lastContact[r.client_id] = r.t;
+    } catch (e) { console.error("last-contact rollup failed:", e.message); }
   }
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
@@ -1083,7 +1106,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
@@ -1884,12 +1907,19 @@ function clientsView(clients, wishlists, opts = {}) {
     return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="if(confirm('Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')){this.form.submit()}else{this.value=this.dataset.prev}">${opts}</select></form>`;
   };
 
+  // Derived last-contacted (sent vehicles + notes + logged contact taps).
+  const lastContact = opts.lastContact || {};
+  const contactCell = (c) => {
+    const t = lastContact[c.id];
+    return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
+  };
   const rows = clients.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
@@ -1904,7 +1934,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -1937,12 +1967,12 @@ function clientsView(clients, wishlists, opts = {}) {
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
-    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`].filter(Boolean).join(" &middot; "),
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
     right: c.archived ? `<span class="chip muted">archived</span>` : "",
-    rightSub: isAdmin ? esc(ownerName(c)) : "",
+    rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
   return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2128,6 +2158,19 @@ export async function logActivity(env, { wishlist_id = null, client_id = null, t
   } catch (e) { console.error("logActivity failed:", e.message); }
 }
 
+// Log a WhatsApp / Call / Email button tap as a lightweight contact event, so
+// "when did we last talk?" answers itself without anyone typing anything.
+// Access-checked; best-effort (a failed log never blocks the tap's navigation).
+export async function logContactTap(env, clientId, channel, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false };
+  if (!(await clientAccessibleBy(env, cid, session))) return { ok: false };
+  const label = channel === "whatsapp" ? "WhatsApp" : channel === "call" ? "Call" : channel === "email" ? "Email" : "Contact";
+  const actor = await actorName(env, session);
+  await logActivity(env, { client_id: cid, type: "contact", detail: `${label} opened from the app`, actor });
+  return { ok: true };
+}
+
 // Deposit state on a request (Priority 6): none -> requested -> paid.
 const DEPOSIT_LABELS = { none: "No deposit", requested: "Deposit requested", paid: "Deposit paid" };
 const validDeposit = (s) => s === "none" || s === "requested" || s === "paid";
@@ -2227,6 +2270,7 @@ const firstNameOf = (name) => String(name || "").trim().split(/\s+/)[0] || "ther
 const ACT_TONE = {
   created: "neu", status: "gold", owner: "neu", match_sent: "blue",
   viewed: "blue", note: "neu", deposit: "warn", task: "gold", interested: "good",
+  contact: "gold", login: "blue",
 };
 function activityTimeline(acts) {
   if (!acts.length) return `<div class="rd-empty">No activity yet.</div>`;
@@ -2446,6 +2490,15 @@ export async function recordMatchSent(env, queueId, session) {
     if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
     const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
+    // Autopilot: the first lot sent moves an early-stage request to "Vehicles
+    // sent" (which also seeds the 3-day follow-up task). A manually chosen
+    // later stage always wins because only early stages advance.
+    if (q.wishlist_id) {
+      const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
+      if (w && ["new", "qualified", "searching"].includes(w.status || "new")) {
+        await updateRequestStatus(env, q.wishlist_id, "vehicles_sent", session);
+      }
+    }
   } catch (e) { console.error("recordMatchSent failed:", e.message); }
 }
 
@@ -2539,9 +2592,9 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     ["Portal", w.portal_enabled ? "Enabled" : "Not enabled"],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="rd-row"><span class="rd-k">${k}</span><span class="rd-v">${v}</span></div>`).join("");
   const contactBtns = [
-    waNum ? `<a class="rd-cta" href="https://wa.me/${waNum}" target="_blank" rel="noopener">WhatsApp</a>` : "",
-    w.client_whatsapp ? `<a class="rd-cta" href="tel:${esc(w.client_whatsapp)}">Call</a>` : "",
-    w.client_email ? `<a class="rd-cta" href="mailto:${esc(w.client_email)}">Email</a>` : "",
+    waNum ? `<a class="rd-cta" data-clog="${w.client_id}:whatsapp" href="https://wa.me/${waNum}" target="_blank" rel="noopener">WhatsApp</a>` : "",
+    w.client_whatsapp ? `<a class="rd-cta" data-clog="${w.client_id}:call" href="tel:${esc(w.client_whatsapp)}">Call</a>` : "",
+    w.client_email ? `<a class="rd-cta" data-clog="${w.client_id}:email" href="mailto:${esc(w.client_email)}">Email</a>` : "",
   ].filter(Boolean).join("");
   const customerCol = `<div class="rdcol">
     <div class="rdcard">
@@ -3504,6 +3557,39 @@ function strengthLegend() {
   </div>`;
 }
 
+// Follow-up autopilot (cron): when a request's sent cars have sat unopened for
+// 3 days with no response, seed one follow-up task through the existing task
+// path so the dashboard attention panel surfaces it. Idempotent: skips any
+// request with an open follow-up task, or one created in the last 3 days.
+export async function autoFollowUps(env) {
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT q.wishlist_id, q.client_id, c.name AS client_name, w.owner_id, c.agent_id
+         FROM queue q
+         JOIN clients c ON c.id = q.client_id
+         LEFT JOIN wishlists w ON w.id = q.wishlist_id
+        WHERE q.status = 'sent' AND q.sent_at IS NOT NULL AND q.sent_at <= datetime('now','-3 days')
+          AND q.viewed_at IS NULL AND q.response IS NULL AND q.wishlist_id IS NOT NULL
+        GROUP BY q.wishlist_id`
+    ).all()).results || [];
+    let created = 0;
+    for (const r of rows) {
+      const first = String(r.client_name || "this client").trim().split(/\s+/)[0] || "this client";
+      const dupe = await env.DB.prepare(
+        "SELECT id FROM tasks WHERE wishlist_id = ? AND type = 'follow_up' AND (status != 'done' OR created_at >= datetime('now','-3 days'))"
+      ).bind(r.wishlist_id).first();
+      if (dupe) continue;
+      await insertTask(env, {
+        title: `Follow up with ${first}, sent cars unopened for 3 days`,
+        type: "follow_up", wishlist_id: r.wishlist_id, client_id: r.client_id,
+        assigned_to: r.owner_id || r.agent_id || null, due: new Date(), priority: "normal",
+      });
+      created++;
+    }
+    return created;
+  } catch (e) { console.error("autoFollowUps failed:", e.message); return 0; }
+}
+
 // Mark pending matches whose auction has already ended as 'expired', so the
 // review queue only ever shows lots you can still bid on. Safe to call often.
 export async function expirePast(env) {
@@ -3907,6 +3993,28 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Sent-lot history: everything already actioned (sent Tue, opened Wed,
+  // passed), so the page answers "what did we send and what happened?".
+  const history = (await env.DB.prepare(
+    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.client_id = ? AND q.status != 'pending' ORDER BY COALESCE(q.decided_at, q.created_at) DESC LIMIT 20`
+  ).bind(cid).all()).results || [];
+
+  // Unified activity feed: notes, sends, views, responses and contact taps all
+  // land in `activity`; fold in payments and the latest portal login. Data the
+  // app already records - nothing here needs manual upkeep.
+  const actsRaw = (await env.DB.prepare(
+    "SELECT type, detail, actor, created_at FROM activity WHERE client_id = ? ORDER BY created_at DESC, id DESC LIMIT 30"
+  ).bind(cid).all()).results || [];
+  const payEvents = (await env.DB.prepare(
+    "SELECT amount_cents, currency, status, COALESCE(paid_at, created_at) AS created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 10"
+  ).bind(cid).all()).results || [];
+  const feed = [
+    ...actsRaw,
+    ...payEvents.map((p) => ({ type: "deposit", detail: `Payment ${p.status}: A$${(Number(p.amount_cents || 0) / 100).toLocaleString("en-AU")}`, actor: "Stripe", created_at: p.created_at })),
+    ...(c.last_seen ? [{ type: "login", detail: "Signed in to the portal", actor: c.name, created_at: c.last_seen }] : []),
+  ].sort((a, b) => (tsMs(b.created_at) || 0) - (tsMs(a.created_at) || 0)).slice(0, 25);
+
   // Engagement roll-up across ALL of this client's matches (not just pending) so
   // the CRM header can show at a glance: examples sent, how many they opened,
   // and when they last looked — the numbers that tell staff how warm they are.
@@ -3940,8 +4048,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     c.destination_country ? `<span class="cd-chip">${esc(c.destination_country)}</span>` : (c.state ? `<span class="cd-chip">${esc(c.state)}</span>` : ""),
   ].filter(Boolean).join("");
   const contactBtns = [
-    waDigits ? `<a class="cd-cta" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" href="tel:${esc(telDigits)}">Call</a>` : "",
-    c.email ? `<a class="cd-cta" href="mailto:${esc(c.email)}">Email</a>` : "",
+    waDigits ? `<a class="cd-cta" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" data-clog="${c.id}:call" href="tel:${esc(telDigits)}">Call</a>` : "",
+    c.email ? `<a class="cd-cta" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : "",
     canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
@@ -4115,6 +4223,19 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
+  // Compact history of already-actioned cars, with the Interested / Pass
+  // response buttons so replies can be logged from here too.
+  const historyCard = history.length ? `<div class="card">
+    <h2><span class="num">${history.length}</span> Sent and past cars</h2>
+    <p class="help" style="margin:-8px 0 16px">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
+    <div class="rd-matches">${history.map((q) => matchTrackRow(q, `/admin?view=client&id=${cid}`)).join("")}</div>
+  </div>` : "";
+
+  const feedCard = `<div class="card">
+    <h2><span class="num">&middot;</span> Activity</h2>
+    ${activityTimeline(feed)}
+  </div>`;
+
   const main = `
     <div class="topbar">
       <div>
@@ -4124,7 +4245,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}${feedCard}${portalCard}${editCard}</div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -4839,6 +4960,18 @@ function uxGuardScript() {
     },0);
   },true);
   window.addEventListener('pageshow',function(){locked.forEach(function(b){b.disabled=false;});locked=[];});
+  // Contact-tap logging: WhatsApp / Call / Email buttons carry
+  // data-clog="clientId:channel"; a beacon records the touch without ever
+  // blocking the tel:/mailto:/wa.me navigation.
+  document.addEventListener('click',function(e){
+    var el=e.target&&e.target.closest?e.target.closest('[data-clog]'):null; if(!el)return;
+    try{
+      var v=(el.getAttribute('data-clog')||'').split(':');
+      var fd=new FormData(); fd.append('id',v[0]||''); fd.append('channel',v[1]||'other');
+      if(navigator.sendBeacon)navigator.sendBeacon('/client/contact-log',fd);
+      else fetch('/client/contact-log',{method:'POST',body:fd,keepalive:true});
+    }catch(err){}
+  });
 })();</script>`;
 }
 
@@ -4889,6 +5022,7 @@ function drawerChrome() {
     .eng{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px;white-space:nowrap}
     .eng-viewed{background:var(--gold-tint);color:var(--gold-txt)}
     .eng-sent{background:rgba(201,138,0,.14);color:#8a5e10}
+    .eng-int{background:rgba(31,122,77,.16);color:#1F7A4D}
     .dw-str{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px}
     .dw-str-strong{background:rgba(31,122,77,.14);color:#1F7A4D}
     .dw-str-good{background:var(--gold-tint);color:var(--gold-txt)}
