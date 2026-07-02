@@ -20,24 +20,37 @@ function env2() {
   e.API_BASE = "http://feed/api"; e.AVTONET_CODE = "c";
   return e;
 }
-const mcards = (h) => (h.match(/class="mcard"/g) || []).length;
+// Count server-rendered cards only: the client-side watchlist script embeds the
+// same card markup as a JS template string, so strip <script> blocks first.
+const acards = (h) => ((h.replace(/<script[\s\S]*?<\/script>/g, "")).match(/class="acard"/g) || []).length;
 
 test("auction page is gated to members", async () => {
   stub();
   const e = env2();
   const free = await portalAuctionsPage(e, { role: "client", id: 2 }, {});
   assert.match(free, /members feature/i);
-  assert.ok(!/Search the auctions/.test(free), "non-member gets no search form");
+  assert.ok(!/name="q"/.test(free), "non-member gets no search bar");
   const member = await portalAuctionsPage(e, { role: "client", id: 1 }, {});
   assert.match(member, /<h1>Auction search<\/h1>/);
-  assert.match(member, /Search the auctions/);
+  assert.match(member, /Search live Japanese auctions/);
+  assert.match(member, /name="q"/, "member gets the search bar");
 });
 
 test("a member search renders one card per live lot", async () => {
   stub();
   const html = await portalAuctionsPage(env2(), { role: "client", id: 1 }, { make: "NISSAN", model: "SKYLINE" });
-  assert.match(html, /Live lots/);
-  assert.equal(mcards(html), 2);
+  assert.match(html, /Live auction feed/);
+  assert.equal(acards(html), 2);
+  assert.match(html, /class="ac-fav"/, "cards carry a watchlist heart");
+  assert.match(html, /Request bid/, "buyer cards can request a bid");
+});
+
+test("the Watchlist tab renders the client-side grid container, not the feed", async () => {
+  stub();
+  const html = await portalAuctionsPage(env2(), { role: "client", id: 1 }, { tab: "watch" });
+  assert.match(html, /id="watchGrid"/);
+  assert.equal(acards(html), 0, "no server-rendered cards on the watch tab");
+  assert.match(html, /jdmWatch/, "the watchlist script is present");
 });
 
 test("requesting a lot files it against a catch-all search and is idempotent", async () => {

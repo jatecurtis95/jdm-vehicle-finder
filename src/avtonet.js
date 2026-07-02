@@ -173,6 +173,18 @@ export async function searchLots(env, p = {}) {
   const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
   const kuzov = String(p.kuzov || "").trim();
   if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlString(kuzov).toUpperCase()}%'`);
+  const house = String(p.house || "").trim();
+  if (house) where.push(`UPPER(auction) LIKE '%${sqlString(house).toUpperCase()}%'`);
+  // Free-text search bar: every whitespace token must match some field, so
+  // "nissan skyline" narrows on make AND model; a bare lot number matches lot.
+  const qStr = String(p.q || "").trim();
+  if (qStr) {
+    for (const t of qStr.split(/\s+/).filter(Boolean).slice(0, 4)) {
+      const s = sqlString(t).toUpperCase();
+      if (!s) continue;
+      where.push(`(UPPER(marka_name) LIKE '%${s}%' OR UPPER(model_name) LIKE '%${s}%' OR UPPER(kuzov) LIKE '%${s}%' OR UPPER(lot) LIKE '%${s}%')`);
+    }
+  }
 
   const perPage = 24;
   const page = Math.max(1, sqlInt(p.page) || 1);
@@ -183,6 +195,49 @@ export async function searchLots(env, p = {}) {
     lots = await query(env, sql);
   } catch (e) {
     console.error("searchLots failed:", e.message);
+  }
+  return { lots, page, perPage, hasMore: lots.length === perPage };
+}
+
+// Browse the historical `stats` table (sold auction results) for the member
+// "Sold auctions" page. Mirrors searchLots but reads sold rows, orders newest
+// sold first, and filters the sold-price ceiling on `finish` (the hammer price).
+// Returns { lots, page, perPage, hasMore }.
+export async function searchSold(env, p = {}) {
+  const where = ["finish > 0"];
+  const make = String(p.make || "").trim();
+  if (make) {
+    const mk = sqlString(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
+    if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
+  }
+  const model = String(p.model || "").trim();
+  if (model) where.push(`UPPER(model_name) LIKE '%${sqlString(model).toUpperCase()}%'`);
+  const yMin = sqlInt(p.yearMin); if (yMin !== null) where.push(`year >= ${yMin}`);
+  const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
+  const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`finish <= ${pMax}`);
+  const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
+  const kuzov = String(p.kuzov || "").trim();
+  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlString(kuzov).toUpperCase()}%'`);
+  const house = String(p.house || "").trim();
+  if (house) where.push(`UPPER(auction) LIKE '%${sqlString(house).toUpperCase()}%'`);
+  const qStr = String(p.q || "").trim();
+  if (qStr) {
+    for (const t of qStr.split(/\s+/).filter(Boolean).slice(0, 4)) {
+      const s = sqlString(t).toUpperCase();
+      if (!s) continue;
+      where.push(`(UPPER(marka_name) LIKE '%${s}%' OR UPPER(model_name) LIKE '%${s}%' OR UPPER(kuzov) LIKE '%${s}%' OR UPPER(lot) LIKE '%${s}%')`);
+    }
+  }
+
+  const perPage = 24;
+  const page = Math.max(1, sqlInt(p.page) || 1);
+  const offset = (page - 1) * perPage;
+  const sql = `SELECT * FROM stats WHERE ${where.join(" AND ")} ORDER BY auction_date DESC LIMIT ${offset}, ${perPage}`;
+  let lots = [];
+  try {
+    lots = await query(env, sql);
+  } catch (e) {
+    console.error("searchSold failed:", e.message);
   }
   return { lots, page, perPage, hasMore: lots.length === perPage };
 }
@@ -262,6 +317,25 @@ export async function distinctModels(env, maker) {
     console.error("distinctModels failed:", e.message);
     return (cached && cached.list) || [];
   }
+}
+
+// Distinct auction houses in the live feed, sorted. Powers the "All houses"
+// filter on the auction search. Cached like the maker/model lookups.
+let _housesCache = { list: null, exp: 0 };
+export async function distinctHouses(env) {
+  const now = Date.now();
+  if (_housesCache.list && now < _housesCache.exp) return _housesCache.list;
+  try {
+    const rows = await query(env, "SELECT DISTINCT auction FROM main WHERE auction <> '' ORDER BY auction");
+    const list = [...new Set(rows.map((r) => (r.auction || "").trim()).filter(Boolean))];
+    if (list.length) {
+      _housesCache = { list, exp: now + LOOKUP_TTL };
+      return list;
+    }
+  } catch (e) {
+    console.error("distinctHouses failed:", e.message);
+  }
+  return _housesCache.list || [];
 }
 
 // Best-effort numeric auction grade. Grades are usually numeric ("4", "4.5")

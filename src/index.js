@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -424,10 +424,10 @@ export default {
         adminOpts.tab = sp.get("tab") || "live";
         adminOpts.found = sp.get("found") || "";
         adminOpts.search = {
-          make: sp.get("make") || "", model: sp.get("model") || "",
-          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+          house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-          kuzov: sp.get("kuzov") || "", page: sp.get("page") || "",
+          kuzov: sp.get("kuzov") || "", layout: sp.get("layout") || "", page: sp.get("page") || "",
         };
       }
       return doc(await adminPage(env, view, session, adminOpts));
@@ -764,13 +764,24 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/auctions" && request.method === "GET") {
     const sp = url.searchParams;
     const params = {
-      make: sp.get("make") || "", model: sp.get("model") || "",
-      yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
       priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
       kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1",
+      tab: sp.get("tab") || "live", view: sp.get("view") || "grid",
       _flash: sp.get("_flash") || "",
     };
     return doc(await portalAuctionsPage(env, session, params));
+  }
+  if (path === "/portal/sold" && request.method === "GET") {
+    const sp = url.searchParams;
+    const params = {
+      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1", view: sp.get("view") || "grid",
+    };
+    return doc(await portalSoldPage(env, session, params));
   }
   if (path === "/portal/auctions/request" && request.method === "POST") {
     const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();

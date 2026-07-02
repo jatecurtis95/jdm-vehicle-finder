@@ -2,7 +2,8 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, fetchLot } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
@@ -4769,9 +4770,10 @@ function portalSidebar(c, active = "garage") {
   const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
   // The auction search page is a paid-member perk, gated on clients.member.
   const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
+  const sold = c && c.member ? item("sold", "/portal/sold", "Sold auctions") : "";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
-    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}</nav>
+    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}${sold}</nav>
     <div class="side-foot">
       <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">${c && c.member ? "Member" : "Client"}</span></div>
       <a class="signout" href="/logout">Sign out</a>
@@ -4804,89 +4806,126 @@ export async function portalAuctionsPage(env, session, params = {}) {
       "Auction search - JDM Connect");
   }
 
-  const makers = await distinctMakers(env);
-  const yMax = new Date().getFullYear() + 1;
-  const v = (k) => esc(params[k] ?? "");
-  const hasQuery = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(params[k] || "").trim());
+  const nowYear = new Date().getFullYear();
+  const tab = params.tab === "watch" ? "watch" : "live";
+  const view = params.view === "list" ? "list" : "grid";
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+  const bidCount = (await env.DB.prepare(
+    "SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1"
+  ).bind(cid).first())?.n || 0;
 
-  let resultsBlock = "";
-  if (hasQuery) {
-    const { lots, page, hasMore } = await searchLots(env, params);
+  // URL builder that preserves the active search, filters and view across tabs
+  // and paging.
+  const clean = {};
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
+    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/portal/auctions?" + new URLSearchParams({ ...clean, ...over }).toString();
+
+  const header = auctionSearchHeader({
+    action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
+    p: params, makers, models, houses, showBid: true, bidCount,
+  });
+  const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), { sold: false });
+
+  let body = "";
+  if (tab === "watch") {
+    body = `${tabs}<div id="watchGrid" class="acgrid"></div>`;
+  } else {
+    const page = Math.max(1, parseInt(params.page, 10) || 1);
+    const { lots, hasMore } = await searchLots(env, { ...params, page });
+    const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify ac-req" type="submit">Request bid</button></form>`;
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }) });
+    let grid;
     if (lots.length) {
-      const q = (over) => "/portal/auctions?" + new URLSearchParams({ ...stripBlank(params), page: String(over) }).toString();
-      const prev = page > 1 ? `<a class="btn-dark" href="${esc(q(page - 1))}">&larr; Newer</a>` : "";
-      const next = hasMore ? `<a class="btn-dark" href="${esc(q(page + 1))}">Older &rarr;</a>` : "";
-      resultsBlock = `<div class="psec" style="margin-top:30px"><h2>Live lots${page > 1 ? ` &middot; page ${page}` : ""}</h2><p class="psub">Soonest auctions first. Tap “Request this car” and we'll chase it for you.</p></div>
-        <div class="mgrid">${lots.map(auctionResultCard).join("")}</div>
-        ${(prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : ""}`;
+      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot) })).join("")}</div>`;
     } else {
-      resultsBlock = `<div class="card" style="margin-top:30px"><div class="empty">No upcoming lots match that search. Try widening it - fewer filters, or a broader make/model.</div></div>`;
+      const filtered = Object.keys(clean).some((k) => k !== "view");
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
     }
+    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
+    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+    body = `${tabs}${toolbar}${grid}${pager}`;
   }
 
-  const form = `<div class="card">
-    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
-    <form method="GET" action="/portal/auctions">
-      <div class="grid">
-        <div><label>Make<input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"></label><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
-        <div><label>Model <span class="opt">(contains)</span><input name="model" value="${v("model")}" placeholder="e.g. SKYLINE"></label></div>
-        <div><label>Year from<input name="yearMin" type="number" min="1960" max="${yMax}" value="${v("yearMin")}" placeholder="1990"></label></div>
-        <div><label>Year to<input name="yearMax" type="number" min="1960" max="${yMax}" value="${v("yearMax")}" placeholder="2002"></label></div>
-        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></label></div>
-        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="e.g. 4"></label></div>
-        <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. GDB"></label></div>
-      </div>
-      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
-        <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
-    </form>
-  </div>`;
-
-  const flash = params._flash ? `<div class="banner"><span class="txt">${esc(params._flash)}</span></div>` : "";
+  const flash = params._flash ? `<div class="flash">${esc(params._flash)}</div>` : "";
   const main = `
     <div class="topbar">
       <div class="topbar-in">
         <div class="kicker">Members</div>
         <h1>Auction search</h1>
-        <p class="subline">Search every live Japanese auction, then ask us to chase any car.</p>
+        <p class="subline">Search every live Japanese auction, save cars to your watchlist, then ask us to chase any lot.</p>
       </div>
     </div>
-    <div class="content">${flash}${form}${resultsBlock}</div>`;
+    <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true })}${AUCTION_CSS}</div>`;
   return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
 }
 
-// Drop blank values so pagination links stay clean.
-function stripBlank(params) {
-  const out = {};
-  for (const k of ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"]) {
-    const val = String(params[k] ?? "").trim();
-    if (val) out[k] = val;
+// Member-only "Sold auctions" page: browse recent sold-price history from the
+// stats feed with the same search UI. Gated on clients.member.
+export async function portalSoldPage(env, session, params = {}) {
+  const cid = Number(session.id);
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  if (!c) {
+    return brandShell(portalSidebar(null),
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
+      "Sold auctions - JDM Connect");
   }
-  return out;
-}
+  if (!c.member) {
+    return brandShell(portalSidebar(c, "sold"),
+      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Sold auctions</h1><p class="subline">See what cars actually sold for at recent Japanese auctions.</p></div></div>
+       <div class="content"><div class="card"><div class="empty">Sold-price history is a members feature. Ask JDM Connect to upgrade your account and you'll see what every car sells for.</div></div></div>`,
+      "Sold auctions - JDM Connect");
+  }
 
-// A single live-auction lot in the member search results.
-function auctionResultCard(lot) {
-  const img = imageUrls(lot).medium;
-  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
-  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
-  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  return `<div class="mcard">
-    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title || "Vehicle"}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+  const nowYear = new Date().getFullYear();
+  const view = params.view === "list" ? "list" : "grid";
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+
+  const clean = {};
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
+    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/portal/sold?" + new URLSearchParams({ ...clean, ...over }).toString();
+
+  const header = auctionSearchHeader({
+    action: "/portal/sold", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
+    p: params, makers, models, houses, showBid: false, label: "Search sold auction results",
+  });
+
+  const page = Math.max(1, parseInt(params.page, 10) || 1);
+  const { lots, hasMore } = await searchSold(env, { ...params, page });
+  const findLive = (lot) => `<a class="btn-notify ac-req" href="/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), label: "Sold at auction" });
+  let grid;
+  if (lots.length) {
+    grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot) })).join("")}</div>`;
+  } else {
+    const filtered = Object.keys(clean).some((k) => k !== "view");
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
+  }
+  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; More recent</a>` : "";
+  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+
+  const main = `
+    <div class="topbar">
+      <div class="topbar-in">
+        <div class="kicker">Members</div>
+        <h1>Sold auctions</h1>
+        <p class="subline">See what cars actually sold for at recent Japanese auctions, so you know what to bid.</p>
+      </div>
     </div>
-    <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
-      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
-    </div>
-    <div class="mfoot">
-      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
-      <form method="POST" action="/portal/auctions/request" style="display:inline"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify" type="submit">Request this car</button></form>
-    </div>
-  </div>`;
+    <div class="content">${header}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}</div>`;
+  return brandShell(portalSidebar(c, "sold"), main, "Sold auctions - JDM Connect");
 }
 
 // Member requests a lot found via auction search. Files it against a per-client
@@ -4984,62 +5023,26 @@ function staffFindCard(lot, clientId, firstName, qsBack) {
 // /client/find flow as the in-client search); sold history reuses marketIntel +
 // marketPanel. Hits the live feed only when a query is present.
 export async function adminAuctionsPage(env, session, opts = {}) {
-  const tab = opts.tab === "sold" ? "sold" : "live";
+  const tab = opts.tab === "sold" ? "sold" : opts.tab === "watch" ? "watch" : "live";
   const sp = opts.search || {};
-  const sv = (k) => esc(sp[k] || "");
-  const makers = await distinctMakers(env);
-  const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
-  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}"${tab === t ? ' aria-current="page"' : ''} href="/admin?view=auctions&tab=${t}">${label}</a>`;
-  const tabs = `<div class="auc-tabs">${tabLink("live", "Live auctions")}${tabLink("sold", "Sold-price history")}</div>`;
+  const layout = sp.layout === "list" ? "list" : "grid";
+  const nowYear = new Date().getFullYear();
 
-  let panel = "";
-  if (tab === "live") {
-    const keys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
-    const hasQuery = keys.some((k) => String(sp[k] || "").trim());
-    let results = "";
-    if (hasQuery) {
-      const page = Math.max(1, parseInt(sp.page, 10) || 1);
-      const { lots, hasMore } = await searchLots(env, { ...sp, page });
-      if (lots.length) {
-        const acc = accessScope(session);
-        const stmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
-        const clients = ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
-        const qs = new URLSearchParams({ view: "auctions", tab: "live" });
-        for (const k of keys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-        const pageLink = (p) => { const u = new URLSearchParams(qs); u.set("page", String(p)); return "/admin?" + u.toString(); };
-        const back = pageLink(page); // return to this exact page after adding a car
-        const prev = page > 1 ? `<a class="btn-dark" href="${esc(pageLink(page - 1))}">&larr; Newer</a>` : "";
-        const next = hasMore ? `<a class="btn-dark" href="${esc(pageLink(page + 1))}">Older &rarr;</a>` : "";
-        const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
-        results = `${page > 1 ? `<p class="help" style="margin:18px 0 0">Page ${page}</p>` : ""}<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>${pager}`;
-      } else {
-        results = page > 1
-          ? `<div class="empty" style="margin-top:14px">No more lots. <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600">Back to the start</a>.</div>`
-          : `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
-      }
-    }
-    const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue — it's under their Live matches, ready to Approve &amp; send.</div>`
-      : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
-      : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot — please try again.</div>` : "";
-    panel = `${flash}<div class="card">
-      <form method="GET" action="/admin">
-        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">
-        <div class="grid">
-          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN"></label>${datalist}</div>
-          <div><label>Model <span class="opt">(contains)</span><input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE"></label></div>
-          <div><label>Year from<input name="yearMin" type="number" min="1960" value="${sv("yearMin")}" placeholder="1990"></label></div>
-          <div><label>Year to<input name="yearMax" type="number" min="1960" value="${sv("yearMax")}" placeholder="2002"></label></div>
-          <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${sv("priceMax")}" placeholder="3,000,000"></label></div>
-          <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${sv("gradeMin")}" placeholder="e.g. 4"></label></div>
-          <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${sv("kuzov")}" placeholder="e.g. GDB"></label></div>
-        </div>
-        <div class="actions"><button class="btn-gold" type="submit">Search live auctions</button>
-          <span class="help">Upcoming Japanese auctions, soonest first. Add any lot to a client to queue it for review.</span></div>
-      </form>${results}
-    </div>`;
-  } else {
-    const make = String(sp.make || "").trim();
-    const model = String(sp.model || "").trim();
+  // Preserve the active search + layout across tabs and paging. On /admin the
+  // `view` param selects the page, so the grid/list toggle uses `layout`.
+  const clean = { view: "auctions" };
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "layout"]) {
+    const val = String(sp[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/admin?" + new URLSearchParams({ ...clean, ...over }).toString();
+  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { sold: true });
+
+  // Sold-price history keeps its own make/model lookup and market panel.
+  if (tab === "sold") {
+    const makers = await distinctMakers(env);
+    const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
+    const sv = (k) => esc(sp[k] || "");
+    const make = String(sp.make || "").trim(), model = String(sp.model || "").trim();
     let intel = "";
     if (make && model) {
       const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
@@ -5047,7 +5050,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
         ? `<div style="margin-top:18px">${marketPanel(m, fx)}</div>`
         : `<div class="empty" style="margin-top:14px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
     }
-    panel = `<div class="card">
+    const panel = `<div class="card">
       <form method="GET" action="/admin">
         <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="sold">
         <div class="grid2">
@@ -5058,53 +5061,50 @@ export async function adminAuctionsPage(env, session, opts = {}) {
           <span class="help">Recent sold-auction results: average, median, range, a 12-week trend and recent comparables.</span></div>
       </form>${intel}
     </div>`;
+    return `${tabs}${panel}${AUCTION_CSS}`;
   }
-  return `${tabs}${panel}${AUC_CSS}`;
-}
 
-// One live-auction lot in the Auctions workspace, with a client picker that
-// queues it via /client/find (returning to the same search via `back`).
-function staffFindCardWithPicker(lot, clients, back) {
-  const img = imageUrls(lot).medium;
-  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
-  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
-  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  const soldLink = (lot.marka_name && lot.model_name)
-    ? `/admin?view=auctions&tab=sold&make=${encodeURIComponent(lot.marka_name)}&model=${encodeURIComponent(lot.model_name)}` : "";
+  // Live + Watchlist share the search header (and, for live, the client list
+  // that powers the add-to-client picker on each card).
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(sp.make || "").trim() ? await distinctModels(env, sp.make) : [];
+  const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
+  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, houses, showBid: false });
+
+  if (tab === "watch") {
+    return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+  }
+
+  const acc = accessScope(session);
+  const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+  const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
-  return `<div class="mcard">
-    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
-    </div>
-    <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
-      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
-    </div>
-    ${soldLink ? `<a class="auc-sold" href="${soldLink}">View sold-price history &rarr;</a>` : ""}
-    <div class="mfoot">
-      ${clients.length
-        ? `<form method="POST" action="/client/find" style="display:flex;gap:8px;width:100%">
-            <input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}">
-            <select name="client_id" class="auc-cl" required aria-label="Add this car to a client"><option value="">Add to client…</option>${options}</select>
-            <button class="btn-notify" type="submit">Add</button>
-          </form>`
-        : `<span class="help">Add a client first to queue cars.</span>`}
-    </div>
-  </div>`;
-}
 
-const AUC_CSS = `<style>
-  .auc-tabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:4px;margin-bottom:18px}
-  .auc-tab{padding:8px 16px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--t2);text-decoration:none}
-  .auc-tab:hover{color:var(--ink)}
-  .auc-tab.on{background:var(--gold-tint);color:var(--gold-txt)}
-  .auc-sold{display:inline-block;margin:0 16px 12px;font-size:12.5px;font-weight:600;color:var(--gold-txt)}
-  .auc-cl{flex:1;min-width:0}
-</style>`;
+  const page = Math.max(1, parseInt(sp.page, 10) || 1);
+  const { lots, hasMore } = await searchLots(env, { ...sp, page });
+  const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
+  const pickerFor = (lot) => clients.length
+    ? `<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
+    : `<span class="help">Add a client first to queue cars.</span>`;
+
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
+  let grid;
+  if (lots.length) {
+    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot) })).join("")}</div>`;
+  } else {
+    const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+  }
+  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
+  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+  const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
+    : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
+    : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
+  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+}
 
 // Admin: flip a client's paid-member flag (gates the auction page).
 export async function setClientMember(env, clientId, on, session) {

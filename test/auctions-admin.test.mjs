@@ -15,12 +15,14 @@ test("the Auctions nav item shows in the sidebar", async () => {
   assert.match(html, /href="\/admin\?view=auctions"/);
 });
 
-test("Auctions live tab renders both tabs and the search form", async () => {
+test("Auctions live tab renders the tabs and the search bar", async () => {
   const env = makeEnv(); stub(lotXml());
   const html = await adminPage(env, "auctions", ADMIN, { tab: "live", search: {} });
   assert.match(html, /Live auctions/);
-  assert.match(html, /Sold-price history/);
-  assert.match(html, /Search live auctions/);
+  assert.match(html, /Watchlist/);
+  assert.match(html, /Sold prices/);
+  assert.match(html, /Search make, model, chassis code/);
+  assert.match(html, /All houses/);
 });
 
 test("Auctions live search lists lots with an Add-to-client picker", async () => {
