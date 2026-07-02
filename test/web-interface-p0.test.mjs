@@ -82,8 +82,9 @@ test("approve and skip controls use POST forms and GET /decide cannot mutate sta
   assert.doesNotMatch(html, /href="\/decide\?[^"]*action=reject/);
   assert.match(html, /<form method="POST" action="\/decide"[^>]*>/);
   assert.match(html, /name="action" value="approve"/);
-  // The confirm states the consequence, naming the client.
-  assert.match(html, /onsubmit="return confirm\('Approve and send this car to Jordan\? They get one message with this car\.'\)"/);
+  // The confirm states the consequence, naming the client, via the styled
+  // data-confirm dialog (declarative, intercepted by the shell script).
+  assert.match(html, /data-confirm="Approve and send this car to Jordan\? They get one message with this car\."/);
 
   const res = await worker.fetch(new Request("https://jdmfinder.com.au/decide?token=tok-pending&action=reject"), env, { waitUntil() {} });
   assert.equal(res.status, 405);

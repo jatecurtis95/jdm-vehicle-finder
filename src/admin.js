@@ -1288,7 +1288,17 @@ function settingsView(settings, opts = {}) {
       </div>
 
       <div class="save-bar"><button class="btn-gold" type="submit">Save settings</button></div>
-    </form>`;
+    </form>
+    <script>(function(){
+      // Unsaved-changes warning: leaving the page with edited, unsaved settings
+      // asks first. Cleared on submit so saving never triggers it.
+      var f=document.querySelector('form[action="/settings"]'); if(!f)return;
+      var dirty=false;
+      f.addEventListener('input',function(){dirty=true;});
+      f.addEventListener('change',function(){dirty=true;});
+      f.addEventListener('submit',function(){dirty=false;});
+      window.addEventListener('beforeunload',function(e){ if(dirty){e.preventDefault();e.returnValue='';} });
+    })();</script>`;
 }
 
 // Admin-only: list of Stripe deposits taken through the buyer portal.
@@ -1882,7 +1892,7 @@ function clientsView(clients, wishlists, opts = {}) {
     const shared = shares[c.id] || [];
     const chips = shared.map((a) =>
       canManage(c)
-        ? `<form method="POST" action="/share/remove" style="display:inline" title="Remove ${esc(a.name)}"><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="agent_id" value="${a.id}"><button class="chip chip-on" type="submit">${esc(a.name)} ✕</button></form>`
+        ? `<form method="POST" action="/share/remove" style="display:inline" title="Remove ${esc(a.name)}" data-confirm="Stop sharing this client with ${esc(a.name)}? They lose access to the client's searches and matches."><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="agent_id" value="${a.id}"><button class="chip chip-on" type="submit">${esc(a.name)} ✕</button></form>`
         : `<span class="chip">${esc(a.name)}</span>`
     ).join(" ");
     if (!canManage(c)) return chips || `<span class="chip muted">shared with you</span>`;
@@ -1891,7 +1901,7 @@ function clientsView(clients, wishlists, opts = {}) {
       .filter((a) => Number(a.id) !== Number(c.agent_id) && !sharedIds.has(Number(a.id)))
       .map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     const picker = opts2
-      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="if(this.value&&confirm('Share this client with the selected agent?')){this.form.submit()}else{this.value=''}"><option value="">+ share…</option>${opts2}</select></form>`
+      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="if(this.value)jdmConfirmSelect(this,'Share this client with the selected agent? They can see and action the client, but not delete or reassign them.')"><option value="">+ share…</option>${opts2}</select></form>`
       : "";
     return `${chips} ${picker}`;
   };
@@ -1904,7 +1914,7 @@ function clientsView(clients, wishlists, opts = {}) {
       agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
     // Reassigning is destructive (hands over the client + all their searches and
     // matches), so confirm and revert on cancel — never a silent stray-click write.
-    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="if(confirm('Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')){this.form.submit()}else{this.value=this.dataset.prev}">${opts}</select></form>`;
+    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="jdmConfirmSelect(this,'Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')">${opts}</select></form>`;
   };
 
   // Derived last-contacted (sent vehicles + notes + logged contact taps).
@@ -2326,7 +2336,7 @@ function taskRow(t, opts = {}) {
     </div>
     <div class="tk-r">
       ${done ? `<span class="tk-due tk-none">Done ${esc(relTime(t.done_at))}</span>` : `<span class="tk-due tk-${due.tone}">${esc(due.label)}</span>`}
-      <form method="POST" action="/task/delete" class="tk-del" onsubmit="return confirm('Delete this task?')"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
+      <form method="POST" action="/task/delete" class="tk-del" data-confirm="Delete this task? This cannot be undone." data-danger><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
     </div>
   </div>`;
 }
@@ -2656,7 +2666,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       ${statusSelect(wid, w.status, back)}
       <div class="rd-quick">
         ${w.status !== "purchased" ? `<form method="POST" action="/request/status"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="purchased"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta" type="submit">Mark purchased</button></form>` : ""}
-        ${w.status !== "lost" ? `<form method="POST" action="/request/status" onsubmit="return confirm('Mark this request as lost?')"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
+        ${w.status !== "lost" ? `<form method="POST" action="/request/status" data-confirm="Mark this request as lost? It leaves the active pipeline. You can reopen it any time from the status select." data-danger><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
       </div>
       ${statusPipeline(w.status)}
     </div>
@@ -2846,7 +2856,7 @@ function tasksView(rows, opts = {}) {
     <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
     <div class="tks-help-b">
       <p>Your shared to-do list for moving deals forward. A task is a single next
-      step tied to a customer or request — "call Lee about the Laurel", "chase
+      step tied to a customer or request, like "call Lee about the Laurel", "chase
       the deposit", "translate the auction sheet".</p>
       <ul>
         <li><b>Where tasks come from:</b> some are created automatically when you
@@ -2854,7 +2864,7 @@ function tasksView(rows, opts = {}) {
         adds a follow-up); you can also add your own from any request's page.</li>
         <li><b>Buckets:</b> tasks sort into <b>Overdue</b>, <b>Due today</b>,
         <b>This week</b>, <b>Later</b> and <b>No due date</b> by their due date.</li>
-        <li><b>Completing:</b> tick the box on the left to mark a task done — it
+        <li><b>Completing:</b> tick the box on the left to mark a task done. It
         moves to "Recently completed" for 7 days in case you need to undo.</li>
         <li><b>Who sees what:</b> you see tasks assigned to you and tasks on the
         customers you own or are shared on. Admins see everything.</li>
@@ -2929,7 +2939,7 @@ function wishlistsView(wishlists) {
       <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "-"}</td>
       <td>${esc(w.rate_min || "-")}</td>
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
-      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its queued matches and history go with it. This cannot be undone." data-danger><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
   }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -3343,6 +3353,7 @@ function matchesScript() {
   var grid=document.getElementById('mGrid'); if(!grid) return;
   var grouped=grid.getAttribute('data-group')!=='none';
   function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+  function conf(m,go){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go();});}else if(confirm(m))go();}
   function cards(){return [].slice.call(grid.querySelectorAll('.mcard'));}
   function visCards(){return cards().filter(function(c){return c.style.display!=='none';});}
   function syncBulk(){
@@ -3425,17 +3436,18 @@ function matchesScript() {
     ev.preventDefault();
     var ids=selIds();
     if(!ids.length){toast('Select at least one match first',true);return;}
-    if(!confirm(msg(ids.length)))return;
-    var btns=['bApprove','bSkip','bDelete'].map(function(id){return document.getElementById(id);});
-    var orig=btn.textContent; btn.textContent=busy;
-    btns.forEach(function(b){if(b)b.disabled=true;});
-    postBulk(action,ids).then(function(){
-      removeByIds(ids);
-      toast(action==='approve'?'Sent '+ids.length+' (one combined email per client)':action==='reject'?'Skipped '+ids.length:'Deleted '+ids.length);
-      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;}); syncBulk();
-    }).catch(function(){
-      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
-      toast('Could not action the selection, please try again',true);
+    conf(msg(ids.length),function(){
+      var btns=['bApprove','bSkip','bDelete'].map(function(id){return document.getElementById(id);});
+      var orig=btn.textContent; btn.textContent=busy;
+      btns.forEach(function(b){if(b)b.disabled=true;});
+      postBulk(action,ids).then(function(){
+        removeByIds(ids);
+        toast(action==='approve'?'Sent '+ids.length+' (one combined email per client)':action==='reject'?'Skipped '+ids.length:'Deleted '+ids.length);
+        btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;}); syncBulk();
+      }).catch(function(){
+        btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
+        toast('Could not action the selection, please try again',true);
+      });
     });
   }
   var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,ba,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? Each client gets one combined email.';});});
@@ -3449,14 +3461,15 @@ function matchesScript() {
     var ids=(b.getAttribute('data-ids')||'').split(',').filter(Boolean);
     var name=b.getAttribute('data-name')||'the client';
     if(!ids.length)return;
-    if(!confirm('Send all '+ids.length+' match'+(ids.length===1?'':'es')+' to '+name+'? This emails '+(ids.length===1?'this car':'these '+ids.length+' cars')+' in one message.'))return;
-    var orig=b.textContent; b.textContent='Sending…'; b.disabled=true;
-    var g=b.closest('.mgroup');
-    postBulk('approve',ids).then(function(){
-      if(g&&g.parentNode)g.parentNode.removeChild(g);
-      toast('Sent '+ids.length+' to '+name+' in one combined message');
-      syncBulk();
-    }).catch(function(){ b.textContent=orig; b.disabled=false; toast('Could not send, please try again',true); });
+    conf('Send all '+ids.length+' match'+(ids.length===1?'':'es')+' to '+name+'? This emails '+(ids.length===1?'this car':'these '+ids.length+' cars')+' in one message.',function(){
+      var orig=b.textContent; b.textContent='Sending…'; b.disabled=true;
+      var g=b.closest('.mgroup');
+      postBulk('approve',ids).then(function(){
+        if(g&&g.parentNode)g.parentNode.removeChild(g);
+        toast('Sent '+ids.length+' to '+name+' in one combined message');
+        syncBulk();
+      }).catch(function(){ b.textContent=orig; b.disabled=false; toast('Could not send, please try again',true); });
+    });
   });
 
   // Stale-Possible triage buttons: id lists are server-computed (loaded or
@@ -3466,15 +3479,16 @@ function matchesScript() {
     btn.addEventListener('click',function(){
       var ids=(btn.getAttribute('data-ids')||'').split(',').filter(Boolean);
       if(!ids.length){toast('Nothing to skip',true);return;}
-      if(!confirm('Skip '+ids.length+' '+(btn.getAttribute('data-noun')||'matches')+'? The clients will not be contacted about these cars.'))return;
-      var orig=btn.textContent; btn.textContent='Skipping…'; btn.disabled=true;
-      postBulk('reject',ids).then(function(){
-        removeByIds(ids);
-        btn.setAttribute('data-ids','');
-        btn.textContent=(btn.getAttribute('data-base')||'Skip')+' (0)';
-        toast('Skipped '+ids.length);
-        syncBulk();
-      }).catch(function(){ btn.textContent=orig; btn.disabled=false; toast('Could not skip, please try again',true); });
+      conf('Skip '+ids.length+' '+(btn.getAttribute('data-noun')||'matches')+'? The clients will not be contacted about these cars.',function(){
+        var orig=btn.textContent; btn.textContent='Skipping…'; btn.disabled=true;
+        postBulk('reject',ids).then(function(){
+          removeByIds(ids);
+          btn.setAttribute('data-ids','');
+          btn.textContent=(btn.getAttribute('data-base')||'Skip')+' (0)';
+          toast('Skipped '+ids.length);
+          syncBulk();
+        }).catch(function(){ btn.textContent=orig; btn.disabled=false; toast('Could not skip, please try again',true); });
+      });
     });
   }
   wireTriage('triStale'); wireTriage('triPoss');
@@ -3702,22 +3716,24 @@ function clientBulkBar(cid, qs = "") {
       function boxes(){return [].slice.call(document.querySelectorAll('.mgrid .msel'));}
       function upd(){var bs=boxes(),n=0;bs.forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=bs.length>0&&n===bs.length;}
       function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+      function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
       function go(ev,btn,action,busy,msg){
         ev.preventDefault();
         var picked=boxes().filter(function(b){return b.checked;});
         if(!picked.length){toast('Select at least one match first',true);return;}
-        if(!confirm(msg(picked.length)))return;
-        var btns=[document.getElementById('cdApprove'),document.getElementById('cdSkip')];
-        var orig=btn.textContent;btn.textContent=busy;btns.forEach(function(b){if(b)b.disabled=true;});
-        var body=new URLSearchParams();body.set('action',action);
-        picked.forEach(function(b){body.append('ids',b.value);});
-        fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;
-          picked.forEach(function(b){var card=b.closest('.mcard');if(card){card.style.transition='opacity .25s ease, transform .25s ease';card.style.opacity='0';card.style.transform='scale(.96)';setTimeout(function(){if(card.parentNode)card.parentNode.removeChild(card);upd();},240);}});
-          toast(action==='approve'?'Sent '+picked.length+' in one combined message':'Skipped '+picked.length);
-          btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
-        }).catch(function(){
-          btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
-          toast('Could not action the selection, please try again',true);
+        conf(msg(picked.length),function(){
+          var btns=[document.getElementById('cdApprove'),document.getElementById('cdSkip')];
+          var orig=btn.textContent;btn.textContent=busy;btns.forEach(function(b){if(b)b.disabled=true;});
+          var body=new URLSearchParams();body.set('action',action);
+          picked.forEach(function(b){body.append('ids',b.value);});
+          fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;
+            picked.forEach(function(b){var card=b.closest('.mcard');if(card){card.style.transition='opacity .25s ease, transform .25s ease';card.style.opacity='0';card.style.transform='scale(.96)';setTimeout(function(){if(card.parentNode)card.parentNode.removeChild(card);upd();},240);}});
+            toast(action==='approve'?'Sent '+picked.length+' in one combined message':'Skipped '+picked.length);
+            btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+          }).catch(function(){
+            btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+            toast('Could not action the selection, please try again',true);
+          });
         });
       }
       var bap=document.getElementById('cdApprove');if(bap)bap.addEventListener('click',function(ev){go(ev,bap,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? The client gets one combined email.';});});
@@ -3785,7 +3801,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <summary class="btn-dark">Share</summary>
       <div class="ld-share-pop">
         <div class="ld-share-h">Share with a client</div>
-        <p class="ld-share-p">A view-only link to this car — no login needed.</p>
+        <p class="ld-share-p">A view-only link to this car. No login needed.</p>
         <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
         <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
       </div>
@@ -3900,7 +3916,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <input type="hidden" name="return" value="${esc(ret)}">
           <button class="btn-skip" type="submit">Skip</button>
         </form>
-        <form method="POST" action="/decide" onsubmit="return confirm('${approveConfirm.replace(/'/g, "&#39;")}')">
+        <form method="POST" action="/decide" data-confirm="${approveConfirm}" data-confirm-ok="${lot._watch ? "Mark done" : "Send it"}">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="return" value="${esc(ret)}">
@@ -3926,8 +3942,8 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           ${sheetBox}
           ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
-            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent — if the inspection sheet isn't here, the feed didn't include it):</p>
-            <pre class="ld-raw">${esc(lot.images || "(empty — the feed sent no images for this lot)")}</pre>
+            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
+            <pre class="ld-raw">${esc(lot.images || "(empty, the feed sent no images for this lot)")}</pre>
           </details>` : ""}
           ${notes}
         </div>
@@ -4106,7 +4122,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.email
           ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
-        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" onsubmit="return confirm('Revoke this client&#39;s portal access and clear their password?')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
+        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
     ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--hair)">
@@ -4820,7 +4836,7 @@ function rowMenu(items) {
     const ic = it.icon ? it.icon : "";
     const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
     if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
-    const conf = it.confirm ? ` onsubmit="return confirm('${esc(it.confirm)}')"` : "";
+    const conf = it.confirm ? ` data-confirm="${esc(it.confirm)}"${it.danger ? " data-danger" : ""}` : "";
     return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
   }).join("");
   return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
@@ -4928,6 +4944,14 @@ function uxGuardScript() {
   return `<style>
     .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.14);padding:12px 18px;border-radius:9px;font:600 13.5px/1.4 Inter,-apple-system,sans-serif;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
     .jdm-toast.err{background:#571622}
+    .jdmc-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9997}
+    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#fff);color:var(--ink,#15171B);border:1px solid var(--hair,rgba(0,0,0,.1));border-radius:14px;padding:20px;width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+    .jdmc-m{font-size:14.5px;line-height:1.55;font-weight:500;white-space:pre-line}
+    .jdmc-b{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+    .jdmc-b button{font-family:inherit;font-size:13.5px;font-weight:600;border-radius:9px;padding:10px 16px;cursor:pointer;min-height:44px}
+    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(0,0,0,.18));color:var(--ink,#15171B)}
+    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:#15120A}
+    .jdmc-ok.danger{background:transparent;border:1px solid rgba(226,96,122,.55);color:#B11226}
   </style><script>(function(){
   var live=null;
   window.jdmToast=function(m,err,ms){
@@ -4938,6 +4962,52 @@ function uxGuardScript() {
       setTimeout(function(){t.style.transition='opacity .35s';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);if(live===t)live=null;},360);},ms||(err?4200:2600));
     }catch(e){}
   };
+  // The one styled confirm dialog (replaces native confirm()). Returns a
+  // Promise<boolean>; falls back to native confirm if the DOM path fails.
+  window.jdmConfirm=function(msg,opts){
+    opts=opts||{};
+    return new Promise(function(resolve){
+      try{
+        var prev=document.getElementById('jdmConfirm'); if(prev)prev.remove();
+        var wrap=document.createElement('div'); wrap.id='jdmConfirm';
+        wrap.innerHTML='<div class="jdmc-scrim"></div><div class="jdmc-card" role="alertdialog" aria-modal="true" aria-label="Please confirm"><div class="jdmc-m"></div><div class="jdmc-b"><button type="button" class="jdmc-cancel">Cancel</button><button type="button" class="jdmc-ok'+(opts.danger?' danger':'')+'"></button></div></div>';
+        wrap.querySelector('.jdmc-m').textContent=String(msg||'Are you sure?');
+        var okBtn=wrap.querySelector('.jdmc-ok'); okBtn.textContent=opts.okLabel||'Confirm';
+        var last=document.activeElement;
+        function done(v){ if(wrap.parentNode)wrap.parentNode.removeChild(wrap); document.removeEventListener('keydown',onKey); if(last&&last.focus){try{last.focus();}catch(e){}} resolve(v); }
+        function onKey(e){ if(e.key==='Escape')done(false); }
+        wrap.querySelector('.jdmc-cancel').addEventListener('click',function(){done(false);});
+        okBtn.addEventListener('click',function(){done(true);});
+        wrap.querySelector('.jdmc-scrim').addEventListener('click',function(){done(false);});
+        document.addEventListener('keydown',onKey);
+        document.body.appendChild(wrap);
+        okBtn.focus();
+      }catch(e){ resolve(confirm(msg)); }
+    });
+  };
+  // Confirm-on-change for destructive select pickers (share / reassign): keeps
+  // the previous value (from data-prev, set on focus) when the user cancels.
+  window.jdmConfirmSelect=function(sel,msg){
+    var prevVal=sel.dataset.prev||'';
+    window.jdmConfirm(msg).then(function(ok){
+      if(ok&&sel.form){ if(sel.form.requestSubmit)sel.form.requestSubmit(); else sel.form.submit(); }
+      else if(!ok)sel.value=prevVal;
+    });
+  };
+  // Declarative confirms: a form with data-confirm shows the styled dialog and
+  // only submits on Confirm. data-danger styles the confirm button red.
+  document.addEventListener('submit',function(e){
+    var f=e.target; if(!f||!f.getAttribute)return;
+    var msg=f.getAttribute('data-confirm');
+    if(msg&&!f.__jdmOk){
+      e.preventDefault();
+      window.jdmConfirm(msg,{danger:f.hasAttribute('data-danger'),okLabel:f.getAttribute('data-confirm-ok')||''}).then(function(ok){
+        if(!ok)return;
+        f.__jdmOk=true;
+        if(f.requestSubmit)f.requestSubmit(); else f.submit();
+      });
+    }
+  },true);
   try{
     var p=new URLSearchParams(location.search),ok=p.get('notice'),bad=p.get('notice_err');
     if(ok||bad){
@@ -6089,6 +6159,7 @@ function staffSendBar(opts = {}) {
       card.classList.toggle('picked',cb.checked);
       upd();
     });
+    function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
     function go(send){
       var cards=sel();
       if(!cards.length){toast('Select at least one car first',true);return;}
@@ -6100,8 +6171,12 @@ function staffSendBar(opts = {}) {
         var msg=hasContact()
           ? 'This emails '+n+' car'+(n===1?'':'s')+' to '+name+' in one message.'
           : name+' has no email or WhatsApp on file, so sending will mark these handled but nothing will reach them. Continue?';
-        if(!confirm(msg))return;
+        conf(msg,function(){run(true,cards,cid,name);});
+        return;
       }
+      run(false,cards,cid,name);
+    }
+    function run(send,cards,cid,name){
       var body=new URLSearchParams();
       body.set('client_id',cid); body.set('do',send?'send':'queue'); body.set('ajax','1');
       cards.forEach(function(c){body.append('lot_ids',c.getAttribute('data-lot')||'');});
