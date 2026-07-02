@@ -10,6 +10,8 @@
 //   STRIPE_WEBHOOK_SECRET  whsec_...  (from the webhook endpoint you create)
 // Everything here no-ops safely until STRIPE_SECRET_KEY is set.
 
+import { updateRequestStatus } from "./admin.js";
+
 const STRIPE_API = "https://api.stripe.com/v1";
 const enc = new TextEncoder();
 
@@ -229,6 +231,9 @@ async function applyStripeEventInner(env, event) {
         "UPDATE payments SET status = 'paid', stripe_intent = ?, paid_at = datetime('now') WHERE stripe_session = ? AND status <> 'paid'"
       ).bind(intent, obj.id).run();
     }
+    // CRM autopilot: a paid deposit moves the matching request to "Deposit
+    // paid" without anyone typing anything. Best-effort; never fails the event.
+    await advanceDepositPaid(env, obj);
     return "paid";
   }
   if (event.type === "checkout.session.expired" && obj.metadata?.payment_id) {
@@ -236,4 +241,33 @@ async function applyStripeEventInner(env, event) {
     return "expired";
   }
   return "ignored";
+}
+
+// Resolve which request a paid deposit belongs to (via the payment's queue row,
+// falling back to the client's most recently active request) and advance it to
+// "Deposit paid". Manual override wins: only earlier stages move. Best-effort.
+async function advanceDepositPaid(env, obj) {
+  try {
+    const paymentId = obj.metadata?.payment_id;
+    const p = paymentId
+      ? await env.DB.prepare("SELECT client_id, queue_id FROM payments WHERE id = ?").bind(Number(paymentId)).first()
+      : (obj.id ? await env.DB.prepare("SELECT client_id, queue_id FROM payments WHERE stripe_session = ?").bind(obj.id).first() : null);
+    if (!p) return;
+    let wid = null;
+    if (p.queue_id) {
+      const q = await env.DB.prepare("SELECT wishlist_id FROM queue WHERE id = ?").bind(Number(p.queue_id)).first();
+      wid = q?.wishlist_id || null;
+    }
+    if (!wid && p.client_id) {
+      const w = await env.DB.prepare(
+        "SELECT id FROM wishlists WHERE client_id = ? ORDER BY COALESCE(last_activity, created_at) DESC LIMIT 1"
+      ).bind(Number(p.client_id)).first();
+      wid = w?.id || null;
+    }
+    if (!wid) return;
+    const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(wid).first();
+    if (w && ["new", "qualified", "searching", "vehicles_sent", "interested", "deposit_requested"].includes(w.status || "new")) {
+      await updateRequestStatus(env, wid, "deposit_paid", { role: "admin", id: 0 });
+    }
+  } catch (e) { console.error("advanceDepositPaid failed:", e.message); }
 }
