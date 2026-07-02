@@ -5448,7 +5448,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "sold", layout: mode }), label: "Sold at auction" });
     let grid;
     if (lots.length) {
-      grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: soldAction(lot) })).join("")}</div>`;
+      grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: soldAction(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
     } else {
       const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
