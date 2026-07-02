@@ -125,6 +125,14 @@ async function clearLoginFails(env, ip, email) {
   }
 }
 
+// Stamp an account's most recent successful login — drives the CRM "Last login".
+// Admin (id 0) has no DB row; only agents/clients do. Best-effort, never blocks.
+async function touchLastSeen(env, role, id) {
+  if (!id || (role !== "agent" && role !== "client")) return;
+  const table = role === "agent" ? "agents" : "clients";
+  try { await env.DB.prepare(`UPDATE ${table} SET last_seen = datetime('now') WHERE id = ?`).bind(Number(id)).run(); } catch (_) { /* best effort */ }
+}
+
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
@@ -311,6 +319,7 @@ export default {
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
           await clearLoginFails(env, ip, email);
+          await touchLastSeen(env, who.role, who.id);
           return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
         await recordLoginFail(env, ip, email);
@@ -348,6 +357,7 @@ export default {
         return new Response(null, { status: 303, headers: { Location: here("/login?error=google"), "Set-Cookie": clearNonceCookie() } });
       }
       const dest = res.intent === "login" ? "/portal" : "/request?g=1";
+      await touchLastSeen(env, "client", person.id);
       const headers = new Headers({ Location: here(dest) });
       headers.append("Set-Cookie", await sessionCookie(env, "client", person.id));
       headers.append("Set-Cookie", clearNonceCookie());

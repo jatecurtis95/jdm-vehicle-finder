@@ -889,6 +889,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
     ["Examples sent", Number(eng.sent) ? `${eng.sent}${Number(eng.viewed) ? ` &middot; ${eng.viewed} viewed` : " &middot; none opened yet"}` : null],
     ["Last viewed", eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : null],
+    ["Last login", c.last_seen ? String(c.last_seen).slice(0, 10) : null],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${v}</span></div>`).join("");
 
   const wlList = wls.length
@@ -3542,6 +3543,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       ${stat(eng.viewed, "Opened")}
       ${stat(eng.interested, "Interested")}
       <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${lastViewed}</div><div class="cd-stat-l">Last viewed</div></div>
+      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${c.last_seen ? String(c.last_seen).slice(0, 10) : "—"}</div><div class="cd-stat-l">Last login</div></div>
     </div>
   </div>${CRM_CSS}`;
 
