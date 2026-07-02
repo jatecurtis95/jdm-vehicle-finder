@@ -1656,13 +1656,18 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
   const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
 
+  // Hierarchy (top → bottom): business snapshot → what needs action today →
+  // pipeline → detail lists → trend charts. The roll-up used to sit BELOW the
+  // pipeline strip, which read as a stray second row of KPI boxes; it now leads
+  // as a compact snapshot strip so the two stat bands are grouped and ordered
+  // small-context → big-actionable.
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
+      ${overview}
       ${attention}
       ${pipelineStrip}
-      ${overview}
       <div class="dcols">${attentionSection}${tasksSection}</div>
       <div class="dcols">${owesSection}${closestSection}</div>
       <div class="dcols">${stalledSection}${closingQ}</div>
@@ -1671,7 +1676,10 @@ function dashboardView(session, data) {
 }
 
 const DASH2_CSS = `<style>
-  .attn{margin:24px 0 4px}
+  /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
+     a compact band above the attention cards instead of floating mid-page. */
+  .dash .overview{margin-bottom:22px}
+  .attn{margin:0 0 4px}
   .attn-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
   .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
   .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:16px 18px;transition:border-color .15s,transform .15s}
