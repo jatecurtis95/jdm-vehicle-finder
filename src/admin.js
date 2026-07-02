@@ -406,7 +406,17 @@ const CSS = `
   .msearch input{width:100%;padding:10px 12px;border:1px solid var(--field-line);border-radius:7px;font-size:14px;background:var(--field);font-family:inherit;color:var(--ink)}
   .msearch input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,.16)}
   select.mctl{width:auto;padding:9px 28px 9px 11px;border:1px solid var(--field-line);border-radius:7px;font-size:13.5px;background:var(--field);color:var(--t2);cursor:pointer;font-family:inherit}
-  @media(max-width:640px){select.mctl{width:100%}}
+  /* Mobile: the filter selects used to each go full-width, stacking into ~5 tall
+     rows and eating ~40% of the viewport before any cars showed. Sit them 2-up
+     and keep the strength chips on one horizontally-scrollable row instead. */
+  @media(max-width:640px){
+    .crow{gap:8px}
+    select.mctl{flex:1 1 calc(50% - 4px);min-width:0;width:auto}
+    .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
+    .fchips::-webkit-scrollbar{display:none}
+    .fchips .fchip,.fchips .quick{flex:0 0 auto}
+    .mtools{padding-bottom:8px}
+  }
   /* Mobile QA pass: wide data tables scroll (not clip) on phones; match cards'
      multi-select checkbox works on touch (no hover); the match bulk bar and the
      client-detail header wrap instead of overflowing on small screens. */

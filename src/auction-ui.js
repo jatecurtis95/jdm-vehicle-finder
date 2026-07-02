@@ -337,8 +337,12 @@ export const AUCTION_CSS = `<style>
 
   @media(max-width:640px){
     .acgrid{grid-template-columns:1fr}
+    .asrch{padding:16px 16px}
     .asrch-go{padding:14px 16px}
-    .asrch-filters select{flex-basis:100%}
+    /* 2-up filter selects (not full-width-stacked) so the search header stays
+       compact and results are visible without a long scroll. */
+    .asrch-filters{gap:8px}
+    .asrch-filters select{flex:1 1 calc(50% - 4px);min-width:0}
     .asrch-more{flex-basis:100%}
     .asrch-more>summary{width:100%;justify-content:center}
   }

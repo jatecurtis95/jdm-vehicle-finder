@@ -165,3 +165,32 @@ client's complaint); left the **Sold** grids' existing actions (Sold-prices /
 Find-live) unchanged to limit surface area. (2) "Quote" from the screenshot
 isn't an existing feature, so the member actions are Request-bid + Watch +
 eligibility, matching what the app already supports.
+
+### 7. Full mobile audit ✅
+
+**Complaint (screenshot):** filters take ~40% of the viewport before any cars
+show, cramped cards, inconsistent spacing, the match section is cut off.
+
+**Baseline already in place (verified, kept):** sidebar collapses to a burger
+drawer at ≤920px; content padding drops at ≤640px; wide tables scroll instead
+of clipping (`.sortable{min-width:560px}`); 16px inputs (no iOS zoom) and 48px
+tap targets; the request-detail 3-col (`.rd`) and lot-detail/`.plv-grid` collapse
+to one column; charts/tickers use responsive `auto-fit` grids.
+
+**Fixes this pass:**
+- **Matches toolbar (the "40%" problem):** the filter selects used to each go
+  **full-width**, stacking into ~5 tall rows on mobile. Now they sit **2-up**,
+  and the strength-filter chips sit on **one horizontally-scrollable row**
+  instead of wrapping to three — so cars are visible almost immediately
+  (`src/admin.js`, `@media(max-width:640px)`).
+- **Auction search header:** same full-width-stacked selects → **2-up** on
+  mobile, tighter header padding (`src/auction-ui.js`).
+- New components from sections 1–6 were built mobile-first (engagement legend,
+  CRM stat strip, lot-detail actions, bulk bar) and verified to wrap/scroll,
+  not overflow.
+
+**Recommended follow-up (not done here):** a real device/Playwright screenshot
+pass at 320/375/768/1024 against the live app — CSS-only responsive tweaks were
+validated by reasoning + build, but a running-app visual check would confirm the
+exact breakpoints on real content. Gated here by local run setup (D1 + auth +
+feed), and the session rule not to deploy.
