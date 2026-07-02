@@ -4808,8 +4808,10 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
 export async function toggleAgent(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
+  // Bump session_ver too: deactivating an agent should end their live sessions
+  // immediately, not just block the next login.
   await env.DB.prepare(
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(aid).run();
 }
 
@@ -5784,7 +5786,8 @@ export async function revokeClientPortal(env, clientId, session) {
   if (!(await clientOwnedBy(env, cid, session))) return;
   // portal_revoked = 1 is the durable staff veto: without it, Google sign-in
   // and request-form self-signup would silently re-enable this client.
+  // Bump session_ver so any cookie the client still holds stops validating now.
   await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(cid).run();
 }

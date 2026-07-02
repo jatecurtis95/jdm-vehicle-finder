@@ -33,7 +33,7 @@ function toBase64Url(bytes) {
   return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function sign(env, msg) {
+export async function sign(env, msg) {
   // ADMIN_TOKEN is the single HMAC key behind every signed artifact: session
   // cookies, OAuth state, and public share links. If it were unset, signing
   // would collapse to a known empty key and all of them would become forgeable.
@@ -166,9 +166,31 @@ export function passwordValid(env, password) {
 }
 
 // --- Sessions ----------------------------------------------------------------
+// A per-user session version, stamped into the cookie and re-checked on every
+// request. Bumping it (on deactivate / portal-revoke / password reset) makes
+// that account's existing cookies stop validating, WITHOUT rotating ADMIN_TOKEN
+// (which would sign every user out). Admin (id 0) has no DB row, so it stays 0.
+// Fail-open: any DB error returns 0 rather than blocking a login.
+export async function currentSessionVer(env, role, id) {
+  if (!id || (role !== "agent" && role !== "client")) return 0;
+  try {
+    const table = role === "agent" ? "agents" : "clients";
+    const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
+    return row ? (Number(row.session_ver) || 0) : 0;
+  } catch (e) { return 0; }
+}
+
+// Bump an account's session version, immediately invalidating its live cookies.
+export async function bumpSessionVer(env, role, id) {
+  if (!id || (role !== "agent" && role !== "client")) return;
+  const table = role === "agent" ? "agents" : "clients";
+  try { await env.DB.prepare(`UPDATE ${table} SET session_ver = session_ver + 1 WHERE id = ?`).bind(Number(id)).run(); } catch (e) { /* best effort */ }
+}
+
 export async function sessionCookie(env, role, id) {
   const exp = Date.now() + SESSION_SECONDS * 1000;
-  const payload = `${role}:${id || 0}:${exp}`;
+  const ver = await currentSessionVer(env, role, id);
+  const payload = `${role}:${id || 0}:${exp}:${ver}`;
   const value = `${payload}.${await sign(env, payload)}`;
   return `${COOKIE}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_SECONDS}`;
 }
@@ -195,10 +217,23 @@ async function sessionFromCookie(request, env) {
   const sig = val.slice(dot + 1);
   if (!safeEqual(sig, await sign(env, payload))) return null;
   const parts = payload.split(":");
-  if (parts.length !== 3) return null;
-  const [role, idStr, expStr] = parts;
+  // 3-part = legacy cookie (pre-session-versioning), grandfathered until expiry.
+  // 4-part = versioned; the 4th field is checked against the account's current
+  // session_ver so a single account can be revoked without an ADMIN_TOKEN rotate.
+  if (parts.length < 3 || parts.length > 4) return null;
+  const [role, idStr, expStr, verStr] = parts;
   if (!["admin", "agent", "client"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
-  return { role, id: Number(idStr) || 0 };
+  const id = Number(idStr) || 0;
+  if (parts.length === 4 && (role === "agent" || role === "client")) {
+    if (!/^\d+$/.test(verStr)) return null;
+    try {
+      const table = role === "agent" ? "agents" : "clients";
+      const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(id).first();
+      if (!row) return null;                                   // account deleted → invalid
+      if ((Number(row.session_ver) || 0) !== Number(verStr)) return null; // revoked/bumped
+    } catch (e) { /* DB hiccup: fail open so a blip can't lock everyone out */ }
+  }
+  return { role, id };
 }
 
 // Current session from the signed cookie. {role,id}|null. (The legacy
@@ -255,8 +290,10 @@ export async function setAgentPassword(env, token, password) {
   const a = await agentByInviteToken(env, token);
   if (!a) return { ok: false, error: "This link is invalid or has expired." };
   const { salt, hash } = await hashPassword(password);
+  // Bump session_ver so any older sessions for this agent stop validating once
+  // the password changes (a reset should log out the old device).
   await env.DB.prepare(
-    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ?"
+    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(salt, hash, a.id).run();
   return { ok: true, id: a.id, email: a.email };
 }
@@ -279,8 +316,9 @@ export async function setClientPassword(env, token, password) {
   const c = await clientByInviteToken(env, token);
   if (!c) return { ok: false, error: "This link is invalid or has expired." };
   const { salt, hash } = await hashPassword(password);
+  // Bump session_ver so any older portal sessions stop validating on reset.
   await env.DB.prepare(
-    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?"
+    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(salt, hash, c.id).run();
   return { ok: true, id: c.id, email: c.email };
 }
