@@ -76,3 +76,13 @@ how strong the match is — to help close them."
 **Assumption:** "last logged in" isn't tracked; "Last viewed" (most recent
 `queue.viewed_at`) is the closest real signal and is what's shown. True login
 history would need a migration and only fill in going forward — deferred.
+
+### 3. Tasks page — purpose + instructions ✅
+
+**Complaint:** "What is this for? Can you add instructions etc please?"
+
+**Change (`src/admin.js`, `tasksView`):** added a collapsible "What is the Tasks
+board?" explainer at the top (open by default, staff can hide it). Covers what a
+task is, where tasks come from (auto-created on status changes + added manually
+from a request), the due-date buckets, how to complete/undo, and the
+who-sees-what scoping. Styled to match the board (`TASKS_CSS`).

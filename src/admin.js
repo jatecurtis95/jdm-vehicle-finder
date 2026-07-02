@@ -2664,7 +2664,29 @@ function tasksView(rows, opts = {}) {
     ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
     : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
   const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
+  // What is this page? — the client asked for instructions. Collapsible so it
+  // stays out of the way once staff know it, open by default the first time.
+  const help = `<details class="tks-help" open>
+    <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
+    <div class="tks-help-b">
+      <p>Your shared to-do list for moving deals forward. A task is a single next
+      step tied to a customer or request — "call Lee about the Laurel", "chase
+      the deposit", "translate the auction sheet".</p>
+      <ul>
+        <li><b>Where tasks come from:</b> some are created automatically when you
+        move a request to a new stage (e.g. marking a request <i>Interested</i>
+        adds a follow-up); you can also add your own from any request's page.</li>
+        <li><b>Buckets:</b> tasks sort into <b>Overdue</b>, <b>Due today</b>,
+        <b>This week</b>, <b>Later</b> and <b>No due date</b> by their due date.</li>
+        <li><b>Completing:</b> tick the box on the left to mark a task done — it
+        moves to "Recently completed" for 7 days in case you need to undo.</li>
+        <li><b>Who sees what:</b> you see tasks assigned to you and tasks on the
+        customers you own or are shared on. Admins see everything.</li>
+      </ul>
+    </div>
+  </details>`;
   return `${TASKS_CSS}
+    ${help}
     <div class="tk-strip">
       <div class="tk-stat${buckets.over.length ? " bad" : ""}"><div class="n">${buckets.over.length}</div><div class="l">Overdue</div></div>
       <div class="tk-stat${buckets.today.length ? " warn" : ""}"><div class="n">${buckets.today.length}</div><div class="l">Due today</div></div>
@@ -2688,6 +2710,16 @@ const TASKS_CSS = `<style>
   .tks-done{margin-top:10px}
   .tks-done summary{font-size:12.5px;color:var(--t3);cursor:pointer;padding:8px 0}
   .tks-done .tks-l{margin-top:10px}
+  .tks-help{background:var(--card);border:1px solid var(--hair);border-radius:12px;margin-bottom:18px;overflow:hidden}
+  .tks-help summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;cursor:pointer;list-style:none}
+  .tks-help summary::-webkit-details-marker{display:none}
+  .tks-help-t{font-size:14px;font-weight:700;color:var(--ink)}
+  .tks-help-x{font-size:12px;font-weight:600;color:var(--gold-txt)}
+  .tks-help[open] .tks-help-x::after{content:""}
+  .tks-help-b{padding:0 18px 16px;font-size:13px;color:var(--t2);line-height:1.55}
+  .tks-help-b p{margin:0 0 10px}
+  .tks-help-b ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+  .tks-help-b b{color:var(--ink)}
 </style>`;
 
 // Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
