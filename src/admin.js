@@ -3430,11 +3430,30 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
 }
 
+// Styles for the CRM client header (status chips, contact quick-actions,
+// engagement stat strip) and the lighter outline "back" button that replaces
+// the heavy black one the client flagged. Loaded once with the header.
+const CRM_CSS = `<style>
+  .cd-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .cd-chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;background:rgba(0,0,0,.06);color:var(--t2)}
+  .cd-chip-gold{background:var(--gold-tint);color:var(--gold-txt)}
+  .cd-chip-ok{background:rgba(31,122,77,.14);color:#1F7A4D}
+  .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .cd-cta{text-decoration:none;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;background:var(--card);border:1px solid var(--hair);color:var(--ink)}
+  .cd-cta:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+  .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
+  .cd-stat-n{font-size:24px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .cd-stat-n.cd-stat-sm{font-size:15px;font-weight:700}
+  .cd-stat-l{font-size:11px;color:var(--t3);margin-top:6px}
+  .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:13px;font-weight:600;padding:9px 15px;border-radius:9px;background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
+  .btn-line:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+</style>`;
+
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
   const notFound = () => shell(sidebar("clients", {}, session),
-    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-dark" href="/admin?view=clients">Back to clients</a></div>
-     <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>`,
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-line" href="/admin?view=clients">Back to clients</a></div>
+     <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>${CRM_CSS}`,
     "Client - JDM Connect");
   if (!Number.isInteger(cid) || cid <= 0) return notFound();
   if (!(await clientAccessibleBy(env, cid, session))) return notFound();
@@ -3456,6 +3475,18 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Engagement roll-up across ALL of this client's matches (not just pending) so
+  // the CRM header can show at a glance: examples sent, how many they opened,
+  // and when they last looked — the numbers that tell staff how warm they are.
+  const eng = (await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
+            SUM(CASE WHEN response = 'interested' THEN 1 ELSE 0 END) AS interested,
+            MAX(viewed_at) AS last_viewed
+       FROM queue WHERE client_id = ?`
+  ).bind(cid).first()) || {};
+
   // Surface the snapshotted landed cost on each match card (as the Matches view does).
   for (const q of matches) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
   // Hide the internal catch-all searches (Direct requests / Manual finds) from the
@@ -3467,16 +3498,42 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
 
-  const head = `<div class="card">
+  // CRM header: identity + status chips + one-tap contact + an engagement stat
+  // strip. Replaces the old bare name/contact card (client: "seems bland").
+  const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
+  const telDigits = String(c.whatsapp || "").replace(/[^0-9+]/g, "");
+  const statusChips = [
+    c.member ? `<span class="cd-chip cd-chip-gold">Member</span>` : `<span class="cd-chip">Not a member</span>`,
+    c.portal_enabled ? `<span class="cd-chip cd-chip-ok">Portal ${c.pass_hash ? "active" : "invited"}</span>` : "",
+    c.destination_country ? `<span class="cd-chip">${esc(c.destination_country)}</span>` : (c.state ? `<span class="cd-chip">${esc(c.state)}</span>` : ""),
+  ].filter(Boolean).join("");
+  const contactBtns = [
+    waDigits ? `<a class="cd-cta" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" href="tel:${esc(telDigits)}">Call</a>` : "",
+    c.email ? `<a class="cd-cta" href="mailto:${esc(c.email)}">Email</a>` : "",
+    canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
+  ].filter(Boolean).join("");
+  const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
+  const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "—";
+  const head = `<div class="card cd-card">
     <div class="cd-head">
       <span class="avatar" style="width:46px;height:46px;font-size:16px">${esc(initials(c.name))}</span>
-      <div style="flex:1">
-        <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
-        <div class="help">${contact}</div>
+      <div style="flex:1;min-width:0">
+        <h2 style="border:0;padding:0;margin:0 0 5px">${esc(c.name)}</h2>
+        <div class="cd-chips">${statusChips}</div>
+        <div class="help" style="margin-top:7px">${contact}</div>
       </div>
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
-  </div>`;
+    ${contactBtns ? `<div class="cd-actions">${contactBtns}</div>` : ""}
+    <div class="cd-stats">
+      ${stat(searchWls.length, searchWls.length === 1 ? "Search" : "Searches")}
+      ${stat(matches.length, "Live matches")}
+      ${stat(eng.sent, "Examples sent")}
+      ${stat(eng.viewed, "Opened")}
+      ${stat(eng.interested, "Interested")}
+      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${lastViewed}</div><div class="cd-stat-l">Last viewed</div></div>
+    </div>
+  </div>${CRM_CSS}`;
 
   // Edit core contact details (owner/admin only). Folded away by default, but
   // springs open if the last save failed so the error and the form are visible.
@@ -3623,9 +3680,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <h1>${esc(c.name)}</h1>
         <p class="subline">What they're chasing, and the lots that match.</p>
       </div>
-      <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
+      <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content"><a class="backlink" href="/admin?view=clients">&larr; Back to clients</a>${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 

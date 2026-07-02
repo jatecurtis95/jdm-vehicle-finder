@@ -95,7 +95,11 @@ test("each saved search has a Search button that hunts that exact car", async ()
 test("the client page has a clear back link", async () => {
   const env = makeEnv(FIXTURE); stubFeed();
   const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
-  assert.match(html, /class="backlink"/);
+  // The two redundant back links (topbar button + content backlink) were
+  // consolidated into one outline "Back to clients" button in the topbar.
+  // Assert the behaviour — a clear link back to the clients list — not the
+  // old class name.
+  assert.match(html, /href="\/admin\?view=clients"/);
   assert.match(html, /Back to clients/);
 });
 

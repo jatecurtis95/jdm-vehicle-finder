@@ -112,3 +112,24 @@ have something to assist us with closing the client."
 soft-rejecting (Skip already does that). Delete is admin/owner-scoped like Skip.
 Left the per-client page's own bulk bar (`clientBulkBar`) unchanged — the
 complaint was about the main Matches page.
+
+### 5. Customer page — CRM-style header + fix the black button ✅
+
+**Complaints:** "Customer page seems bland, doesn't show a lot of info — should
+be a better CRM-looking interface. The button next to the client is black."
+
+**Changes (`src/admin.js`, `clientDetailPage`):**
+- Rebuilt the header card into a **CRM header**: status chips (Member / Portal
+  active|invited / destination or state), one-tap **contact quick-actions**
+  (WhatsApp / Call / Email / jump to "Find a car"), and an **engagement stat
+  strip** (Searches, Live matches, Examples sent, Opened, Interested, Last
+  viewed) from a per-client `queue` roll-up. No longer bland.
+- **Black button fix:** the "Back to clients" button was `.btn-dark` (heavy
+  charcoal). Replaced with a lighter outline `.btn-line` button, and removed the
+  now-redundant second `.backlink` text link (the page had two backs). New
+  `CRM_CSS` block holds the header + button styles.
+
+**Test:** updated `test/manual-find.test.mjs` ("clear back link") — it asserted
+the old `class="backlink"`; now asserts the behaviour (a link to
+`/admin?view=clients` labelled "Back to clients"), which the consolidated button
+satisfies. Behaviour preserved; only the stale selector changed.
