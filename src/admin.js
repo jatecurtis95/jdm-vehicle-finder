@@ -1180,7 +1180,7 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client asked us to chase.", settingOn(s, "stripe_enabled"))}
           </div>
           <div class="grid2" style="margin-top:16px">
-            <div><label for="set-deposit">Deposit amount <span class="opt">(AUD)</span></label><input id="set-deposit" name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
+            <div><label for="set-deposit">Deposit amount <span class="opt">(AUD)</span></label><input id="set-deposit" name="stripe_deposit_aud" type="number" min="0" step="any" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
@@ -1197,8 +1197,8 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("membership_enabled", "Sell Full access in the portal", "Show the “Get full access” subscribe button to non-members.", settingOn(s, "membership_enabled"))}
           </div>
           <div class="grid2" style="margin-top:16px">
-            <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
-            <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
+            <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="any" value="${esc(s.membership_monthly_aud || "49")}"></div>
+            <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="any" value="${esc(s.free_result_limit || "1")}"></div>
           </div>
         </div>
       </div>
@@ -1772,7 +1772,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
           <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
           <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000"></label></div>
-          <div><label>Min grade<input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></label></div>
+          <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
@@ -2827,8 +2827,11 @@ function matchCard(q) {
   const strKey = strengthLabel === "Strong" ? "strong" : strengthLabel === "Good" ? "good" : "poss";
   const strBadge = strengthLabel === "Strong" ? "b-str" : strengthLabel === "Good" ? "b-good" : "b-pos";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
-  const approve = `/decide?token=${esc(q.token)}&action=approve`;
-  const skip = `/decide?token=${esc(q.token)}&action=reject`;
+  // Fallback hrefs go to the GET confirmation page (/decide is POST-only, so a
+  // bare GET there is a dead 405). The AJAX click handlers read token/action
+  // from the query string and POST to /decide directly.
+  const approve = `/decide/confirm?token=${esc(q.token)}&action=approve`;
+  const skip = `/decide/confirm?token=${esc(q.token)}&action=reject`;
   const days = daysUntil(lot.auction_date);
   const auc = esc(lot.auction || "");
   const aucDate = esc((lot.auction_date || "").slice(0, 10));
@@ -3070,9 +3073,38 @@ function matchesScript() {
   var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
-  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
-  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
-  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){var n=document.getElementById('selCount');n=n?n.textContent:'';if(!confirm('Permanently delete the '+n+' selected match'+(n==='1'?'':'es')+' from the queue? This cannot be undone.')){ev.preventDefault();return;}document.getElementById('bulkAction').value='delete';});
+  // Bulk actions post in the background: validate the selection, confirm the
+  // consequence, lock the bar while in flight, then fade the actioned cards out
+  // in place. A zero-selection click never leaves the page any more.
+  function selCards(){return cards.filter(function(c){var cb=c.querySelector('.msel');return cb&&cb.checked;});}
+  function bulkGo(ev,btn,action,busy,msg){
+    ev.preventDefault();
+    var picked=selCards();
+    if(!picked.length){toast('Select at least one match first',true);return;}
+    if(!confirm(msg(picked.length)))return;
+    var btns=['bApprove','bSkip','bDelete'].map(function(id){return document.getElementById(id);});
+    var orig=btn.textContent; btn.textContent=busy;
+    btns.forEach(function(b){if(b)b.disabled=true;});
+    var body=new URLSearchParams(); body.set('action',action);
+    picked.forEach(function(c){var cb=c.querySelector('.msel'); if(cb)body.append('ids',cb.value);});
+    fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
+      picked.forEach(function(c){
+        var i=cards.indexOf(c); if(i>=0)cards.splice(i,1);
+        c.style.transition='opacity .25s ease, transform .25s ease';
+        c.style.opacity='0'; c.style.transform='scale(.96)';
+        setTimeout(function(){ if(c.parentNode)c.parentNode.removeChild(c); },240);
+      });
+      setTimeout(function(){apply();},260);
+      toast(action==='approve'?'Sent '+picked.length+' (one combined email per client)':action==='reject'?'Skipped '+picked.length:'Deleted '+picked.length);
+      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
+    }).catch(function(){
+      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
+      toast('Could not action the selection, please try again',true);
+    });
+  }
+  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,ba,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? Each client gets one combined email.';});});
+  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){bulkGo(ev,bs,'reject','Skipping…',function(n){return 'Skip the '+n+' selected match'+(n===1?'':'es')+'? The clients will not be contacted about these cars.';});});
+  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){bulkGo(ev,bd,'delete','Deleting…',function(n){return 'Permanently delete the '+n+' selected match'+(n===1?'':'es')+' from the queue? This cannot be undone.';});});
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
@@ -3088,9 +3120,9 @@ function matchesScript() {
         card.style.opacity='0'; card.style.transform='scale(.96)';
         setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); apply(); },240);
       }
-    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'#571622':'#1C2027')+';color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   apply();
 })();<\/script>`;
 }
@@ -3109,9 +3141,9 @@ function matchActionScript() {
       card.style.transition='opacity .2s'; card.style.opacity='0';
       setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); },200);
       toast(approve?'Sent to client':'Skipped');
-    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'#571622':'#1C2027')+';color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   })();<\/script>`;
 }
 
@@ -3224,16 +3256,47 @@ function wishlistEditor(w, opts = {}) {
 
 // Self-contained bulk bar for the client page (the main Matches controller isn't
 // loaded here). Select-all + Approve/Skip the ticked matches, then return here.
-function clientBulkBar(cid) {
-  return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="/admin?view=client&amp;id=${cid}"></form>
+function clientBulkBar(cid, qs = "") {
+  // The no-JS fallback posts with a `back` that carries the current find query,
+  // so a native bulk action never wipes the search results off the page.
+  const back = `/admin?view=client&id=${cid}${qs ? "&" + qs : ""}`;
+  return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="${esc(back)}"></form>
     <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
       <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
       <span style="flex:1"></span>
-      <button type="submit" form="bulkForm" class="bap" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
-      <button type="submit" form="bulkForm" class="bsk" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
+      <button type="submit" form="bulkForm" class="bap" id="cdApprove" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
+      <button type="submit" form="bulkForm" class="bsk" id="cdSkip" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
     </div>
-    <script>(function(){var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');function boxes(){return document.querySelectorAll('.mgrid .msel');}function upd(){var n=0,t=boxes().length;boxes().forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=t>0&&n===t;}if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});upd();})();</script>`;
+    <script>(function(){
+      var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');
+      function boxes(){return [].slice.call(document.querySelectorAll('.mgrid .msel'));}
+      function upd(){var bs=boxes(),n=0;bs.forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=bs.length>0&&n===bs.length;}
+      function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+      function go(ev,btn,action,busy,msg){
+        ev.preventDefault();
+        var picked=boxes().filter(function(b){return b.checked;});
+        if(!picked.length){toast('Select at least one match first',true);return;}
+        if(!confirm(msg(picked.length)))return;
+        var btns=[document.getElementById('cdApprove'),document.getElementById('cdSkip')];
+        var orig=btn.textContent;btn.textContent=busy;btns.forEach(function(b){if(b)b.disabled=true;});
+        var body=new URLSearchParams();body.set('action',action);
+        picked.forEach(function(b){body.append('ids',b.value);});
+        fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;
+          picked.forEach(function(b){var card=b.closest('.mcard');if(card){card.style.transition='opacity .25s ease, transform .25s ease';card.style.opacity='0';card.style.transform='scale(.96)';setTimeout(function(){if(card.parentNode)card.parentNode.removeChild(card);upd();},240);}});
+          toast(action==='approve'?'Sent '+picked.length+' in one combined message':'Skipped '+picked.length);
+          btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+        }).catch(function(){
+          btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+          toast('Could not action the selection, please try again',true);
+        });
+      }
+      var bap=document.getElementById('cdApprove');if(bap)bap.addEventListener('click',function(ev){go(ev,bap,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? The client gets one combined email.';});});
+      var bsk=document.getElementById('cdSkip');if(bsk)bsk.addEventListener('click',function(ev){go(ev,bsk,'reject','Skipping…',function(n){return 'Skip the '+n+' selected match'+(n===1?'':'es')+'? The client will not be contacted about '+(n===1?'this car':'these cars')+'.';});});
+      if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});
+      document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});
+      upd();
+    })();</script>`;
 }
 
 // Client detail page: contact, owner, their wishlists (editable) and their live
@@ -3612,7 +3675,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
         <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
         <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
-        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
@@ -3632,14 +3695,19 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const sp = opts.search || {};
   const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
   const findHasQuery = findKeys.some((k) => String(sp[k] || "").trim());
+  // The current find query as a query string, threaded through the POST round
+  // trips (add-to-queue, bulk approve) so the search results survive redirects.
+  const findQs = (() => {
+    const qs = new URLSearchParams();
+    for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+    return qs.toString();
+  })();
   let findResults = "";
   if (canManage && findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
-      const qs = new URLSearchParams();
-      for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs)).join("")}</div>`;
     } else {
       findResults = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -3671,8 +3739,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Model <span class="opt">(contains)</span><input name="model" value="${fv("model")}" placeholder="e.g. SKYLINE"></label></div>
         <div><label>Year from<input name="yearMin" type="number" min="1960" value="${fv("yearMin")}" placeholder="1990"></label></div>
         <div><label>Year to<input name="yearMax" type="number" min="1960" value="${fv("yearMax")}" placeholder="2002"></label></div>
-        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
-        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
+        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
+        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
@@ -3682,7 +3750,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
-    ${matches.length ? strengthLegend() + clientBulkBar(cid) + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+    ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
   const main = `
@@ -3872,7 +3940,7 @@ export async function requestPage(env, opts = {}) {
                 ${budgetChips()}
                 <div class="ob-budget">
                   <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
-                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
                 </div>
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:18px">
@@ -3882,8 +3950,8 @@ export async function requestPage(env, opts = {}) {
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>
                   <div class="ob-fields">
-                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
+                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
                     <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
                     <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
                   </div>
@@ -4350,9 +4418,56 @@ function tableToolsScript() {
   </script>`;
 }
 
+// Shell-level UX guard, shared by every admin page:
+//  * window.jdmToast(message, isError): the single toast used by all AJAX
+//    handlers and flash messages. Bottom-center, success and error variants.
+//  * Renders the one-shot ?notice= / ?notice_err= params that the POST routes
+//    append to their redirects, then cleans them from the URL.
+//  * Disables a form's submit buttons while a native (non-AJAX) post is in
+//    flight so a slow Worker response cannot collect double-submits; restores
+//    them on pageshow so bfcache back-navigation never leaves dead buttons.
+function uxGuardScript() {
+  return `<style>
+    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.14);padding:12px 18px;border-radius:9px;font:600 13.5px/1.4 Inter,-apple-system,sans-serif;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
+    .jdm-toast.err{background:#571622}
+  </style><script>(function(){
+  var live=null;
+  window.jdmToast=function(m,err){
+    try{
+      if(live&&live.parentNode)live.parentNode.removeChild(live);
+      var t=document.createElement('div');t.className='jdm-toast'+(err?' err':'');t.setAttribute('role','status');t.textContent=m;
+      document.body.appendChild(t);live=t;
+      setTimeout(function(){t.style.transition='opacity .35s';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);if(live===t)live=null;},360);},err?4200:2600);
+    }catch(e){}
+  };
+  try{
+    var p=new URLSearchParams(location.search),ok=p.get('notice'),bad=p.get('notice_err');
+    if(ok||bad){
+      window.jdmToast(bad||ok,!!bad);
+      p.delete('notice');p.delete('notice_err');
+      var qs=p.toString();
+      history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash);
+    }
+  }catch(e){}
+  var locked=[];
+  document.addEventListener('submit',function(e){
+    var f=e.target; if(!f||!f.tagName||f.tagName!=='FORM'||f.hasAttribute('data-noguard'))return;
+    // Defer so (a) AJAX handlers can preventDefault first and (b) the browser
+    // snapshots the form data before any submit button is disabled.
+    setTimeout(function(){
+      if(e.defaultPrevented)return;
+      var btns=[].slice.call(f.querySelectorAll('button[type=submit],button:not([type]),input[type=submit]'));
+      if(f.id){btns=btns.concat([].slice.call(document.querySelectorAll('button[form="'+f.id+'"],input[type=submit][form="'+f.id+'"]')));}
+      btns.forEach(function(b){if(!b.disabled){b.disabled=true;locked.push(b);}});
+    },0);
+  },true);
+  window.addEventListener('pageshow',function(){locked.forEach(function(b){b.disabled=false;});locked=[];});
+})();</script>`;
+}
+
 function shell(side, main, title) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -5616,9 +5731,9 @@ export async function portalPage(env, session, opts = {}) {
         <div><label>Model <span class="opt">(pick or type)</span>${modelField("pl-models")}</label></div>
         <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
         <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
-        <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></label></div>
-        <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></label></div>
-        <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></label></div>
+        <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="any" placeholder="3,000,000"></label></div>
+        <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="any" placeholder="100,000"></label></div>
+        <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="any" placeholder="e.g. 4"></label></div>
         <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>

@@ -156,8 +156,8 @@ export function auctionSearchHeader(o = {}) {
             <div class="asrch-adv-grid">
               <label>Year from<input name="yearMin" type="number" min="1960" value="${v("yearMin")}" placeholder="1990"></label>
               <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
-              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></label>
-              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="4"></label>
+              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
+              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
               <label>Chassis code<input name="kuzov" value="${v("kuzov")}" placeholder="GDB"></label>
             </div>
             <div class="asrch-adv-act"><button class="btn-gold" type="submit">Apply filters</button></div>

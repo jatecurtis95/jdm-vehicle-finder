@@ -445,6 +445,24 @@ export default {
     }
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
+    // Append a one-shot outcome message to a redirect destination. The admin
+    // shell renders ?notice= as a success toast and ?notice_err= as an error
+    // toast, then cleans the URL, so no quick-action POST finishes silently.
+    const withNotice = (dest, msg, isErr = false) =>
+      msg ? dest + (dest.includes("?") ? "&" : "?") + (isErr ? "notice_err=" : "notice=") + encodeURIComponent(msg) : dest;
+    // Run a quick-action handler, then redirect with a visible outcome. A
+    // thrown handler is contained here: the user lands back on the page they
+    // came from with an error toast instead of a blank Worker error page.
+    // `dest` may be a (possibly async) function when it depends on the outcome.
+    const act = async (fn, dest, okMsg) => {
+      let failed = false;
+      try { await fn(); } catch (e) { failed = true; console.error(`${path} failed:`, e.message); }
+      const d = typeof dest === "function" ? await dest() : dest;
+      return Response.redirect(here(failed
+        ? withNotice(d, "Sorry, that did not save. Please try again.", true)
+        : withNotice(d, okMsg)), 303);
+    };
+
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
@@ -504,60 +522,58 @@ export default {
     // Move a request along the pipeline (Requests view + request detail).
     if (path === "/request/status" && request.method === "POST") {
       const f = await request.formData();
-      await updateRequestStatus(env, f.get("id"), f.get("status"), session);
-      return Response.redirect(here(crmBack(f)), 303);
+      return act(() => updateRequestStatus(env, f.get("id"), f.get("status"), session), crmBack(f), "Status updated");
     }
 
     // Add a free-text note to a request's timeline.
     if (path === "/request/note" && request.method === "POST") {
       const f = await request.formData();
-      await addRequestNote(env, f.get("id"), f.get("note"), session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      return act(() => addRequestNote(env, f.get("id"), f.get("note"), session),
+        crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`), "Note added");
     }
 
     // (Re)assign a request's owner (admin only).
     if (path === "/request/owner" && request.method === "POST") {
       const f = await request.formData();
-      if (session.role === "admin") await assignRequestOwner(env, f.get("id"), f.get("owner_id"), session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      if (session.role !== "admin") return Response.redirect(here(dest), 303);
+      return act(() => assignRequestOwner(env, f.get("id"), f.get("owner_id"), session), dest, "Owner updated");
     }
 
     // Schedule / clear a request's next follow-up.
     if (path === "/request/next-action" && request.method === "POST") {
       const f = await request.formData();
-      await setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: f.get("clear") === "1" }, session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      return act(() => setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: f.get("clear") === "1" }, session),
+        crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`),
+        f.get("clear") === "1" ? "Follow-up cleared" : "Follow-up saved");
     }
 
     // Tasks: create / toggle done / delete.
     if (path === "/task/create" && request.method === "POST") {
       const f = await request.formData();
-      await createTask(env, f, session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => createTask(env, f, session), crmBack(f, "/admin?view=tasks"), "Task created");
     }
     if (path === "/task/toggle" && request.method === "POST") {
       const f = await request.formData();
-      await toggleTask(env, f.get("id"), session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => toggleTask(env, f.get("id"), session), crmBack(f, "/admin?view=tasks"), "Task updated");
     }
     if (path === "/task/delete" && request.method === "POST") {
       const f = await request.formData();
-      await deleteTask(env, f.get("id"), session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => deleteTask(env, f.get("id"), session), crmBack(f, "/admin?view=tasks"), "Task deleted");
     }
 
     // Record a client's response to a sent vehicle (interested / passed).
     if (path === "/match/response" && request.method === "POST") {
       const f = await request.formData();
-      await setMatchResponse(env, f.get("id"), f.get("response"), session);
-      return Response.redirect(here(crmBack(f)), 303);
+      return act(() => setMatchResponse(env, f.get("id"), f.get("response"), session), crmBack(f), "Response recorded");
     }
 
     // Soft-archive / restore a customer.
     if ((path === "/client/archive" || path === "/client/unarchive") && request.method === "POST") {
       const f = await request.formData();
-      await archiveClient(env, f.get("id"), path === "/client/archive", session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const archiving = path === "/client/archive";
+      return act(() => archiveClient(env, f.get("id"), archiving, session), "/admin?view=clients",
+        archiving ? "Client archived" : "Client restored");
     }
 
     // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
@@ -624,14 +640,17 @@ export default {
       const f = await request.formData();
       const action = f.get("action");
       const ids = f.getAll("ids").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
-      if (["approve", "reject"].includes(action) && ids.length) {
-        await applyBulkDecisions(env, action, ids, session);
-      } else if (action === "delete" && ids.length) {
-        await bulkDeleteMatches(env, ids, session);
-      }
       const back = f.get("back");
       const dest = (typeof back === "string" && back.startsWith("/admin")) ? back : "/admin?view=matches";
-      return Response.redirect(here(dest), 303);
+      if (!ids.length || !["approve", "reject", "delete"].includes(action)) {
+        return Response.redirect(here(withNotice(dest, "Select at least one match first", true)), 303);
+      }
+      const n = ids.length, plural = n === 1 ? "match" : "matches";
+      if (action === "delete") {
+        return act(() => bulkDeleteMatches(env, ids, session), dest, `Deleted ${n} ${plural}`);
+      }
+      return act(() => applyBulkDecisions(env, action, ids, session), dest,
+        action === "approve" ? `Sent ${n} ${plural} (one combined email per client)` : `Skipped ${n} ${plural}`);
     }
 
     if (path === "/client" && request.method === "POST") {
@@ -642,8 +661,8 @@ export default {
     }
 
     if (path === "/client/delete" && request.method === "POST") {
-      await deleteClient(env, (await request.formData()).get("id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => deleteClient(env, id, session), "/admin?view=clients", "Client deleted");
     }
 
     // Edit a client's contact details (name, email, WhatsApp, state). Access and
@@ -681,14 +700,25 @@ export default {
     // Owner/admin only (enforced inside the handlers).
     if (path === "/client/portal-invite" && request.method === "POST") {
       const id = (await request.formData()).get("id");
-      const r = await inviteClientPortal(env, id, session);
-      if (r.ok && r.token) await sendClientPortalInvite(env, r);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      const dest = `/admin?view=client&id=${Number(id) || ""}`;
+      try {
+        const r = await inviteClientPortal(env, id, session);
+        if (r.ok && r.token) {
+          await sendClientPortalInvite(env, r);
+          return Response.redirect(here(withNotice(dest, `Set-password link emailed to ${r.email}`)), 303);
+        }
+        const msg = r.error === "no-email"
+          ? "Add an email address for this client first, then invite them."
+          : "Could not send the portal invite. Please try again.";
+        return Response.redirect(here(withNotice(dest, msg, true)), 303);
+      } catch (e) {
+        console.error("/client/portal-invite failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not send the portal invite. Please try again.", true)), 303);
+      }
     }
     if (path === "/client/portal-revoke" && request.method === "POST") {
       const id = (await request.formData()).get("id");
-      await revokeClientPortal(env, id, session);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      return act(() => revokeClientPortal(env, id, session), `/admin?view=client&id=${Number(id) || ""}`, "Portal access revoked");
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
     // Admin only — membership is a paid feature; agents must never grant it.
@@ -696,41 +726,48 @@ export default {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       const id = f.get("id");
-      await setClientMember(env, id, f.get("member") === "1", session);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      const on = f.get("member") === "1";
+      return act(() => setClientMember(env, id, on, session), `/admin?view=client&id=${Number(id) || ""}`,
+        on ? "Member access granted" : "Member access removed");
     }
 
     // Allocate clients to agents - admin only.
     if (path === "/client/assign" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
-      await assignClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => assignClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Owner updated");
     }
     if (path === "/clients/bulk" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       // The "Delete selected" button posts do=delete; Apply uses the action select.
       const action = f.get("do") === "delete" ? "delete" : f.get("action");
-      await bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const n = f.getAll("ids").length;
+      if (!n) return Response.redirect(here(withNotice("/admin?view=clients", "Tick at least one client first", true)), 303);
+      const plural = n === 1 ? "client" : "clients";
+      const okMsg = action === "delete" ? `Deleted ${n} ${plural}`
+        : action === "archive" ? `Archived ${n} ${plural}`
+        : action === "unarchive" ? `Restored ${n} ${plural}`
+        : action === "share" ? `Shared ${n} ${plural}`
+        : `Updated ${n} ${plural}`;
+      return act(() => bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session), "/admin?view=clients", okMsg);
     }
 
     if (path === "/wishlist" && request.method === "POST") {
       const f = await request.formData();
-      await createWishlist(env, f, undefined, session);
       const cid = f.get("client_id");
-      return Response.redirect(here(cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients"), 303);
+      return act(() => createWishlist(env, f, undefined, session),
+        cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients", "Search added");
     }
 
     if (path === "/wishlist/edit" && request.method === "POST") {
       const f = await request.formData();
-      await editWishlist(env, f, session);
       // Resolve the redirect target only if this session may actually see the
       // client, so a blocked edit never leaks a foreign client_id in the URL.
-      const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
-      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
-      return Response.redirect(here(dest), 303);
+      return act(() => editWishlist(env, f, session), async () => {
+        const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
+        return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
+      }, "Search updated");
     }
 
     // Helper: a search's edits/toggle/delete should return to its client page.
@@ -742,63 +779,64 @@ export default {
     if (path === "/wishlist/toggle" && request.method === "POST") {
       const id = (await request.formData()).get("id");
       const dest = await searchClientDest(id);
-      await toggleWishlist(env, id, session);
-      return Response.redirect(here(dest), 303);
+      return act(() => toggleWishlist(env, id, session), dest, "Search updated");
     }
 
     if (path === "/wishlist/delete" && request.method === "POST") {
       const id = (await request.formData()).get("id");
       const dest = await searchClientDest(id); // resolve before the row is gone
-      await deleteWishlist(env, id, session);
-      return Response.redirect(here(dest), 303);
+      return act(() => deleteWishlist(env, id, session), dest, "Search deleted");
     }
 
     // Agent management - admin only.
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      const r = await createAgent(env, await request.formData());
-      if (r.ok && r.token) await sendInvite(env, r);
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const f = await request.formData();
+      return act(async () => {
+        const r = await createAgent(env, f);
+        if (!r || !r.ok) throw new Error((r && r.error) || "create failed");
+        if (r.token) await sendInvite(env, r);
+      }, "/admin?view=agents", "Agent added and invited");
     }
     if (path === "/agent/invite" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      const r = await resendInvite(env, (await request.formData()).get("id"));
-      if (r) await sendInvite(env, r);
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(async () => {
+        const r = await resendInvite(env, id);
+        if (r) await sendInvite(env, r);
+      }, "/admin?view=agents", "Invite re-sent");
     }
     if (path === "/agent/alerts" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await toggleAgentAlerts(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => toggleAgentAlerts(env, id), "/admin?view=agents", "Alerts updated");
     }
     if (path === "/agent/toggle" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await toggleAgent(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => toggleAgent(env, id), "/admin?view=agents", "Agent updated");
     }
     if (path === "/agent/delete" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await deleteAgent(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => deleteAgent(env, id), "/admin?view=agents", "Agent deleted, along with their clients and history");
     }
 
     // Settings - admin only.
     if (path === "/settings" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await saveSettings(env, await request.formData());
-      return Response.redirect(here("/admin?view=settings"), 303);
+      const f = await request.formData();
+      return act(() => saveSettings(env, f), "/admin?view=settings", "Settings saved");
     }
 
     // Client sharing - owner or admin (enforced in the handlers).
     if (path === "/share" && request.method === "POST") {
       const f = await request.formData();
-      await shareClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => shareClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Client shared");
     }
     if (path === "/share/remove" && request.method === "POST") {
       const f = await request.formData();
-      await unshareClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => unshareClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Share removed");
     }
 
     return doc(notFoundPage(), 404);
