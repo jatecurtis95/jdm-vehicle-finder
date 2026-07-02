@@ -1736,7 +1736,11 @@ function dashboardView(session, data) {
         <div class="who"><div class="nm">${esc(t.title)}</div><div class="sub">${t.client_name ? esc(t.client_name) + " · " : ""}<span style="color:${dueColor(d.tone)};font-weight:600">${esc(d.label)}</span></div></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing due today. Nice.</div></div></div>`;
-  const tasksSection = `<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div><div class="list">${taskRows}</div>`;
+  // Each dashboard section is ONE grid item (heading above its own list). As
+  // two loose siblings, the .dcols two-column grid auto-placed every heading
+  // into column 1 and every list into column 2, which shattered the layout.
+  const dsec = (head, list) => `<div class="dsec">${head}${list}</div>`;
+  const tasksSection = dsec(`<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div>`, `<div class="list">${taskRows}</div>`);
 
   // Stalled requests — no movement in 14 days.
   const stalledRows = (data.stalledList || []).map((w) => {
@@ -1747,10 +1751,10 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">${esc((RSTATUS[w.status] || {}).label || w.status)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No stalled requests. Everything's moving.</div></div></div>`;
-  const stalledSection = `<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div><div class="list">${stalledRows}</div>`;
+  const stalledSection = dsec(`<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div>`, `<div class="list">${stalledRows}</div>`);
 
   // Reframe the closing-soon list as a question to match the rest of the board.
-  const closingQ = `<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
+  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div>`, `<div class="list">${closingRows}</div>`);
 
   // Who needs attention today — scheduled follow-ups due (or overdue).
   const naRows = (data.nextActionList || []).map((w) => {
@@ -1762,7 +1766,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${d.tone === "over" ? "b-warn" : "b-neu"}">${esc(d.label)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
-  const attentionSection = `<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${naRows}</div>`;
+  const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${naRows}</div>`);
 
   // Who owes money — deposits requested, not yet paid.
   const owesRows = (data.depositsList || []).map((w) => {
@@ -1773,7 +1777,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">Deposit requested</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
-  const owesSection = `<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div><div class="list">${owesRows}</div>`;
+  const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div>`, `<div class="list">${owesRows}</div>`);
 
   // Who's closest to buying — interested / deposit stages, most-committed first.
   const closeRows = (data.closestList || []).map((w) => {
@@ -1785,7 +1789,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${w.status === "deposit_paid" ? "b-ok" : "b-warn"}">${esc(lbl)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
-  const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
+  const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${closeRows}</div>`);
 
   // Hierarchy (top → bottom): business snapshot → what needs action today →
   // pipeline → detail lists → trend charts. The roll-up used to sit BELOW the
@@ -1807,6 +1811,8 @@ function dashboardView(session, data) {
 }
 
 const DASH2_CSS = `<style>
+  /* One grid item per Q&A section: heading sits above its own list. */
+  .dsec{min-width:0}
   /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:22px}

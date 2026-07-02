@@ -61,3 +61,19 @@ test("an agent dashboard is scoped to their own clients only", async () => {
   // Agents do not see the agents metric.
   assert.doesNotMatch(html, /Active agents/);
 });
+
+// Regression: each question-framed section must be ONE grid item (heading above
+// its own list). As two loose siblings, the .dcols two-column grid auto-placed
+// every heading into column 1 and every list into column 2, shattering the page.
+test("each dashboard Q&A section wraps its heading and list in one grid item", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const html = await adminPage(env, "dashboard", ADMIN);
+  const cols = html.match(/<div class="dcols">/g) || [];
+  assert.equal(cols.length, 3, "three two-column bands");
+  // Every .dcols band opens with a .dsec wrapper (heading + list inside it).
+  assert.match(html, /<div class="dcols"><div class="dsec"><div class="sec-h">/);
+  const secs = html.match(/<div class="dsec">/g) || [];
+  assert.equal(secs.length, 6, "six wrapped sections");
+  // No section heading is ever a loose grid child of .dcols any more.
+  assert.ok(!html.includes('<div class="dcols"><div class="sec-h">'), "headings are not loose grid children");
+});
