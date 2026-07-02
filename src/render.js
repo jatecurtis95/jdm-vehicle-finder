@@ -128,6 +128,7 @@ function footer(extra) {
       <a href="mailto:hello@jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">hello@jdmconnect.com.au</a>&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
     </div>
     <div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:14px;">&copy; ${new Date().getFullYear()} JDM Connect &middot; Japanese performance &amp; classic vehicle imports, Australia-wide.</div>
+    <div style="font-family:${FONT};font-size:11px;line-height:1.6;color:${MUTE};margin-top:10px;">You are receiving this because you asked JDM Connect to help source a vehicle. <a href="mailto:jate@jdmconnect.com.au?subject=Unsubscribe" style="color:${MUTE};text-decoration:underline;">Unsubscribe</a> &middot; <a href="https://jdmfinder.com.au/privacy" style="color:${MUTE};text-decoration:underline;">Privacy policy</a></div>
   </td></tr>`;
 }
 

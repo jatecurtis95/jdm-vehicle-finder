@@ -420,6 +420,96 @@ export function brandShell(side, main, title = "JDM Connect", opts = {}) {
   );
 }
 
+// Public privacy policy (Australian Privacy Act, APP 5 collection notice + how
+// data is handled). Linked from every email footer and the request form. The
+// business should have this reviewed by their own adviser; it is written to be
+// accurate to how the app actually handles data today.
+export function privacyPage() {
+  const updated = "2 July 2026";
+  const s = (h, body) => `<section class="lg-s"><h2>${h}</h2>${body}</section>`;
+  const inner = `<div class="legal">
+    <a class="lg-back" href="/">&larr; JDM Connect</a>
+    <h1>Privacy Policy</h1>
+    <p class="lg-updated">Last updated: ${updated}</p>
+    <p class="lg-lead">JDM Connect ("we", "us", "our") runs the JDM Finder vehicle-sourcing
+      service at jdmfinder.com.au. This policy explains what personal information we collect,
+      why, who we share it with, and your rights under the Australian <em>Privacy Act 1988</em>
+      and the Australian Privacy Principles (APPs).</p>
+
+    ${s("Who we are", `<p>JDM Connect, Japanese vehicle imports, Australia-wide.
+      Questions about privacy or your data: <a href="mailto:jate@jdmconnect.com.au">jate@jdmconnect.com.au</a>.</p>`)}
+
+    ${s("What we collect", `<ul>
+      <li><strong>Contact details</strong> you give us: name, email, phone/WhatsApp, and your state or delivery country.</li>
+      <li><strong>Your vehicle search</strong>: the makes, models, years, budget and preferences you ask us to find.</li>
+      <li><strong>Account &amp; activity</strong>: if you use the buyer portal, a login and a record of the vehicles we send you and whether you have viewed them, so we can follow up.</li>
+      <li><strong>Payment records</strong>: when you pay a deposit or membership, our payment processor handles your card details; we keep a record of the transaction (amount, date, reference), not your full card number.</li>
+    </ul>`)}
+
+    ${s("Why we collect it", `<p>To search Japanese auctions for the vehicle you want, contact you about matches,
+      arrange purchase, import and delivery, take payments, and provide the buyer portal. We only use your
+      details for the service you asked for.</p>`)}
+
+    ${s("Who we share it with", `<p>We do not sell your personal information. We share it only with the
+      service providers we need to run the service, who act on our instructions:</p>
+      <ul>
+        <li><strong>Cloudflare</strong> - hosting, security and our database.</li>
+        <li><strong>Stripe</strong> - payment processing (deposits and membership).</li>
+        <li><strong>Resend</strong> - sending you email.</li>
+        <li><strong>Google</strong> - only if you choose "Continue with Google" to sign in.</li>
+        <li>Our <strong>auction agents in Japan</strong> - to source and bid on the vehicle you request.</li>
+      </ul>
+      <p>Some of these providers store data outside Australia (for example, the United States). By using the
+      service you consent to that overseas disclosure for these purposes.</p>`)}
+
+    ${s("Analytics and cookies", `<p>Our public pages (the landing page and the request form) use Google
+      Tag Manager and the Meta (Facebook) Pixel to understand how people find and use the site. These are
+      <strong>not</strong> loaded on the signed-in buyer portal or the login pages. You can block cookies in
+      your browser or use tracking-protection tools.</p>`)}
+
+    ${s("How we store and protect it", `<p>Data is stored in Cloudflare's encrypted database. Access is
+      restricted to JDM Connect staff. Passwords are hashed, never stored in plain text, and connections use HTTPS.</p>`)}
+
+    ${s("Keeping and deleting it", `<p>We keep your information only as long as we need it for the purposes
+      above or to meet legal/financial-record obligations. Ask us and we will delete your personal information
+      when it is no longer needed.</p>`)}
+
+    ${s("Marketing and opt-out", `<p>We only email you about your own search and vehicles we think match it.
+      Every email includes an unsubscribe option; you can also opt out any time by emailing
+      <a href="mailto:jate@jdmconnect.com.au?subject=Unsubscribe">jate@jdmconnect.com.au</a> with "Unsubscribe"
+      in the subject.</p>`)}
+
+    ${s("Access, correction and complaints", `<p>You can ask us for a copy of the personal information we hold
+      about you, ask us to correct it, or make a privacy complaint, by emailing
+      <a href="mailto:jate@jdmconnect.com.au">jate@jdmconnect.com.au</a>. If you are not satisfied with our
+      response, you can contact the Office of the Australian Information Commissioner (OAIC) at
+      <a href="https://www.oaic.gov.au" target="_blank" rel="noopener">oaic.gov.au</a>.</p>`)}
+
+    ${s("Changes to this policy", `<p>We may update this policy from time to time. The "last updated" date
+      above shows when it last changed.</p>`)}
+
+    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+  </div>
+  <style>
+    .legal{max-width:760px;margin:0 auto;padding:48px 22px 90px;color:var(--ink)}
+    .lg-back{display:inline-block;color:var(--gold-txt);font-weight:600;text-decoration:none;font-size:14px;margin-bottom:26px}
+    .legal h1{font-size:clamp(30px,6vw,44px);font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+    .lg-updated{color:var(--faint);font-size:13px;margin:0 0 26px}
+    .lg-lead{font-size:17px;line-height:1.6;color:var(--t2);margin:0 0 12px}
+    .lg-s{padding:22px 0;border-top:1px solid var(--hair)}
+    .lg-s h2{font-size:19px;font-weight:700;margin:0 0 12px}
+    .legal p{font-size:15px;line-height:1.65;color:var(--t2);margin:0 0 12px}
+    .legal ul{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+    .legal li{font-size:15px;line-height:1.6;color:var(--t2)}
+    .legal strong{color:var(--ink)}
+    .legal a{color:var(--gold-txt)}
+    .lg-cta{display:inline-block;margin-top:30px}
+  </style>`;
+  // Public page: keep analytics OFF here (a privacy page loading trackers is a
+  // bad look, and it is not part of the conversion funnel).
+  return brandDoc(inner, "Privacy Policy - JDM Connect");
+}
+
 // Branded "not found" page. Replaces the bare text 404.
 export function notFoundPage() {
   const inner = `<div class="infowrap">

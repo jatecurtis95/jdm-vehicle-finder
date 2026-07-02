@@ -17,7 +17,7 @@ import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
-import { notFoundPage, infoPage, decisionConfirmPage } from "./theme.js";
+import { notFoundPage, infoPage, decisionConfirmPage, privacyPage } from "./theme.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -182,6 +182,11 @@ export default {
       // Track the first time the customer opens their sent vehicle (best-effort).
       ctx.waitUntil(stampMatchViewed(env, sharedId));
       return doc(await publicLotPage(env, sharedId));
+    }
+
+    // Public privacy policy (linked from every email footer and the request form).
+    if (path === "/privacy" || path === "/privacy-policy") {
+      return doc(privacyPage());
     }
 
     // Public vehicle-request form (no login) - for dealers and their clients.

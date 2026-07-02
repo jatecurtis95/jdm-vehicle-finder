@@ -3965,7 +3965,7 @@ export async function requestPage(env, opts = {}) {
                   <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
                   <button class="btn-gold" type="submit">Start my search</button>
                 </div>
-                <p class="ob-note-sm">We use these details only to search for and contact you about matching vehicles. We never share them with third parties.</p>
+                <p class="ob-note-sm">We collect your name and contact details only to search for and contact you about matching vehicles, and share them only with the providers needed to run the service (see our <a href="/privacy" style="color:var(--gold-txt);font-weight:600">Privacy Policy</a>). You can ask us to access, correct or delete your details any time.</p>
               </div>
               ${whatHappensNext()}
             </div>
