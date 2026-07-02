@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -17,7 +17,7 @@ import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
-import { notFoundPage, infoPage, decisionConfirmPage } from "./theme.js";
+import { notFoundPage, infoPage, decisionConfirmPage, privacyPage } from "./theme.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -55,33 +55,60 @@ export async function requestRateLimited(env, { ip, email, whatsapp }) {
   return false;
 }
 
+// Sliding-window limiter for the public /api/* JSON endpoints (per IP).
+// Same fail-open KV pattern as the request-form limiter above.
+const API_RL_MAX = 60;          // calls
+const API_RL_WINDOW_S = 300;    // per 5 minutes
+async function apiRateLimited(env, ip) {
+  if (!env.RL || !ip) return false;
+  const k = `apirl:ip:${ip}`;
+  try {
+    const n = parseInt((await env.RL.get(k)) || "0", 10);
+    if (n >= API_RL_MAX) return true;
+    await env.RL.put(k, String(n + 1), { expirationTtl: API_RL_WINDOW_S });
+  } catch (_) { /* fail open */ }
+  return false;
+}
+
 // --- Login brute-force protection (KV-backed) --------------------------------
-// Tracks failed sign-ins per IP and per email. After LOGIN_MAX_FAILS within the
+// Tracks failed sign-ins per IP and per email. After the key's cap within the
 // window the source is locked out, and every failed attempt also costs a fixed
 // delay so automated guessing is slow. Fails open if KV is unavailable.
+//
+// Two extra fixed dimensions an attacker cannot rotate away from:
+//  * loginfail:admin  — a blank email targets the admin account (that IS the
+//    admin login shape), so those attempts always count here too. Rotating IPs
+//    no longer buys fresh unthrottled guesses at ADMIN_PASSWORD.
+//  * loginfail:global — every failure from any source. Generous cap that only
+//    a distributed attack would hit; makes email+IP rotation ineffective.
 const LOGIN_MAX_FAILS = 10;
+const LOGIN_ADMIN_MAX_FAILS = 10;
+const LOGIN_GLOBAL_MAX_FAILS = 50;
 const LOGIN_LOCK_SECONDS = 15 * 60;
 const LOGIN_FAIL_DELAY_MS = 1500;
+const LOGIN_GLOBAL_KEY = "loginfail:global";
 function loginFailKeys(ip, email) {
   const keys = [];
-  if (ip) keys.push(`loginfail:ip:${ip}`);
+  if (ip) keys.push({ k: `loginfail:ip:${ip}`, cap: LOGIN_MAX_FAILS });
   const e = String(email || "").trim().toLowerCase();
-  if (e) keys.push(`loginfail:e:${e}`);
+  if (e) keys.push({ k: `loginfail:e:${e}`, cap: LOGIN_MAX_FAILS });
+  else keys.push({ k: "loginfail:admin", cap: LOGIN_ADMIN_MAX_FAILS });
+  keys.push({ k: LOGIN_GLOBAL_KEY, cap: LOGIN_GLOBAL_MAX_FAILS });
   return keys;
 }
 async function loginLocked(env, ip, email) {
   if (!env.RL) return false;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k, cap } of loginFailKeys(ip, email)) {
     try {
       const n = parseInt((await env.RL.get(k)) || "0", 10);
-      if (n >= LOGIN_MAX_FAILS) return true;
+      if (n >= cap) return true;
     } catch (_) { /* fail open */ }
   }
   return false;
 }
 async function recordLoginFail(env, ip, email) {
   if (!env.RL) return;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k } of loginFailKeys(ip, email)) {
     try {
       const n = parseInt((await env.RL.get(k)) || "0", 10);
       await env.RL.put(k, String(n + 1), { expirationTtl: LOGIN_LOCK_SECONDS });
@@ -90,9 +117,20 @@ async function recordLoginFail(env, ip, email) {
 }
 async function clearLoginFails(env, ip, email) {
   if (!env.RL) return;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k } of loginFailKeys(ip, email)) {
+    // Never reset the fleet-wide counter on a success: an attacker with any
+    // one valid account could otherwise launder their global failure count.
+    if (k === LOGIN_GLOBAL_KEY) continue;
     try { await env.RL.delete(k); } catch (_) { /* best effort */ }
   }
+}
+
+// Stamp an account's most recent successful login — drives the CRM "Last login".
+// Admin (id 0) has no DB row; only agents/clients do. Best-effort, never blocks.
+async function touchLastSeen(env, role, id) {
+  if (!id || (role !== "agent" && role !== "client")) return;
+  const table = role === "agent" ? "agents" : "clients";
+  try { await env.DB.prepare(`UPDATE ${table} SET last_seen = datetime('now') WHERE id = ?`).bind(Number(id)).run(); } catch (_) { /* best effort */ }
 }
 
 export default {
@@ -152,6 +190,11 @@ export default {
       // Track the first time the customer opens their sent vehicle (best-effort).
       ctx.waitUntil(stampMatchViewed(env, sharedId));
       return doc(await publicLotPage(env, sharedId));
+    }
+
+    // Public privacy policy (linked from every email footer and the request form).
+    if (path === "/privacy" || path === "/privacy-policy") {
+      return doc(privacyPage());
     }
 
     // Public vehicle-request form (no login) - for dealers and their clients.
@@ -221,6 +264,19 @@ export default {
 
     // Feed lookup lists for the form dropdowns (public - just car names).
     // CORS-open so other JDM apps (e.g. the dealer portal) can consume them.
+    // Rate-limited per IP: a cache miss on these fans out to the auction relay
+    // (up to ~16 upstream SQL calls per /api/market hit), so an anonymous loop
+    // could burn the relay quota (audit Medium #12). Generous cap - real users
+    // browsing the wizard make a handful of calls, not 60 in 5 minutes.
+    if (path === "/api/makers" || path === "/api/models" || path === "/api/market") {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      if (await apiRateLimited(env, ip)) {
+        return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "300", "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    }
     if (path === "/api/makers") {
       return new Response(JSON.stringify(await distinctMakers(env)), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
@@ -263,6 +319,7 @@ export default {
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
           await clearLoginFails(env, ip, email);
+          await touchLastSeen(env, who.role, who.id);
           return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
         await recordLoginFail(env, ip, email);
@@ -300,6 +357,7 @@ export default {
         return new Response(null, { status: 303, headers: { Location: here("/login?error=google"), "Set-Cookie": clearNonceCookie() } });
       }
       const dest = res.intent === "login" ? "/portal" : "/request?g=1";
+      await touchLastSeen(env, "client", person.id);
       const headers = new Headers({ Location: here(dest) });
       headers.append("Set-Cookie", await sessionCookie(env, "client", person.id));
       headers.append("Set-Cookie", clearNonceCookie());
@@ -411,6 +469,9 @@ export default {
           err: url.searchParams.get("err"),
         }));
       }
+      if (view === "auctionlot") {
+        return doc(await auctionLotPage(env, session, url.searchParams.get("lot")));
+      }
       if (view === "request") {
         return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
           saved: url.searchParams.get("saved") || "",
@@ -424,10 +485,10 @@ export default {
         adminOpts.tab = sp.get("tab") || "live";
         adminOpts.found = sp.get("found") || "";
         adminOpts.search = {
-          make: sp.get("make") || "", model: sp.get("model") || "",
-          yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+          q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+          house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-          kuzov: sp.get("kuzov") || "", page: sp.get("page") || "",
+          kuzov: sp.get("kuzov") || "", layout: sp.get("layout") || "", page: sp.get("page") || "",
         };
       }
       return doc(await adminPage(env, view, session, adminOpts));
@@ -502,7 +563,7 @@ export default {
     // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
     if (path === "/admin/drawer") {
       const frag = await clientDrawerFragment(env, url.searchParams.get("id"), session);
-      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
     if (path === "/run") {
@@ -565,6 +626,8 @@ export default {
       const ids = f.getAll("ids").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
       if (["approve", "reject"].includes(action) && ids.length) {
         await applyBulkDecisions(env, action, ids, session);
+      } else if (action === "delete" && ids.length) {
+        await bulkDeleteMatches(env, ids, session);
       }
       const back = f.get("back");
       const dest = (typeof back === "string" && back.startsWith("/admin")) ? back : "/admin?view=matches";
@@ -628,7 +691,9 @@ export default {
       return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
+    // Admin only — membership is a paid feature; agents must never grant it.
     if (path === "/client/member" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       const id = f.get("id");
       await setClientMember(env, id, f.get("member") === "1", session);
@@ -764,13 +829,28 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/auctions" && request.method === "GET") {
     const sp = url.searchParams;
     const params = {
-      make: sp.get("make") || "", model: sp.get("model") || "",
-      yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
       priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
       kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1",
+      tab: sp.get("tab") || "live", view: sp.get("view") || "grid",
       _flash: sp.get("_flash") || "",
     };
     return doc(await portalAuctionsPage(env, session, params));
+  }
+  if (path === "/portal/auctions/lot" && request.method === "GET") {
+    // Full detail page for a single live lot (auctionLotPage re-checks membership).
+    return doc(await auctionLotPage(env, session, url.searchParams.get("id")));
+  }
+  if (path === "/portal/sold" && request.method === "GET") {
+    const sp = url.searchParams;
+    const params = {
+      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
+      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
+      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1", view: sp.get("view") || "grid",
+    };
+    return doc(await portalSoldPage(env, session, params));
   }
   if (path === "/portal/auctions/request" && request.method === "POST") {
     const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
@@ -967,9 +1047,12 @@ async function alertNewRequest(env, req) {
   // Phone chime (Pushover/ntfy) so a new lead pings you anywhere, even with the
   // site closed. No-ops until a push provider secret is set; never blocks.
   const want = [req.marka_name, req.model_name].filter(Boolean).join(" ").trim();
+  // PII stays out of the push body (Pushover/ntfy/Telegram store messages on
+  // their servers): name + vehicle identify the lead; details live behind the
+  // admin link.
   await sendPush(env, {
     title: "New JDM Finder signup",
-    message: `${req.name || "Someone"}${want ? " wants " + want : ""}${req.email ? " (" + req.email + ")" : ""}`,
+    message: `${req.name || "Someone"}${want ? " wants " + want : ""}`,
     url: `${env.PUBLIC_URL}/admin?view=clients`,
   });
 }
@@ -1125,6 +1208,23 @@ async function handleDecision(request, env, url) {
   }
 }
 
+// Hard-delete selected matches from the queue (the Matches "Delete" bulk action
+// — "start fresh"). Unlike Skip/reject, which keeps the row as 'rejected', this
+// removes the rows entirely. Same per-item agent access check as reject; one
+// failure never stops the batch.
+async function bulkDeleteMatches(env, ids, session) {
+  for (const id of ids) {
+    try {
+      const item = await env.DB.prepare("SELECT client_id FROM queue WHERE id = ?").bind(id).first();
+      if (!item) continue;
+      if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
+      await env.DB.prepare("DELETE FROM queue WHERE id = ?").bind(id).run();
+    } catch (err) {
+      console.error(`Bulk delete failed (queue ${id}):`, err.message);
+    }
+  }
+}
+
 // Apply approve/reject to many queued matches at once (the Matches bulk bar).
 // Keeps the agent per-item access check and isolates failures. On approve, all
 // of one client's selected cars go out in a SINGLE combined email rather than
@@ -1191,11 +1291,38 @@ async function applyBulkDecisions(env, action, ids, session) {
   }
 }
 
+// Baseline browser security headers for every HTML response (audit: no CSP /
+// X-Frame-Options / HSTS / nosniff anywhere). The CSP allows exactly what the
+// pages use today: inline scripts and styles (no nonces yet), Google Fonts,
+// GTM + Meta Pixel, and https images (auction photos come from many external
+// hosts). frame-ancestors 'none' + X-Frame-Options stop the login/portal/pay
+// flows being framed for clickjacking.
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com",
+    "frame-src https://www.googletagmanager.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "form-action 'self'",
+  ].join("; "),
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
 // Return a complete HTML document as-is (used for the full-page admin/request UIs
 // and the branded standalone info / 404 pages from theme.js).
 function doc(htmlString, status = 200) {
   return new Response(htmlString, {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS },
   });
 }

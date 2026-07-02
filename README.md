@@ -106,7 +106,8 @@ npx wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql
 ```
 npx wrangler secret put AVTONET_CODE      # your auction API password (kept private, not in this repo)
 npx wrangler secret put RESEND_API_KEY     # from resend.com
-npx wrangler secret put ADMIN_TOKEN        # any long random string you choose
+npx wrangler secret put ADMIN_TOKEN        # signing key — any long random string (NOT a login credential)
+npx wrangler secret put ADMIN_PASSWORD     # required — the admin login password
 ```
 
 For email you need a [Resend](https://resend.com) account and a verified sender
@@ -129,10 +130,9 @@ npx wrangler deploy
 
 ## Using it
 
-- **Admin page:** `https://<your-worker-url>/admin?key=YOUR_ADMIN_TOKEN`
-  Add clients, add wishlists, see what's queued.
-- **Run now (test):** click "Run matcher now" on the admin page, or visit
-  `/run?key=YOUR_ADMIN_TOKEN`.
+- **Admin page:** `https://<your-worker-url>/admin` — sign in at `/login` with a
+  blank email and your `ADMIN_PASSWORD`. Add clients, add wishlists, see what's queued.
+- **Run now (test):** click "Run matcher now" on the admin page.
 - **Approve matches:** they arrive in your inbox (the `DIGEST_EMAIL` address). Click
   "Approve & send" to email the car to the client, or "Skip" to discard.
 - **Automatic schedule:** the cron in `wrangler.toml` runs it every 6 hours. Change
@@ -173,8 +173,9 @@ avg_string, lhdrive, images, serial, info`.
 ## Security
 
 - The API code and all keys are stored as Wrangler secrets, never in the repo.
-- The admin page is gated by `ADMIN_TOKEN`. Keep that URL private; rotate the token if
-  it leaks.
+- The admin page is gated by `ADMIN_PASSWORD` (login form). `ADMIN_TOKEN` is only the
+  HMAC signing key for sessions/share links — it is never accepted as a password.
+  Rotate whichever secret leaks (rotating `ADMIN_TOKEN` signs everyone out).
 - The auction API code is stored only as the `AVTONET_CODE` Wrangler secret, never in
   this repo. If it is ever exposed publicly, update the secret (or rotate the relay token
   that fronts it).

@@ -2,7 +2,8 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, refreshLotImages, searchLots, fetchLot } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
@@ -189,6 +190,8 @@ const CSS = `
     --str-bg:rgba(91,192,140,0.14);--str-fg:#7FD3A6;--good-bg:rgba(224,169,75,0.16);--good-fg:#E9BE6B;--pos-bg:rgba(255,255,255,0.06);--pos-fg:#AEB3BA;
     --elig-bg:rgba(91,192,140,0.14);--elig-fg:#7FD3A6;--echk-bg:rgba(224,169,75,0.16);--echk-fg:#E9BE6B;--eno-bg:rgba(226,96,122,0.13);--eno-fg:#E2607A;
     --r:8px;--r-card:12px;}
+  .skip-link{position:absolute;left:-9999px;top:0}
+  .skip-link:focus{left:8px;top:8px;z-index:100;background:#fff;color:#111;padding:8px 12px;border-radius:8px}
   /* Light workspace: the sidebar (.side) keeps the dark brand from :root, while
      the main content area runs a light palette. Only tokens that differ from the
      dark root are overridden here; gold and radii are shared. */
@@ -403,7 +406,24 @@ const CSS = `
   .msearch input{width:100%;padding:10px 12px;border:1px solid var(--field-line);border-radius:7px;font-size:14px;background:var(--field);font-family:inherit;color:var(--ink)}
   .msearch input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(202,163,76,.16)}
   select.mctl{width:auto;padding:9px 28px 9px 11px;border:1px solid var(--field-line);border-radius:7px;font-size:13.5px;background:var(--field);color:var(--t2);cursor:pointer;font-family:inherit}
-  @media(max-width:640px){select.mctl{width:100%}}
+  /* Mobile: the filter selects used to each go full-width, stacking into ~5 tall
+     rows and eating ~40% of the viewport before any cars showed. Sit them 2-up
+     and keep the strength chips on one horizontally-scrollable row instead. */
+  @media(max-width:640px){
+    .crow{gap:8px}
+    select.mctl{flex:1 1 calc(50% - 4px);min-width:0;width:auto}
+    .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
+    .fchips::-webkit-scrollbar{display:none}
+    .fchips .fchip,.fchips .quick{flex:0 0 auto}
+    .mtools{padding-bottom:8px}
+  }
+  /* Mobile QA pass: wide data tables scroll (not clip) on phones; match cards'
+     multi-select checkbox works on touch (no hover); the match bulk bar and the
+     client-detail header wrap instead of overflowing on small screens. */
+  @media(max-width:640px){.sortable{min-width:560px}}
+  @media(max-width:920px){.mcard .msel,.scard .msel{display:block;width:26px;height:26px}}
+  @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk,.bulkbar2 .bdel{flex:1 1 auto}}
+  @media(max-width:560px){.cd-head{flex-wrap:wrap}.cd-owner{text-align:left;flex-basis:100%;margin-top:8px}}
   .fchips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .fchip{border:1px solid var(--field-line);background:var(--field);color:var(--t2);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
   .fchip .sd{width:8px;height:8px;border-radius:9999px;display:inline-block}
@@ -418,6 +438,8 @@ const CSS = `
   .bulkbar2 button{font-family:inherit;font-weight:600;font-size:13px;border-radius:6px;padding:9px 14px;cursor:pointer;border:0}
   .bulkbar2 .bap{background:var(--gold);color:var(--gold-on)}
   .bulkbar2 .bsk{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
+  .bulkbar2 .bdel{background:transparent;color:#ff9a9a;border:1px solid rgba(255,120,120,.4)}
+  .bulkbar2 .bdel:hover{background:rgba(177,18,38,.25);color:#fff;border-color:rgba(255,120,120,.7)}
   .bulkbar2 .bcl{background:transparent;color:#cfd0d2;border:0;font-size:12.5px}
   .ghead{display:flex;align-items:center;gap:10px;grid-column:1/-1;padding:8px 2px 2px;border-bottom:1px solid var(--hair);margin-top:8px}
   .ghead .gh-n{font-size:14px;font-weight:600}
@@ -829,7 +851,7 @@ function searchView(res) {
   if (q.length < 2) return `<div class="card"><div class="empty">Type at least two characters to search.</div></div>`;
   const total = res.clients.length + res.requests.length + res.matches.length + res.payments.length;
   if (!total) return `<div class="card"><div class="empty"><div class="rule"></div>No matches for &ldquo;${esc(q)}&rdquo;. Try a name, email, make, model, chassis code or lot number.</div></div>`;
-  const grp = (title, n, rowsHtml) => n ? `<div class="psec"><h2>${title}<span class="ct">${n}</span></h2></div><div class="card" style="padding:0;overflow:hidden"><table>${rowsHtml}</table></div>` : "";
+  const grp = (title, n, rowsHtml) => n ? `<div class="psec"><h2>${title}<span class="ct">${n}</span></h2></div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch"><table>${rowsHtml}</table></div>` : "";
   const clientRows = res.clients.map((c) => `<tr><td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td><td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td></tr>`).join("");
   const reqRows = res.requests.map((w) => `<tr><td><a class="clink" href="/admin?view=client&id=${w.client_id}">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</a>${w.kuzov ? ` <span class="chip muted">${esc(w.kuzov)}</span>` : ""}</td><td>${esc(w.client_name)}</td></tr>`).join("");
   const chip = (s) => `<span class="chip muted">${esc(s || "-")}</span>`;
@@ -849,19 +871,42 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
   const c = await env.DB.prepare(`SELECT c.* FROM clients c WHERE c.id = ? AND ${acc.sql}`).bind(id, ...acc.binds).first();
   if (!c) return `<div class="dw-empty">Customer not found, or you don't have access.</div>`;
   const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY active DESC, id DESC").bind(id).all()).results || [];
-  const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
+  const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at, sent_at, viewed_at, response, lot_json FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
   const pays = (await env.DB.prepare("SELECT amount_cents, currency, status, created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 5").bind(id).all()).results || [];
+  // Engagement roll-up across ALL their matches (not just the recent 6) so the
+  // panel answers "have we sent examples, and did they open them?" at a glance.
+  const eng = (await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
+            MAX(viewed_at) AS last_viewed
+       FROM queue WHERE client_id = ?`
+  ).bind(id).first()) || {};
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
+    ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
-  ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${esc(v)}</span></div>`).join("");
+    ["Examples sent", Number(eng.sent) ? `${eng.sent}${Number(eng.viewed) ? ` &middot; ${eng.viewed} viewed` : " &middot; none opened yet"}` : null],
+    ["Last viewed", eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : null],
+    ["Last login", c.last_seen ? String(c.last_seen).slice(0, 10) : null],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${v}</span></div>`).join("");
 
   const wlList = wls.length
     ? wls.map((w) => `<div class="dw-item"><div class="dw-item-t">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</div><div class="dw-item-s">${esc(yearRange(w.year_min, w.year_max))}${w.active ? "" : " &middot; paused"}</div></div>`).join("")
     : `<div class="dw-empty-sm">No searches yet.</div>`;
+  // Per-match: show the match strength (how good a fit) and the engagement stage
+  // (sent / viewed / interested) — the two things that help close the client.
   const mList = matches.length
-    ? matches.map((m) => `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s"><span class="chip muted">${esc(m.status)}</span> &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`).join("")
+    ? matches.map((m) => {
+        let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
+        const strength = lot._strength ? `<span class="dw-str dw-str-${String(lot._strength).toLowerCase()}">${esc(lot._strength)} match</span>` : "";
+        const stage = m.response === "interested" ? `<span class="eng eng-viewed">Interested</span>`
+          : m.viewed_at ? `<span class="eng eng-viewed">Viewed</span>`
+          : m.sent_at ? `<span class="eng eng-sent">Sent</span>`
+          : `<span class="chip muted">${esc(m.status)}</span>`;
+        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s">${stage}${strength} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
+      }).join("")
     : `<div class="dw-empty-sm">No matches yet.</div>`;
   const pList = pays.length
     ? pays.map((p) => `<div class="dw-item"><div class="dw-item-t">${String(p.currency || "aud").toUpperCase()} $${(Number(p.amount_cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}</div><div class="dw-item-s"><span class="chip muted">${esc(p.status)}</span> &middot; ${esc(String(p.created_at || "").slice(0, 10))}</div></div>`).join("")
@@ -872,6 +917,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
       <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
       <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
     </div>
+    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
     ${info ? `<div class="dw-card">${info}</div>` : ""}
     <div class="dw-sec">Requests <span class="ct">${wls.length}</span></div><div class="dw-list">${wlList}</div>
     <div class="dw-sec">Recent matches <span class="ct">${matches.length}</span></div><div class="dw-list">${mList}</div>
@@ -968,7 +1014,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const tasks = (view === "tasks") ? await tasksData(env, session) : [];
   // Requests view: each wishlist as a pipeline request, with its owner's name.
   const requests = (view === "requests") ? ((await run(
-    `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name
+    `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name,
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.sent_at IS NOT NULL) AS sent_count,
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
@@ -1051,16 +1099,16 @@ function agentsView(agents) {
       <h2><span class="num">+</span> New agent</h2>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label>Name</label><input name="name" placeholder="Agent name" required></div>
-          <div><label>Email <span class="opt">(login + alerts)</span></label><input name="email" type="email" placeholder="agent@email.com" required></div>
-          <div><label>Company <span class="opt">(optional)</span></label><input name="company" placeholder="e.g. Ofuka"></div>
+          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" required></div>
+          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" required></div>
+          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -1209,7 +1257,7 @@ function paymentsView(payments, opts = {}) {
     </tr>`;
   }).join("");
   const depositsSection = deposits.length ? `<div class="psec" style="margin-top:26px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
     </div>` : "";
   return `<div class="triage">
@@ -1219,7 +1267,7 @@ function paymentsView(payments, opts = {}) {
     </div>
     ${depositsSection}
     ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
@@ -1245,10 +1293,10 @@ export function loginPage(opts = {}) {
       <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
       ${err}
       ${googleBlock}
-      <label>Email</label>
-      <input type="email" name="email" autocomplete="username" placeholder="you@email.com" maxlength="160">
-      <label style="margin-top:14px">Password</label>
-      <input type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
+      <label for="lg-email">Email</label>
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="160">
+      <label for="lg-pass" style="margin-top:14px">Password</label>
+      <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:18px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
@@ -1271,10 +1319,10 @@ export function setPasswordPage(opts = {}) {
       <p class="login-sub">Welcome${name ? ", " + esc(name) : ""}. Choose a password to access the Vehicle Finder.</p>
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
-      <label>New password</label>
-      <input type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
-      <label style="margin-top:14px">Confirm password</label>
-      <input type="password" name="confirm" autocomplete="new-password" required minlength="6">
+      <label for="sp-pass">New password</label>
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
+      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="6">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
@@ -1646,13 +1694,18 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
   const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
 
+  // Hierarchy (top → bottom): business snapshot → what needs action today →
+  // pipeline → detail lists → trend charts. The roll-up used to sit BELOW the
+  // pipeline strip, which read as a stray second row of KPI boxes; it now leads
+  // as a compact snapshot strip so the two stat bands are grouped and ordered
+  // small-context → big-actionable.
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
+      ${overview}
       ${attention}
       ${pipelineStrip}
-      ${overview}
       <div class="dcols">${attentionSection}${tasksSection}</div>
       <div class="dcols">${owesSection}${closestSection}</div>
       <div class="dcols">${stalledSection}${closingQ}</div>
@@ -1661,7 +1714,10 @@ function dashboardView(session, data) {
 }
 
 const DASH2_CSS = `<style>
-  .attn{margin:24px 0 4px}
+  /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
+     a compact band above the attention cards instead of floating mid-page. */
+  .dash .overview{margin-bottom:22px}
+  .attn{margin:0 0 4px}
   .attn-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
   .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
   .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:16px 18px;transition:border-color .15s,transform .15s}
@@ -1694,10 +1750,10 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label>Name</label><input name="name" placeholder="Jane Citizen" required></div>
-          <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" placeholder="name@email.com"></div>
-          <div><label>WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-          <div><label>State <span class="opt">(for landed cost)</span></label><select name="state">${stateOptions("")}</select></div>
+          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" required></div>
+          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
+          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions("")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -1806,7 +1862,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
   const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow:hidden">
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
@@ -1851,6 +1907,16 @@ function lastActivityLabel(iso) {
   const days = Math.floor((Date.now() - t) / 86400000);
   return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
+// "Have we sent this client examples, and did they open them?" — derived from
+// queue.sent_at / queue.viewed_at (no login tracking needed). Viewed is the
+// strongest buying signal, so it reads gold; sent-but-unopened reads amber;
+// nothing sent stays muted. Powers the Requests "Examples" column.
+function engagementCell(sent, viewed) {
+  const s = Number(sent) || 0, v = Number(viewed) || 0;
+  if (s === 0) return `<span class="chip muted" title="No vehicle examples sent yet">Not sent</span>`;
+  if (v > 0) return `<span class="eng eng-viewed" title="${v} of ${s} sent example${s === 1 ? "" : "s"} opened by the client">Sent &middot; viewed</span>`;
+  return `<span class="eng eng-sent" title="${s} example${s === 1 ? "" : "s"} sent, not opened yet">Sent &middot; unopened</span>`;
+}
 
 // Requests list: the operational pipeline. Each row is a customer's search, with
 // a health dot, live status change, owner and last-activity. Pipeline cards along
@@ -1873,6 +1939,7 @@ function requestsView(requests, opts = {}) {
       <td>${destinationCell(r.destination_country, r.client_state)}</td>
       <td style="white-space:nowrap">${budget}</td>
       <td>${statusSelect(r.id, r.status)}</td>
+      <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
       <td>${esc(r.owner_name || "JDM Connect")}</td>
       <td style="white-space:nowrap">${esc(lastActivityLabel(r.last_activity))}</td>
@@ -1881,13 +1948,26 @@ function requestsView(requests, opts = {}) {
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="10" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="11" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+
+  // Plain-English key so staff aren't guessing what the dots / REQ / Examples
+  // column mean (client asked "what do the green and red dots mean?").
+  const legend = `<div class="req-legend">
+    <span class="lg-t">Key</span>
+    <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
+    <span><span class="health health-amber"></span> Cooling (7&ndash;14 days)</span>
+    <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
+    <span><b class="reqid">REQ-###</b> Request reference &mdash; click to open the full request</span>
+    <span><span class="eng eng-viewed">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
+    <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
+  </div>`;
 
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
+    ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
-    <div class="card" style="padding:0;overflow:hidden">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
 }
@@ -1913,6 +1993,12 @@ const REQ_CSS = `<style>
   .rstat-sel{padding:6px 26px 6px 10px;font-size:12.5px;border:1px solid var(--hair);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit}
   .ov-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,115,172,.1);border:1px solid rgba(59,115,172,.34);color:#3B5E96;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
   .ov-chip .ov-d{width:6px;height:6px;border-radius:9999px;background:currentColor}
+  .req-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;background:var(--card);border:1px solid var(--hair);border-radius:11px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--t2);line-height:1.5}
+  .req-legend .lg-t{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+  .req-legend .health{margin-right:5px}
+  .eng{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
+  .eng-viewed{background:var(--gold-tint);color:var(--gold-txt)}
+  .eng-sent{background:rgba(201,138,0,.14);color:#8a5e10}
 </style>`;
 
 // Destination cell for a request: the AU registration state by default, or an
@@ -1982,7 +2068,7 @@ export async function updateRequestStatus(env, id, status, session) {
   if (status === "deposit_paid") deposit = "paid";
   await env.DB.prepare("UPDATE wishlists SET status = ?, last_activity = ?, deposit_status = ? WHERE id = ?")
     .bind(status, now, deposit, wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "status", detail: `${RSTATUS[prev]?.label || prev} to ${RSTATUS[status]?.label || status}`, actor });
 
   // Seed a follow-up task for the new stage, assigned to the request owner (or
@@ -2117,7 +2203,17 @@ function matchTrackRow(q, back) {
 
 // ---- Quick-action + task + match mutation handlers -------------------------
 
-// Add a free-text note to a request's timeline.
+// Who did it, for the activity timeline. Sessions only carry {role,id}, so an
+// agent's display name is looked up — without this every agent action was
+// logged as the anonymous "Agent" (audit: shared-agent actions unattributable).
+async function actorName(env, session) {
+  if (!session || session.role === "admin") return "JDM Connect";
+  const a = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(Number(session.id)).first();
+  return (a && a.name) || "Agent";
+}
+
+// Add a free-text note to a request's timeline. Shared (co-search) agents may
+// add notes — additive, and attributed to them by name in the timeline.
 export async function addRequestNote(env, id, note, session) {
   const wid = Number(id);
   const text = String(note || "").trim().slice(0, 500);
@@ -2126,7 +2222,7 @@ export async function addRequestNote(env, id, note, session) {
   const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: text, actor });
   return { ok: true, client_id: w.client_id };
 }
@@ -2146,7 +2242,7 @@ export async function assignRequestOwner(env, id, ownerId, session) {
     name = a.name;
   }
   await env.DB.prepare("UPDATE wishlists SET owner_id = ?, last_activity = ? WHERE id = ?").bind(owner, new Date().toISOString(), wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "owner", detail: `Assigned to ${name}`, actor });
   return { ok: true, client_id: w.client_id };
 }
@@ -2155,7 +2251,9 @@ export async function assignRequestOwner(env, id, ownerId, session) {
 // "who needs attention today?" list; the optional note says what the step is.
 export async function setNextAction(env, id, { date, note, clear } = {}, session) {
   const wid = Number(id);
-  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  // Owner-only: the follow-up schedule drives the owning agent's pipeline;
+  // shared (co-search) agents must not rewrite another agent's calendar.
+  if (!(await wishlistOwnedBy(env, wid, session))) return { ok: false, error: "forbidden" };
   const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   if (clear) {
@@ -2168,7 +2266,7 @@ export async function setNextAction(env, id, { date, note, clear } = {}, session
   const n = String(note || "").trim().slice(0, 160) || null;
   await env.DB.prepare("UPDATE wishlists SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
   if (iso) {
-    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: `Follow-up set for ${iso}${n ? `: ${n}` : ""}`, actor });
   }
   return { ok: true, client_id: w.client_id };
@@ -2200,7 +2298,7 @@ export async function createTask(env, form, session) {
   const assigned = session.role === "agent" ? session.id : (form.get("assigned_to") ? Number(form.get("assigned_to")) : null);
   const tid = await insertTask(env, { title, type: form.get("type") || "manual", wishlist_id: wid, client_id: cid, assigned_to: assigned, due, priority });
   if (tid && (wid || cid)) {
-    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: wid, client_id: cid, type: "task", detail: `Task added: ${title}`, actor });
   }
   return { ok: !!tid, client_id: cid, wishlist_id: wid };
@@ -2236,7 +2334,7 @@ export async function recordMatchSent(env, queueId, session) {
     let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
     const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
     if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
-    const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
   } catch (e) { console.error("recordMatchSent failed:", e.message); }
 }
@@ -2266,7 +2364,7 @@ export async function setMatchResponse(env, queueId, response, session) {
   await env.DB.prepare("UPDATE queue SET response = ?, viewed_at = COALESCE(viewed_at, datetime('now')) WHERE id = ?").bind(resp, qid).run();
   let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
-  const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+  const actor = await actorName(env, session);
   if (resp === "interested" && q.wishlist_id) {
     const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
     if (w && ["new", "qualified", "searching", "vehicles_sent"].includes(w.status)) {
@@ -2579,7 +2677,29 @@ function tasksView(rows, opts = {}) {
     ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
     : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
   const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
+  // What is this page? — the client asked for instructions. Collapsible so it
+  // stays out of the way once staff know it, open by default the first time.
+  const help = `<details class="tks-help" open>
+    <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
+    <div class="tks-help-b">
+      <p>Your shared to-do list for moving deals forward. A task is a single next
+      step tied to a customer or request — "call Lee about the Laurel", "chase
+      the deposit", "translate the auction sheet".</p>
+      <ul>
+        <li><b>Where tasks come from:</b> some are created automatically when you
+        move a request to a new stage (e.g. marking a request <i>Interested</i>
+        adds a follow-up); you can also add your own from any request's page.</li>
+        <li><b>Buckets:</b> tasks sort into <b>Overdue</b>, <b>Due today</b>,
+        <b>This week</b>, <b>Later</b> and <b>No due date</b> by their due date.</li>
+        <li><b>Completing:</b> tick the box on the left to mark a task done — it
+        moves to "Recently completed" for 7 days in case you need to undo.</li>
+        <li><b>Who sees what:</b> you see tasks assigned to you and tasks on the
+        customers you own or are shared on. Admins see everything.</li>
+      </ul>
+    </div>
+  </details>`;
   return `${TASKS_CSS}
+    ${help}
     <div class="tk-strip">
       <div class="tk-stat${buckets.over.length ? " bad" : ""}"><div class="n">${buckets.over.length}</div><div class="l">Overdue</div></div>
       <div class="tk-stat${buckets.today.length ? " warn" : ""}"><div class="n">${buckets.today.length}</div><div class="l">Due today</div></div>
@@ -2603,6 +2723,16 @@ const TASKS_CSS = `<style>
   .tks-done{margin-top:10px}
   .tks-done summary{font-size:12.5px;color:var(--t3);cursor:pointer;padding:8px 0}
   .tks-done .tks-l{margin-top:10px}
+  .tks-help{background:var(--card);border:1px solid var(--hair);border-radius:12px;margin-bottom:18px;overflow:hidden}
+  .tks-help summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;cursor:pointer;list-style:none}
+  .tks-help summary::-webkit-details-marker{display:none}
+  .tks-help-t{font-size:14px;font-weight:700;color:var(--ink)}
+  .tks-help-x{font-size:12px;font-weight:600;color:var(--gold-txt)}
+  .tks-help[open] .tks-help-x::after{content:""}
+  .tks-help-b{padding:0 18px 16px;font-size:13px;color:var(--t2);line-height:1.55}
+  .tks-help-b p{margin:0 0 10px}
+  .tks-help-b ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+  .tks-help-b b{color:var(--ink)}
 </style>`;
 
 // Fix 10: bounded/half-open year ranges instead of a bare leading-dash "-2009".
@@ -2639,7 +2769,7 @@ function wishlistsView(wishlists) {
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
   }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
-  return `<div class="card" style="padding:0;overflow:hidden">
+  return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -2747,7 +2877,7 @@ function matchCard(q) {
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
-          <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
+          <div class="sc-cl"><div class="sc-cl-n">Match for: <a class="gold clink" href="/admin?view=client&id=${q.client_id}" data-drawer="/admin/drawer?id=${q.client_id}" title="See this client's engagement and history to help close them">${esc(q.client_name)}</a></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
         </div>
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
@@ -2818,18 +2948,23 @@ function matchesView(pending, opts = {}) {
       <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:#B6B9BC"></span>Possible</button>
       <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
       <span class="quick">
+        <button type="button" id="qAll">Select all shown</button>
         <button type="button" id="qStrong">Select all Strong</button>
         <button type="button" id="qSoon">Select all closing soon</button>
         ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
       </span>
     </div>
   </div>`;
+  // "Delete" hard-removes the selected matches from the queue (client asked for
+  // a bulk delete "to start fresh") — distinct from "Skip", which keeps the row
+  // as rejected. Guarded by a confirm in the controller.
   const bulk = `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"></form>
     <div class="bulkbar2" id="bulkBar">
       <span class="bc"><span id="selCount">0</span> selected</span>
       <span class="bsp"></span>
       <button type="submit" form="bulkForm" class="bap" id="bApprove">Approve &amp; send</button>
       <button type="submit" form="bulkForm" class="bsk" id="bSkip">Skip</button>
+      <button type="submit" form="bulkForm" class="bdel" id="bDelete">Delete</button>
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
   const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
@@ -2931,11 +3066,13 @@ function matchesScript() {
   [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
   var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
   grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
+  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){cards.forEach(function(c){if(c.__show){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
   var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
   var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
+  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){var n=document.getElementById('selCount');n=n?n.textContent:'';if(!confirm('Permanently delete the '+n+' selected match'+(n==='1'?'':'es')+' from the queue? This cannot be undone.')){ev.preventDefault();return;}document.getElementById('bulkAction').value='delete';});
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
@@ -3005,10 +3142,12 @@ export async function expirePast(env) {
 }
 
 // Update an existing wishlist's criteria (the "edit what they're chasing" flow).
+// Owner-only: a shared agent silently changing criteria would redirect future
+// automated matches without the owner knowing.
 export async function editWishlist(env, form, session) {
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
-  if (!(await wishlistAccessibleBy(env, id, session))) return;
+  if (!(await wishlistOwnedBy(env, id, session))) return;
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
        price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
@@ -3176,7 +3315,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const th = (u) => `${u}&w=320`;
   const gallery = photoBases.length
     ? `<div class="ld-gallery">
-        <div class="ld-hero" id="ldHero" style="background-image:url('${esc(big(photoBases[0]))}')"></div>
+        <div class="ld-hero" id="ldHero" role="img" aria-label="${title}" style="background-image:url('${esc(big(photoBases[0]))}')"></div>
         ${photoBases.length > 1 ? `<div class="ld-thumbs">${photoBases.map((u, i) => `<button type="button" class="ld-th${i === 0 ? " on" : ""}" data-full="${esc(big(u))}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}
       </div>`
     : `<div class="ld-gallery"><div class="ld-hero ld-noimg">No photos on this lot yet</div></div>`;
@@ -3302,11 +3441,30 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   return shell(sidebar("matches", {}, session), main, title + " - JDM Connect");
 }
 
+// Styles for the CRM client header (status chips, contact quick-actions,
+// engagement stat strip) and the lighter outline "back" button that replaces
+// the heavy black one the client flagged. Loaded once with the header.
+const CRM_CSS = `<style>
+  .cd-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .cd-chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;background:rgba(0,0,0,.06);color:var(--t2)}
+  .cd-chip-gold{background:var(--gold-tint);color:var(--gold-txt)}
+  .cd-chip-ok{background:rgba(31,122,77,.14);color:#1F7A4D}
+  .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .cd-cta{text-decoration:none;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;background:var(--card);border:1px solid var(--hair);color:var(--ink)}
+  .cd-cta:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+  .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
+  .cd-stat-n{font-size:24px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .cd-stat-n.cd-stat-sm{font-size:15px;font-weight:700}
+  .cd-stat-l{font-size:11px;color:var(--t3);margin-top:6px}
+  .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:13px;font-weight:600;padding:9px 15px;border-radius:9px;background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
+  .btn-line:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+</style>`;
+
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
   const notFound = () => shell(sidebar("clients", {}, session),
-    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-dark" href="/admin?view=clients">Back to clients</a></div>
-     <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>`,
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-line" href="/admin?view=clients">Back to clients</a></div>
+     <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>${CRM_CSS}`,
     "Client - JDM Connect");
   if (!Number.isInteger(cid) || cid <= 0) return notFound();
   if (!(await clientAccessibleBy(env, cid, session))) return notFound();
@@ -3328,6 +3486,18 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Engagement roll-up across ALL of this client's matches (not just pending) so
+  // the CRM header can show at a glance: examples sent, how many they opened,
+  // and when they last looked — the numbers that tell staff how warm they are.
+  const eng = (await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
+            SUM(CASE WHEN response = 'interested' THEN 1 ELSE 0 END) AS interested,
+            MAX(viewed_at) AS last_viewed
+       FROM queue WHERE client_id = ?`
+  ).bind(cid).first()) || {};
+
   // Surface the snapshotted landed cost on each match card (as the Matches view does).
   for (const q of matches) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
   // Hide the internal catch-all searches (Direct requests / Manual finds) from the
@@ -3339,16 +3509,43 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
 
-  const head = `<div class="card">
+  // CRM header: identity + status chips + one-tap contact + an engagement stat
+  // strip. Replaces the old bare name/contact card (client: "seems bland").
+  const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
+  const telDigits = String(c.whatsapp || "").replace(/[^0-9+]/g, "");
+  const statusChips = [
+    c.member ? `<span class="cd-chip cd-chip-gold">Member</span>` : `<span class="cd-chip">Not a member</span>`,
+    c.portal_enabled ? `<span class="cd-chip cd-chip-ok">Portal ${c.pass_hash ? "active" : "invited"}</span>` : "",
+    c.destination_country ? `<span class="cd-chip">${esc(c.destination_country)}</span>` : (c.state ? `<span class="cd-chip">${esc(c.state)}</span>` : ""),
+  ].filter(Boolean).join("");
+  const contactBtns = [
+    waDigits ? `<a class="cd-cta" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" href="tel:${esc(telDigits)}">Call</a>` : "",
+    c.email ? `<a class="cd-cta" href="mailto:${esc(c.email)}">Email</a>` : "",
+    canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
+  ].filter(Boolean).join("");
+  const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
+  const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "—";
+  const head = `<div class="card cd-card">
     <div class="cd-head">
       <span class="avatar" style="width:46px;height:46px;font-size:16px">${esc(initials(c.name))}</span>
-      <div style="flex:1">
-        <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
-        <div class="help">${contact}</div>
+      <div style="flex:1;min-width:0">
+        <h2 style="border:0;padding:0;margin:0 0 5px">${esc(c.name)}</h2>
+        <div class="cd-chips">${statusChips}</div>
+        <div class="help" style="margin-top:7px">${contact}</div>
       </div>
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
-  </div>`;
+    ${contactBtns ? `<div class="cd-actions">${contactBtns}</div>` : ""}
+    <div class="cd-stats">
+      ${stat(searchWls.length, searchWls.length === 1 ? "Search" : "Searches")}
+      ${stat(matches.length, "Live matches")}
+      ${stat(eng.sent, "Examples sent")}
+      ${stat(eng.viewed, "Opened")}
+      ${stat(eng.interested, "Interested")}
+      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${lastViewed}</div><div class="cd-stat-l">Last viewed</div></div>
+      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${c.last_seen ? String(c.last_seen).slice(0, 10) : "—"}</div><div class="cd-stat-l">Last login</div></div>
+    </div>
+  </div>${CRM_CSS}`;
 
   // Edit core contact details (owner/admin only). Folded away by default, but
   // springs open if the last save failed so the error and the form are visible.
@@ -3358,10 +3555,10 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <form method="POST" action="/client/update">
       <input type="hidden" name="id" value="${c.id}">
       <div class="grid">
-        <div><label>Name</label><input name="name" value="${esc(c.name || "")}" required></div>
-        <div><label>Email <span class="opt">(email or WhatsApp required)</span></label><input name="email" type="email" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
-        <div><label>WhatsApp <span class="opt">(+61…)</span></label><input name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
-        <div><label>State <span class="opt">(for landed-cost estimates)</span></label><input name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+        <div><label for="ec-name">Name</label><input id="ec-name" name="name" value="${esc(c.name || "")}" required></div>
+        <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
+        <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
+        <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
@@ -3389,7 +3586,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div style="font-weight:600;margin-top:3px">${c.member ? "Member &middot; can use Auction search" : "Not a member"}</div>
       </div>
       <div class="pwrap">
-        <form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>
+        ${session.role === "admin"
+          ? `<form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>`
+          : `<span class="help">Managed by JDM Connect (paid membership).</span>`}
       </div>
     </div>` : ""}
   </div>` : "";
@@ -3406,15 +3605,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <input type="hidden" name="client_id" value="${c.id}">
       ${presetSelect()}
       <div class="grid">
-        <div><label>Label</label><input name="label" placeholder="e.g. weekend project"></div>
-        <div><label>Make</label><input name="marka_name" placeholder="e.g. TOYOTA"></div>
-        <div><label>Model <span class="opt">(contains)</span></label><input name="model_name" placeholder="e.g. SUPRA"></div>
-        <div><label>Year min</label><input name="year_min" type="number" placeholder="1990"></div>
-        <div><label>Year max</label><input name="year_max" type="number" placeholder="2002"></div>
-        <div><label>Max price (JPY)</label><input name="price_max" type="number" placeholder="1,500,000"></div>
-        <div><label>Max mileage (km)</label><input name="mileage_max" type="number" placeholder="80,000"></div>
-        <div><label>Min grade</label><input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
-        <div><label>Chassis / model code <span class="opt">(contains, best match)</span></label><input name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+        <div><label for="as-label">Label</label><input id="as-label" name="label" placeholder="e.g. weekend project"></div>
+        <div><label for="as-make">Make</label><input id="as-make" name="marka_name" placeholder="e.g. TOYOTA"></div>
+        <div><label for="as-model">Model <span class="opt">(contains)</span></label><input id="as-model" name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label for="as-yearmin">Year min</label><input id="as-yearmin" name="year_min" type="number" placeholder="1990"></div>
+        <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
+        <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
+        <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
+        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
@@ -3462,8 +3661,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
     : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
-  const findCard = canManage ? `<div class="card" id="find">
-    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+  const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
+    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
     <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search — tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
@@ -3493,9 +3692,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <h1>${esc(c.name)}</h1>
         <p class="subline">What they're chasing, and the lots that match.</p>
       </div>
-      <a class="btn-dark" href="/admin?view=clients">Back to clients</a>
+      <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content"><a class="backlink" href="/admin?view=clients">&larr; Back to clients</a>${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -3571,7 +3770,7 @@ export async function requestPage(env, opts = {}) {
       : "";
     const successInner = `<div class="ob">
       ${topnav}
-      <main class="ob-main"><div class="ob-success">
+      <main class="ob-main" id="main"><div class="ob-success">
         <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
         <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
         <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
@@ -3597,7 +3796,7 @@ export async function requestPage(env, opts = {}) {
     </div>
     <style>${onboardingCss}</style>
     <script>(function(){try{localStorage.removeItem('jdmReqDraft');}catch(e){}})();</script>${leadPixel}`;
-    return brandDoc(successInner, "Your search is live - JDM Connect");
+    return brandDoc(successInner, "Your search is live - JDM Connect", { analytics: true });
   }
 
   // Bounce the wizard straight to the step that owns a server-side error, so a
@@ -3637,7 +3836,7 @@ export async function requestPage(env, opts = {}) {
           <li><span class="dot">4</span><span class="lbl">Account</span></li>
         </ol>
       </div>
-      <main class="ob-main">
+      <main class="ob-main" id="main">
         ${banner}
         <form id="requestForm" class="ob-form" method="POST" action="/request" novalidate${errStep ? ` data-error-step="${errStep}"` : ""}>
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
@@ -3665,7 +3864,7 @@ export async function requestPage(env, opts = {}) {
 
           <section class="ob-step" data-step="2" aria-label="Budget and requirements">
             <div class="ob-eyebrow">Your budget</div>
-            <h1>What's your budget?</h1>
+            <h1>What&rsquo;s your budget?</h1>
             <p class="ob-lead">Your total landed budget in AUD, the car plus shipping, duties and on-road costs, delivered to your door. A realistic figure finds the right car faster.</p>
             <div class="ob-cols">
               <div>
@@ -3677,16 +3876,16 @@ export async function requestPage(env, opts = {}) {
                 </div>
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:18px">
-                  <div><label for="rq-state">State <span class="opt">(where it'll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
+                  <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
                   <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
                 </div>
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>
                   <div class="ob-fields">
-                    <div><label>Max mileage <span class="opt">(km)</span></label><input name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label>Min auction grade <span class="opt">(1 to 6)</span></label><input name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-                    <div><label>Chassis code <span class="opt">(if known)</span></label><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
-                    <div><label>Nickname <span class="opt">(for your reference)</span></label><input name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
+                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
+                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                    <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+                    <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
                   </div>
                 </details>
               </div>
@@ -3718,7 +3917,7 @@ export async function requestPage(env, opts = {}) {
           ${signedIn ? `<section class="ob-step" data-step="4" aria-label="Confirm and start your search">
             <div class="ob-eyebrow">Almost there</div>
             <h1>Confirm your search</h1>
-            <p class="ob-lead">You're signed in, so there's nothing else to fill in - just start your search.</p>
+            <p class="ob-lead">You&rsquo;re signed in, so there&rsquo;s nothing else to fill in - just start your search.</p>
             <div class="ob-cols">
               <div>
                 <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid rgba(0,0,0,.1);border-radius:14px;background:#f7f9fc;margin-bottom:18px">
@@ -3752,8 +3951,8 @@ export async function requestPage(env, opts = {}) {
               <div>
                 ${googleOn ? `${googleButton("signup", "Continue with Google")}<div class="ob-or">or use your email</div>` : ""}
                 <div class="ob-fields">
-                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
-                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
+                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" autocomplete="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
+                  <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" autocomplete="email" spellcheck="false" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
                   <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
                   <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
@@ -3768,7 +3967,7 @@ export async function requestPage(env, opts = {}) {
                   <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
                   <button class="btn-gold" type="submit">Start my search</button>
                 </div>
-                <p class="ob-note-sm">We use these details only to search for and contact you about matching vehicles. We never share them with third parties.</p>
+                <p class="ob-note-sm">We collect your name and contact details only to search for and contact you about matching vehicles, and share them only with the providers needed to run the service (see our <a href="/privacy" style="color:var(--gold-txt);font-weight:600">Privacy Policy</a>). You can ask us to access, correct or delete your details any time.</p>
               </div>
               ${whatHappensNext()}
             </div>
@@ -3778,7 +3977,7 @@ export async function requestPage(env, opts = {}) {
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
     ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn })}`;
-  return brandDoc(inner, "Find your car - JDM Connect");
+  return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
 }
 
 // Read-only public view of a shared car (the "Share" link). No login, no client
@@ -3798,7 +3997,7 @@ export async function publicLotPage(env, queueId) {
   if (!q) {
     return brandShell(sb,
       `<div class="topbar"><div class="topbar-in"><div class="kicker">Vehicle Finder</div><h1>Car not found</h1></div></div>
-       <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you're after</a> and we'll source it for you.</div></div></div>`,
+       <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you&rsquo;re after</a> and we&rsquo;ll source it for you.</div></div></div>`,
       "Vehicle - JDM Connect");
   }
   let lot = {};
@@ -3813,7 +4012,7 @@ export async function publicLotPage(env, queueId) {
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
   const th = (u) => `${u}&w=320`;
   const gallery = photos.length
-    ? `<div class="plv-hero" id="plvHero" style="background-image:url('${esc(photos[0])}')"></div>
+    ? `<div class="plv-hero" id="plvHero" role="img" aria-label="${title}" style="background-image:url('${esc(photos[0])}')"></div>
        ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
     : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
   const sheetBox = sheetBase
@@ -3854,6 +4053,138 @@ export async function publicLotPage(env, queueId) {
 function plvGalleryScript() {
   return `<script>(function(){var hero=document.getElementById('plvHero');if(!hero)return;document.querySelectorAll('.plv-th').forEach(function(b){b.addEventListener('click',function(){hero.style.backgroundImage="url('"+b.getAttribute('data-full')+"')";document.querySelectorAll('.plv-th').forEach(function(x){x.classList.remove('on');});b.classList.add('on');});});})();</script>`;
 }
+
+// Full detail page for a single LIVE-feed auction lot, reached by clicking a
+// card on the staff Auctions workspace or the member Auction search. Reuses the
+// public lot layout (gallery, inspection sheet, spec rows, market panel) and
+// adds role-appropriate actions: staff get an "Add to a client" picker; members
+// get "Request bid" + watchlist. Answers the client's "I cannot click onto a
+// vehicle" — every lot now opens its full details and auction report.
+export async function auctionLotPage(env, session, lotId, opts = {}) {
+  const member = session && session.role === "client";
+  // Members must have an active, member-enabled portal account (same gate as the
+  // auction search page). Staff (admin/agent) always pass.
+  let client = null;
+  if (member) {
+    client = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    if (!client || !client.member) {
+      const sb = portalSidebar(client || null, "auctions");
+      return brandShell(sb,
+        `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction search</h1></div></div>
+         <div class="content"><div class="card"><div class="empty">Auction search is a members feature. Ask JDM Connect to enable it on your account.</div></div></div>`,
+        "Auction search - JDM Connect");
+    }
+  }
+
+  let lot = null;
+  try { lot = await fetchLot(env, lotId); } catch (e) { /* feed hiccup → not found */ }
+  const backHref = member ? "/portal/auctions" : "/admin?view=auctions";
+  if (!lot || !lot.id) {
+    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>Lot not found</h1></div>${member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`}</div>
+       <div class="content"><div class="card"><div class="empty">This lot may have closed or left the live feed. <a href="${backHref}" style="color:var(--gold-txt);font-weight:600">Back to auction search</a>.</div></div></div>${CRM_CSS}`;
+    return member
+      ? brandShell(portalSidebar(client, "auctions"), notFoundBody, "Lot not found - JDM Connect")
+      : shell(sidebar("auctions", {}, session), notFoundBody, "Lot not found - JDM Connect");
+  }
+
+  const nowYear = new Date().getFullYear();
+  const { sheet: sheetBase, photos } = splitImages(lot);
+  const settings = await getSettings(env).catch(() => ({}));
+  const showMarket = member ? settingOn(settings, "market_for_clients") : true;
+  const [market, fx] = showMarket
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    : [null, 0];
+
+  const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
+  const th = (u) => `${u}&w=320`;
+  const gallery = photos.length
+    ? `<div class="plv-hero" id="plvHero" role="img" aria-label="${title}" style="background-image:url('${esc(photos[0])}')"></div>
+       ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
+    : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
+  const sheetBox = sheetBase
+    ? `<div class="card plv-sheet"><h2>Auction inspection report</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
+    : "";
+  const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const specRows = [
+    ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
+    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
+    ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
+    ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
+    ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
+
+  const elig = auctionEligibility(lot, nowYear);
+  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : " — ask us to confirm SEVS/age"}</div>`;
+
+  // Actions differ by surface. Members can request a bid and watch; staff can
+  // add the lot to any client they can see (reuses the /client/find flow).
+  let actions;
+  if (member) {
+    const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
+    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(displayGrade(lot.rate))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
+    actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
+      <button type="button" class="ac-fav plv-watch" ${heartData} aria-pressed="false">Save to watchlist</button>
+      <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
+  } else {
+    const acc = accessScope(session);
+    const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+    const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
+    const options = clients.map((cl) => `<option value="${cl.id}">${esc(cl.name)}</option>`).join("");
+    actions = clients.length
+      ? `<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to a client...</option>${options}</select><button class="btn-gold" type="submit">Add</button></form>
+         <p class="plv-fine">Adds this lot to the client's review queue as a manual find, ready to Approve &amp; send.</p>`
+      : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
+  }
+
+  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`;
+  const main = `
+    <div class="topbar"><div class="topbar-in"><div class="kicker">${member ? "Members &middot; Auction vehicle" : "Vehicle Finder &middot; Auction vehicle"}</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div>${topRight}</div>
+    <div class="content">
+      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; Back to auction search</a>`}
+      <div class="plv-grid">
+        <div class="plv-left">
+          <div class="plv-gallery">${gallery}</div>
+          ${sheetBox}
+          ${showMarket ? marketPanel(market, fx) : ""}
+        </div>
+        <aside class="plv-right">
+          <div class="card plv-spec">
+            <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
+            ${eligLine}
+            <div class="plv-actions">${actions}</div>
+            <div class="plv-rows">${specRows}</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+    ${PLV_STYLE}${ALOT_CSS}${plvGalleryScript()}${auctionWatchScript({ request: false })}`;
+  return member
+    ? brandShell(portalSidebar(client, "auctions"), main, title + " - JDM Connect")
+    : shell(sidebar("auctions", {}, session), main, title + " - JDM Connect");
+}
+
+// Extra styles for the lot-detail action column (on top of PLV_STYLE).
+const ALOT_CSS = `<style>
+  .plv-top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
+  .plv-grade-n{font-size:26px;font-weight:800;color:var(--ink);line-height:1}
+  .plv-grade-k,.plv-price-k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+  .plv-price{text-align:right}
+  .plv-price-v{font-size:20px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .alot-elig{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding:10px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:14px}
+  .alot-elig .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .alot-elig.ok{color:#1F7A4D}.alot-elig.ok .dot{background:#1F7A4D}
+  .alot-elig.check{color:#8a5e10}.alot-elig.check .dot{background:#C9A34C}
+  .plv-actions{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+  .plv-cta{width:100%;text-align:center}
+  .plv-picker{display:flex;gap:8px}
+  .plv-picker select{flex:1;min-width:0;padding:11px 13px;border-radius:9px}
+  .plv-watch{width:100%;justify-content:center;gap:8px;padding:11px 14px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;font-weight:600;cursor:pointer}
+  .plv-watch svg{display:none}
+  .plv-watch.on{border-color:var(--gold-line);color:var(--gold-txt)}
+  .plv-fine{font-size:11.5px;color:var(--t3);margin:2px 0 0;line-height:1.45}
+</style>`;
 
 const PLV_STYLE = `<style>
   .plv-grid{display:grid;grid-template-columns:1fr;gap:22px}
@@ -4020,8 +4351,8 @@ function tableToolsScript() {
 }
 
 function shell(side, main, title) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
+    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -4059,7 +4390,17 @@ function drawerChrome() {
     .dw-list{display:flex;flex-direction:column;gap:8px}
     .dw-item{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:11px 14px}
     .dw-item-t{font-size:14px;font-weight:600;color:var(--ink)}
-    .dw-item-s{font-size:12px;color:var(--t3);margin-top:4px}
+    .dw-item-s{font-size:12px;color:var(--t3);margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+    .dw-cta{display:flex;gap:8px;margin:14px 0 4px}
+    .dw-cta-b{flex:1;text-align:center;text-decoration:none;font-size:13px;font-weight:600;padding:9px 12px;border-radius:9px;background:var(--card);border:1px solid var(--hair);color:var(--ink)}
+    .dw-cta-b:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+    .eng{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px;white-space:nowrap}
+    .eng-viewed{background:var(--gold-tint);color:var(--gold-txt)}
+    .eng-sent{background:rgba(201,138,0,.14);color:#8a5e10}
+    .dw-str{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px}
+    .dw-str-strong{background:rgba(31,122,77,.14);color:#1F7A4D}
+    .dw-str-good{background:var(--gold-tint);color:var(--gold-txt)}
+    .dw-str-possible{background:rgba(0,0,0,.06);color:var(--t2)}
   </style>
   <script>(function(){
     var panel=document.getElementById('dwPanel'),scrim=document.getElementById('dwScrim'),content=document.getElementById('dwContent'),closeBtn=document.getElementById('dwClose');
@@ -4107,6 +4448,16 @@ async function wishlistAccessibleBy(env, wishlistId, session) {
   if (!session || session.role === "admin") return true;
   const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
   return !!w && (await clientAccessibleBy(env, w.client_id, session));
+}
+
+// Owner guard for wishlists (strict): admin, or the agent who owns the parent
+// client. Shared access is for co-searching (view/add matches) — it must never
+// allow destructive or workflow-mutating actions (delete/edit/toggle a search,
+// reschedule follow-ups) on another agent's client.
+async function wishlistOwnedBy(env, wishlistId, session) {
+  if (!session || session.role === "admin") return true;
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
+  return !!w && (await clientOwnedBy(env, w.client_id, session));
 }
 
 // SQL predicate (alias c = clients) + bind values for "rows this session may
@@ -4275,15 +4626,22 @@ export async function deleteClient(env, id, session) {
   for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
   stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+  // Clear the free-text CRM trail (activity timeline + tasks hold names, notes
+  // and "Vehicle sent: …" detail) so it isn't orphaned after the client is
+  // gone (APP 11.2). Payments are intentionally retained for financial records
+  // (client_id is NOT NULL and the row holds no name/email/phone).
+  stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
   await env.DB.batch(stmts);
 }
 
 // Delete a single wishlist plus its queued matches and seen-lot history.
+// Owner-only: destructive, so shared (co-search) access is not enough.
 export async function deleteWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistAccessibleBy(env, wid, session))) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
@@ -4292,10 +4650,11 @@ export async function deleteWishlist(env, id, session) {
 }
 
 // Flip a wishlist active/paused. Paused wishlists are skipped by the matcher.
+// Owner-only: pausing another agent's search would silently stop their matches.
 export async function toggleWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistAccessibleBy(env, wid, session))) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.prepare(
     "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
   ).bind(wid).run();
@@ -4351,6 +4710,8 @@ export async function deleteAgent(env, id) {
     for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
     stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(c.id));
     stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(c.id));
   }
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE agent_id = ?").bind(aid)); // shares received
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE agent_id = ?").bind(aid));
@@ -4410,6 +4771,8 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
       stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
     }
     await env.DB.batch(stmts);
@@ -4445,8 +4808,10 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
 export async function toggleAgent(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
+  // Bump session_ver too: deactivating an agent should end their live sessions
+  // immediately, not just block the next login.
   await env.DB.prepare(
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(aid).run();
 }
 
@@ -4630,16 +4995,20 @@ export async function upsertGoogleClient(env, profile) {
   let existing = null;
   if (sub) {
     existing = await env.DB.prepare(
-      "SELECT id FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
+      "SELECT id, portal_revoked FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
     ).bind(sub).first();
   }
   if (!existing) {
     existing = await env.DB.prepare(
-      "SELECT id FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
+      "SELECT id, portal_revoked FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
     ).bind(email).first();
   }
 
   if (existing) {
+    // Staff revocation is a hard veto: never let Google sign-in silently
+    // re-enable a client staff locked out. The caller bounces to an error
+    // page; a staff re-invite is the way back in.
+    if (existing.portal_revoked) return null;
     // Link the Google id, enable the portal, and backfill a blank/placeholder
     // name - but never overwrite a real name already on file.
     await env.DB.prepare(
@@ -4743,9 +5112,12 @@ const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo,
 async function enablePortalSelfSignup(env, clientId, password) {
   if (!clientId || passwordPolicyError(password)) return false;
   const { salt, hash } = await hashPassword(password);
+  // portal_revoked = 0 guard: a revoke clears pass_hash, so without it this
+  // "only if no password yet" condition would let a staff-revoked client
+  // self-signup straight back into the portal.
   const r = await env.DB.prepare(
     `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
-       WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '')`
+       WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '') AND portal_revoked = 0`
   ).bind(salt, hash, clientId).run();
   return (r.meta?.changes || 0) > 0;
 }
@@ -4757,12 +5129,13 @@ async function enablePortalSelfSignup(env, clientId, password) {
 const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function portalSidebar(c, active = "garage") {
-  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}" href="${href}"><span class="bar"></span><span class="lbl">${label}</span></a>`;
+  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
   // The auction search page is a paid-member perk, gated on clients.member.
   const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
+  const sold = c && c.member ? item("sold", "/portal/sold", "Sold auctions") : "";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
-    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}</nav>
+    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}${sold}</nav>
     <div class="side-foot">
       <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">${c && c.member ? "Member" : "Client"}</span></div>
       <a class="signout" href="/logout">Sign out</a>
@@ -4795,89 +5168,126 @@ export async function portalAuctionsPage(env, session, params = {}) {
       "Auction search - JDM Connect");
   }
 
-  const makers = await distinctMakers(env);
-  const yMax = new Date().getFullYear() + 1;
-  const v = (k) => esc(params[k] ?? "");
-  const hasQuery = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(params[k] || "").trim());
+  const nowYear = new Date().getFullYear();
+  const tab = params.tab === "watch" ? "watch" : "live";
+  const view = params.view === "list" ? "list" : "grid";
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+  const bidCount = (await env.DB.prepare(
+    "SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1"
+  ).bind(cid).first())?.n || 0;
 
-  let resultsBlock = "";
-  if (hasQuery) {
-    const { lots, page, hasMore } = await searchLots(env, params);
+  // URL builder that preserves the active search, filters and view across tabs
+  // and paging.
+  const clean = {};
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
+    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/portal/auctions?" + new URLSearchParams({ ...clean, ...over }).toString();
+
+  const header = auctionSearchHeader({
+    action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
+    p: params, makers, models, houses, showBid: true, bidCount,
+  });
+  const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), { sold: false });
+
+  let body = "";
+  if (tab === "watch") {
+    body = `${tabs}<div id="watchGrid" class="acgrid"></div>`;
+  } else {
+    const page = Math.max(1, parseInt(params.page, 10) || 1);
+    const { lots, hasMore } = await searchLots(env, { ...params, page });
+    const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify ac-req" type="submit">Request bid</button></form>`;
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }) });
+    let grid;
     if (lots.length) {
-      const q = (over) => "/portal/auctions?" + new URLSearchParams({ ...stripBlank(params), page: String(over) }).toString();
-      const prev = page > 1 ? `<a class="btn-dark" href="${esc(q(page - 1))}">&larr; Newer</a>` : "";
-      const next = hasMore ? `<a class="btn-dark" href="${esc(q(page + 1))}">Older &rarr;</a>` : "";
-      resultsBlock = `<div class="psec" style="margin-top:30px"><h2>Live lots${page > 1 ? ` &middot; page ${page}` : ""}</h2><p class="psub">Soonest auctions first. Tap “Request this car” and we'll chase it for you.</p></div>
-        <div class="mgrid">${lots.map(auctionResultCard).join("")}</div>
-        ${(prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : ""}`;
+      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot), detailBase: "/portal/auctions/lot?id=" })).join("")}</div>`;
     } else {
-      resultsBlock = `<div class="card" style="margin-top:30px"><div class="empty">No upcoming lots match that search. Try widening it - fewer filters, or a broader make/model.</div></div>`;
+      const filtered = Object.keys(clean).some((k) => k !== "view");
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
     }
+    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
+    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+    body = `${tabs}${toolbar}${grid}${pager}`;
   }
 
-  const form = `<div class="card">
-    <h2><span class="num">${ICONS.search || "&#9906;"}</span> Search the auctions</h2>
-    <form method="GET" action="/portal/auctions">
-      <div class="grid">
-        <div><label>Make<input name="make" list="au-makers" value="${v("make")}" placeholder="e.g. NISSAN"></label><datalist id="au-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist></div>
-        <div><label>Model <span class="opt">(contains)</span><input name="model" value="${v("model")}" placeholder="e.g. SKYLINE"></label></div>
-        <div><label>Year from<input name="yearMin" type="number" min="1960" max="${yMax}" value="${v("yearMin")}" placeholder="1990"></label></div>
-        <div><label>Year to<input name="yearMax" type="number" min="1960" max="${yMax}" value="${v("yearMax")}" placeholder="2002"></label></div>
-        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></label></div>
-        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="e.g. 4"></label></div>
-        <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${v("kuzov")}" placeholder="e.g. GDB"></label></div>
-      </div>
-      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
-        <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
-    </form>
-  </div>`;
-
-  const flash = params._flash ? `<div class="banner"><span class="txt">${esc(params._flash)}</span></div>` : "";
+  const flash = params._flash ? `<div class="flash">${esc(params._flash)}</div>` : "";
   const main = `
     <div class="topbar">
       <div class="topbar-in">
         <div class="kicker">Members</div>
         <h1>Auction search</h1>
-        <p class="subline">Search every live Japanese auction, then ask us to chase any car.</p>
+        <p class="subline">Search every live Japanese auction, save cars to your watchlist, then ask us to chase any lot.</p>
       </div>
     </div>
-    <div class="content">${flash}${form}${resultsBlock}</div>`;
+    <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true })}${AUCTION_CSS}</div>`;
   return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
 }
 
-// Drop blank values so pagination links stay clean.
-function stripBlank(params) {
-  const out = {};
-  for (const k of ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"]) {
-    const val = String(params[k] ?? "").trim();
-    if (val) out[k] = val;
+// Member-only "Sold auctions" page: browse recent sold-price history from the
+// stats feed with the same search UI. Gated on clients.member.
+export async function portalSoldPage(env, session, params = {}) {
+  const cid = Number(session.id);
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  if (!c) {
+    return brandShell(portalSidebar(null),
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
+      "Sold auctions - JDM Connect");
   }
-  return out;
-}
+  if (!c.member) {
+    return brandShell(portalSidebar(c, "sold"),
+      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Sold auctions</h1><p class="subline">See what cars actually sold for at recent Japanese auctions.</p></div></div>
+       <div class="content"><div class="card"><div class="empty">Sold-price history is a members feature. Ask JDM Connect to upgrade your account and you'll see what every car sells for.</div></div></div>`,
+      "Sold auctions - JDM Connect");
+  }
 
-// A single live-auction lot in the member search results.
-function auctionResultCard(lot) {
-  const img = imageUrls(lot).medium;
-  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
-  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
-  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  return `<div class="mcard">
-    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title || "Vehicle"}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+  const nowYear = new Date().getFullYear();
+  const view = params.view === "list" ? "list" : "grid";
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+
+  const clean = {};
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
+    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/portal/sold?" + new URLSearchParams({ ...clean, ...over }).toString();
+
+  const header = auctionSearchHeader({
+    action: "/portal/sold", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
+    p: params, makers, models, houses, showBid: false, label: "Search sold auction results",
+  });
+
+  const page = Math.max(1, parseInt(params.page, 10) || 1);
+  const { lots, hasMore } = await searchSold(env, { ...params, page });
+  const findLive = (lot) => `<a class="btn-notify ac-req" href="/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), label: "Sold at auction" });
+  let grid;
+  if (lots.length) {
+    grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot) })).join("")}</div>`;
+  } else {
+    const filtered = Object.keys(clean).some((k) => k !== "view");
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
+  }
+  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; More recent</a>` : "";
+  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+
+  const main = `
+    <div class="topbar">
+      <div class="topbar-in">
+        <div class="kicker">Members</div>
+        <h1>Sold auctions</h1>
+        <p class="subline">See what cars actually sold for at recent Japanese auctions, so you know what to bid.</p>
+      </div>
     </div>
-    <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
-      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
-    </div>
-    <div class="mfoot">
-      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
-      <form method="POST" action="/portal/auctions/request" style="display:inline"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify" type="submit">Request this car</button></form>
-    </div>
-  </div>`;
+    <div class="content">${header}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}</div>`;
+  return brandShell(portalSidebar(c, "sold"), main, "Sold auctions - JDM Connect");
 }
 
 // Member requests a lot found via auction search. Files it against a per-client
@@ -4975,62 +5385,27 @@ function staffFindCard(lot, clientId, firstName, qsBack) {
 // /client/find flow as the in-client search); sold history reuses marketIntel +
 // marketPanel. Hits the live feed only when a query is present.
 export async function adminAuctionsPage(env, session, opts = {}) {
-  const tab = opts.tab === "sold" ? "sold" : "live";
+  const tab = ["sold", "prices", "watch"].includes(opts.tab) ? opts.tab : "live";
   const sp = opts.search || {};
-  const sv = (k) => esc(sp[k] || "");
-  const makers = await distinctMakers(env);
-  const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
-  const tabLink = (t, label) => `<a class="auc-tab${tab === t ? " on" : ""}" href="/admin?view=auctions&tab=${t}">${label}</a>`;
-  const tabs = `<div class="auc-tabs">${tabLink("live", "Live auctions")}${tabLink("sold", "Sold-price history")}</div>`;
+  const layout = sp.layout === "list" ? "list" : "grid";
+  const nowYear = new Date().getFullYear();
 
-  let panel = "";
-  if (tab === "live") {
-    const keys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
-    const hasQuery = keys.some((k) => String(sp[k] || "").trim());
-    let results = "";
-    if (hasQuery) {
-      const page = Math.max(1, parseInt(sp.page, 10) || 1);
-      const { lots, hasMore } = await searchLots(env, { ...sp, page });
-      if (lots.length) {
-        const acc = accessScope(session);
-        const stmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
-        const clients = ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
-        const qs = new URLSearchParams({ view: "auctions", tab: "live" });
-        for (const k of keys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-        const pageLink = (p) => { const u = new URLSearchParams(qs); u.set("page", String(p)); return "/admin?" + u.toString(); };
-        const back = pageLink(page); // return to this exact page after adding a car
-        const prev = page > 1 ? `<a class="btn-dark" href="${esc(pageLink(page - 1))}">&larr; Newer</a>` : "";
-        const next = hasMore ? `<a class="btn-dark" href="${esc(pageLink(page + 1))}">Older &rarr;</a>` : "";
-        const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
-        results = `${page > 1 ? `<p class="help" style="margin:18px 0 0">Page ${page}</p>` : ""}<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCardWithPicker(lot, clients, back)).join("")}</div>${pager}`;
-      } else {
-        results = page > 1
-          ? `<div class="empty" style="margin-top:14px">No more lots. <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600">Back to the start</a>.</div>`
-          : `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
-      }
-    }
-    const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue — it's under their Live matches, ready to Approve &amp; send.</div>`
-      : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
-      : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot — please try again.</div>` : "";
-    panel = `${flash}<div class="card">
-      <form method="GET" action="/admin">
-        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">
-        <div class="grid">
-          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN"></label>${datalist}</div>
-          <div><label>Model <span class="opt">(contains)</span><input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE"></label></div>
-          <div><label>Year from<input name="yearMin" type="number" min="1960" value="${sv("yearMin")}" placeholder="1990"></label></div>
-          <div><label>Year to<input name="yearMax" type="number" min="1960" value="${sv("yearMax")}" placeholder="2002"></label></div>
-          <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${sv("priceMax")}" placeholder="3,000,000"></label></div>
-          <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${sv("gradeMin")}" placeholder="e.g. 4"></label></div>
-          <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${sv("kuzov")}" placeholder="e.g. GDB"></label></div>
-        </div>
-        <div class="actions"><button class="btn-gold" type="submit">Search live auctions</button>
-          <span class="help">Upcoming Japanese auctions, soonest first. Add any lot to a client to queue it for review.</span></div>
-      </form>${results}
-    </div>`;
-  } else {
-    const make = String(sp.make || "").trim();
-    const model = String(sp.model || "").trim();
+  // Preserve the active search + layout across tabs and paging. On /admin the
+  // `view` param selects the page, so the grid/list toggle uses `layout`.
+  const clean = { view: "auctions" };
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "layout"]) {
+    const val = String(sp[k] ?? "").trim(); if (val) clean[k] = val;
+  }
+  const buildUrl = (over) => "/admin?" + new URLSearchParams({ ...clean, ...over }).toString();
+  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { sold: true, stats: true });
+
+  // Sold prices: the make/model lookup with the market panel (average, median,
+  // trend). The browsable Sold auctions grid lives under the "sold" tab below.
+  if (tab === "prices") {
+    const makers = await distinctMakers(env);
+    const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
+    const sv = (k) => esc(sp[k] || "");
+    const make = String(sp.make || "").trim(), model = String(sp.model || "").trim();
     let intel = "";
     if (make && model) {
       const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
@@ -5038,9 +5413,9 @@ export async function adminAuctionsPage(env, session, opts = {}) {
         ? `<div style="margin-top:18px">${marketPanel(m, fx)}</div>`
         : `<div class="empty" style="margin-top:14px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
     }
-    panel = `<div class="card">
+    const panel = `<div class="card">
       <form method="GET" action="/admin">
-        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="sold">
+        <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="prices">
         <div class="grid2">
           <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN" required></label>${datalist}</div>
           <div><label>Model<input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE" required></label></div>
@@ -5049,59 +5424,79 @@ export async function adminAuctionsPage(env, session, opts = {}) {
           <span class="help">Recent sold-auction results: average, median, range, a 12-week trend and recent comparables.</span></div>
       </form>${intel}
     </div>`;
+    return `${tabs}${panel}${AUCTION_CSS}`;
   }
-  return `${tabs}${panel}${AUC_CSS}`;
-}
 
-// One live-auction lot in the Auctions workspace, with a client picker that
-// queues it via /client/find (returning to the same search via `back`).
-function staffFindCardWithPicker(lot, clients, back) {
-  const img = imageUrls(lot).medium;
-  const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
-  const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
-  const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  const soldLink = (lot.marka_name && lot.model_name)
-    ? `/admin?view=auctions&tab=sold&make=${encodeURIComponent(lot.marka_name)}&model=${encodeURIComponent(lot.model_name)}` : "";
+  // Live, Watchlist and the browsable Sold auctions grid share the search header
+  // (and, for live, the client list that powers the add-to-client picker).
+  const [makers, houses, fx] = await Promise.all([
+    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  ]);
+  const models = String(sp.make || "").trim() ? await distinctModels(env, sp.make) : [];
+  const headerTab = tab === "sold" ? "sold" : "live";
+  const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="${headerTab}">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
+  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
+
+  if (tab === "watch") {
+    return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+  }
+
+  // Browsable Sold auctions grid (staff): recent sold lots, each linking through
+  // to the Sold prices analytics for that model.
+  if (tab === "sold") {
+    const page = Math.max(1, parseInt(sp.page, 10) || 1);
+    const { lots, hasMore } = await searchSold(env, { ...sp, page });
+    const soldAction = (lot) => `<a class="btn-notify ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "prices", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Sold prices</a>`;
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "sold", layout: mode }), label: "Sold at auction" });
+    let grid;
+    if (lots.length) {
+      grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: soldAction(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+    } else {
+      const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
+    }
+    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page - 1 }))}">&larr; More recent</a>` : "";
+    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page + 1 }))}">Older &rarr;</a>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+    return `${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+  }
+
+  const acc = accessScope(session);
+  const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+  const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
-  return `<div class="mcard">
-    <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="grad"></div>
-      <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
-    </div>
-    <div class="mstats">
-      <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
-      <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
-      <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
-    </div>
-    ${soldLink ? `<a class="auc-sold" href="${soldLink}">View sold-price history &rarr;</a>` : ""}
-    <div class="mfoot">
-      ${clients.length
-        ? `<form method="POST" action="/client/find" style="display:flex;gap:8px;width:100%">
-            <input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}">
-            <select name="client_id" class="auc-cl" required aria-label="Add this car to a client"><option value="">Add to client…</option>${options}</select>
-            <button class="btn-notify" type="submit">Add</button>
-          </form>`
-        : `<span class="help">Add a client first to queue cars.</span>`}
-    </div>
-  </div>`;
-}
 
-const AUC_CSS = `<style>
-  .auc-tabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:4px;margin-bottom:18px}
-  .auc-tab{padding:8px 16px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--t2);text-decoration:none}
-  .auc-tab:hover{color:var(--ink)}
-  .auc-tab.on{background:var(--gold-tint);color:var(--gold-txt)}
-  .auc-sold{display:inline-block;margin:0 16px 12px;font-size:12.5px;font-weight:600;color:var(--gold-txt)}
-  .auc-cl{flex:1;min-width:0}
-</style>`;
+  const page = Math.max(1, parseInt(sp.page, 10) || 1);
+  const { lots, hasMore } = await searchLots(env, { ...sp, page });
+  const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
+  const pickerFor = (lot) => clients.length
+    ? `<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
+    : `<span class="help">Add a client first to queue cars.</span>`;
+
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
+  let grid;
+  if (lots.length) {
+    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+  } else {
+    const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+  }
+  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
+  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+  const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
+    : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
+    : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
+  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+}
 
 // Admin: flip a client's paid-member flag (gates the auction page).
 export async function setClientMember(env, clientId, on, session) {
   const id = Number(clientId);
   if (!Number.isInteger(id) || id <= 0) return;
-  if (!(await clientAccessibleBy(env, id, session))) return;
+  // Admin only (defence in depth alongside the route guard): membership is a
+  // paid feature — the Stripe webhook is the only other writer of this flag.
+  if (session?.role !== "admin") return;
   await env.DB.prepare("UPDATE clients SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
 }
 
@@ -5379,7 +5774,9 @@ export async function inviteClientPortal(env, clientId, session) {
   if (!c || !c.email) return { ok: false, error: "no-email" };
   const token = randomToken();
   const exp = Date.now() + PORTAL_INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
+  // A staff re-invite is the one sanctioned way back in after a revoke, so it
+  // clears the portal_revoked veto.
+  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
   return { ok: true, token, email: c.email, name: c.name };
 }
 
@@ -5387,7 +5784,10 @@ export async function revokeClientPortal(env, clientId, session) {
   const cid = Number(clientId);
   if (!Number.isInteger(cid) || cid <= 0) return;
   if (!(await clientOwnedBy(env, cid, session))) return;
+  // portal_revoked = 1 is the durable staff veto: without it, Google sign-in
+  // and request-form self-signup would silently re-enable this client.
+  // Bump session_ver so any cookie the client still holds stops validating now.
   await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 0, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(cid).run();
 }

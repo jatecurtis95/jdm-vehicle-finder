@@ -1,7 +1,7 @@
 // Matcher engine: turn a wishlist into a filtered SQL query against the live
 // `main` feed, fetch candidates, refine in code, dedupe, and queue new matches.
 
-import { query, sqlString, sqlInt, sqlNum, gradeValue } from "./avtonet.js";
+import { query, sqlLike, sqlInt, sqlNum, gradeValue } from "./avtonet.js";
 import { deliverToClient } from "./notify.js";
 import { attachLanded } from "./calc.js";
 import { getSettings, settingNum } from "./settings.js";
@@ -19,11 +19,11 @@ export function buildSql(w) {
     // Best-match on the primary brand word so "Mercedes" / "Mercedes-Benz" both
     // catch the feed's "MERCEDES BENZ" AND "MERCEDES AMG" (where cars like the
     // E55 live). Falls back to the whole string if it's a single token.
-    const mk = sqlString(w.marka_name).toUpperCase().split(/[\s\-]+/).filter(Boolean)[0];
+    const mk = sqlLike(w.marka_name).toUpperCase().split(/[\s\-]+/).filter(Boolean)[0];
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   if (w.model_name) {
-    where.push(`UPPER(model_name) LIKE '%${sqlString(w.model_name).toUpperCase()}%'`);
+    where.push(`UPPER(model_name) LIKE '%${sqlLike(w.model_name).toUpperCase()}%'`);
   }
   const yearMin = sqlInt(w.year_min);
   if (yearMin !== null) where.push(`year >= ${yearMin}`);
@@ -44,10 +44,10 @@ export function buildSql(w) {
   if (mileageMax !== null) where.push(`(mileage > 0 AND mileage <= ${mileageMax})`);
 
   if (w.kuzov) {
-    where.push(`UPPER(kuzov) LIKE '%${sqlString(w.kuzov).toUpperCase()}%'`);
+    where.push(`UPPER(kuzov) LIKE '%${sqlLike(w.kuzov).toUpperCase()}%'`);
   }
   if (w.grade_kw) {
-    where.push(`UPPER(grade) LIKE '%${sqlString(w.grade_kw).toUpperCase()}%'`);
+    where.push(`UPPER(grade) LIKE '%${sqlLike(w.grade_kw).toUpperCase()}%'`);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";

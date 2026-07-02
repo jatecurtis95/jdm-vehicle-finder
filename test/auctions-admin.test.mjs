@@ -15,12 +15,14 @@ test("the Auctions nav item shows in the sidebar", async () => {
   assert.match(html, /href="\/admin\?view=auctions"/);
 });
 
-test("Auctions live tab renders both tabs and the search form", async () => {
+test("Auctions live tab renders the tabs and the search bar", async () => {
   const env = makeEnv(); stub(lotXml());
   const html = await adminPage(env, "auctions", ADMIN, { tab: "live", search: {} });
   assert.match(html, /Live auctions/);
-  assert.match(html, /Sold-price history/);
-  assert.match(html, /Search live auctions/);
+  assert.match(html, /Watchlist/);
+  assert.match(html, /Sold prices/);
+  assert.match(html, /Search make, model, chassis code/);
+  assert.match(html, /All houses/);
 });
 
 test("Auctions live search lists lots with an Add-to-client picker", async () => {
@@ -34,8 +36,19 @@ test("Auctions live search lists lots with an Add-to-client picker", async () =>
   assert.match(html, /action="\/client\/find"/);
 });
 
-test("Auctions sold tab shows a no-data message when there are no sold records", async () => {
+test("Auctions Sold prices tab shows a no-data message when there are no sold records", async () => {
   const env = makeEnv(); stub(`<aj></aj>`);
-  const html = await adminPage(env, "auctions", ADMIN, { tab: "sold", search: { make: "NISSAN", model: "SKYLINE" } });
+  const html = await adminPage(env, "auctions", ADMIN, { tab: "prices", search: { make: "NISSAN", model: "SKYLINE" } });
   assert.match(html, /No sold records/i);
+});
+
+test("Auctions Sold auctions tab browses the sold feed with a Sold-prices link", async () => {
+  const env = makeEnv();
+  const soldXml = `<aj><row><id>S1</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><rate>4</rate><finish>2500000</finish><auction>USS Tokyo</auction><auction_date>2026-06-01T00:00:00</auction_date></row></aj>`;
+  stub(soldXml);
+  const html = await adminPage(env, "auctions", ADMIN, { tab: "sold", search: {} });
+  assert.match(html, /Sold auctions/);        // the tab
+  assert.match(html, /Sold price/);           // the card price label
+  assert.match(html, /¥2,500,000/);
+  assert.match(html, /tab=prices/);           // card links through to the analytics
 });

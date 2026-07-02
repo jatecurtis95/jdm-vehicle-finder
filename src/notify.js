@@ -47,7 +47,12 @@ export async function sendEmail(env, { to, subject, html, from }) {
   // sent and return a fake success so flows complete without real email going
   // out. Set MAIL_DRY_RUN=1 in .dev.vars (or any non-production environment).
   if (env.MAIL_DRY_RUN === "1" || env.MAIL_DRY_RUN === true) {
-    console.log(`[MAIL_DRY_RUN] suppressed email to ${Array.isArray(to) ? to.join(", ") : to} | subject: ${subject}`);
+    // Mask addresses: Worker logs stream via `wrangler tail` (and any logpush
+    // sink), so raw client emails must not land there if this flag is ever on
+    // in production.
+    const mask = (a) => String(a || "").replace(/^(.).*?(@|$)/, "$1***$2");
+    const toLog = Array.isArray(to) ? to.map(mask).join(", ") : mask(to);
+    console.log(`[MAIL_DRY_RUN] suppressed email to ${toLog} | subject: ${subject}`);
     return { id: "dry-run", dryRun: true };
   }
   if (!env.RESEND_API_KEY) {

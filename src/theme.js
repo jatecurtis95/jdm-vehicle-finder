@@ -95,6 +95,11 @@ export const themeCss = `
   html{-webkit-text-size-adjust:100%}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;line-height:1.5}
   a{color:inherit;text-decoration:none}
+  /* Visually-hidden skip link: off-screen until keyboard focus, then it
+     snaps to the top-left as a visible gold box. Targets #main (present on
+     the sidebar shell); harmless where that anchor is absent. */
+  .skip-link{position:absolute;left:-9999px;top:0;z-index:10000;padding:10px 16px;background:var(--gold);color:#15120A;font-weight:700;font-size:14px;border-radius:0 0 8px 0;font-family:${FONT}}
+  .skip-link:focus{left:0;outline:2px solid var(--ink);outline-offset:2px}
   ::selection{background:var(--gold-tint);color:var(--ink)}
   .risingsun{position:absolute;pointer-events:none;z-index:0}
 
@@ -126,13 +131,13 @@ export const themeCss = `
   .topbar .btn-dark{position:relative;z-index:1}
   .kicker{display:flex;align-items:center;gap:10px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase}
   .kicker:before{content:"";width:26px;height:1px;background:var(--gold);display:inline-block}
-  h1{font-size:34px;font-weight:700;letter-spacing:-0.02em;margin:13px 0 7px;line-height:1.04;color:var(--ink)}
-  .subline{color:var(--t3);font-size:15px;margin:0;max-width:60ch}
+  h1{font-size:34px;font-weight:700;letter-spacing:-0.02em;margin:13px 0 7px;line-height:1.04;color:var(--ink);text-wrap:balance}
+  .subline{color:var(--t3);font-size:15px;margin:0;max-width:60ch;text-wrap:balance}
   .content{padding:32px 40px 64px;max-width:1180px;width:100%;position:relative;z-index:1}
 
   /* Cards + forms */
   .card{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);padding:26px 28px;margin-bottom:24px}
-  .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px;color:var(--ink)}
+  .card h2{font-size:16px;font-weight:600;margin:0 0 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--hair);padding-bottom:16px;color:var(--ink);text-wrap:balance}
   .card h2 .num{color:var(--gold);font-weight:700}
   details.foldcard>summary{font-size:16px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:11px;cursor:pointer;list-style:none;margin:0}
   details.foldcard>summary::-webkit-details-marker{display:none}
@@ -161,6 +166,7 @@ export const themeCss = `
   .help{color:var(--faint);font-size:13px;line-height:1.5}
 
   /* Buttons */
+  .btn-gold,.btn-dark,.btn-notify,.btn-search{touch-action:manipulation}
   .btn-gold{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;font-weight:700;border:0;padding:12px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};transition:background .15s,transform .05s}
   .btn-gold:hover{background:var(--gold-hover)}
   .btn-gold:active{transform:translateY(1px)}
@@ -329,7 +335,7 @@ export const themeCss = `
     .wrap{flex-direction:column}
     .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-burger svg{width:22px;height:22px}
-    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
+    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto;overscroll-behavior:contain}
     .nav{flex-direction:column}
     .side-foot{flex-direction:column;margin-top:auto;padding-top:20px}
     .nav-cb:checked ~ .wrap .side{transform:none}
@@ -338,6 +344,12 @@ export const themeCss = `
   }
   @media(max-width:640px){
     .grid{grid-template-columns:1fr}
+    /* Buyer garage + auction results: the minmax(320px) track overflowed a
+       phone; force a single column so cards never bleed off-screen. */
+    .mgrid{grid-template-columns:1fr}
+    .wlhead{flex-wrap:wrap}
+    .wlacts{width:100%;justify-content:flex-end}
+    .btn-toggle,.btn-del{min-height:40px}
     .topbar,.content{padding-left:20px;padding-right:20px}
     .topbar{padding-top:24px;padding-bottom:22px}
     h1{font-size:28px}
@@ -378,24 +390,124 @@ const WA_TZ = "Australia/Perth";       // AWST
 const WA_PREFILL = "Hi JDM Connect, I'd like to ask about importing a car.";
 const WA_ICON = `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 .4C7.4.4.5 7.3.5 15.9c0 2.8.7 5.5 2.1 7.9L.4 31.6l8-2.1c2.3 1.3 4.9 1.9 7.6 1.9 8.6 0 15.5-6.9 15.5-15.5S24.6.4 16 .4zm0 28.3c-2.4 0-4.7-.6-6.7-1.8l-.5-.3-4.8 1.3 1.3-4.6-.3-.5c-1.3-2.1-2-4.5-2-7 0-7.2 5.8-13 13-13s13 5.8 13 13-5.8 13-13 13zm7.1-9.7c-.4-.2-2.3-1.1-2.6-1.3-.3-.1-.6-.2-.8.2-.2.4-.9 1.3-1.1 1.5-.2.2-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.3-2.1-2.7-.2-.4 0-.6.2-.8.2-.2.4-.4.5-.6.2-.2.2-.4.4-.6.1-.2.1-.5 0-.7-.1-.2-.8-2-1.1-2.7-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4-.3.4-1.2 1.2-1.2 2.9 0 1.7 1.2 3.3 1.4 3.6.2.2 2.4 3.7 5.9 5.2.8.4 1.5.6 2 .7.8.3 1.6.2 2.2.1.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.6.2-1.8-.1-.1-.3-.2-.7-.4z"/></svg>`;
 const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(WA_PREFILL)}" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp"><span class="wa-ic">${WA_ICON}</span><span class="wa-tx"><span class="wa-t1">Chat with us</span><span class="wa-t2" id="waStatus">WhatsApp us</span></span><span class="wa-dot" id="waDot" aria-hidden="true"></span></a>
-<style>.wa-fab{position:fixed;right:20px;bottom:20px;z-index:9998;display:flex;align-items:center;gap:11px;padding:11px 16px 11px 12px;background:#25D366;color:#0b1f14;border-radius:999px;text-decoration:none;box-shadow:0 10px 28px rgba(0,0,0,.28);font-family:Inter,system-ui,-apple-system,sans-serif;transition:transform .16s ease,box-shadow .16s ease}.wa-fab:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.34)}.wa-fab:active{transform:translateY(0)}.wa-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px}.wa-ic svg{width:26px;height:26px}.wa-tx{display:flex;flex-direction:column;line-height:1.15}.wa-t1{font-weight:700;font-size:14px}.wa-t2{font-size:11.5px;opacity:.82;font-weight:500}.wa-dot{width:9px;height:9px;border-radius:50%;background:#9aa3a0;margin-left:2px;box-shadow:0 0 0 3px rgba(255,255,255,.35)}.wa-fab.is-online .wa-dot{background:#0a3;box-shadow:0 0 0 3px rgba(0,190,75,.3)}@media(max-width:560px){.wa-fab .wa-tx{display:none}.wa-fab{padding:13px;gap:0}.wa-ic{width:26px;height:26px}}@media(prefers-reduced-motion:reduce){.wa-fab{transition:none}}</style>
+<style>.wa-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:9998;touch-action:manipulation;display:flex;align-items:center;gap:11px;padding:11px 16px 11px 12px;background:#25D366;color:#0b1f14;border-radius:999px;text-decoration:none;box-shadow:0 10px 28px rgba(0,0,0,.28);font-family:Inter,system-ui,-apple-system,sans-serif;transition:transform .16s ease,box-shadow .16s ease}.wa-fab:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.34)}.wa-fab:active{transform:translateY(0)}.wa-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px}.wa-ic svg{width:26px;height:26px}.wa-tx{display:flex;flex-direction:column;line-height:1.15}.wa-t1{font-weight:700;font-size:14px}.wa-t2{font-size:11.5px;opacity:.82;font-weight:500}.wa-dot{width:9px;height:9px;border-radius:50%;background:#9aa3a0;margin-left:2px;box-shadow:0 0 0 3px rgba(255,255,255,.35)}.wa-fab.is-online .wa-dot{background:#0a3;box-shadow:0 0 0 3px rgba(0,190,75,.3)}@media(max-width:560px){.wa-fab .wa-tx{display:none}.wa-fab{padding:13px;gap:0}.wa-ic{width:26px;height:26px}}@media(prefers-reduced-motion:reduce){.wa-fab{transition:none}}</style>
 <script>(function(){var fab=document.getElementById('waFab');if(!fab)return;var st=document.getElementById('waStatus');var days=[${WA_OPEN_DAYS.join(",")}],sH=${WA_OPEN_START},eH=${WA_OPEN_END},tz=${JSON.stringify(WA_TZ)};function parts(){try{var f=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',hour:'numeric',hour12:false});var wd='',hr=0;f.formatToParts(new Date()).forEach(function(p){if(p.type==='weekday')wd=p.value;if(p.type==='hour')hr=parseInt(p.value,10);});if(hr===24)hr=0;var m={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};return{day:m[wd],hour:hr};}catch(e){return null;}}function isOpen(){var p=parts();if(!p)return true;return days.indexOf(p.day)>=0&&p.hour>=sH&&p.hour<eH;}function apply(){var on=isOpen();fab.classList.toggle('is-online',on);if(st)st.textContent=on?"We're online now":"Away - leave a message";}apply();setInterval(apply,60000);})();</script>`;
 
 // Full branded HTML document for standalone (no sidebar) pages: login,
 // set-password, info, 404. `bodyInner` is the inner markup; the doc supplies the
 // dark stylesheet and a head. GTM goes as high as possible in <head>; both
 // noscript fallbacks go immediately after <body> opens.
-export function brandDoc(bodyInner, title = "JDM Connect") {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${ANALYTICS_HEAD}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body>${ANALYTICS_BODY}${bodyInner}${CONTACT_WIDGET}</body></html>`;
+// opts.analytics gates GTM + Meta Pixel injection. It defaults to OFF so
+// authenticated/credential pages (login, set-password, the buyer portal) never
+// load third-party scripts that would get full DOM access to a signed-in
+// buyer's matches, PII and Stripe checkout context (audit Medium #15). Only the
+// public marketing surfaces (landing, request form + its confirmation, info /
+// 404, public lot share) opt in with { analytics: true }.
+export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
+  const head = opts.analytics ? ANALYTICS_HEAD : "";
+  const body = opts.analytics ? ANALYTICS_BODY : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${bodyInner}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
-// so portal markup can move over without restructuring.
-export function brandShell(side, main, title = "JDM Connect") {
+// so portal markup can move over without restructuring. Analytics stays OFF by
+// default (the portal is authenticated); public callers pass { analytics: true }.
+export function brandShell(side, main, title = "JDM Connect", opts = {}) {
   return brandDoc(
-    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
-    title
+    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" id="main" role="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
+    title,
+    opts
   );
+}
+
+// Public privacy policy (Australian Privacy Act, APP 5 collection notice + how
+// data is handled). Linked from every email footer and the request form. The
+// business should have this reviewed by their own adviser; it is written to be
+// accurate to how the app actually handles data today.
+export function privacyPage() {
+  const updated = "2 July 2026";
+  const s = (h, body) => `<section class="lg-s"><h2>${h}</h2>${body}</section>`;
+  const inner = `<div class="legal">
+    <a class="lg-back" href="/">&larr; JDM Connect</a>
+    <h1>Privacy Policy</h1>
+    <p class="lg-updated">Last updated: ${updated}</p>
+    <p class="lg-lead">JDM Connect ("we", "us", "our") runs the JDM Finder vehicle-sourcing
+      service at jdmfinder.com.au. This policy explains what personal information we collect,
+      why, who we share it with, and your rights under the Australian <em>Privacy Act 1988</em>
+      and the Australian Privacy Principles (APPs).</p>
+
+    ${s("Who we are", `<p>JDM Connect, Japanese vehicle imports, Australia-wide.
+      Questions about privacy or your data: <a href="mailto:jate@jdmconnect.com.au">jate@jdmconnect.com.au</a>.</p>`)}
+
+    ${s("What we collect", `<ul>
+      <li><strong>Contact details</strong> you give us: name, email, phone/WhatsApp, and your state or delivery country.</li>
+      <li><strong>Your vehicle search</strong>: the makes, models, years, budget and preferences you ask us to find.</li>
+      <li><strong>Account &amp; activity</strong>: if you use the buyer portal, a login and a record of the vehicles we send you and whether you have viewed them, so we can follow up.</li>
+      <li><strong>Payment records</strong>: when you pay a deposit or membership, our payment processor handles your card details; we keep a record of the transaction (amount, date, reference), not your full card number.</li>
+    </ul>`)}
+
+    ${s("Why we collect it", `<p>To search Japanese auctions for the vehicle you want, contact you about matches,
+      arrange purchase, import and delivery, take payments, and provide the buyer portal. We only use your
+      details for the service you asked for.</p>`)}
+
+    ${s("Who we share it with", `<p>We do not sell your personal information. We share it only with the
+      service providers we need to run the service, who act on our instructions:</p>
+      <ul>
+        <li><strong>Cloudflare</strong> - hosting, security and our database.</li>
+        <li><strong>Stripe</strong> - payment processing (deposits and membership).</li>
+        <li><strong>Resend</strong> - sending you email.</li>
+        <li><strong>Google</strong> - only if you choose "Continue with Google" to sign in.</li>
+        <li>Our <strong>auction agents in Japan</strong> - to source and bid on the vehicle you request.</li>
+      </ul>
+      <p>Some of these providers store data outside Australia (for example, the United States). By using the
+      service you consent to that overseas disclosure for these purposes.</p>`)}
+
+    ${s("Analytics and cookies", `<p>Our public pages (the landing page and the request form) use Google
+      Tag Manager and the Meta (Facebook) Pixel to understand how people find and use the site. These are
+      <strong>not</strong> loaded on the signed-in buyer portal or the login pages. You can block cookies in
+      your browser or use tracking-protection tools.</p>`)}
+
+    ${s("How we store and protect it", `<p>Data is stored in Cloudflare's encrypted database. Access is
+      restricted to JDM Connect staff. Passwords are hashed, never stored in plain text, and connections use HTTPS.</p>`)}
+
+    ${s("Keeping and deleting it", `<p>We keep your information only as long as we need it for the purposes
+      above or to meet legal/financial-record obligations. Ask us and we will delete your personal information
+      when it is no longer needed.</p>`)}
+
+    ${s("Marketing and opt-out", `<p>We only email you about your own search and vehicles we think match it.
+      Every email includes an unsubscribe option; you can also opt out any time by emailing
+      <a href="mailto:jate@jdmconnect.com.au?subject=Unsubscribe">jate@jdmconnect.com.au</a> with "Unsubscribe"
+      in the subject.</p>`)}
+
+    ${s("Access, correction and complaints", `<p>You can ask us for a copy of the personal information we hold
+      about you, ask us to correct it, or make a privacy complaint, by emailing
+      <a href="mailto:jate@jdmconnect.com.au">jate@jdmconnect.com.au</a>. If you are not satisfied with our
+      response, you can contact the Office of the Australian Information Commissioner (OAIC) at
+      <a href="https://www.oaic.gov.au" target="_blank" rel="noopener">oaic.gov.au</a>.</p>`)}
+
+    ${s("Changes to this policy", `<p>We may update this policy from time to time. The "last updated" date
+      above shows when it last changed.</p>`)}
+
+    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+  </div>
+  <style>
+    .legal{max-width:760px;margin:0 auto;padding:48px 22px 90px;color:var(--ink)}
+    .lg-back{display:inline-block;color:var(--gold-txt);font-weight:600;text-decoration:none;font-size:14px;margin-bottom:26px}
+    .legal h1{font-size:clamp(30px,6vw,44px);font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+    .lg-updated{color:var(--faint);font-size:13px;margin:0 0 26px}
+    .lg-lead{font-size:17px;line-height:1.6;color:var(--t2);margin:0 0 12px}
+    .lg-s{padding:22px 0;border-top:1px solid var(--hair)}
+    .lg-s h2{font-size:19px;font-weight:700;margin:0 0 12px}
+    .legal p{font-size:15px;line-height:1.65;color:var(--t2);margin:0 0 12px}
+    .legal ul{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+    .legal li{font-size:15px;line-height:1.6;color:var(--t2)}
+    .legal strong{color:var(--ink)}
+    .legal a{color:var(--gold-txt)}
+    .lg-cta{display:inline-block;margin-top:30px}
+  </style>`;
+  // Public page: keep analytics OFF here (a privacy page loading trackers is a
+  // bad look, and it is not part of the conversion funnel).
+  return brandDoc(inner, "Privacy Policy - JDM Connect");
 }
 
 // Branded "not found" page. Replaces the bare text 404.

@@ -218,8 +218,12 @@ export function marketPanel(m, fx = 0) {
     const h = b.avg > 0 ? Math.max(8, Math.round((b.avg / maxBar) * 100)) : 4;
     const last = i === m.bars.length - 1;
     const title = b.count ? `${shortWeeks(b.weeksAgo)}: avg ${yen(b.avg)} (${b.count})` : `${shortWeeks(b.weeksAgo)}: no sales`;
-    return `<span class="mktp-bar${last ? " on" : ""}${b.avg > 0 ? "" : " empty"}" style="height:${h}%" title="${esc(title)}"></span>`;
+    return `<span class="mktp-bar${last ? " on" : ""}${b.avg > 0 ? "" : " empty"}" style="height:${h}%" title="${esc(title)}" aria-hidden="true"></span>`;
   }).join("");
+  const barAvgs = m.bars.map((b) => b.avg).filter((v) => v > 0);
+  const trendLow = barAvgs.length ? Math.min(...barAvgs) : 0;
+  const trendHigh = barAvgs.length ? Math.max(...barAvgs) : 0;
+  const trendLabel = `Price trend over the last ${m.bars.length} weeks, low ${yen(trendLow)} to high ${yen(trendHigh)}`;
   const mix = (m.gradeMix || []).map((g) => `<span class="mktp-chip"><b>${esc(g.grade)}</b> ${g.count}</span>`).join("");
   const comps = (m.recent || []).map((r) => `<div class="mktp-comp">
       <div class="mktp-comp-l"><span class="mktp-comp-t">${esc(displayName(r.model) || displayName(r.make))} &middot; ${esc(r.year)}</span><span class="mktp-comp-s">${[r.grade ? "Grade " + esc(r.grade) : "", shortDate(r.date)].filter(Boolean).join(" &middot; ")}</span></div>
@@ -227,12 +231,12 @@ export function marketPanel(m, fx = 0) {
     </div>`).join("");
   const audAvg = aud(m.avg, fx);
   return `<div class="card mktp">
-    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}</span><span class="mktp-n">${m.count.toLocaleString("en-US")} sold</span></div>
+    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
     <div class="mktp-top">
       <div class="mktp-stat lead"><div class="mktp-k">Avg sold</div><div class="mktp-v">${yen(m.avg)}</div>${audAvg ? `<div class="mktp-sub">≈ ${esc(audAvg)}</div>` : ""}</div>
       <div class="mktp-stat"><div class="mktp-k">Median</div><div class="mktp-v">${yen(m.median)}</div></div>
-      <div class="mktp-stat"><div class="mktp-k">Range</div><div class="mktp-v sm">${yen(m.low)} – ${yen(m.high)}</div></div>
-      ${m.bars.some((b) => b.avg > 0) ? `<div class="mktp-trend"><div class="mktp-k">Price trend</div><div class="mktp-bars">${trend}</div></div>` : ""}
+      <div class="mktp-stat"><div class="mktp-k">Range</div><div class="mktp-v sm">${yen(m.low)} - ${yen(m.high)}</div></div>
+      ${m.bars.some((b) => b.avg > 0) ? `<div class="mktp-trend"><div class="mktp-k">Price trend</div><div class="mktp-bars" role="img" aria-label="${esc(trendLabel)}">${trend}</div></div>` : ""}
     </div>
     ${mix ? `<div class="mktp-mix"><span class="mktp-k">Grade mix</span>${mix}</div>` : ""}
     ${comps ? `<div class="mktp-comps"><div class="mktp-k" style="margin-bottom:6px">Recent comparable sales</div>${comps}</div>` : ""}
@@ -256,10 +260,10 @@ const MKT_CSS = `<style>
   .mktp-n{font-size:12px;color:#6b7079}
   .mktp-top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:26px 34px}
   .mktp-k{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6e727b;margin-bottom:5px}
-  .mktp-v{font-size:18px;font-weight:700;color:#1b1c1e;line-height:1}
+  .mktp-v{font-size:18px;font-weight:700;color:#1b1c1e;line-height:1;font-variant-numeric:tabular-nums}
   .mktp-v.sm{font-size:13.5px;font-weight:600}
   .mktp-stat.lead .mktp-v{font-size:26px}
-  .mktp-sub{font-size:11.5px;color:#7A5E1C;margin-top:4px;font-weight:600}
+  .mktp-sub{font-size:11.5px;color:#7A5E1C;margin-top:4px;font-weight:600;font-variant-numeric:tabular-nums}
   .mktp-trend{margin-left:auto}
   .mktp-bars{display:flex;align-items:flex-end;gap:3px;height:46px}
   .mktp-bar{width:9px;background:#e7e3d6;border-radius:2px 2px 0 0;transition:background .15s}
@@ -271,9 +275,10 @@ const MKT_CSS = `<style>
   .mktp-comps{margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,0,0,.06)}
   .mktp-comp{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,.05)}
   .mktp-comp:last-child{border-bottom:0}
-  .mktp-comp-t{display:block;font-size:13px;font-weight:700;color:#1b1c1e}
+  .mktp-comp-l{min-width:0}
+  .mktp-comp-t{display:block;font-size:13px;font-weight:700;color:#1b1c1e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mktp-comp-s{display:block;font-size:11.5px;color:#6e727b;margin-top:2px}
   .mktp-comp-r{text-align:right;white-space:nowrap}
   .mktp-comp-k{display:block;font-size:9.5px;font-weight:700;letter-spacing:.08em;color:#6e727b}
-  .mktp-comp-v{display:block;font-size:14px;font-weight:700;color:#1b1c1e}
+  .mktp-comp-v{display:block;font-size:14px;font-weight:700;color:#1b1c1e;font-variant-numeric:tabular-nums}
 </style>`;

@@ -128,6 +128,7 @@ function footer(extra) {
       <a href="mailto:hello@jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">hello@jdmconnect.com.au</a>&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a href="https://jdmconnect.com.au" style="color:${GOLDTXT};text-decoration:none;">jdmconnect.com.au</a>
     </div>
     <div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:14px;">&copy; ${new Date().getFullYear()} JDM Connect &middot; Japanese performance &amp; classic vehicle imports, Australia-wide.</div>
+    <div style="font-family:${FONT};font-size:11px;line-height:1.6;color:${MUTE};margin-top:10px;">You are receiving this because you asked JDM Connect to help source a vehicle. <a href="mailto:jate@jdmconnect.com.au?subject=Unsubscribe" style="color:${MUTE};text-decoration:underline;">Unsubscribe</a> &middot; <a href="https://jdmfinder.com.au/privacy" style="color:${MUTE};text-decoration:underline;">Privacy policy</a></div>
   </td></tr>`;
 }
 
@@ -367,10 +368,10 @@ export function clientRequestAlertHtml(client, lot, wishlist, publicUrl) {
   ${heroSrc(lot) ? `<tr><td style="padding:18px 36px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;"><tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr></table></td></tr>` : ""}
   <tr><td style="padding:18px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      ${row("Vehicle", title)}${row("Lot", lot.lot)}${row("Auction", lot.auction)}${row("Auction date", (lot.auction_date || "").slice(0, 10))}${row("Grade", displayGrade(lot.rate))}${row("Chassis", lot.kuzov)}${row("Search", wishlist?.label)}${row("Client email", client?.email)}${row("Client WhatsApp", client?.whatsapp)}
+      ${row("Vehicle", title)}${row("Lot", lot.lot)}${row("Auction", lot.auction)}${row("Auction date", (lot.auction_date || "").slice(0, 10))}${row("Grade", displayGrade(lot.rate))}${row("Chassis", lot.kuzov)}${row("Search", wishlist?.label)}
     </table>
   </td></tr>
-  ${publicUrl ? `<tr><td style="padding:24px 36px 0;">${btn(`${publicUrl}/admin?view=clients`, "Open in Vehicle Finder", { bg: GOLD, color: INK, w: 210 })}</td></tr>` : ""}`;
+  ${publicUrl ? `<tr><td style="padding:24px 36px 0;">${btn(`${publicUrl}/admin?view=client${client?.id ? `&id=${Number(client.id)}` : "s"}`, "Open in Vehicle Finder", { bg: GOLD, color: INK, w: 210 })}</td></tr>` : ""}`;
   return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), `${client?.name || "A client"} requested ${title}`);
 }
 

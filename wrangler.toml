@@ -92,8 +92,10 @@ NTFY_TAGS = "moneybag,bell"
 # Secrets are NOT stored here. Set them with `wrangler secret put`:
 #   AVTONET_CODE         -> your auction API password (set via the command above; not stored here)
 #   RESEND_API_KEY       -> from resend.com
-#   ADMIN_TOKEN          -> any long random string; gates the admin page
-#   ADMIN_PASSWORD       -> optional separate admin login password (else ADMIN_TOKEN works)
+#   ADMIN_TOKEN          -> any long random string; HMAC signing key ONLY (sessions,
+#                           share links, OAuth state). It is NOT a login credential.
+#   ADMIN_PASSWORD       -> REQUIRED. The admin login password (blank email + this
+#                           password on /login). Without it, admin login is disabled.
 #   STRIPE_SECRET_KEY    -> Stripe secret key (sk_live_... / sk_test_...) for buyer deposits
 #   STRIPE_WEBHOOK_SECRET-> signing secret (whsec_...) for the /webhooks/stripe endpoint
 #   GOOGLE_CLIENT_ID     -> Google OAuth web-client ID  ("...apps.googleusercontent.com")
