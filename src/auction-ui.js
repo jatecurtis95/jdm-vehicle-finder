@@ -162,13 +162,14 @@ export function auctionSearchHeader(o = {}) {
 
 // Live / Watchlist (and, for staff, Sold prices) pill tabs. `href` builds a URL
 // for a given tab, preserving the current query.
-export function auctionTabs(active, href, { sold = false } = {}) {
+export function auctionTabs(active, href, { sold = false, stats = false } = {}) {
   const tab = (id, label, extra = "") =>
     `<a class="atab${active === id ? " on" : ""}"${active === id ? ' aria-current="page"' : ""} href="${esc(href(id))}">${label}${extra}</a>`;
   return `<div class="atabs">
     ${tab("live", "Live auctions")}
     ${tab("watch", "Watchlist", ` <b data-watch-count>0</b>`)}
-    ${sold ? tab("sold", "Sold prices") : ""}
+    ${sold ? tab("sold", "Sold auctions") : ""}
+    ${stats ? tab("prices", "Sold prices") : ""}
   </div>`;
 }
 
