@@ -1992,7 +1992,7 @@ export async function updateRequestStatus(env, id, status, session) {
   if (status === "deposit_paid") deposit = "paid";
   await env.DB.prepare("UPDATE wishlists SET status = ?, last_activity = ?, deposit_status = ? WHERE id = ?")
     .bind(status, now, deposit, wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "status", detail: `${RSTATUS[prev]?.label || prev} to ${RSTATUS[status]?.label || status}`, actor });
 
   // Seed a follow-up task for the new stage, assigned to the request owner (or
@@ -2127,7 +2127,17 @@ function matchTrackRow(q, back) {
 
 // ---- Quick-action + task + match mutation handlers -------------------------
 
-// Add a free-text note to a request's timeline.
+// Who did it, for the activity timeline. Sessions only carry {role,id}, so an
+// agent's display name is looked up — without this every agent action was
+// logged as the anonymous "Agent" (audit: shared-agent actions unattributable).
+async function actorName(env, session) {
+  if (!session || session.role === "admin") return "JDM Connect";
+  const a = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(Number(session.id)).first();
+  return (a && a.name) || "Agent";
+}
+
+// Add a free-text note to a request's timeline. Shared (co-search) agents may
+// add notes — additive, and attributed to them by name in the timeline.
 export async function addRequestNote(env, id, note, session) {
   const wid = Number(id);
   const text = String(note || "").trim().slice(0, 500);
@@ -2136,7 +2146,7 @@ export async function addRequestNote(env, id, note, session) {
   const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: text, actor });
   return { ok: true, client_id: w.client_id };
 }
@@ -2156,7 +2166,7 @@ export async function assignRequestOwner(env, id, ownerId, session) {
     name = a.name;
   }
   await env.DB.prepare("UPDATE wishlists SET owner_id = ?, last_activity = ? WHERE id = ?").bind(owner, new Date().toISOString(), wid).run();
-  const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+  const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "owner", detail: `Assigned to ${name}`, actor });
   return { ok: true, client_id: w.client_id };
 }
@@ -2165,7 +2175,9 @@ export async function assignRequestOwner(env, id, ownerId, session) {
 // "who needs attention today?" list; the optional note says what the step is.
 export async function setNextAction(env, id, { date, note, clear } = {}, session) {
   const wid = Number(id);
-  if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
+  // Owner-only: the follow-up schedule drives the owning agent's pipeline;
+  // shared (co-search) agents must not rewrite another agent's calendar.
+  if (!(await wishlistOwnedBy(env, wid, session))) return { ok: false, error: "forbidden" };
   const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   if (clear) {
@@ -2178,7 +2190,7 @@ export async function setNextAction(env, id, { date, note, clear } = {}, session
   const n = String(note || "").trim().slice(0, 160) || null;
   await env.DB.prepare("UPDATE wishlists SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
   if (iso) {
-    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: `Follow-up set for ${iso}${n ? `: ${n}` : ""}`, actor });
   }
   return { ok: true, client_id: w.client_id };
@@ -2210,7 +2222,7 @@ export async function createTask(env, form, session) {
   const assigned = session.role === "agent" ? session.id : (form.get("assigned_to") ? Number(form.get("assigned_to")) : null);
   const tid = await insertTask(env, { title, type: form.get("type") || "manual", wishlist_id: wid, client_id: cid, assigned_to: assigned, due, priority });
   if (tid && (wid || cid)) {
-    const actor = session.role === "admin" ? "JDM Connect" : (session.name || "Agent");
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: wid, client_id: cid, type: "task", detail: `Task added: ${title}`, actor });
   }
   return { ok: !!tid, client_id: cid, wishlist_id: wid };
@@ -2246,7 +2258,7 @@ export async function recordMatchSent(env, queueId, session) {
     let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
     const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
     if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
-    const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+    const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
   } catch (e) { console.error("recordMatchSent failed:", e.message); }
 }
@@ -2276,7 +2288,7 @@ export async function setMatchResponse(env, queueId, response, session) {
   await env.DB.prepare("UPDATE queue SET response = ?, viewed_at = COALESCE(viewed_at, datetime('now')) WHERE id = ?").bind(resp, qid).run();
   let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
-  const actor = session && session.role === "admin" ? "JDM Connect" : (session && session.name) || "Agent";
+  const actor = await actorName(env, session);
   if (resp === "interested" && q.wishlist_id) {
     const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
     if (w && ["new", "qualified", "searching", "vehicles_sent"].includes(w.status)) {
@@ -3015,10 +3027,12 @@ export async function expirePast(env) {
 }
 
 // Update an existing wishlist's criteria (the "edit what they're chasing" flow).
+// Owner-only: a shared agent silently changing criteria would redirect future
+// automated matches without the owner knowing.
 export async function editWishlist(env, form, session) {
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
-  if (!(await wishlistAccessibleBy(env, id, session))) return;
+  if (!(await wishlistOwnedBy(env, id, session))) return;
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
        price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
@@ -3399,7 +3413,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div style="font-weight:600;margin-top:3px">${c.member ? "Member &middot; can use Auction search" : "Not a member"}</div>
       </div>
       <div class="pwrap">
-        <form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>
+        ${session.role === "admin"
+          ? `<form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>`
+          : `<span class="help">Managed by JDM Connect (paid membership).</span>`}
       </div>
     </div>` : ""}
   </div>` : "";
@@ -4119,6 +4135,16 @@ async function wishlistAccessibleBy(env, wishlistId, session) {
   return !!w && (await clientAccessibleBy(env, w.client_id, session));
 }
 
+// Owner guard for wishlists (strict): admin, or the agent who owns the parent
+// client. Shared access is for co-searching (view/add matches) — it must never
+// allow destructive or workflow-mutating actions (delete/edit/toggle a search,
+// reschedule follow-ups) on another agent's client.
+async function wishlistOwnedBy(env, wishlistId, session) {
+  if (!session || session.role === "admin") return true;
+  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
+  return !!w && (await clientOwnedBy(env, w.client_id, session));
+}
+
 // SQL predicate (alias c = clients) + bind values for "rows this session may
 // see": all for admin, owned-or-shared for an agent. Exported so the isolation
 // behaviour can be tested directly.
@@ -4290,10 +4316,11 @@ export async function deleteClient(env, id, session) {
 }
 
 // Delete a single wishlist plus its queued matches and seen-lot history.
+// Owner-only: destructive, so shared (co-search) access is not enough.
 export async function deleteWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistAccessibleBy(env, wid, session))) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
@@ -4302,10 +4329,11 @@ export async function deleteWishlist(env, id, session) {
 }
 
 // Flip a wishlist active/paused. Paused wishlists are skipped by the matcher.
+// Owner-only: pausing another agent's search would silently stop their matches.
 export async function toggleWishlist(env, id, session) {
   const wid = Number(id);
   if (!Number.isInteger(wid) || wid <= 0) return;
-  if (!(await wishlistAccessibleBy(env, wid, session))) return;
+  if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.prepare(
     "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
   ).bind(wid).run();
@@ -4640,16 +4668,20 @@ export async function upsertGoogleClient(env, profile) {
   let existing = null;
   if (sub) {
     existing = await env.DB.prepare(
-      "SELECT id FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
+      "SELECT id, portal_revoked FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
     ).bind(sub).first();
   }
   if (!existing) {
     existing = await env.DB.prepare(
-      "SELECT id FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
+      "SELECT id, portal_revoked FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
     ).bind(email).first();
   }
 
   if (existing) {
+    // Staff revocation is a hard veto: never let Google sign-in silently
+    // re-enable a client staff locked out. The caller bounces to an error
+    // page; a staff re-invite is the way back in.
+    if (existing.portal_revoked) return null;
     // Link the Google id, enable the portal, and backfill a blank/placeholder
     // name - but never overwrite a real name already on file.
     await env.DB.prepare(
@@ -4753,9 +4785,12 @@ const clampRange = (v, lo, hi) => (v === null ? null : Math.min(hi, Math.max(lo,
 async function enablePortalSelfSignup(env, clientId, password) {
   if (!clientId || passwordPolicyError(password)) return false;
   const { salt, hash } = await hashPassword(password);
+  // portal_revoked = 0 guard: a revoke clears pass_hash, so without it this
+  // "only if no password yet" condition would let a staff-revoked client
+  // self-signup straight back into the portal.
   const r = await env.DB.prepare(
     `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
-       WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '')`
+       WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '') AND portal_revoked = 0`
   ).bind(salt, hash, clientId).run();
   return (r.meta?.changes || 0) > 0;
 }
@@ -5132,7 +5167,9 @@ export async function adminAuctionsPage(env, session, opts = {}) {
 export async function setClientMember(env, clientId, on, session) {
   const id = Number(clientId);
   if (!Number.isInteger(id) || id <= 0) return;
-  if (!(await clientAccessibleBy(env, id, session))) return;
+  // Admin only (defence in depth alongside the route guard): membership is a
+  // paid feature — the Stripe webhook is the only other writer of this flag.
+  if (session?.role !== "admin") return;
   await env.DB.prepare("UPDATE clients SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
 }
 
@@ -5410,7 +5447,9 @@ export async function inviteClientPortal(env, clientId, session) {
   if (!c || !c.email) return { ok: false, error: "no-email" };
   const token = randomToken();
   const exp = Date.now() + PORTAL_INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
+  // A staff re-invite is the one sanctioned way back in after a revoke, so it
+  // clears the portal_revoked veto.
+  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
   return { ok: true, token, email: c.email, name: c.name };
 }
 
@@ -5418,7 +5457,9 @@ export async function revokeClientPortal(env, clientId, session) {
   const cid = Number(clientId);
   if (!Number.isInteger(cid) || cid <= 0) return;
   if (!(await clientOwnedBy(env, cid, session))) return;
+  // portal_revoked = 1 is the durable staff veto: without it, Google sign-in
+  // and request-form self-signup would silently re-enable this client.
   await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 0, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?"
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?"
   ).bind(cid).run();
 }

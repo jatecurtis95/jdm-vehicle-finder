@@ -1,0 +1,11 @@
+-- 0009_portal_revoked.sql
+-- Staff revocation veto (security audit, High #3).
+-- revokeClientPortal() sets portal_enabled = 0, but two self-serve paths set it
+-- straight back to 1 with no staff involvement:
+--   * Google sign-in (upsertGoogleClient) — matched by email/google_sub
+--   * public request-form self-signup (enablePortalSelfSignup) — pass_hash is
+--     NULL after a revoke, so the "only if no password yet" guard passes
+-- portal_revoked = 1 records the explicit staff decision and blocks both paths;
+-- only a staff re-invite (inviteClientPortal) clears it.
+-- Additive and non-destructive; existing rows default to 0 (not revoked).
+ALTER TABLE clients ADD COLUMN portal_revoked INTEGER NOT NULL DEFAULT 0;
