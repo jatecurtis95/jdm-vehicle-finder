@@ -56,32 +56,44 @@ export async function requestRateLimited(env, { ip, email, whatsapp }) {
 }
 
 // --- Login brute-force protection (KV-backed) --------------------------------
-// Tracks failed sign-ins per IP and per email. After LOGIN_MAX_FAILS within the
+// Tracks failed sign-ins per IP and per email. After the key's cap within the
 // window the source is locked out, and every failed attempt also costs a fixed
 // delay so automated guessing is slow. Fails open if KV is unavailable.
+//
+// Two extra fixed dimensions an attacker cannot rotate away from:
+//  * loginfail:admin  — a blank email targets the admin account (that IS the
+//    admin login shape), so those attempts always count here too. Rotating IPs
+//    no longer buys fresh unthrottled guesses at ADMIN_PASSWORD.
+//  * loginfail:global — every failure from any source. Generous cap that only
+//    a distributed attack would hit; makes email+IP rotation ineffective.
 const LOGIN_MAX_FAILS = 10;
+const LOGIN_ADMIN_MAX_FAILS = 10;
+const LOGIN_GLOBAL_MAX_FAILS = 50;
 const LOGIN_LOCK_SECONDS = 15 * 60;
 const LOGIN_FAIL_DELAY_MS = 1500;
+const LOGIN_GLOBAL_KEY = "loginfail:global";
 function loginFailKeys(ip, email) {
   const keys = [];
-  if (ip) keys.push(`loginfail:ip:${ip}`);
+  if (ip) keys.push({ k: `loginfail:ip:${ip}`, cap: LOGIN_MAX_FAILS });
   const e = String(email || "").trim().toLowerCase();
-  if (e) keys.push(`loginfail:e:${e}`);
+  if (e) keys.push({ k: `loginfail:e:${e}`, cap: LOGIN_MAX_FAILS });
+  else keys.push({ k: "loginfail:admin", cap: LOGIN_ADMIN_MAX_FAILS });
+  keys.push({ k: LOGIN_GLOBAL_KEY, cap: LOGIN_GLOBAL_MAX_FAILS });
   return keys;
 }
 async function loginLocked(env, ip, email) {
   if (!env.RL) return false;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k, cap } of loginFailKeys(ip, email)) {
     try {
       const n = parseInt((await env.RL.get(k)) || "0", 10);
-      if (n >= LOGIN_MAX_FAILS) return true;
+      if (n >= cap) return true;
     } catch (_) { /* fail open */ }
   }
   return false;
 }
 async function recordLoginFail(env, ip, email) {
   if (!env.RL) return;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k } of loginFailKeys(ip, email)) {
     try {
       const n = parseInt((await env.RL.get(k)) || "0", 10);
       await env.RL.put(k, String(n + 1), { expirationTtl: LOGIN_LOCK_SECONDS });
@@ -90,7 +102,10 @@ async function recordLoginFail(env, ip, email) {
 }
 async function clearLoginFails(env, ip, email) {
   if (!env.RL) return;
-  for (const k of loginFailKeys(ip, email)) {
+  for (const { k } of loginFailKeys(ip, email)) {
+    // Never reset the fleet-wide counter on a success: an attacker with any
+    // one valid account could otherwise launder their global failure count.
+    if (k === LOGIN_GLOBAL_KEY) continue;
     try { await env.RL.delete(k); } catch (_) { /* best effort */ }
   }
 }
@@ -502,7 +517,7 @@ export default {
     // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
     if (path === "/admin/drawer") {
       const frag = await clientDrawerFragment(env, url.searchParams.get("id"), session);
-      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+      return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
     if (path === "/run") {
@@ -628,7 +643,9 @@ export default {
       return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
+    // Admin only — membership is a paid feature; agents must never grant it.
     if (path === "/client/member" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       const id = f.get("id");
       await setClientMember(env, id, f.get("member") === "1", session);
@@ -1202,11 +1219,38 @@ async function applyBulkDecisions(env, action, ids, session) {
   }
 }
 
+// Baseline browser security headers for every HTML response (audit: no CSP /
+// X-Frame-Options / HSTS / nosniff anywhere). The CSP allows exactly what the
+// pages use today: inline scripts and styles (no nonces yet), Google Fonts,
+// GTM + Meta Pixel, and https images (auction photos come from many external
+// hosts). frame-ancestors 'none' + X-Frame-Options stop the login/portal/pay
+// flows being framed for clickjacking.
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com",
+    "frame-src https://www.googletagmanager.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "form-action 'self'",
+  ].join("; "),
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
 // Return a complete HTML document as-is (used for the full-page admin/request UIs
 // and the branded standalone info / 404 pages from theme.js).
 function doc(htmlString, status = 200) {
   return new Response(htmlString, {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS },
   });
 }
