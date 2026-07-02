@@ -608,6 +608,8 @@ export default {
       const ids = f.getAll("ids").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
       if (["approve", "reject"].includes(action) && ids.length) {
         await applyBulkDecisions(env, action, ids, session);
+      } else if (action === "delete" && ids.length) {
+        await bulkDeleteMatches(env, ids, session);
       }
       const back = f.get("back");
       const dest = (typeof back === "string" && back.startsWith("/admin")) ? back : "/admin?view=matches";
@@ -1181,6 +1183,23 @@ async function handleDecision(request, env, url) {
     ).bind(item.id).run();
     console.error("Approve delivery failed:", err.message);
     return ajax ? new Response("send failed", { status: 500 }) : doc(infoPage("Delivery failed", "Approved, but the message could not be delivered. Please try again or contact support."), 500);
+  }
+}
+
+// Hard-delete selected matches from the queue (the Matches "Delete" bulk action
+// — "start fresh"). Unlike Skip/reject, which keeps the row as 'rejected', this
+// removes the rows entirely. Same per-item agent access check as reject; one
+// failure never stops the batch.
+async function bulkDeleteMatches(env, ids, session) {
+  for (const id of ids) {
+    try {
+      const item = await env.DB.prepare("SELECT client_id FROM queue WHERE id = ?").bind(id).first();
+      if (!item) continue;
+      if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
+      await env.DB.prepare("DELETE FROM queue WHERE id = ?").bind(id).run();
+    } catch (err) {
+      console.error(`Bulk delete failed (queue ${id}):`, err.message);
+    }
   }
 }
 

@@ -86,3 +86,29 @@ board?" explainer at the top (open by default, staff can hide it). Covers what a
 task is, where tasks come from (auto-created on status changes + added manually
 from a request), the due-date buckets, how to complete/undo, and the
 who-sees-what scoping. Styled to match the board (`TASKS_CSS`).
+
+### 4. Matches page — bulk delete, client search, closing assist ✅
+
+**Complaints:** "Bulk delete button so we can start fresh; search by client;
+have something to assist us with closing the client."
+
+**Changes:**
+- **Bulk delete** (`src/admin.js` bulk bar + `matchesScript`, new
+  `bulkDeleteMatches` + `/matches/bulk` `action=delete` in `src/index.js`):
+  added a red **Delete** button that hard-removes the selected queue rows
+  (distinct from Skip, which keeps them as `rejected`), plus a **"Select all
+  shown"** quick button so staff can wipe the visible queue "to start fresh".
+  Guarded by a typed-count confirm; keeps the per-item agent access check.
+- **Search by client:** already present — the toolbar search matches client
+  name and there's a dedicated **Client** filter dropdown (`#mclient`). Left as
+  is; no change needed. (Noted so it's not mistaken for missing.)
+- **Closing assist:** match cards already show strength (Strong/Good/Possible),
+  "why" chips, and estimated landed cost. Enhanced by making **"Match for:
+  {client}" open the enriched customer drawer** (engagement, examples
+  sent/viewed, match strength) in one click — the fastest path to the context
+  that helps close a client.
+
+**Assumption:** "bulk delete … start fresh" means hard-removing queue rows, not
+soft-rejecting (Skip already does that). Delete is admin/owner-scoped like Skip.
+Left the per-client page's own bulk bar (`clientBulkBar`) unchanged — the
+complaint was about the main Matches page.

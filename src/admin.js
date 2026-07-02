@@ -412,7 +412,7 @@ const CSS = `
      client-detail header wrap instead of overflowing on small screens. */
   @media(max-width:640px){.sortable{min-width:560px}}
   @media(max-width:920px){.mcard .msel,.scard .msel{display:block;width:26px;height:26px}}
-  @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk{flex:1 1 auto}}
+  @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk,.bulkbar2 .bdel{flex:1 1 auto}}
   @media(max-width:560px){.cd-head{flex-wrap:wrap}.cd-owner{text-align:left;flex-basis:100%;margin-top:8px}}
   .fchips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .fchip{border:1px solid var(--field-line);background:var(--field);color:var(--t2);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
@@ -428,6 +428,8 @@ const CSS = `
   .bulkbar2 button{font-family:inherit;font-weight:600;font-size:13px;border-radius:6px;padding:9px 14px;cursor:pointer;border:0}
   .bulkbar2 .bap{background:var(--gold);color:var(--gold-on)}
   .bulkbar2 .bsk{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
+  .bulkbar2 .bdel{background:transparent;color:#ff9a9a;border:1px solid rgba(255,120,120,.4)}
+  .bulkbar2 .bdel:hover{background:rgba(177,18,38,.25);color:#fff;border-color:rgba(255,120,120,.7)}
   .bulkbar2 .bcl{background:transparent;color:#cfd0d2;border:0;font-size:12.5px}
   .ghead{display:flex;align-items:center;gap:10px;grid-column:1/-1;padding:8px 2px 2px;border-bottom:1px solid var(--hair);margin-top:8px}
   .ghead .gh-n{font-size:14px;font-weight:600}
@@ -2864,7 +2866,7 @@ function matchCard(q) {
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
-          <div class="sc-cl"><div class="sc-cl-n">Match for: <span class="gold">${esc(q.client_name)}</span></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
+          <div class="sc-cl"><div class="sc-cl-n">Match for: <a class="gold clink" href="/admin?view=client&id=${q.client_id}" data-drawer="/admin/drawer?id=${q.client_id}" title="See this client's engagement and history to help close them">${esc(q.client_name)}</a></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
         </div>
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
@@ -2935,18 +2937,23 @@ function matchesView(pending, opts = {}) {
       <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:#B6B9BC"></span>Possible</button>
       <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
       <span class="quick">
+        <button type="button" id="qAll">Select all shown</button>
         <button type="button" id="qStrong">Select all Strong</button>
         <button type="button" id="qSoon">Select all closing soon</button>
         ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
       </span>
     </div>
   </div>`;
+  // "Delete" hard-removes the selected matches from the queue (client asked for
+  // a bulk delete "to start fresh") — distinct from "Skip", which keeps the row
+  // as rejected. Guarded by a confirm in the controller.
   const bulk = `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"></form>
     <div class="bulkbar2" id="bulkBar">
       <span class="bc"><span id="selCount">0</span> selected</span>
       <span class="bsp"></span>
       <button type="submit" form="bulkForm" class="bap" id="bApprove">Approve &amp; send</button>
       <button type="submit" form="bulkForm" class="bsk" id="bSkip">Skip</button>
+      <button type="submit" form="bulkForm" class="bdel" id="bDelete">Delete</button>
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
   const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
@@ -3048,11 +3055,13 @@ function matchesScript() {
   [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
   var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
   grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
+  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){cards.forEach(function(c){if(c.__show){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
   var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
   var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
+  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){var n=document.getElementById('selCount');n=n?n.textContent:'';if(!confirm('Permanently delete the '+n+' selected match'+(n==='1'?'':'es')+' from the queue? This cannot be undone.')){ev.preventDefault();return;}document.getElementById('bulkAction').value='delete';});
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
