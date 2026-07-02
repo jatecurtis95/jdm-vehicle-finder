@@ -859,19 +859,41 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
   const c = await env.DB.prepare(`SELECT c.* FROM clients c WHERE c.id = ? AND ${acc.sql}`).bind(id, ...acc.binds).first();
   if (!c) return `<div class="dw-empty">Customer not found, or you don't have access.</div>`;
   const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY active DESC, id DESC").bind(id).all()).results || [];
-  const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
+  const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at, sent_at, viewed_at, response, lot_json FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
   const pays = (await env.DB.prepare("SELECT amount_cents, currency, status, created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 5").bind(id).all()).results || [];
+  // Engagement roll-up across ALL their matches (not just the recent 6) so the
+  // panel answers "have we sent examples, and did they open them?" at a glance.
+  const eng = (await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
+            MAX(viewed_at) AS last_viewed
+       FROM queue WHERE client_id = ?`
+  ).bind(id).first()) || {};
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
+    ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
-  ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${esc(v)}</span></div>`).join("");
+    ["Examples sent", Number(eng.sent) ? `${eng.sent}${Number(eng.viewed) ? ` &middot; ${eng.viewed} viewed` : " &middot; none opened yet"}` : null],
+    ["Last viewed", eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : null],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="dw-row"><span class="dw-k">${k}</span><span class="dw-v">${v}</span></div>`).join("");
 
   const wlList = wls.length
     ? wls.map((w) => `<div class="dw-item"><div class="dw-item-t">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</div><div class="dw-item-s">${esc(yearRange(w.year_min, w.year_max))}${w.active ? "" : " &middot; paused"}</div></div>`).join("")
     : `<div class="dw-empty-sm">No searches yet.</div>`;
+  // Per-match: show the match strength (how good a fit) and the engagement stage
+  // (sent / viewed / interested) — the two things that help close the client.
   const mList = matches.length
-    ? matches.map((m) => `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s"><span class="chip muted">${esc(m.status)}</span> &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`).join("")
+    ? matches.map((m) => {
+        let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
+        const strength = lot._strength ? `<span class="dw-str dw-str-${String(lot._strength).toLowerCase()}">${esc(lot._strength)} match</span>` : "";
+        const stage = m.response === "interested" ? `<span class="eng eng-viewed">Interested</span>`
+          : m.viewed_at ? `<span class="eng eng-viewed">Viewed</span>`
+          : m.sent_at ? `<span class="eng eng-sent">Sent</span>`
+          : `<span class="chip muted">${esc(m.status)}</span>`;
+        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s">${stage}${strength} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
+      }).join("")
     : `<div class="dw-empty-sm">No matches yet.</div>`;
   const pList = pays.length
     ? pays.map((p) => `<div class="dw-item"><div class="dw-item-t">${String(p.currency || "aud").toUpperCase()} $${(Number(p.amount_cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}</div><div class="dw-item-s"><span class="chip muted">${esc(p.status)}</span> &middot; ${esc(String(p.created_at || "").slice(0, 10))}</div></div>`).join("")
@@ -882,6 +904,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
       <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
       <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
     </div>
+    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
     ${info ? `<div class="dw-card">${info}</div>` : ""}
     <div class="dw-sec">Requests <span class="ct">${wls.length}</span></div><div class="dw-list">${wlList}</div>
     <div class="dw-sec">Recent matches <span class="ct">${matches.length}</span></div><div class="dw-list">${mList}</div>
@@ -978,7 +1001,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const tasks = (view === "tasks") ? await tasksData(env, session) : [];
   // Requests view: each wishlist as a pipeline request, with its owner's name.
   const requests = (view === "requests") ? ((await run(
-    `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name
+    `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name,
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.sent_at IS NOT NULL) AS sent_count,
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
@@ -1869,6 +1894,16 @@ function lastActivityLabel(iso) {
   const days = Math.floor((Date.now() - t) / 86400000);
   return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
+// "Have we sent this client examples, and did they open them?" — derived from
+// queue.sent_at / queue.viewed_at (no login tracking needed). Viewed is the
+// strongest buying signal, so it reads gold; sent-but-unopened reads amber;
+// nothing sent stays muted. Powers the Requests "Examples" column.
+function engagementCell(sent, viewed) {
+  const s = Number(sent) || 0, v = Number(viewed) || 0;
+  if (s === 0) return `<span class="chip muted" title="No vehicle examples sent yet">Not sent</span>`;
+  if (v > 0) return `<span class="eng eng-viewed" title="${v} of ${s} sent example${s === 1 ? "" : "s"} opened by the client">Sent &middot; viewed</span>`;
+  return `<span class="eng eng-sent" title="${s} example${s === 1 ? "" : "s"} sent, not opened yet">Sent &middot; unopened</span>`;
+}
 
 // Requests list: the operational pipeline. Each row is a customer's search, with
 // a health dot, live status change, owner and last-activity. Pipeline cards along
@@ -1891,6 +1926,7 @@ function requestsView(requests, opts = {}) {
       <td>${destinationCell(r.destination_country, r.client_state)}</td>
       <td style="white-space:nowrap">${budget}</td>
       <td>${statusSelect(r.id, r.status)}</td>
+      <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
       <td>${esc(r.owner_name || "JDM Connect")}</td>
       <td style="white-space:nowrap">${esc(lastActivityLabel(r.last_activity))}</td>
@@ -1899,13 +1935,26 @@ function requestsView(requests, opts = {}) {
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="10" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="11" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+
+  // Plain-English key so staff aren't guessing what the dots / REQ / Examples
+  // column mean (client asked "what do the green and red dots mean?").
+  const legend = `<div class="req-legend">
+    <span class="lg-t">Key</span>
+    <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
+    <span><span class="health health-amber"></span> Cooling (7&ndash;14 days)</span>
+    <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
+    <span><b class="reqid">REQ-###</b> Request reference &mdash; click to open the full request</span>
+    <span><span class="eng eng-viewed">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
+    <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
+  </div>`;
 
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
+    ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
 }
@@ -1931,6 +1980,12 @@ const REQ_CSS = `<style>
   .rstat-sel{padding:6px 26px 6px 10px;font-size:12.5px;border:1px solid var(--hair);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit}
   .ov-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,115,172,.1);border:1px solid rgba(59,115,172,.34);color:#3B5E96;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
   .ov-chip .ov-d{width:6px;height:6px;border-radius:9999px;background:currentColor}
+  .req-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;background:var(--card);border:1px solid var(--hair);border-radius:11px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--t2);line-height:1.5}
+  .req-legend .lg-t{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+  .req-legend .health{margin-right:5px}
+  .eng{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;white-space:nowrap}
+  .eng-viewed{background:var(--gold-tint);color:var(--gold-txt)}
+  .eng-sent{background:rgba(201,138,0,.14);color:#8a5e10}
 </style>`;
 
 // Destination cell for a request: the AU registration state by default, or an
@@ -4093,7 +4148,17 @@ function drawerChrome() {
     .dw-list{display:flex;flex-direction:column;gap:8px}
     .dw-item{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:11px 14px}
     .dw-item-t{font-size:14px;font-weight:600;color:var(--ink)}
-    .dw-item-s{font-size:12px;color:var(--t3);margin-top:4px}
+    .dw-item-s{font-size:12px;color:var(--t3);margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+    .dw-cta{display:flex;gap:8px;margin:14px 0 4px}
+    .dw-cta-b{flex:1;text-align:center;text-decoration:none;font-size:13px;font-weight:600;padding:9px 12px;border-radius:9px;background:var(--card);border:1px solid var(--hair);color:var(--ink)}
+    .dw-cta-b:hover{border-color:var(--gold-line);color:var(--gold-txt)}
+    .eng{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px;white-space:nowrap}
+    .eng-viewed{background:var(--gold-tint);color:var(--gold-txt)}
+    .eng-sent{background:rgba(201,138,0,.14);color:#8a5e10}
+    .dw-str{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px}
+    .dw-str-strong{background:rgba(31,122,77,.14);color:#1F7A4D}
+    .dw-str-good{background:var(--gold-tint);color:var(--gold-txt)}
+    .dw-str-possible{background:rgba(0,0,0,.06);color:var(--t2)}
   </style>
   <script>(function(){
     var panel=document.getElementById('dwPanel'),scrim=document.getElementById('dwScrim'),content=document.getElementById('dwContent'),closeBtn=document.getElementById('dwClose');

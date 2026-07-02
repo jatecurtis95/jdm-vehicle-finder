@@ -50,3 +50,29 @@ awkward ~56px gap). No data or logic changed — pure presentation reorder.
 **Assumption:** the "out of place" boxes were the `.overview` row (plain
 number+caption KPIs), not the labelled trend `charts` at the very bottom (which
 are intentionally trends, not KPIs). Left the charts as-is.
+
+### 2. Requests page — legend, sent/viewed tracking, richer client panel ✅
+
+**Complaints:** "What do the green/red dots mean? What is REQ? What does last
+activity mean? Can there be a section to show how many requests have been sent
+out / emailed? Clicking into the customer, show more info — phone, last viewed,
+how strong the match is — to help close them."
+
+**Changes (`src/admin.js`):**
+- **Legend** above the Requests table explaining the health dots (green ≤7d /
+  amber 7–14d / red 14d+), the `REQ-###` reference, the Examples column, and
+  "last activity". No more guessing.
+- **"Examples" column** (new `engagementCell`): per request, shows whether we've
+  sent example cars and whether the client opened them — "Sent · viewed" (gold,
+  strongest buying signal) / "Sent · unopened" (amber) / "Not sent". Driven by a
+  correlated subquery on `queue.sent_at` / `queue.viewed_at` added to the
+  requests query (no schema change).
+- **Richer customer drawer** (`clientDrawerFragment`): added quick-action
+  WhatsApp/Call/Email buttons; an engagement roll-up in the info card
+  ("Examples sent: N · M viewed", "Last viewed" date, Member status); and each
+  recent match now shows its **match strength** (Strong/Good/Possible from
+  `lot._strength`) and engagement stage (Sent/Viewed/Interested).
+
+**Assumption:** "last logged in" isn't tracked; "Last viewed" (most recent
+`queue.viewed_at`) is the closest real signal and is what's shown. True login
+history would need a migration and only fill in going forward — deferred.
