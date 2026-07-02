@@ -100,7 +100,10 @@ export function auctionCardV2(lot, opts = {}) {
   const photoLink = detailHref ? `<a class="ac-link" href="${esc(detailHref)}" aria-label="View ${esc(name)} details"></a>` : "";
   const nameHtml = detailHref ? `<a class="ac-name-link" href="${esc(detailHref)}">${esc(name)}</a>` : esc(name);
 
-  return `<div class="acard">
+  // opts.select: staff bulk-send selection (checkbox + gold outline via the
+  // shared .selcard controller in the admin send bar).
+  return `<div class="acard${opts.select ? " selcard" : ""}"${opts.select ? ` data-lot="${esc(lot.id)}"` : ""}>
+    ${opts.select ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="ac-photo"${img ? ` style="background-image:url('${esc(img)}')"` : ""}>
       <span class="ac-grade">Grade ${esc(grade)}</span>
       ${heart}

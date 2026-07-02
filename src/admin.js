@@ -3569,7 +3569,8 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     "Vehicle - JDM Connect");
   if (!Number.isInteger(qid) || qid <= 0) return notFound();
   const q = await env.DB.prepare(
-    `SELECT q.*, c.name AS client_name, w.label AS wlabel, w.rate_min AS w_rate,
+    `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.rate_min AS w_rate,
             w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
        FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
       WHERE q.id = ?`
@@ -3697,17 +3698,28 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     </div>`;
 
   // Skip/Approve here are full navigations (no AJAX), so send the user back to
-  // the client they came from instead of dumping them on the Matches home.
-  const ret = `/admin?view=client&id=${q.client_id}`;
+  // where they came from (the ret path when present, else the client's page).
+  const ret = opts.ret && String(opts.ret).startsWith("/admin") ? String(opts.ret) : `/admin?view=client&id=${q.client_id}`;
+  // The confirm states the consequence, including the contactless case the
+  // match cards already warn about.
+  const hasContact = !!(q.client_email || q.client_whatsapp);
+  const approveConfirm = lot._watch
+    ? `Mark this lead match as done? ${esc(q.client_name || "The client")} is watch-only and will not be contacted.`
+    : hasContact
+      ? `Approve and send this car to ${esc(q.client_name || "the client")}? They get one message with this car.`
+      : `${esc(q.client_name || "This client")} has no email or WhatsApp on file. Approving will mark this handled but nothing will reach them. Continue?`;
+  const contactWarn = (!hasContact && !lot._watch && q.status === "pending")
+    ? `<div class="nocontact" style="margin:10px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
+    : "";
   const actions = q.status === "pending"
-    ? `<div class="ld-actions">
+    ? `${contactWarn}<div class="ld-actions">
         <form method="POST" action="/decide">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="reject">
           <input type="hidden" name="return" value="${esc(ret)}">
           <button class="btn-skip" type="submit">Skip</button>
         </form>
-        <form method="POST" action="/decide" onsubmit="return confirm('Approve and send this match to the client?')">
+        <form method="POST" action="/decide" onsubmit="return confirm('${approveConfirm.replace(/'/g, "&#39;")}')">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="return" value="${esc(ret)}">
@@ -4017,7 +4029,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -5708,7 +5720,7 @@ export async function addLotToClient(env, clientId, lotId, session) {
 
   // Already in this client's queue? Don't add a duplicate.
   const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(cid, String(lot.id)).first();
-  if (existing) return { ok: true, already: true, lot };
+  if (existing) return { ok: true, already: true, lot, queueId: existing.id };
 
   let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
   let wishlistId = wl?.id;
@@ -5723,11 +5735,31 @@ export async function addLotToClient(env, clientId, lotId, session) {
   } catch (e) { /* card just renders without a landed figure */ }
   lot._strength = "Manual";
 
-  await env.DB.prepare(
+  const ins = await env.DB.prepare(
     "INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token, reason) VALUES (?, ?, ?, ?, 'pending', ?, 'Added by staff from auction search')"
   ).bind(wishlistId, cid, String(lot.id), JSON.stringify(lot), randomToken()).run();
   try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
-  return { ok: true, lot };
+  return { ok: true, lot, queueId: ins.meta?.last_row_id };
+}
+
+// Bulk form of addLotToClient for the send-selected flow: queue every lot for
+// one client and, in send mode, approve them via the same bulk-decision path
+// so the client receives ONE combined email. One failure never stops the rest.
+export async function addLotsToClient(env, clientId, lotIds, session) {
+  const ids = [...new Set((lotIds || []).map(String).filter(Boolean))].slice(0, 40);
+  const queued = [];
+  let failed = 0;
+  for (const lotId of ids) {
+    try {
+      const r = await addLotToClient(env, clientId, lotId, session);
+      if (r.ok && r.queueId) queued.push(Number(r.queueId));
+      else if (!r.ok) failed++;
+    } catch (e) {
+      console.error(`addLotsToClient failed (lot ${lotId}):`, e.message);
+      failed++;
+    }
+  }
+  return { queued, failed, requested: ids.length };
 }
 
 // A live-auction search result on the admin client page, with an "Add to queue"
@@ -5762,13 +5794,123 @@ function queueStateBadge(status, name) {
   return `<span class="qbadge" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;${tone}">&#10003; ${label}</span>`;
 }
 
+// Sticky bottom send bar for the auction-search surfaces (client-page find
+// results and the Auctions live tab). Slides up when 1+ result cards are
+// selected. "Send N to [name]" queues the lots and approves them through the
+// bulk-decision path (ONE combined email); "Queue for review" just queues.
+// opts.mode: "fixed" (client known: clientId/clientName/hasContact) or
+// "picker" (opts.clients = [{id, name, hasContact}]). opts.back: no-JS return.
+function staffSendBar(opts = {}) {
+  const picker = opts.mode === "picker";
+  const options = picker
+    ? (opts.clients || []).map((c) => `<option value="${c.id}" data-contact="${c.hasContact ? 1 : 0}">${esc(c.name)}</option>`).join("")
+    : "";
+  return `<div class="sendbar" id="sendBar" data-client="${opts.clientId || ""}" data-name="${esc(opts.clientName || "")}" data-contact="${opts.hasContact ? 1 : 0}">
+    <span class="sb-count"><b id="sbN">0</b> selected</span>
+    ${picker ? `<select id="sbClient" aria-label="Send the selected cars to which client"><option value="">Choose client…</option>${options}</select>` : ""}
+    <button type="button" class="btn-gold" id="sbSend">Send to ${esc(opts.clientName || "client")}</button>
+    <button type="button" class="btn-dark" id="sbQueue">Queue for review</button>
+  </div>
+  <style>
+    .selcard{cursor:pointer;position:relative}
+    .selcard .fsel{position:absolute;top:10px;right:10px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
+    .acard.selcard .fsel{top:auto;bottom:11px;right:11px}
+    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:13px}
+    .qbadge-js{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;background:var(--gold-tint);color:var(--gold-txt)}
+    .qbadge-js.sent{background:rgba(31,122,77,.14);color:#1F7A4D}
+    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:#15181D;color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:10px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
+    .sendbar.show{transform:translate(-50%,0)}
+    .sendbar .sb-count{font-size:13px;font-weight:600;color:#cfd3d8;white-space:nowrap}
+    .sendbar .sb-count b{color:#fff}
+    .sendbar select{background:#1F242B;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:9px 30px 9px 11px;font-size:13.5px;max-width:180px}
+    .sendbar button{min-height:44px}
+    @media(max-width:640px){.sendbar{left:8px;right:8px;transform:translate(0,130%);max-width:none;margin-bottom:8px}.sendbar.show{transform:translate(0,0)}}
+  </style>
+  <script>(function(){
+    var bar=document.getElementById('sendBar'); if(!bar)return;
+    function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+    function sel(){return [].slice.call(document.querySelectorAll('.selcard.picked'));}
+    var pickerEl=document.getElementById('sbClient');
+    if(pickerEl){try{var last=sessionStorage.getItem('jdmLastClient');if(last&&pickerEl.querySelector('option[value="'+last+'"]'))pickerEl.value=last;}catch(e){}}
+    function clientName(){ if(!pickerEl)return bar.getAttribute('data-name')||''; var o=pickerEl.options[pickerEl.selectedIndex]; return (o&&o.value)?o.textContent:''; }
+    function clientId(){ return pickerEl?pickerEl.value:(bar.getAttribute('data-client')||''); }
+    function hasContact(){ if(!pickerEl)return bar.getAttribute('data-contact')==='1'; var o=pickerEl.options[pickerEl.selectedIndex]; return !!(o&&o.getAttribute('data-contact')==='1'); }
+    function firstName(n){return String(n||'').trim().split(' ')[0]||'client';}
+    function upd(){
+      var n=sel().length;
+      var el=document.getElementById('sbN'); if(el)el.textContent=n;
+      var send=document.getElementById('sbSend');
+      if(send&&!send.disabled)send.textContent='Send '+n+' to '+firstName(clientName()||'client');
+      bar.classList.toggle('show',n>0);
+    }
+    if(pickerEl)pickerEl.addEventListener('change',upd);
+    document.addEventListener('click',function(e){
+      var card=e.target&&e.target.closest?e.target.closest('.selcard'):null;
+      if(!card)return;
+      if(e.target.closest('a,button,form,select')&&!e.target.classList.contains('fsel'))return;
+      var cb=card.querySelector('.fsel'); if(!cb||cb.disabled)return;
+      if(e.target!==cb)cb.checked=!cb.checked;
+      card.classList.toggle('picked',cb.checked);
+      upd();
+    });
+    function go(send){
+      var cards=sel();
+      if(!cards.length){toast('Select at least one car first',true);return;}
+      var cid=clientId();
+      if(!cid){toast('Choose a client first',true);if(pickerEl)pickerEl.focus();return;}
+      var name=firstName(clientName());
+      var n=cards.length;
+      if(send){
+        var msg=hasContact()
+          ? 'This emails '+n+' car'+(n===1?'':'s')+' to '+name+' in one message.'
+          : name+' has no email or WhatsApp on file, so sending will mark these handled but nothing will reach them. Continue?';
+        if(!confirm(msg))return;
+      }
+      var body=new URLSearchParams();
+      body.set('client_id',cid); body.set('do',send?'send':'queue'); body.set('ajax','1');
+      cards.forEach(function(c){body.append('lot_ids',c.getAttribute('data-lot')||'');});
+      var sendBtn=document.getElementById('sbSend'),qBtn=document.getElementById('sbQueue');
+      var busy=send?sendBtn:qBtn; var orig=busy?busy.textContent:'';
+      if(busy)busy.textContent=send?'Sending…':'Queueing…';
+      if(sendBtn)sendBtn.disabled=true; if(qBtn)qBtn.disabled=true;
+      fetch('/client/find/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){
+        if(!j||!j.ok)throw 0;
+        try{sessionStorage.setItem('jdmLastClient',cid);}catch(e){}
+        cards.forEach(function(c){
+          c.classList.remove('picked');
+          var cb=c.querySelector('.fsel'); if(cb){cb.checked=false;cb.disabled=true;}
+          var f2=c.querySelector('form[action="/client/find"]');
+          var badge=document.createElement('span');
+          badge.className='qbadge-js'+(send?' sent':'');
+          badge.textContent=(send?'Sent to ':'Queued for ')+name;
+          if(f2&&f2.parentNode)f2.parentNode.replaceChild(badge,f2);
+        });
+        if(sendBtn)sendBtn.disabled=false; if(qBtn){qBtn.disabled=false;qBtn.textContent='Queue for review';}
+        toast(send?('Sent '+j.queued+' to '+name+' in one combined message'):('Queued '+j.queued+' for review'));
+        upd();
+      }).catch(function(){
+        if(sendBtn){sendBtn.disabled=false;}
+        if(qBtn){qBtn.disabled=false;}
+        if(busy)busy.textContent=orig;
+        toast('Could not '+(send?'send':'queue')+' those cars, please try again',true);
+        upd();
+      });
+    }
+    var sb=document.getElementById('sbSend'); if(sb)sb.addEventListener('click',function(){go(true);});
+    var qb=document.getElementById('sbQueue'); if(qb)qb.addEventListener('click',function(){go(false);});
+  })();</script>`;
+}
+
 function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
+  // Selectable for the bulk send bar unless it has already gone to the client.
+  const selectable = queueState !== "sent";
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
   const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
-  return `<div class="mcard">
+  return `<div class="mcard${selectable ? " selcard" : ""}"${selectable ? ` data-lot="${esc(lot.id)}"` : ""}>
+    ${selectable ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
@@ -5872,7 +6014,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   }
 
   const acc = accessScope(session);
-  const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+  const cstmt = env.DB.prepare(`SELECT id, name, email, whatsapp FROM clients c WHERE ${acc.sql} ORDER BY name`);
   const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
 
@@ -5917,7 +6059,13 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
   let grid;
   if (lots.length) {
-    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+    // Cards are selectable (checkbox + tap outside the links) so a run of cars
+    // can go to one client via the sticky send bar in one combined email.
+    const selectable = (lot) => {
+      const q = queuedByLot.get(String(lot.id));
+      return clients.length > 0 && !(q && q.status === "sent");
+    };
+    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=", select: selectable(lot) })).join("")}</div>`;
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
@@ -5928,7 +6076,10 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
     : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
-  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${AUCTION_CSS}`;
+  const sendBar = clients.length
+    ? staffSendBar({ mode: "picker", clients: clients.map((c) => ({ id: c.id, name: c.name, hasContact: !!(c.email || c.whatsapp) })) })
+    : "";
+  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).

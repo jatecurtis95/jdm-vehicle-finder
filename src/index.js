@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -754,6 +754,38 @@ export default {
       const q = String(f.get("q") || "").replace(/^[?&]+/, "");
       const base = `/admin?view=client&id=${id}&found=${flash}`;
       return Response.redirect(here(`${base}${q ? "&" + q : ""}#find`), 303);
+    }
+
+    // Bulk add-and-send from the auction-search surfaces (client page find
+    // results + Auctions live tab): queue every selected lot for one client
+    // and, in send mode, approve them via the bulk-decision path so the client
+    // receives ONE combined email, not one per car.
+    if (path === "/client/find/bulk" && request.method === "POST") {
+      const f = await request.formData();
+      const cid = Number(f.get("client_id")) || 0;
+      const lotIds = f.getAll("lot_ids");
+      const send = f.get("do") === "send";
+      const ajax = f.get("ajax") === "1";
+      const backRaw = String(f.get("back") || "");
+      const dest = backRaw.startsWith("/admin") ? backRaw : `/admin?view=client&id=${cid}`;
+      const jsonRes = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+      const fail = (msg, status = 400) => ajax ? jsonRes({ ok: false, error: msg }, status) : Response.redirect(here(withNotice(dest, msg, true)), 303);
+      if (!cid) return fail("Choose a client first");
+      if (!lotIds.length) return fail("Select at least one car first");
+      try {
+        const r = await addLotsToClient(env, cid, lotIds, session);
+        if (!r.queued.length) return fail("Could not add those cars. Please try again.", 500);
+        if (send) await applyBulkDecisions(env, "approve", r.queued, session);
+        const n = r.queued.length;
+        const msg = send
+          ? `Sent ${n} car${n === 1 ? "" : "s"} in one combined message`
+          : `Queued ${n} car${n === 1 ? "" : "s"} for review`;
+        if (ajax) return jsonRes({ ok: true, queued: n, failed: r.failed, sent: send });
+        return Response.redirect(here(withNotice(dest, msg + (r.failed ? ` (${r.failed} failed)` : ""))), 303);
+      } catch (e) {
+        console.error("/client/find/bulk failed:", e.message);
+        return fail("Could not send those cars. Please try again.", 500);
+      }
     }
 
     // Buyer portal access - enable + (re)send a set-password link, or revoke.
