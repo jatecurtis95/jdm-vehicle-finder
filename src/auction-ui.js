@@ -241,7 +241,7 @@ export function auctionWatchScript(opts = {}) {
 export const AUCTION_CSS = `<style>
   .asrch{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:20px;margin-bottom:20px}
   .asrch-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-  .asrch-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .asrch-label{font-size:var(--fs-label,12px);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
   .asrch-counts{font-size:var(--fs-label,12px);color:var(--t3)}
   .asrch-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
   .asrch-counts .sep{opacity:.5;margin:0 2px}
@@ -292,21 +292,21 @@ export const AUCTION_CSS = `<style>
   .ac-link{position:absolute;inset:0;z-index:1;display:block}
   .ac-name-link{color:inherit;text-decoration:none}
   .ac-name-link:hover{text-decoration:underline;text-underline-offset:2px}
-  .ac-grade{position:absolute;top:8px;left:8px;z-index:2;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);color:#fff;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 8px;border-radius:4px}
+  .ac-grade{position:absolute;top:8px;left:8px;z-index:2;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);color:#fff;font-size:var(--fs-label,12px);font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 8px;border-radius:9999px}
   .ac-fav{position:absolute;top:8px;right:8px;z-index:2;width:33px;height:33px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:0;border-radius:var(--r-ctl,8px);color:#fff;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s,transform .1s}
   .ac-fav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}
   .ac-fav:hover{background:rgba(0,0,0,.68)}
   .ac-fav:active{transform:scale(.9)}
   .ac-fav.on{color:var(--gold)}
   .ac-fav.on svg{fill:currentColor;stroke:currentColor}
-  .ac-date{position:absolute;left:12px;bottom:8px;z-index:2;display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:11px;font-weight:600}
+  .ac-date{position:absolute;left:12px;bottom:8px;z-index:2;display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:var(--fs-label,12px);font-weight:600}
   .ac-date i{width:6px;height:6px;border-radius:50%;background:var(--bad,#E2607A);display:inline-block}
   .ac-date.sold i{background:#9aa3a0}
   .ac-body{padding:12px 16px 2px}
   .ac-name{font-size:var(--fs-body,15px);font-weight:700;color:var(--ink);letter-spacing:.01em;line-height:1.25;text-transform:uppercase}
   .ac-code{font-size:var(--fs-label,12px);color:var(--t3);margin-top:2px;font-family:var(--mono,ui-monospace,monospace);letter-spacing:.02em}
   .ac-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:12px 16px;margin-top:12px;border-top:1px solid var(--hair)}
-  .ac-stats .k{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .ac-stats .k{font-size:var(--fs-label,12px);font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
   .ac-stats .v{font-size:var(--fs-label,12px);font-weight:600;margin-top:4px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ac-elig{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-label,12px);font-weight:600}
   .ac-elig .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
@@ -314,9 +314,9 @@ export const AUCTION_CSS = `<style>
   .ac-elig.check{color:var(--warn-fg,#8a5e10)}.ac-elig.check .dot{background:var(--warn-c,#C98A00)}
   .ac-foot{border-top:1px solid var(--hair);padding:12px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:auto}
   .ac-price{flex:1;min-width:96px}
-  .ac-price .pk{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .ac-price .pk{font-size:var(--fs-label,12px);font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
   .ac-price .pv{font-size:var(--fs-body,15px);font-weight:700;color:var(--gold-txt);margin-top:2px;font-variant-numeric:tabular-nums}
-  .ac-price .pa{font-size:11px;color:var(--t3)}
+  .ac-price .pa{font-size:var(--fs-label,12px);color:var(--t3)}
   .ac-sheet{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:8px 12px;font-size:var(--fs-sec,13px);font-weight:600;cursor:pointer}
   .ac-sheet:hover{border-color:var(--field-line);background:var(--hover,rgba(0,0,0,.04))}
   .ac-sheet.dis{opacity:.42;pointer-events:none}
