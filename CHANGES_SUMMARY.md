@@ -2,6 +2,26 @@
 
 _Working branch: `feat/finder-ux-and-fixes`. No deploy, no push to `main`._
 
+## At a glance
+
+All 7 sections of the website-changes spec are complete, each built and committed
+separately. Final state: **208 tests passing**, `wrangler deploy --dry-run`
+bundles clean (≈218 KiB gzip). Commits this session (newest first):
+
+| Section | Commit | Summary |
+|---|---|---|
+| 1. Dashboard | `04e21f4` | Lead with the roll-up snapshot; fix the stray mid-page KPI row |
+| 2. Requests | `9e8cf23` | Legend for dots/REQ; "Examples" sent/viewed column; richer customer drawer |
+| 3. Tasks | `7ee147c` | Collapsible "What is the Tasks board?" instructions |
+| 4. Matches | `1de1553` | Bulk delete + select-all; drawer link for closing context |
+| 5. Customer | `622a619` | CRM header (chips, contact actions, engagement stats); fixed the black button |
+| 6. Auction | `28fadff` | Clickable lot detail page (staff picker / member request), reusing the public-lot layout |
+| 7. Mobile | `d83b976` | Compact 2-up filters so results show sooner; kept the burger/scroll foundation |
+
+The three security commits before these (`2e94262`, `e650e8b`, `f26b01b`,
+`e6e69d0`) were the separate audit remediation done earlier in the session and
+are already deployed; they are not part of this website-changes spec.
+
 ## 0. Spec discrepancy (recorded per session rules)
 
 The session instruction was to read `WEBSITE_CHANGES.md` in the repo root and
@@ -194,3 +214,62 @@ pass at 320/375/768/1024 against the live app — CSS-only responsive tweaks wer
 validated by reasoning + build, but a running-app visual check would confirm the
 exact breakpoints on real content. Gated here by local run setup (D1 + auth +
 feed), and the session rule not to deploy.
+
+---
+
+## Skipped / deferred (with reasons)
+
+- **True "last logged in" tracking** — not built. Needs a schema migration and a
+  write on every portal login/page view, and would only populate going forward.
+  Surfaced real engagement (`sent`/`viewed`/`interested` + "last viewed") instead,
+  which answers the underlying question ("are they engaging?").
+- **Clickable detail on the *Sold* auction grids** — left as-is (they keep their
+  Sold-prices / Find-live actions). The client's complaint was the live auctions
+  page; wiring sold detail too would widen the surface without a clear ask.
+- **"Quote" action on the lot detail** — not a feature the app has; member actions
+  are Request-bid + Watch + eligibility.
+- **Per-client Matches bulk bar (`clientBulkBar`) delete** — left unchanged; the
+  bulk-delete ask was about the main Matches page, which now has it.
+- **Deploy / push to main** — intentionally not done, per the session rules. All
+  work sits on branch `feat/finder-ux-and-fixes`, committed locally and not
+  pushed by this session.
+- **Security P2 leftovers** (session versioning, privacy-policy page + Spam Act
+  email footer, deleting `import-clients.sql`) — tracked separately from the
+  website-changes spec; they need a hot-path change, your legal copy, and a
+  prod-applied confirmation respectively.
+
+## Assumptions made (consolidated)
+
+1. `WEBSITE_CHANGES.md` didn't exist → reconstructed it from your "Website
+   changes.docx" and treated that as the spec of record (see §0).
+2. Dashboard "duplicate KPI boxes" = the `.overview` roll-up row, not the labelled
+   trend charts.
+3. `REQ-###` was a source of confusion, not a bug — it's the request reference;
+   explained it in the new legend rather than changing it.
+4. "Bulk delete to start fresh" = hard-remove queue rows (Skip already
+   soft-rejects).
+5. The "black button" = the `.btn-dark` "Back to clients"; softened to an outline
+   button and de-duplicated.
+6. Engagement/strength data comes from existing columns (`queue.sent_at`,
+   `viewed_at`, `response`, `lot._strength`) — no new tables.
+
+## How this was verified
+
+- **Unit/integration tests:** `npm test` → **208 passing, 0 failing** (added
+  `test/auction-lot.test.mjs`, updated the back-link assertion in
+  `test/manual-find.test.mjs`).
+- **Build/bundle:** `npx wrangler deploy --dry-run` succeeds after every section
+  (final ≈760 KiB / 218 KiB gzip).
+- **Not run:** live deploy and on-device visual QA (out of scope per the rules;
+  see the mobile follow-up recommendation above).
+
+## Recommended next steps
+
+1. Review this branch, then deploy from it when ready (the swap-before-deploy
+   dance is retired — `stripe.js` idempotency + migrations 0004/0009 are already
+   live in prod from the security work).
+2. Do the device/Playwright screenshot pass on the deployed build to confirm the
+   mobile filter changes on real content.
+3. If you want genuine "last logged in", say so and I'll add the migration +
+   login-timestamp write.
+4. Provide privacy-policy copy so the remaining APP 5 / Spam Act item can close.
