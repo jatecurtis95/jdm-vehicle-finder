@@ -31,6 +31,15 @@ export function sqlString(value) {
     .trim();
 }
 
+// Escape a string for use inside a LIKE '%…%' pattern: sqlString() first
+// (which strips any attacker-supplied backslashes), then backslash-escape the
+// LIKE metacharacters % and _ so a stored "%" can't wildcard-match the whole
+// feed (audit Low #21). The relay is MySQL, where \% and \_ inside a quoted
+// literal are the standard escaped LIKE wildcards.
+export function sqlLike(value) {
+  return sqlString(value).replace(/[%_]/g, (ch) => "\\" + ch);
+}
+
 // Coerce to a safe integer or return null.
 export function sqlInt(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -162,25 +171,25 @@ export async function searchLots(env, p = {}) {
   const where = ["auction_date >= NOW()"];
   const make = String(p.make || "").trim();
   if (make) {
-    const mk = sqlString(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
+    const mk = sqlLike(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   const model = String(p.model || "").trim();
-  if (model) where.push(`UPPER(model_name) LIKE '%${sqlString(model).toUpperCase()}%'`);
+  if (model) where.push(`UPPER(model_name) LIKE '%${sqlLike(model).toUpperCase()}%'`);
   const yMin = sqlInt(p.yearMin); if (yMin !== null) where.push(`year >= ${yMin}`);
   const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
   const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`((start > 0 AND start <= ${pMax}) OR start <= 0)`);
   const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
   const kuzov = String(p.kuzov || "").trim();
-  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlString(kuzov).toUpperCase()}%'`);
+  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlLike(kuzov).toUpperCase()}%'`);
   const house = String(p.house || "").trim();
-  if (house) where.push(`UPPER(auction) LIKE '%${sqlString(house).toUpperCase()}%'`);
+  if (house) where.push(`UPPER(auction) LIKE '%${sqlLike(house).toUpperCase()}%'`);
   // Free-text search bar: every whitespace token must match some field, so
   // "nissan skyline" narrows on make AND model; a bare lot number matches lot.
   const qStr = String(p.q || "").trim();
   if (qStr) {
     for (const t of qStr.split(/\s+/).filter(Boolean).slice(0, 4)) {
-      const s = sqlString(t).toUpperCase();
+      const s = sqlLike(t).toUpperCase();
       if (!s) continue;
       where.push(`(UPPER(marka_name) LIKE '%${s}%' OR UPPER(model_name) LIKE '%${s}%' OR UPPER(kuzov) LIKE '%${s}%' OR UPPER(lot) LIKE '%${s}%')`);
     }
@@ -207,23 +216,23 @@ export async function searchSold(env, p = {}) {
   const where = ["finish > 0"];
   const make = String(p.make || "").trim();
   if (make) {
-    const mk = sqlString(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
+    const mk = sqlLike(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   const model = String(p.model || "").trim();
-  if (model) where.push(`UPPER(model_name) LIKE '%${sqlString(model).toUpperCase()}%'`);
+  if (model) where.push(`UPPER(model_name) LIKE '%${sqlLike(model).toUpperCase()}%'`);
   const yMin = sqlInt(p.yearMin); if (yMin !== null) where.push(`year >= ${yMin}`);
   const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
   const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`finish <= ${pMax}`);
   const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
   const kuzov = String(p.kuzov || "").trim();
-  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlString(kuzov).toUpperCase()}%'`);
+  if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlLike(kuzov).toUpperCase()}%'`);
   const house = String(p.house || "").trim();
-  if (house) where.push(`UPPER(auction) LIKE '%${sqlString(house).toUpperCase()}%'`);
+  if (house) where.push(`UPPER(auction) LIKE '%${sqlLike(house).toUpperCase()}%'`);
   const qStr = String(p.q || "").trim();
   if (qStr) {
     for (const t of qStr.split(/\s+/).filter(Boolean).slice(0, 4)) {
-      const s = sqlString(t).toUpperCase();
+      const s = sqlLike(t).toUpperCase();
       if (!s) continue;
       where.push(`(UPPER(marka_name) LIKE '%${s}%' OR UPPER(model_name) LIKE '%${s}%' OR UPPER(kuzov) LIKE '%${s}%' OR UPPER(lot) LIKE '%${s}%')`);
     }

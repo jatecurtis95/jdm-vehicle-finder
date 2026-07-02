@@ -3623,7 +3623,7 @@ export async function requestPage(env, opts = {}) {
     </div>
     <style>${onboardingCss}</style>
     <script>(function(){try{localStorage.removeItem('jdmReqDraft');}catch(e){}})();</script>${leadPixel}`;
-    return brandDoc(successInner, "Your search is live - JDM Connect");
+    return brandDoc(successInner, "Your search is live - JDM Connect", { analytics: true });
   }
 
   // Bounce the wizard straight to the step that owns a server-side error, so a
@@ -3804,7 +3804,7 @@ export async function requestPage(env, opts = {}) {
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
     ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn })}`;
-  return brandDoc(inner, "Find your car - JDM Connect");
+  return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
 }
 
 // Read-only public view of a shared car (the "Share" link). No login, no client
@@ -4311,6 +4311,12 @@ export async function deleteClient(env, id, session) {
   for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
   stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+  // Clear the free-text CRM trail (activity timeline + tasks hold names, notes
+  // and "Vehicle sent: …" detail) so it isn't orphaned after the client is
+  // gone (APP 11.2). Payments are intentionally retained for financial records
+  // (client_id is NOT NULL and the row holds no name/email/phone).
+  stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
   await env.DB.batch(stmts);
 }
@@ -4389,6 +4395,8 @@ export async function deleteAgent(env, id) {
     for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
     stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(c.id));
     stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(c.id));
   }
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE agent_id = ?").bind(aid)); // shares received
   stmts.push(env.DB.prepare("DELETE FROM clients WHERE agent_id = ?").bind(aid));
@@ -4448,6 +4456,8 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
       stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
     }
     await env.DB.batch(stmts);

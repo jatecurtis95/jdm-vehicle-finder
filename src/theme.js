@@ -397,16 +397,26 @@ const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NU
 // set-password, info, 404. `bodyInner` is the inner markup; the doc supplies the
 // dark stylesheet and a head. GTM goes as high as possible in <head>; both
 // noscript fallbacks go immediately after <body> opens.
-export function brandDoc(bodyInner, title = "JDM Connect") {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${ANALYTICS_HEAD}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${ANALYTICS_BODY}${bodyInner}${CONTACT_WIDGET}</body></html>`;
+// opts.analytics gates GTM + Meta Pixel injection. It defaults to OFF so
+// authenticated/credential pages (login, set-password, the buyer portal) never
+// load third-party scripts that would get full DOM access to a signed-in
+// buyer's matches, PII and Stripe checkout context (audit Medium #15). Only the
+// public marketing surfaces (landing, request form + its confirmation, info /
+// 404, public lot share) opt in with { analytics: true }.
+export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
+  const head = opts.analytics ? ANALYTICS_HEAD : "";
+  const body = opts.analytics ? ANALYTICS_BODY : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${bodyInner}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
-// so portal markup can move over without restructuring.
-export function brandShell(side, main, title = "JDM Connect") {
+// so portal markup can move over without restructuring. Analytics stays OFF by
+// default (the portal is authenticated); public callers pass { analytics: true }.
+export function brandShell(side, main, title = "JDM Connect", opts = {}) {
   return brandDoc(
     `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" id="main" role="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
-    title
+    title,
+    opts
   );
 }
 

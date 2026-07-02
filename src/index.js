@@ -55,6 +55,21 @@ export async function requestRateLimited(env, { ip, email, whatsapp }) {
   return false;
 }
 
+// Sliding-window limiter for the public /api/* JSON endpoints (per IP).
+// Same fail-open KV pattern as the request-form limiter above.
+const API_RL_MAX = 60;          // calls
+const API_RL_WINDOW_S = 300;    // per 5 minutes
+async function apiRateLimited(env, ip) {
+  if (!env.RL || !ip) return false;
+  const k = `apirl:ip:${ip}`;
+  try {
+    const n = parseInt((await env.RL.get(k)) || "0", 10);
+    if (n >= API_RL_MAX) return true;
+    await env.RL.put(k, String(n + 1), { expirationTtl: API_RL_WINDOW_S });
+  } catch (_) { /* fail open */ }
+  return false;
+}
+
 // --- Login brute-force protection (KV-backed) --------------------------------
 // Tracks failed sign-ins per IP and per email. After the key's cap within the
 // window the source is locked out, and every failed attempt also costs a fixed
@@ -236,6 +251,19 @@ export default {
 
     // Feed lookup lists for the form dropdowns (public - just car names).
     // CORS-open so other JDM apps (e.g. the dealer portal) can consume them.
+    // Rate-limited per IP: a cache miss on these fans out to the auction relay
+    // (up to ~16 upstream SQL calls per /api/market hit), so an anonymous loop
+    // could burn the relay quota (audit Medium #12). Generous cap - real users
+    // browsing the wizard make a handful of calls, not 60 in 5 minutes.
+    if (path === "/api/makers" || path === "/api/models" || path === "/api/market") {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      if (await apiRateLimited(env, ip)) {
+        return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "300", "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    }
     if (path === "/api/makers") {
       return new Response(JSON.stringify(await distinctMakers(env)), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
@@ -995,9 +1023,12 @@ async function alertNewRequest(env, req) {
   // Phone chime (Pushover/ntfy) so a new lead pings you anywhere, even with the
   // site closed. No-ops until a push provider secret is set; never blocks.
   const want = [req.marka_name, req.model_name].filter(Boolean).join(" ").trim();
+  // PII stays out of the push body (Pushover/ntfy/Telegram store messages on
+  // their servers): name + vehicle identify the lead; details live behind the
+  // admin link.
   await sendPush(env, {
     title: "New JDM Finder signup",
-    message: `${req.name || "Someone"}${want ? " wants " + want : ""}${req.email ? " (" + req.email + ")" : ""}`,
+    message: `${req.name || "Someone"}${want ? " wants " + want : ""}`,
     url: `${env.PUBLIC_URL}/admin?view=clients`,
   });
 }

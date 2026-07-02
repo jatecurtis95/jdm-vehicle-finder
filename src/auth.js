@@ -9,7 +9,13 @@
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
-const PBKDF2_ITER = 100000;
+// OWASP (2023) recommends >=600k PBKDF2-SHA256 iterations; the Workers CPU
+// budget caps what a login request can afford, so 210k is the practical
+// balance (audit Low #18, set 2026-07-02). New hashes embed their iteration
+// count as an "<iter>." prefix on the stored hash; bare legacy hashes (no
+// prefix) verify at the old 100k count until that user next sets a password.
+const PBKDF2_ITER = 210000;
+const PBKDF2_ITER_LEGACY = 100000;
 const enc = new TextEncoder();
 
 function toBase64(bytes) {
@@ -100,23 +106,29 @@ export async function readShareToken(env, token) {
 }
 
 // --- Password hashing (PBKDF2-SHA256) ---------------------------------------
-async function deriveHash(password, saltBytes) {
+async function deriveHash(password, saltBytes, iterations) {
   const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: saltBytes, iterations: PBKDF2_ITER, hash: "SHA-256" }, key, 256
+    { name: "PBKDF2", salt: saltBytes, iterations, hash: "SHA-256" }, key, 256
   );
   return new Uint8Array(bits);
 }
 export async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await deriveHash(password, salt);
-  return { salt: toBase64(salt), hash: toBase64(hash) };
+  const hash = await deriveHash(password, salt, PBKDF2_ITER);
+  return { salt: toBase64(salt), hash: `${PBKDF2_ITER}.${toBase64(hash)}` };
 }
 export async function verifyPassword(password, saltB64, hashB64) {
   if (!password || !saltB64 || !hashB64) return false;
   try {
-    const hash = await deriveHash(password, fromBase64(saltB64));
-    return safeEqual(toBase64(hash), hashB64);
+    // "<iter>.<hash>" = self-describing; bare base64 (no ".") = legacy 100k.
+    // Bounds reject nonsense counts without ever deriving at them.
+    const stored = String(hashB64);
+    const dot = stored.indexOf(".");
+    const iter = dot > 0 ? parseInt(stored.slice(0, dot), 10) : PBKDF2_ITER_LEGACY;
+    if (!Number.isInteger(iter) || iter < 50000 || iter > 10000000) return false;
+    const hash = await deriveHash(password, fromBase64(saltB64), iter);
+    return safeEqual(toBase64(hash), dot > 0 ? stored.slice(dot + 1) : stored);
   } catch (e) {
     return false;
   }

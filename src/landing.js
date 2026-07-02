@@ -392,5 +392,5 @@ export async function landingPage(env) {
   </div>
   ${landingMotionScript(COST_TOTAL)}`;
 
-  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction");
+  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", { analytics: true });
 }

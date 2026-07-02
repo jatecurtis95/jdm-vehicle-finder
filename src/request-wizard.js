@@ -422,19 +422,22 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     }
 
     function fmtAud(n){return 'A$'+Math.round(n).toLocaleString('en-AU');}
+    // Every free-text value is esc()'d before the innerHTML write: make/model
+    // fall back to free-text inputs when the feed is down, and kuzov/rate_min
+    // are always free text, so unescaped values could inject markup (self-XSS).
     function buildReview(){
       var box=document.getElementById('obReview'); if(!box) return;
       var mk=val('marka_name'), md=val('model_name'), yf=val('year_min'), yt=val('year_max'), st=val('state');
       var bn=parseFloat(val('budget_aud'));
       var rows=[], car=[mk,md].filter(Boolean).join(' ');
-      rows.push('<li><span class="tick">&#10003;</span><span><b>'+(car||'Your vehicle')+'</b></span></li>');
-      if(yf&&yt) rows.push('<li><span class="tick">&#10003;</span><span>'+yf+' to '+yt+'</span></li>');
+      rows.push('<li><span class="tick">&#10003;</span><span><b>'+(esc(car)||'Your vehicle')+'</b></span></li>');
+      if(yf&&yt) rows.push('<li><span class="tick">&#10003;</span><span>'+esc(yf)+' to '+esc(yt)+'</span></li>');
       if(isFinite(bn)) rows.push('<li><span class="tick">&#10003;</span><span>Budget up to '+fmtAud(bn)+' all-in</span></li>');
-      if(st) rows.push('<li><span class="tick">&#10003;</span><span>Registered in '+st+'</span></li>');
+      if(st) rows.push('<li><span class="tick">&#10003;</span><span>Registered in '+esc(st)+'</span></li>');
       var extra=[];
       if(val('mileage_max')) extra.push('under '+parseInt(val('mileage_max'),10).toLocaleString('en-AU')+' km');
-      if(val('rate_min')) extra.push('grade '+val('rate_min')+'+');
-      if(val('kuzov')) extra.push('chassis '+val('kuzov'));
+      if(val('rate_min')) extra.push('grade '+esc(val('rate_min'))+'+');
+      if(val('kuzov')) extra.push('chassis '+esc(val('kuzov')));
       var ex=extra.length?'<div class="rv-extra">Also: '+extra.join(' &middot; ')+'</div>':'';
       box.innerHTML='<div class="rk">We\\u2019re searching for</div><ul>'+rows.join('')+'</ul>'+ex;
     }
