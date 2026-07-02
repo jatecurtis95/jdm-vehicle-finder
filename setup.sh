@@ -52,9 +52,12 @@ npx wrangler d1 execute "$DB_NAME" --remote --file schema.sql
 echo "==> 5/7 Setting secrets"
 # AVTONET API code (defaults to the one on file; override with AVTONET_CODE=... )
 printf '%s' "${AVTONET_CODE:?Set AVTONET_CODE in your environment before running setup}" | npx wrangler secret put AVTONET_CODE
-# Admin token (random, gates the admin page)
+# Admin token (random, HMAC signing key only — never a login credential)
 ADMIN_TOKEN="$(openssl rand -hex 24)"
 printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN
+# Admin password (random, the actual /login credential — blank email + this password)
+ADMIN_PASSWORD="$(openssl rand -hex 12)"
+printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD
 # Resend key (optional — email won't send until this is set)
 if [ -n "${RESEND_API_KEY:-}" ]; then
   printf '%s' "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
@@ -79,11 +82,11 @@ if [ -n "$URL" ]; then
   echo ""
   echo "============================================================"
   echo " DONE."
-  echo " Admin panel:  $URL/admin?key=$ADMIN_TOKEN"
-  echo " Save this ADMIN_TOKEN somewhere safe: $ADMIN_TOKEN"
+  echo " Admin panel:  $URL/login  (leave email blank)"
+  echo " Save this ADMIN_PASSWORD somewhere safe: $ADMIN_PASSWORD"
   echo "============================================================"
 else
   echo "Deployed, but couldn't auto-detect the URL."
   echo "Find it in the output above, put it in PUBLIC_URL in wrangler.toml, and run: npx wrangler deploy"
-  echo "Your ADMIN_TOKEN: $ADMIN_TOKEN"
+  echo "Your ADMIN_PASSWORD (login at /login, blank email): $ADMIN_PASSWORD"
 fi

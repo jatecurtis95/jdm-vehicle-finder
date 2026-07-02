@@ -3,8 +3,9 @@
 //
 // The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
 // ADMIN_TOKEN — no server-side session store. Admin logs in with ADMIN_PASSWORD
-// (or ADMIN_TOKEN); agents log in with their email + password (PBKDF2-hashed in
-// the agents table). Login is via the form only — no ?key= URL fallback.
+// (required; ADMIN_TOKEN is signing-key only and is never a valid password);
+// agents log in with their email + password (PBKDF2-hashed in the agents
+// table). Login is via the form only — no ?key= URL fallback.
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -142,9 +143,14 @@ export function passwordPolicyError(password) {
 }
 
 // --- Admin password ----------------------------------------------------------
+// ADMIN_PASSWORD is the ONLY accepted admin credential. ADMIN_TOKEN is strictly
+// the HMAC signing key and must never be compared against user-supplied input —
+// accepting it here would let a leaked/guessed token both log in as admin AND
+// forge arbitrary session/share/OAuth tokens (the two roles need opposite
+// secrecy properties). If ADMIN_PASSWORD is unset, admin login is disabled.
 export function passwordValid(env, password) {
   if (typeof password !== "string" || password.length === 0) return false;
-  return [env.ADMIN_PASSWORD, env.ADMIN_TOKEN].filter(Boolean).some((c) => safeEqual(password, c));
+  return Boolean(env.ADMIN_PASSWORD) && safeEqual(password, env.ADMIN_PASSWORD);
 }
 
 // --- Sessions ----------------------------------------------------------------
