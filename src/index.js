@@ -314,7 +314,7 @@ export default {
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
           await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
-          return doc(loginPage({ locked: true, googleEnabled }), 429);
+          return doc(loginPage({ locked: true, googleEnabled, email: String(email || "") }), 429);
         }
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
@@ -324,7 +324,9 @@ export default {
         }
         await recordLoginFail(env, ip, email);
         await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
-        return doc(loginPage({ error: true, googleEnabled }), 401);
+        // Re-render with the submitted email preserved so a typo'd password
+        // never costs re-typing the address.
+        return doc(loginPage({ error: true, googleEnabled, email: String(email || "") }), 401);
       }
       const existing = await getSession(request, url, env);
       if (existing) return Response.redirect(here(homeFor(existing.role)), 303);
@@ -493,11 +495,25 @@ export default {
       if (view === "request") {
         return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
           saved: url.searchParams.get("saved") || "",
+          // Typed content preserved from a failed note / follow-up post.
+          note: url.searchParams.get("note") || "",
+          naDate: url.searchParams.get("na_date") || "",
+          naNote: url.searchParams.get("na_note") || "",
         }));
       }
       const adminOpts = { err: url.searchParams.get("err") };
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
       if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
+      // Re-rendered form values after a validation error (v_ prefixed params),
+      // so a failed post never wipes what the user typed.
+      if (view === "intake" || view === "agents") {
+        const sp = url.searchParams;
+        adminOpts.vals = {
+          name: sp.get("v_name") || "", email: sp.get("v_email") || "",
+          whatsapp: sp.get("v_whatsapp") || "", state: sp.get("v_state") || "",
+          company: sp.get("v_company") || "",
+        };
+      }
       if (view === "auctions") {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
@@ -528,8 +544,16 @@ export default {
     // Add a free-text note to a request's timeline.
     if (path === "/request/note" && request.method === "POST") {
       const f = await request.formData();
-      return act(() => addRequestNote(env, f.get("id"), f.get("note"), session),
-        crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`), "Note added");
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      try {
+        await addRequestNote(env, f.get("id"), f.get("note"), session);
+        return Response.redirect(here(withNotice(dest, "Note added")), 303);
+      } catch (e) {
+        // Carry the typed note back so a failed post never wipes it.
+        console.error("/request/note failed:", e.message);
+        const keep = dest + (dest.includes("?") ? "&" : "?") + "note=" + encodeURIComponent(String(f.get("note") || "").slice(0, 500));
+        return Response.redirect(here(withNotice(keep, "Could not save the note. Your text is kept in the box.", true)), 303);
+      }
     }
 
     // (Re)assign a request's owner (admin only).
@@ -543,9 +567,17 @@ export default {
     // Schedule / clear a request's next follow-up.
     if (path === "/request/next-action" && request.method === "POST") {
       const f = await request.formData();
-      return act(() => setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: f.get("clear") === "1" }, session),
-        crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`),
-        f.get("clear") === "1" ? "Follow-up cleared" : "Follow-up saved");
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      const clearing = f.get("clear") === "1";
+      try {
+        await setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: clearing }, session);
+        return Response.redirect(here(withNotice(dest, clearing ? "Follow-up cleared" : "Follow-up saved")), 303);
+      } catch (e) {
+        console.error("/request/next-action failed:", e.message);
+        const sep = dest.includes("?") ? "&" : "?";
+        const keep = dest + sep + "na_date=" + encodeURIComponent(String(f.get("next_action_date") || "")) + "&na_note=" + encodeURIComponent(String(f.get("next_action_note") || "").slice(0, 160));
+        return Response.redirect(here(withNotice(keep, "Could not save the follow-up. Your entry is kept in the form.", true)), 303);
+      }
     }
 
     // Tasks: create / toggle done / delete.
@@ -654,10 +686,18 @@ export default {
     }
 
     if (path === "/client" && request.method === "POST") {
-      const r = await createClient(env, await request.formData(), session);
-      if (r.ok) return Response.redirect(here("/admin"), 303);
+      const f = await request.formData();
+      const r = await createClient(env, f, session);
+      if (r.ok) return Response.redirect(here(withNotice("/admin", "Client added")), 303);
       if (r.error === "duplicate") return Response.redirect(here(`/admin?view=client&id=${r.id}&dup=1`), 303);
-      return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
+      // Validation error: bounce back with the submitted values so nothing the
+      // user typed is lost.
+      const qs = new URLSearchParams({ view: "intake", err: r.error || "save" });
+      for (const k of ["name", "email", "whatsapp", "state"]) {
+        const v = String(f.get(k) || "").trim();
+        if (v) qs.set("v_" + k, v);
+      }
+      return Response.redirect(here(`/admin?${qs.toString()}`), 303);
     }
 
     if (path === "/client/delete" && request.method === "POST") {
@@ -756,8 +796,18 @@ export default {
     if (path === "/wishlist" && request.method === "POST") {
       const f = await request.formData();
       const cid = f.get("client_id");
-      return act(() => createWishlist(env, f, undefined, session),
-        cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients", "Search added");
+      const dest = cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients";
+      try {
+        const r = await createWishlist(env, f, undefined, session);
+        if (r && r.ok) return Response.redirect(here(withNotice(dest, "Search added")), 303);
+        const msg = r && r.error === "term"
+          ? "Add at least a make, model, chassis code or grade keyword so the search has something to match on."
+          : "Could not add that search. Please try again.";
+        return Response.redirect(here(withNotice(dest, msg, true)), 303);
+      } catch (e) {
+        console.error("/wishlist failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not add that search. Please try again.", true)), 303);
+      }
     }
 
     if (path === "/wishlist/edit" && request.method === "POST") {
@@ -792,11 +842,27 @@ export default {
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
-      return act(async () => {
+      try {
         const r = await createAgent(env, f);
-        if (!r || !r.ok) throw new Error((r && r.error) || "create failed");
-        if (r.token) await sendInvite(env, r);
-      }, "/admin?view=agents", "Agent added and invited");
+        if (r && r.ok) {
+          if (r.token) await sendInvite(env, r);
+          return Response.redirect(here(withNotice("/admin?view=agents", "Agent added and invited")), 303);
+        }
+        // Keep the typed values on the re-render so the fix is one field, not
+        // the whole form again.
+        const qs = new URLSearchParams({ view: "agents" });
+        for (const k of ["name", "email", "company"]) {
+          const v = String(f.get(k) || "").trim();
+          if (v) qs.set("v_" + k, v);
+        }
+        const msg = r && r.error === "email already in use"
+          ? "That email is already an agent login. Use a different address."
+          : "Could not create the agent. Check the name and email.";
+        return Response.redirect(here(withNotice(`/admin?${qs.toString()}`, msg, true)), 303);
+      } catch (e) {
+        console.error("/agent failed:", e.message);
+        return Response.redirect(here(withNotice("/admin?view=agents", "Could not create the agent. Please try again.", true)), 303);
+      }
     }
     if (path === "/agent/invite" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();

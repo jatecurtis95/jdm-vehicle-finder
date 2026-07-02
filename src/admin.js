@@ -1044,11 +1044,11 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
-  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
+  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
-  else if (view === "agents") body = agentsView(agents);
+  else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
@@ -1075,7 +1075,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 }
 
 // Admin-only: manage agent logins.
-function agentsView(agents) {
+function agentsView(agents, opts = {}) {
+  const vals = opts.vals || {};
+  const vv = (k) => esc(vals[k] || "");
   const rows = agents.map((a) => {
     const invited = !a.pass_hash;
     return `<tr>
@@ -1099,9 +1101,9 @@ function agentsView(agents) {
       <h2><span class="num">+</span> New agent</h2>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" required></div>
-          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" required></div>
-          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka"></div>
+          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" value="${vv("name")}" required></div>
+          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" value="${vv("email")}" required></div>
+          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka" value="${vv("company")}"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
@@ -1294,7 +1296,7 @@ export function loginPage(opts = {}) {
       ${err}
       ${googleBlock}
       <label for="lg-email">Email</label>
-      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="160">
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
       <label for="lg-pass" style="margin-top:14px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
@@ -1320,9 +1322,10 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
+      <p id="sp-help" class="login-sub" style="margin:6px 0 0;font-size:12.5px">At least ${PW_MIN} characters.</p>
       <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
-      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="6">
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
@@ -1739,6 +1742,10 @@ const DASH2_CSS = `<style>
 function intakeView(clients, makers, opts = {}) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
+  // After a validation error the submitted values come back via opts.vals, so
+  // the fix is one field rather than the whole form again.
+  const vals = opts.vals || {};
+  const vv = (k) => esc(vals[k] || "");
   const errBanner = opts.err === "contact"
     ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
     : opts.err === "name"
@@ -1750,10 +1757,10 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" required></div>
-          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com"></div>
-          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions("")}</select></div>
+          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" value="${vv("name")}" required></div>
+          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
+          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -2504,8 +2511,8 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         : `<div class="rd-empty">No follow-up scheduled.</div>`}
       <form method="POST" action="/request/next-action" class="rd-na">
         <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
-        <input type="date" name="next_action_date" value="${esc(w.next_action_date || "")}" aria-label="Next action date">
-        <input name="next_action_note" value="${esc(w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
+        <input type="date" name="next_action_date" value="${esc(opts.naDate || w.next_action_date || "")}" aria-label="Next action date">
+        <input name="next_action_note" value="${esc(opts.naNote || w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
         <div class="rd-naact"><button class="rd-cta rd-cta-gold" type="submit">Set follow-up</button>${w.next_action_date ? `<button class="rd-cta rd-cta-bad" type="submit" name="clear" value="1">Clear</button>` : ""}</div>
       </form>
     </div>
@@ -2513,7 +2520,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       <div class="rd-h">Add a note</div>
       <form method="POST" action="/request/note">
         <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
-        <textarea name="note" rows="2" class="rd-note" placeholder="Call notes, next step, anything worth logging…" maxlength="500"></textarea>
+        <textarea name="note" rows="2" class="rd-note" placeholder="Call notes, next step, anything worth logging…" maxlength="500">${esc(opts.note || "")}</textarea>
         <div class="rd-noteact"><button class="rd-cta rd-cta-gold" type="submit">Log note</button></div>
       </form>
     </div>
@@ -2976,7 +2983,7 @@ function matchesView(pending, opts = {}) {
 
 // One-off toast after the "Fix photos with AI" button kicks off a background run.
 function fixToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;var d=document.createElement("div");d.textContent="Reading auction photos in the background — refresh in a minute to see the covers update.";d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);max-width:90vw;background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:11px 18px;border-radius:9px;font:600 14px/1.35 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22);text-align:center";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},5200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){function go(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;if(window.jdmToast)window.jdmToast("Reading auction photos in the background. Refresh in a minute to see the covers update.",false,5200);p.delete("fixing");var qs=p.toString();history.replaceState(null,"",location.pathname+(qs?"?"+qs:""));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>`;
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
@@ -2986,7 +2993,7 @@ function fixToast() {
 // Shows a one-off "Found N new matches" / "No new matches" toast after a search,
 // reading the ?ran=N the /run redirect adds, then cleans it from the URL.
 function ranToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";var d=document.createElement("div");d.textContent=msg;d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:11px 18px;border-radius:9px;font:600 14px/1 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22)";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},3200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){function go(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";if(window.jdmToast)window.jdmToast(msg);p.delete("ran");var qs=p.toString();history.replaceState(null,"",location.pathname+(qs?"?"+qs:""));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>`;
 }
 
 function matchesScript() {
@@ -3707,7 +3714,11 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
-      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs)).join("")}</div>`;
+      // Cheap existence check: which of these lots are already in this client's
+      // queue? Renders a Queued / Sent badge on the card instead of a dead-end
+      // add-reload-duplicate loop.
+      const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
+      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
     } else {
       findResults = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -3762,7 +3773,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -4291,20 +4302,28 @@ function revealScript() {
     if(!('IntersectionObserver' in window))return;
     var els=[].slice.call(document.querySelectorAll('.acard,.chart-card,.scard,.mcard,.tstat'));
     if(!els.length)return;
-    els.forEach(function(el){el.style.opacity='0';el.style.transform='translateY(14px)';});
+    // Immediate first pass: anything already in (or near) the viewport stays
+    // visible on first paint, so short pages never look broken while waiting
+    // for a scroll event. Only genuinely below-fold cards animate in later.
+    var vh=window.innerHeight||document.documentElement.clientHeight||0;
+    var below=[];
+    els.forEach(function(el){
+      var r=el.getBoundingClientRect();
+      if(r.top<vh+40)return;
+      el.style.opacity='0';el.style.transform='translateY(14px)';below.push(el);
+    });
+    if(!below.length)return;
+    function show(el){
+      el.style.transition='opacity .5s ease, transform .5s cubic-bezier(.2,.7,.3,1)';
+      requestAnimationFrame(function(){el.style.opacity='';el.style.transform='';});
+    }
     var io=new IntersectionObserver(function(ents,obs){
-      ents.forEach(function(en){
-        if(!en.isIntersecting)return;
-        var el=en.target;
-        var sibs=[].slice.call((el.parentNode||document).children).filter(function(x){return els.indexOf(x)>=0});
-        var idx=sibs.indexOf(el); if(idx<0)idx=0;
-        el.style.transition='opacity .5s ease, transform .5s cubic-bezier(.2,.7,.3,1)';
-        el.style.transitionDelay=Math.min(idx,8)*45+'ms';
-        requestAnimationFrame(function(){el.style.opacity='';el.style.transform='';});
-        obs.unobserve(el);
-      });
+      ents.forEach(function(en){ if(!en.isIntersecting)return; show(en.target); obs.unobserve(en.target); });
     },{rootMargin:'0px 0px -6% 0px',threshold:0.04});
-    els.forEach(function(el){io.observe(el);});
+    below.forEach(function(el){io.observe(el);});
+    // Failsafe: never leave content hidden if the observer misses (zoom,
+    // resize, dynamically removed nodes).
+    setTimeout(function(){below.forEach(function(el){if(el.style.opacity==='0'){io.unobserve(el);show(el);}});},4000);
   }catch(e){}})();<\/script>`;
 }
 
@@ -4432,12 +4451,12 @@ function uxGuardScript() {
     .jdm-toast.err{background:#571622}
   </style><script>(function(){
   var live=null;
-  window.jdmToast=function(m,err){
+  window.jdmToast=function(m,err,ms){
     try{
       if(live&&live.parentNode)live.parentNode.removeChild(live);
       var t=document.createElement('div');t.className='jdm-toast'+(err?' err':'');t.setAttribute('role','status');t.textContent=m;
       document.body.appendChild(t);live=t;
-      setTimeout(function(){t.style.transition='opacity .35s';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);if(live===t)live=null;},360);},err?4200:2600);
+      setTimeout(function(){t.style.transition='opacity .35s';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);if(live===t)live=null;},360);},ms||(err?4200:2600));
     }catch(e){}
   };
   try{
@@ -4714,11 +4733,11 @@ const str = (form, k) => { const v = form.get(k); return v === null || v === "" 
 
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
-  if (!clientId) return;
+  if (!clientId) return { ok: false, error: "client" };
   // An agent can add a wishlist to any client they own or that's shared to them.
-  if (!(await clientAccessibleBy(env, clientId, session))) return;
+  if (!(await clientAccessibleBy(env, clientId, session))) return { ok: false, error: "forbidden" };
   // Don't save a whole-feed wishlist: require at least one narrowing term.
-  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return;
+  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return { ok: false, error: "term" };
   await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
@@ -4728,6 +4747,7 @@ export async function createWishlist(env, form, clientIdOverride, session) {
     num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
     num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0
   ).run();
+  return { ok: true };
 }
 
 // Delete a client and everything attached to them - their wishlists, queued
@@ -5469,7 +5489,36 @@ export async function addLotToClient(env, clientId, lotId, session) {
 // A live-auction search result on the admin client page, with an "Add to queue"
 // action that files it as a pending match for this client. qsBack preserves the
 // current search so the result list survives the add.
-function staffFindCard(lot, clientId, firstName, qsBack) {
+// Which of these lot ids are already in a client's queue, and in what state.
+// Read-only; returns Map(lot_id -> queue status). Used to badge search-result
+// cards so staff can see at a glance what has already been queued or sent.
+async function lotQueueStates(env, clientId, lotIds) {
+  const out = new Map();
+  const ids = [...new Set((lotIds || []).map((x) => String(x)).filter(Boolean))].slice(0, 100);
+  if (!ids.length || !clientId) return out;
+  try {
+    const marks = ids.map(() => "?").join(",");
+    const rows = (await env.DB.prepare(
+      `SELECT lot_id, status FROM queue WHERE client_id = ? AND lot_id IN (${marks})`
+    ).bind(Number(clientId), ...ids).all()).results || [];
+    for (const r of rows) out.set(String(r.lot_id), r.status);
+  } catch (e) { console.error("lotQueueStates failed:", e.message); }
+  return out;
+}
+
+// Badge for a lot that is already in a client's queue. `status` is the queue
+// row's status; anything already actioned reads as Sent, a live row as Queued.
+function queueStateBadge(status, name) {
+  if (!status) return "";
+  const label = status === "sent" ? `Sent${name ? " to " + esc(name) : ""}`
+    : status === "pending" ? `Queued${name ? " for " + esc(name) : ""}`
+    : "";
+  if (!label) return "";
+  const tone = status === "sent" ? "background:rgba(31,122,77,.14);color:#1F7A4D" : "background:var(--gold-tint);color:var(--gold-txt)";
+  return `<span class="qbadge" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;${tone}">&#10003; ${label}</span>`;
+}
+
+function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
@@ -5490,7 +5539,9 @@ function staffFindCard(lot, clientId, firstName, qsBack) {
     ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
-      <form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>
+      ${(queueState === "pending" || queueState === "sent")
+        ? queueStateBadge(queueState, firstName)
+        : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
     </div>
   </div>`;
 }
@@ -5584,9 +5635,40 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const page = Math.max(1, parseInt(sp.page, 10) || 1);
   const { lots, hasMore } = await searchLots(env, { ...sp, page });
   const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
-  const pickerFor = (lot) => clients.length
-    ? `<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
-    : `<span class="help">Add a client first to queue cars.</span>`;
+
+  // Which of these lots are already queued for one of this session's clients?
+  // A Queued / Sent badge on the card stops the add-reload-duplicate loop.
+  const queuedByLot = new Map();
+  try {
+    const ids = [...new Set(lots.map((l) => String(l.id)).filter(Boolean))].slice(0, 100);
+    if (ids.length) {
+      const marks = ids.map(() => "?").join(",");
+      const qstmt = env.DB.prepare(
+        `SELECT q.lot_id, q.status, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.lot_id IN (${marks}) AND ${acc.sql}`
+      ).bind(...ids, ...acc.binds);
+      const rows = (await qstmt.all()).results || [];
+      for (const r of rows) {
+        if (!queuedByLot.has(String(r.lot_id)) || r.status === "sent") queuedByLot.set(String(r.lot_id), r);
+      }
+    }
+  } catch (e) { console.error("auction queue badges failed:", e.message); }
+
+  const pickerFor = (lot) => {
+    const q = queuedByLot.get(String(lot.id));
+    const badge = (q && (q.status === "pending" || q.status === "sent"))
+      ? queueStateBadge(q.status, String(q.client_name || "").trim().split(/\s+/)[0])
+      : "";
+    return clients.length
+      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
+      : `<span class="help">Add a client first to queue cars.</span>`;
+  };
+
+  // Remember the last client a lot was added to (this tab only, client-side) and
+  // default every picker to them, so queueing a run of cars is one tap each.
+  const lastClientScript = `<script>(function(){var KEY='jdmLastClient';
+    document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.classList||!f.classList.contains('ac-picker'))return;var s=f.querySelector('select[name=client_id]');if(s&&s.value){try{sessionStorage.setItem(KEY,s.value);}catch(err){}}},true);
+    try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
+  })();</script>`;
 
   const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
   let grid;
@@ -5602,7 +5684,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
     : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
-  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${AUCTION_CSS}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).
