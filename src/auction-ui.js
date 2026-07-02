@@ -92,6 +92,13 @@ export function auctionCardV2(lot, opts = {}) {
 
   const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}"` : "";
   const heart = fav ? `<button type="button" class="ac-fav"${favData} aria-pressed="false" aria-label="Save to watchlist">${HEART}</button>` : "";
+  // When a detail route is supplied, the card opens a full lot page (gallery,
+  // inspection report, specs, actions). The link is a stretched overlay UNDER
+  // the heart/grade (z-index), so those stay clickable; the title is also a
+  // link for keyboard/screen-reader users.
+  const detailHref = opts.detailBase ? `${opts.detailBase}${encodeURIComponent(lot.id)}` : "";
+  const photoLink = detailHref ? `<a class="ac-link" href="${esc(detailHref)}" aria-label="View ${esc(name)} details"></a>` : "";
+  const nameHtml = detailHref ? `<a class="ac-name-link" href="${esc(detailHref)}">${esc(name)}</a>` : esc(name);
 
   return `<div class="acard">
     <div class="ac-photo"${img ? ` style="background-image:url('${esc(img)}')"` : ""}>
@@ -99,8 +106,9 @@ export function auctionCardV2(lot, opts = {}) {
       ${heart}
       ${date ? `<span class="ac-date${sold ? " sold" : ""}"><i></i>${sold ? "Sold " : ""}${esc(date)}</span>` : ""}
       <div class="ac-grad"></div>
+      ${photoLink}
     </div>
-    <div class="ac-body"><div class="ac-name">${esc(name)}</div>${code ? `<div class="ac-code">${esc(code)}</div>` : ""}</div>
+    <div class="ac-body"><div class="ac-name">${nameHtml}</div>${code ? `<div class="ac-code">${esc(code)}</div>` : ""}</div>
     <div class="ac-stats">
       <div class="st"><div class="k">Auction house</div><div class="v">${esc(house) || "-"}</div></div>
       <div class="st"><div class="k">Grade</div><div class="v">${esc(grade)}</div></div>
@@ -281,6 +289,9 @@ export const AUCTION_CSS = `<style>
   .acard:hover{border-color:var(--gold-line);transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.12)}
   .ac-photo{position:relative;height:168px;flex:0 0 auto;background:#0B0D10;background-size:cover;background-position:center;border-bottom:2px solid var(--gold)}
   .ac-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 42%)}
+  .ac-link{position:absolute;inset:0;z-index:1;display:block}
+  .ac-name-link{color:inherit;text-decoration:none}
+  .ac-name-link:hover{color:var(--gold-txt)}
   .ac-grade{position:absolute;top:10px;left:10px;z-index:2;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);color:#fff;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:5px 9px;border-radius:6px}
   .ac-fav{position:absolute;top:9px;right:9px;z-index:2;width:33px;height:33px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:0;border-radius:9px;color:#fff;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s,transform .1s}
   .ac-fav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}

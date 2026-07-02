@@ -3,7 +3,7 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
-import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript } from "./auction-ui.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
@@ -4042,6 +4042,138 @@ function plvGalleryScript() {
   return `<script>(function(){var hero=document.getElementById('plvHero');if(!hero)return;document.querySelectorAll('.plv-th').forEach(function(b){b.addEventListener('click',function(){hero.style.backgroundImage="url('"+b.getAttribute('data-full')+"')";document.querySelectorAll('.plv-th').forEach(function(x){x.classList.remove('on');});b.classList.add('on');});});})();</script>`;
 }
 
+// Full detail page for a single LIVE-feed auction lot, reached by clicking a
+// card on the staff Auctions workspace or the member Auction search. Reuses the
+// public lot layout (gallery, inspection sheet, spec rows, market panel) and
+// adds role-appropriate actions: staff get an "Add to a client" picker; members
+// get "Request bid" + watchlist. Answers the client's "I cannot click onto a
+// vehicle" — every lot now opens its full details and auction report.
+export async function auctionLotPage(env, session, lotId, opts = {}) {
+  const member = session && session.role === "client";
+  // Members must have an active, member-enabled portal account (same gate as the
+  // auction search page). Staff (admin/agent) always pass.
+  let client = null;
+  if (member) {
+    client = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    if (!client || !client.member) {
+      const sb = portalSidebar(client || null, "auctions");
+      return brandShell(sb,
+        `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction search</h1></div></div>
+         <div class="content"><div class="card"><div class="empty">Auction search is a members feature. Ask JDM Connect to enable it on your account.</div></div></div>`,
+        "Auction search - JDM Connect");
+    }
+  }
+
+  let lot = null;
+  try { lot = await fetchLot(env, lotId); } catch (e) { /* feed hiccup → not found */ }
+  const backHref = member ? "/portal/auctions" : "/admin?view=auctions";
+  if (!lot || !lot.id) {
+    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>Lot not found</h1></div>${member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`}</div>
+       <div class="content"><div class="card"><div class="empty">This lot may have closed or left the live feed. <a href="${backHref}" style="color:var(--gold-txt);font-weight:600">Back to auction search</a>.</div></div></div>${CRM_CSS}`;
+    return member
+      ? brandShell(portalSidebar(client, "auctions"), notFoundBody, "Lot not found - JDM Connect")
+      : shell(sidebar("auctions", {}, session), notFoundBody, "Lot not found - JDM Connect");
+  }
+
+  const nowYear = new Date().getFullYear();
+  const { sheet: sheetBase, photos } = splitImages(lot);
+  const settings = await getSettings(env).catch(() => ({}));
+  const showMarket = member ? settingOn(settings, "market_for_clients") : true;
+  const [market, fx] = showMarket
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    : [null, 0];
+
+  const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
+  const th = (u) => `${u}&w=320`;
+  const gallery = photos.length
+    ? `<div class="plv-hero" id="plvHero" role="img" aria-label="${title}" style="background-image:url('${esc(photos[0])}')"></div>
+       ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
+    : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
+  const sheetBox = sheetBase
+    ? `<div class="card plv-sheet"><h2>Auction inspection report</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
+    : "";
+  const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const specRows = [
+    ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
+    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
+    ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
+    ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
+    ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
+
+  const elig = auctionEligibility(lot, nowYear);
+  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : " — ask us to confirm SEVS/age"}</div>`;
+
+  // Actions differ by surface. Members can request a bid and watch; staff can
+  // add the lot to any client they can see (reuses the /client/find flow).
+  let actions;
+  if (member) {
+    const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
+    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(displayGrade(lot.rate))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
+    actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
+      <button type="button" class="ac-fav plv-watch" ${heartData} aria-pressed="false">Save to watchlist</button>
+      <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
+  } else {
+    const acc = accessScope(session);
+    const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+    const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
+    const options = clients.map((cl) => `<option value="${cl.id}">${esc(cl.name)}</option>`).join("");
+    actions = clients.length
+      ? `<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to a client...</option>${options}</select><button class="btn-gold" type="submit">Add</button></form>
+         <p class="plv-fine">Adds this lot to the client's review queue as a manual find, ready to Approve &amp; send.</p>`
+      : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
+  }
+
+  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`;
+  const main = `
+    <div class="topbar"><div class="topbar-in"><div class="kicker">${member ? "Members &middot; Auction vehicle" : "Vehicle Finder &middot; Auction vehicle"}</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div>${topRight}</div>
+    <div class="content">
+      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; Back to auction search</a>`}
+      <div class="plv-grid">
+        <div class="plv-left">
+          <div class="plv-gallery">${gallery}</div>
+          ${sheetBox}
+          ${showMarket ? marketPanel(market, fx) : ""}
+        </div>
+        <aside class="plv-right">
+          <div class="card plv-spec">
+            <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
+            ${eligLine}
+            <div class="plv-actions">${actions}</div>
+            <div class="plv-rows">${specRows}</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+    ${PLV_STYLE}${ALOT_CSS}${plvGalleryScript()}${auctionWatchScript({ request: false })}`;
+  return member
+    ? brandShell(portalSidebar(client, "auctions"), main, title + " - JDM Connect")
+    : shell(sidebar("auctions", {}, session), main, title + " - JDM Connect");
+}
+
+// Extra styles for the lot-detail action column (on top of PLV_STYLE).
+const ALOT_CSS = `<style>
+  .plv-top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
+  .plv-grade-n{font-size:26px;font-weight:800;color:var(--ink);line-height:1}
+  .plv-grade-k,.plv-price-k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+  .plv-price{text-align:right}
+  .plv-price-v{font-size:20px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .alot-elig{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding:10px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:14px}
+  .alot-elig .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .alot-elig.ok{color:#1F7A4D}.alot-elig.ok .dot{background:#1F7A4D}
+  .alot-elig.check{color:#8a5e10}.alot-elig.check .dot{background:#C9A34C}
+  .plv-actions{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+  .plv-cta{width:100%;text-align:center}
+  .plv-picker{display:flex;gap:8px}
+  .plv-picker select{flex:1;min-width:0;padding:11px 13px;border-radius:9px}
+  .plv-watch{width:100%;justify-content:center;gap:8px;padding:11px 14px;border:1px solid var(--hair);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;font-weight:600;cursor:pointer}
+  .plv-watch svg{display:none}
+  .plv-watch.on{border-color:var(--gold-line);color:var(--gold-txt)}
+  .plv-fine{font-size:11.5px;color:var(--t3);margin:2px 0 0;line-height:1.45}
+</style>`;
+
 const PLV_STYLE = `<style>
   .plv-grid{display:grid;grid-template-columns:1fr;gap:22px}
   @media(min-width:920px){.plv-grid{grid-template-columns:minmax(0,1fr) minmax(300px,380px);align-items:start}}
@@ -5057,7 +5189,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
     const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }) });
     let grid;
     if (lots.length) {
-      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot) })).join("")}</div>`;
+      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot), detailBase: "/portal/auctions/lot?id=" })).join("")}</div>`;
     } else {
       const filtered = Object.keys(clean).some((k) => k !== "view");
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
@@ -5330,7 +5462,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
   let grid;
   if (lots.length) {
-    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot) })).join("")}</div>`;
+    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;

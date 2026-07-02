@@ -133,3 +133,35 @@ be a better CRM-looking interface. The button next to the client is black."
 the old `class="backlink"`; now asserts the behaviour (a link to
 `/admin?view=clients` labelled "Back to clients"), which the consolidated button
 satisfies. Behaviour preserved; only the stale selector changed.
+
+### 6. Auction page — clickable lot detail view ✅
+
+**Complaint:** "Auction page, I cannot click onto a vehicle. When clicking into
+the vehicle I want to view all the vehicle's details, auction report etc"
+(screenshots showed a full lot page with gallery + report + Request bid /
+Watch / Check eligibility).
+
+**Changes:**
+- New **`auctionLotPage`** (`src/admin.js`): a full detail page for a single
+  live-feed lot, reusing the proven public-lot layout (photo gallery with
+  thumbnails, auction **inspection report** image, full spec rows, market
+  panel). Role-aware actions:
+  - **Staff** (admin/agent): an **"Add to a client"** picker (reuses the
+    existing `/client/find` flow) + import-eligibility line.
+  - **Members**: **"Request a bid"** (`/portal/auctions/request`) + **Save to
+    watchlist** + eligibility. Gated on active membership like the search page.
+- **Cards are now clickable:** `auctionCardV2` takes a `detailBase` and renders
+  a stretched photo link (under the heart/grade so those still work) + a title
+  link. Wired on both the **staff** live grid (`/admin?view=auctionlot&lot=`)
+  and the **member** live grid (`/portal/auctions/lot?id=`).
+- Routes: `view=auctionlot` (staff) in the `/admin` dispatch and
+  `GET /portal/auctions/lot` (member), both behind the existing signed-in guard.
+  Reused the existing `fetchLot` (main→stats) — no new feed helper.
+- Tests: new `test/auction-lot.test.mjs` (staff picker, member request +
+  membership gate, graceful not-found).
+
+**Assumptions:** (1) Wired detail links on the **live** auction grids (the
+client's complaint); left the **Sold** grids' existing actions (Sold-prices /
+Find-live) unchanged to limit surface area. (2) "Quote" from the screenshot
+isn't an existing feature, so the member actions are Request-bid + Watch +
+eligibility, matching what the app already supports.
