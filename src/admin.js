@@ -924,6 +924,23 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
     <div class="dw-sec">Payments <span class="ct">${pays.length}</span></div><div class="dw-list">${pList}</div>`;
 }
 
+// Pending review queue, scoped to the session. Shared by the admin page shell
+// (sidebar badge + Matches view) and the Matches "Load more" chunk endpoint.
+async function queryPendingMatches(env, session) {
+  const acc = accessScope(session);
+  const stmt = env.DB.prepare(
+    `SELECT q.*, c.name AS client_name, c.state AS client_state,
+            c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
+            w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q
+       JOIN clients c ON c.id = q.client_id
+       LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
+  );
+  return ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
+}
+
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
   if (!HEADERS[view]) view = "dashboard";
@@ -939,16 +956,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const wishlists = (await run(
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
   ).all()).results || [];
-  const pending = (await run(
-    `SELECT q.*, c.name AS client_name, c.state AS client_state,
-            c.email AS client_email, c.whatsapp AS client_whatsapp,
-            w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
-            w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-       FROM queue q
-       JOIN clients c ON c.id = q.client_id
-       LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
-  ).all()).results || [];
+  const pending = await queryPendingMatches(env, session);
 
   // For the Clients view: active agents (for the Share picker) and existing
   // shares (chips), so owners can share/unshare.
@@ -1047,7 +1055,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
+  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
@@ -2825,7 +2833,7 @@ function scoresChips(lot) {
   return `<div class="sc-scores">${s.ext ? `<span class="sc-score">Ext <b>${esc(s.ext)}</b></span>` : ""}${s.int ? `<span class="sc-score">Int <b>${esc(s.int)}</b></span>` : ""}${s.ai ? `<span class="sc-score ai">AI read</span>` : ""}</div>`;
 }
 
-function matchCard(q) {
+function matchCard(q, cardOpts = {}) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
@@ -2834,17 +2842,24 @@ function matchCard(q) {
   const strKey = strengthLabel === "Strong" ? "strong" : strengthLabel === "Good" ? "good" : "poss";
   const strBadge = strengthLabel === "Strong" ? "b-str" : strengthLabel === "Good" ? "b-good" : "b-pos";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
+  // cardOpts.ret: the /admin path to come back to (current filters included),
+  // threaded through the lot links and the decide fallback so filter state
+  // survives the round trip.
+  const ret = (cardOpts.ret && String(cardOpts.ret).startsWith("/admin")) ? String(cardOpts.ret) : "";
+  const lotHref = `/admin?view=lot&id=${q.id}${ret ? `&ret=${encodeURIComponent(ret)}` : ""}`;
   // Fallback hrefs go to the GET confirmation page (/decide is POST-only, so a
   // bare GET there is a dead 405). The AJAX click handlers read token/action
   // from the query string and POST to /decide directly.
-  const approve = `/decide/confirm?token=${esc(q.token)}&action=approve`;
-  const skip = `/decide/confirm?token=${esc(q.token)}&action=reject`;
+  const retQ = ret ? `&return=${encodeURIComponent(ret)}` : "";
+  const approve = `/decide/confirm?token=${esc(q.token)}&action=approve${retQ}`;
+  const skip = `/decide/confirm?token=${esc(q.token)}&action=reject${retQ}`;
   const days = daysUntil(lot.auction_date);
   const auc = esc(lot.auction || "");
   const aucDate = esc((lot.auction_date || "").slice(0, 10));
-  const when = (days === 0) ? `<span class="sc-when urgent">Auction today</span>`
-    : (days === 1) ? `<span class="sc-when urgent">Auction in 1 day</span>`
-    : (days === 2) ? `<span class="sc-when soon">Auction in 2 days</span>`
+  // Urgency chips: red inside 24h, amber inside 48h.
+  const when = (days <= 0) ? `<span class="sc-when urgent">Closing today</span>`
+    : (days === 1) ? `<span class="sc-when soon">Closing in 1 day</span>`
+    : (days === 2) ? `<span class="sc-when soon">Closing in 2 days</span>`
     : (days > 2) ? `<span class="sc-when">Auction in ${days} days</span>`
     : aucDate ? `<span class="sc-when">${aucDate}</span>` : "";
   const landedNum = q._landed ? Number(q._landed.grandTotal) : 0;
@@ -2858,9 +2873,9 @@ function matchCard(q) {
   ].filter(Boolean).join(" · ");
   const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
   const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
-  return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
+  return `<div class="mcard scard" data-qid="${q.id}" data-cid="${q.client_id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
-    <a class="sc-img" href="/admin?view=lot&id=${q.id}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+    <a class="sc-img" href="${lotHref}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="sc-grad"></div>
       <div class="sc-tags">
         <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
@@ -2871,7 +2886,7 @@ function matchCard(q) {
       <div class="sc-main">
         <div class="sc-head">
           <div class="sc-id">
-            <h3 class="sc-title"><a href="/admin?view=lot&id=${q.id}">${title}</a></h3>
+            <h3 class="sc-title"><a href="${lotHref}">${title}</a></h3>
             ${sub ? `<p class="sc-sub">${sub}</p>` : ""}
           </div>
           ${q._landed ? `<div class="sc-landed"><div class="sc-landed-k">Est. landed ${esc(q._landed.state)}</div><div class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : ""}
@@ -2883,7 +2898,7 @@ function matchCard(q) {
           ${cell("Bid", bid)}
         </div>
         ${scoresChips(lot)}
-        <a class="sc-more" href="/admin?view=lot&id=${q.id}">View details &amp; auction report &rarr;</a>
+        <a class="sc-more" href="${lotHref}">View details &amp; auction report &rarr;</a>
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
@@ -2899,72 +2914,179 @@ function matchCard(q) {
   </div>`;
 }
 
+// ---- Matches triage helpers (server-side filter, group, page) ---------------
+// The Matches queue regularly holds 200+ cards, so the server does the heavy
+// lifting: strength/closing filters, group-by-client and paging all live in the
+// URL query (surviving a round trip to lot detail), and only a page of cards is
+// rendered per response.
+const MATCH_PAGE = 30;
+
+// Canonical filter state from the ?f/&soon/&group/&shown params.
+function matchQueryState(sp = {}) {
+  const f = ["all", "strong", "good", "poss", "sg"].includes(sp.f) ? sp.f : "sg";
+  return {
+    f, // sg = Strong + Good (the triage default)
+    soon: sp.soon === "1",
+    group: sp.group === "none" ? "none" : "client",
+    shown: Math.min(400, Math.max(1, parseInt(sp.shown, 10) || MATCH_PAGE)),
+  };
+}
+
+// Decorate pending queue rows once with the parsed lot, a strength key, days to
+// auction and age, so filter/group/sort never re-parse lot_json.
+function decorateMatches(pending) {
+  for (const q of pending) {
+    if (q._lot) continue;
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    q._lot = lot;
+    if (!q._landed && lot._landed) q._landed = lot._landed;
+    const s = lot._strength || "Possible";
+    q._str = s === "Strong" ? "strong" : s === "Good" ? "good" : "poss";
+    q._days = daysUntil(lot.auction_date);
+    const t = tsMs(q.created_at);
+    q._ageDays = Number.isFinite(t) ? Math.floor((Date.now() - t) / 86400000) : 0;
+  }
+  return pending;
+}
+
+function filterMatches(pending, st) {
+  return pending.filter((q) => {
+    if (st.f === "sg" && q._str === "poss") return false;
+    if ((st.f === "strong" || st.f === "good" || st.f === "poss") && q._str !== st.f) return false;
+    if (st.soon && q._days > 2) return false;
+    return true;
+  });
+}
+
+// Order the filtered rows soonest-closing first. In group mode rows are grouped
+// per client (groups ordered by their soonest-closing lot); `flat` is the final
+// render order either way, so paging is a simple slice of it.
+function orderMatches(filtered, st) {
+  const byDays = (a, b) => (a._days - b._days) || (b.id - a.id);
+  if (st.group === "none") return { groups: null, flat: [...filtered].sort(byDays) };
+  const by = new Map();
+  for (const q of filtered) {
+    if (!by.has(q.client_id)) by.set(q.client_id, []);
+    by.get(q.client_id).push(q);
+  }
+  const groups = [...by.values()];
+  for (const rows of groups) rows.sort(byDays);
+  groups.sort((A, B) => byDays(A[0], B[0]));
+  return { groups, flat: groups.flat() };
+}
+
+// The next page of cards for the current filters (the "Load 30 more" fetch).
+// Session-scoped exactly like the full view.
+export async function matchesChunk(env, session, sp = {}) {
+  const st = matchQueryState(sp);
+  const offset = Math.max(0, parseInt(sp.offset, 10) || 0);
+  const pending = decorateMatches(await queryPendingMatches(env, session));
+  const { flat } = orderMatches(filterMatches(pending, st), st);
+  const p = new URLSearchParams({ view: "matches" });
+  if (st.f !== "sg") p.set("f", st.f);
+  if (st.soon) p.set("soon", "1");
+  if (st.group === "none") p.set("group", "none");
+  p.set("shown", String(offset + MATCH_PAGE));
+  const ret = "/admin?" + p.toString();
+  return flat.slice(offset, offset + MATCH_PAGE).map((q) => matchCard(q, { ret })).join("");
+}
+
 function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
       No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
+  decorateMatches(pending);
+  const st = matchQueryState(opts.query || {});
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
+
+  // Whole-queue counts (pre-filter) for the ticker.
   let strong = 0, good = 0, poss = 0, soon = 0;
   for (const q of pending) {
-    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
-    const s = lot._strength || "Possible";
-    if (s === "Strong") strong++; else if (s === "Good") good++; else poss++;
-    if (daysUntil(lot.auction_date) <= 2) soon++;
+    if (q._str === "strong") strong++; else if (q._str === "good") good++; else poss++;
+    if (q._days <= 2) soon++;
   }
-  // Distinct clients + makers in the current queue, for the filter dropdowns.
-  const clients = [...new Set(pending.map((q) => q.client_name).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const makes = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).marka_name; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const auctions = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).auction; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
+  // The Strong + Good default would render an empty page when the queue holds
+  // no Strong or Good at all; fall back to everything in that case.
+  if (st.f === "sg" && strong + good === 0) st.f = "all";
+
+  // URL builder: every filter control is a link, so the chosen filter lives in
+  // the URL and survives navigating into a lot and back.
+  const params = (over = {}) => {
+    const f = over.f !== undefined ? over.f : st.f;
+    const soonV = over.soon !== undefined ? over.soon : st.soon;
+    const groupV = over.group !== undefined ? over.group : st.group;
+    const p = new URLSearchParams({ view: "matches" });
+    if (f !== "sg") p.set("f", f);
+    if (soonV) p.set("soon", "1");
+    if (groupV === "none") p.set("group", "none");
+    return p.toString();
+  };
+  const linkTo = (over) => "/admin?" + params(over);
+  const retPath = "/admin?" + params({}) + (st.shown !== MATCH_PAGE ? "&shown=" + st.shown : "");
+
+  const filtered = filterMatches(pending, st);
+  const { groups, flat } = orderMatches(filtered, st);
+  const shownRows = flat.slice(0, st.shown);
+  const shownSet = new Set(shownRows.map((q) => q.id));
+  const remaining = flat.length - shownRows.length;
+
+  // Stat tiles double as filters: tap Strong / Good / Possible / Closing 48h
+  // to filter, tap Awaiting review for everything.
+  const tk = (k, n, ncls, dot, urgent, href, on) =>
+    `<a class="mtk${urgent ? " urgent" : ""}${on ? " on" : ""}" href="${href}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></a>`;
   const ticker = `<div class="mticker">
-    ${tk("Awaiting review", pending.length, "", "var(--t3)")}
-    ${tk("Strong", strong, "str", "#2E7D54")}
-    ${tk("Good", good, "gold", "var(--gold)")}
-    ${tk("Possible", poss, "", "#B6B9BC")}
-    ${tk("Closing in 48h", soon, "bad", "#B11226", true)}
+    ${tk("Awaiting review", pending.length, "", "var(--t3)", false, linkTo({ f: "all", soon: false }), st.f === "all" && !st.soon)}
+    ${tk("Strong", strong, "str", "#2E7D54", false, linkTo({ f: "strong" }), st.f === "strong")}
+    ${tk("Good", good, "gold", "var(--gold)", false, linkTo({ f: "good" }), st.f === "good")}
+    ${tk("Possible", poss, "", "#B6B9BC", false, linkTo({ f: "poss" }), st.f === "poss")}
+    ${tk("Closing in 48h", soon, "bad", "#B11226", true, linkTo({ soon: !st.soon }), st.soon)}
   </div>`;
+
   const pause = sendOff
     ? `<div class="pausebar"><span><strong>Client emails are paused</strong> in Settings, so “Approve &amp; send” will mark a match handled without emailing the client.</span></div>`
     : "";
+
+  // Default-filter banner: the queue opens on Strong + Good, closing soonest.
+  const banner = (st.f === "sg" && poss > 0)
+    ? `<div class="mbanner" id="mBanner"><span>Showing ${filtered.length} Strong and Good match${filtered.length === 1 ? "" : "es"}, closing soonest first. ${poss} Possible hidden.</span><a href="${linkTo({ f: "all" })}">Show all</a><button type="button" class="bx" id="mBanX" aria-label="Dismiss">&times;</button></div>`
+    : "";
+
+  const chip = (label, over, on, extraCls = "", dot = "") =>
+    `<a class="fchip${on ? " on" : ""}${extraCls}" href="${linkTo(over)}"${on ? ' aria-current="true"' : ""}>${dot}${label}</a>`;
+  const chips = `<div class="fchips">
+    ${chip("Strong + Good", { f: "sg" }, st.f === "sg")}
+    ${chip("All", { f: "all" }, st.f === "all")}
+    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:#46B17A"></span>`)}
+    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:#CAA34C"></span>`)}
+    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:#B6B9BC"></span>`)}
+    ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
+    <span class="bsp" style="flex:1"></span>
+    ${chip("Grouped by client", { group: "client" }, st.group === "client")}
+    ${chip("Flat list", { group: "none" }, st.group === "none")}
+  </div>`;
+
+  // Triage row: every bulk tool in one place. The skip buttons act on ALL
+  // matching queue rows (loaded or not); their id lists are computed here.
+  const stale = pending.filter((q) => q._str === "poss" && q._ageDays >= 7);
+  const allPoss = pending.filter((q) => q._str === "poss");
+  const triage = `<div class="mtriage"><span class="quick">
+      <button type="button" id="qAll">Select all shown</button>
+      <button type="button" id="qStrong">Select all Strong</button>
+      <button type="button" id="qSoon">Select all closing soon</button>
+      ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triStale" data-ids="${stale.map((q) => q.id).join(",")}" data-base="Skip Possible older than 7 days" data-noun="Possible match${stale.length === 1 ? "" : "es"} older than 7 days"${stale.length ? "" : " disabled"}>Skip Possible older than 7 days (${stale.length})</button>` : ""}
+      ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triPoss" data-ids="${allPoss.map((q) => q.id).join(",")}" data-base="Skip all Possible" data-noun="Possible match${allPoss.length === 1 ? "" : "es"}"${allPoss.length ? "" : " disabled"}>Skip all Possible (${allPoss.length})</button>` : ""}
+      ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
+    </span></div>`;
+
   const controls = `<div class="mtools">
     <div class="crow">
       <label class="msearch"><input id="mq" type="search" placeholder="Search car, chassis, lot or client…" autocomplete="off"></label>
-      <select id="msort" class="mctl" aria-label="Sort matches">
-        <option value="priority">Sort: Priority</option>
-        <option value="soonest">Sort: Auction soonest</option>
-        <option value="strength">Sort: Strength</option>
-        <option value="landed">Sort: Lowest landed</option>
-        <option value="color">Sort: Colour</option>
-        <option value="new">Sort: Newest</option>
-      </select>
-      <select id="mgroup" class="mctl" aria-label="Group matches">
-        <option value="none">Group: None</option>
-        <option value="client">Group: Client</option>
-        <option value="make">Group: Make</option>
-        <option value="auction">Group: Auction</option>
-        <option value="color">Group: Colour</option>
-      </select>
     </div>
-    ${(clients.length > 1 || makes.length > 1 || auctions.length > 1) ? `<div class="crow crow-filters">
-      ${clients.length > 1 ? `<select id="mclient" class="mctl" aria-label="Filter by client"><option value="">Client: all</option>${clients.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
-      ${makes.length > 1 ? `<select id="mmake" class="mctl" aria-label="Filter by make"><option value="">Make: all</option>${makes.map((n) => `<option value="${esc(n)}">${esc(displayName(n))}</option>`).join("")}</select>` : ""}
-      ${auctions.length > 1 ? `<select id="mauction" class="mctl" aria-label="Filter by auction house"><option value="">Auction: all</option>${auctions.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
-    </div>` : ""}
-    <div class="fchips">
-      <button type="button" class="fchip on" data-str="all">All</button>
-      <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:#46B17A"></span>Strong</button>
-      <button type="button" class="fchip" data-str="good"><span class="sd" style="background:#CAA34C"></span>Good</button>
-      <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:#B6B9BC"></span>Possible</button>
-      <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
-      <span class="quick">
-        <button type="button" id="qAll">Select all shown</button>
-        <button type="button" id="qStrong">Select all Strong</button>
-        <button type="button" id="qSoon">Select all closing soon</button>
-        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
-      </span>
-    </div>
+    ${chips}
+    ${triage}
   </div>`;
+
   // "Delete" hard-removes the selected matches from the queue (client asked for
   // a bulk delete "to start fresh") — distinct from "Skip", which keeps the row
   // as rejected. Guarded by a confirm in the controller.
@@ -2977,8 +3099,75 @@ function matchesView(pending, opts = {}) {
       <button type="submit" form="bulkForm" class="bdel" id="bDelete">Delete</button>
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
-  const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return ticker + pause + controls + bulk + grid + matchesScript() + ranToast() + fixToast();
+
+  // Grid. Group headers always render (with accurate whole-group counts and a
+  // summary strip) even when their cards are beyond the current page.
+  let gridInner;
+  if (groups) {
+    gridInner = groups.map((rows) => {
+      const q0 = rows[0];
+      const cid = q0.client_id;
+      const name = q0.client_name || "Client";
+      const first = firstNameOf(name);
+      const gs = rows.filter((q) => q._str === "strong").length;
+      const gg = rows.filter((q) => q._str === "good").length;
+      const gp = rows.filter((q) => q._str === "poss").length;
+      const labels = [...new Set(rows.map((r) => r.wlabel).filter(Boolean))].slice(0, 2).join(" · ");
+      const minDays = rows[0]._days;
+      const closes = minDays <= 0 ? "closes today" : minDays === 1 ? "closes tomorrow" : `closes in ${minDays} days`;
+      const strengthBits = [gs ? `${gs} Strong` : "", gg ? `${gg} Good` : "", gp ? `${gp} Possible` : ""].filter(Boolean).join(", ");
+      const ids = rows.map((r) => r.id).join(",");
+      const loaded = rows.filter((r) => shownSet.has(r.id));
+      return `<section class="mgroup" data-cid="${cid}">
+        <div class="ghead2">
+          <button type="button" class="gh-fold" aria-expanded="true" aria-label="Collapse ${esc(name)}'s matches"></button>
+          ${avatar(name)}
+          <div class="gh-id">
+            <div class="gh-name"><a class="clink" href="/admin?view=client&id=${cid}" data-drawer="/admin/drawer?id=${cid}">${esc(name)}</a> <span class="gh-count" data-n="${rows.length}">${rows.length} match${rows.length === 1 ? "" : "es"}</span></div>
+            <div class="gh-sub">${[esc(labels), strengthBits, closes].filter(Boolean).join(" · ")}</div>
+          </div>
+          <button type="button" class="bap gh-send" data-ids="${ids}" data-name="${esc(first)}">Send all ${rows.length} to ${esc(first)}</button>
+        </div>
+        <div class="scards gh-cards" data-cards="${cid}">${loaded.map((q) => matchCard(q, { ret: retPath })).join("")}</div>
+      </section>`;
+    }).join("");
+    gridInner += `<div class="mempty" id="mEmpty" style="display:${groups.length ? "none" : ""}">No matches fit these filters.</div>`;
+  } else {
+    gridInner = `<div class="scards" data-cards="flat">${shownRows.map((q) => matchCard(q, { ret: retPath })).join("")}</div>
+      <div class="mempty" id="mEmpty" style="display:${flat.length ? "none" : ""}">No matches fit these filters.</div>`;
+  }
+  const grid = `<div id="mGrid" data-group="${st.group}">${gridInner}</div>`;
+
+  const more = remaining > 0
+    ? `<div class="mmore"><a class="btn-dark" id="mMore" href="${linkTo({})}&shown=${st.shown + MATCH_PAGE}" data-offset="${st.shown}" data-total="${flat.length}" data-qs="${esc(params({}))}">Load ${Math.min(MATCH_PAGE, remaining)} more (${remaining} left)</a></div>`
+    : "";
+
+  const css = `<style>
+    a.mtk{text-decoration:none;color:inherit;cursor:pointer}
+    .mtk.on{outline:2px solid var(--gold);outline-offset:-2px}
+    .mbanner{display:flex;align-items:center;gap:12px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--ink);border-radius:11px;padding:11px 14px;margin:0 0 14px;font-size:13.5px;flex-wrap:wrap}
+    .mbanner a{color:var(--gold-txt);font-weight:700;text-decoration:none;white-space:nowrap}
+    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:18px;line-height:1;color:var(--t3);cursor:pointer;padding:4px 6px}
+    a.fchip{text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+    .mtriage{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+    .mgroup{margin:0 0 26px}
+    .ghead2{display:flex;align-items:center;gap:12px;padding:10px 2px;flex-wrap:wrap}
+    .gh-fold{width:34px;height:34px;border:1px solid var(--hair);border-radius:8px;background:var(--card);cursor:pointer;color:var(--t2);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+    .gh-fold:after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;transition:transform .15s}
+    .mgroup.folded .gh-fold:after{transform:rotate(-90deg)}
+    .mgroup.folded .gh-cards{display:none}
+    .gh-id{flex:1;min-width:180px}
+    .gh-name{font-size:15px;font-weight:700}
+    .gh-name a{color:inherit;text-decoration:none}
+    .gh-name a:hover{color:var(--gold-txt)}
+    .gh-count{font-size:12px;font-weight:600;color:var(--t3);margin-left:8px}
+    .gh-sub{font-size:12.5px;color:var(--t3);margin-top:2px}
+    .gh-send{white-space:nowrap}
+    .scards.gh-cards{margin-top:8px}
+    .mmore{display:flex;justify-content:center;margin:20px 0 6px}
+  </style>`;
+
+  return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
 }
 
 // One-off toast after the "Fix photos with AI" button kicks off a background run.
@@ -2996,114 +3185,106 @@ function ranToast() {
   return `<script>(function(){function go(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";if(window.jdmToast)window.jdmToast(msg);p.delete("ran");var qs=p.toString();history.replaceState(null,"",location.pathname+(qs?"?"+qs:""));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>`;
 }
 
+// Client-side controller for the reorganised Matches view. The server owns
+// filtering, grouping and paging (all in the URL); this script handles the
+// loaded cards only: search-as-you-type, selection + bulk actions, per-group
+// send-all, the stale-Possible triage buttons, collapsible groups and the
+// Load-more chunk fetch. No template literals or ${} inside this string.
 function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;
-  var cards=[].slice.call(grid.getElementsByClassName('mcard'));
-  var st={q:'',str:'all',soon:false,sort:'priority',group:'none',client:'',make:'',auction:''};
-  function gv(c,k){return c.getAttribute('data-'+k)||''}
-  function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
-  function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
-  function grpKey(c){return st.group==='make'?gv(c,'make'):st.group==='auction'?gv(c,'auction'):st.group==='color'?(gv(c,'color')||'No colour'):gv(c,'client')}
-  function cmp(a,b){
-    if(st.sort==='priority')return (rank(b)*1000-gn(b,'days'))-(rank(a)*1000-gn(a,'days'));
-    if(st.sort==='soonest')return gn(a,'days')-gn(b,'days');
-    if(st.sort==='strength')return rank(b)-rank(a);
-    if(st.sort==='landed')return (gn(a,'landed')||1e12)-(gn(b,'landed')||1e12);
-    if(st.sort==='color')return gv(a,'color').localeCompare(gv(b,'color'))||(gn(b,'qid')-gn(a,'qid'));
-    return gn(b,'qid')-gn(a,'qid');
-  }
+  var grouped=grid.getAttribute('data-group')!=='none';
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+  function cards(){return [].slice.call(grid.querySelectorAll('.mcard'));}
+  function visCards(){return cards().filter(function(c){return c.style.display!=='none';});}
   function syncBulk(){
     var n=0;
-    cards.forEach(function(c){var cb=c.querySelector('.msel'); if(cb&&cb.checked){n++; c.classList.add('picked');} else c.classList.remove('picked');});
+    cards().forEach(function(c){var cb=c.querySelector('.msel'); if(cb&&cb.checked){n++; c.classList.add('picked');} else c.classList.remove('picked');});
     var sc=document.getElementById('selCount'); if(sc)sc.textContent=n;
     var bar=document.getElementById('bulkBar'); if(bar)bar.className=n?'bulkbar2 show':'bulkbar2';
   }
-  function headEl(name){
-    var d=document.createElement('div'); d.className='ghead';
-    var s=document.createElement('span'); s.className='gh-n'; s.textContent=name; d.appendChild(s);
-    var b=document.createElement('button'); b.type='button'; b.className='gh-sel'; b.textContent='Select all';
-    b.addEventListener('click',function(){cards.forEach(function(c){ if(c.__show&&grpKey(c)===name){var cb=c.querySelector('.msel'); if(cb)cb.checked=true;} }); syncBulk();});
-    d.appendChild(b); return d;
+  document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
+
+  // Search over the loaded cards (strength / closing / grouping are server
+  // filters in the URL, so they survive a round trip to lot detail).
+  var mq=document.getElementById('mq');
+  function applySearch(){
+    var q=(mq&&mq.value?mq.value:'').toLowerCase(), shown=0;
+    cards().forEach(function(c){var ok=!q||(c.getAttribute('data-search')||'').indexOf(q)>=0;c.style.display=ok?'':'none';if(ok)shown++;});
+    [].slice.call(grid.querySelectorAll('.mgroup')).forEach(function(g){
+      var any=[].slice.call(g.querySelectorAll('.mcard')).some(function(c){return c.style.display!=='none';});
+      g.style.display=(any||!q)?'':'none';
+    });
+    var e=document.getElementById('mEmpty'); if(e)e.style.display=shown?'none':'';
   }
-  function apply(){
-    try{
-      // FLIP: record positions of currently-visible cards before we reorder,
-      // then animate each from its old spot to the new one. Reduced-motion skips it.
-      var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-      var first=null;
-      if(!reduce){ first=[]; cards.forEach(function(c){ if(c.style.display!=='none')first.push([c,c.getBoundingClientRect()]); }); }
-      var ql=st.q.toLowerCase(), shown=0;
-      cards.forEach(function(c){
-        var ok=true;
-        if(st.str!=='all'&&gv(c,'str')!==st.str)ok=false;
-        if(st.soon&&gn(c,'days')>2)ok=false;
-        if(st.client&&gv(c,'client')!==st.client)ok=false;
-        if(st.make&&gv(c,'make')!==st.make)ok=false;
-        if(st.auction&&gv(c,'auction')!==st.auction)ok=false;
-        if(ql&&gv(c,'search').indexOf(ql)<0)ok=false;
-        c.__show=ok; if(ok)shown++;
-      });
-      var vis=cards.filter(function(c){return c.__show}); vis.sort(cmp);
-      var olds=grid.getElementsByClassName('ghead'); while(olds.length)olds[0].remove();
-      var frag=document.createDocumentFragment(), last=null;
-      vis.forEach(function(c){
-        if(st.group!=='none'){var g=grpKey(c)||'Other'; if(g!==last){frag.appendChild(headEl(g)); last=g;}}
-        c.style.display=''; frag.appendChild(c);
-      });
-      cards.forEach(function(c){ if(!c.__show){c.style.display='none'; frag.appendChild(c);} });
-      var empty=document.getElementById('mEmpty'); if(empty){empty.style.display=shown?'none':''; frag.appendChild(empty);}
-      grid.appendChild(frag);
-      if(first){
-        first.forEach(function(p){
-          var c=p[0]; if(c.style.display==='none')return;
-          var o=p[1], r=c.getBoundingClientRect(), dx=o.left-r.left, dy=o.top-r.top;
-          if((dx||dy)&&Math.abs(dx)+Math.abs(dy)<2400){
-            c.style.transition='none'; c.style.transform='translate('+dx+'px,'+dy+'px)';
-            requestAnimationFrame(function(){ c.style.transition='transform .34s cubic-bezier(.2,.7,.3,1)'; c.style.transform=''; });
-          }
-        });
-      }
-      syncBulk();
-    }catch(e){}
+  if(mq)mq.addEventListener('input',applySearch);
+
+  // Collapsible client groups; the collapsed set is remembered per tab session.
+  var FOLD='jdmMGrpFold';
+  function foldMap(){try{return JSON.parse(sessionStorage.getItem(FOLD)||'{}')||{};}catch(e){return {};}}
+  function setFold(cid,on){try{var m=foldMap();if(on)m[cid]=1;else delete m[cid];sessionStorage.setItem(FOLD,JSON.stringify(m));}catch(e){}}
+  function applyFold(g,on){g.classList.toggle('folded',on);var b=g.querySelector('.gh-fold');if(b)b.setAttribute('aria-expanded',on?'false':'true');}
+  (function(){var m=foldMap();[].slice.call(grid.querySelectorAll('.mgroup')).forEach(function(g){if(m[g.getAttribute('data-cid')])applyFold(g,true);});})();
+  grid.addEventListener('click',function(e){
+    var b=e.target&&e.target.closest?e.target.closest('.gh-fold'):null; if(!b)return;
+    var g=b.closest('.mgroup'); if(!g)return;
+    var on=!g.classList.contains('folded'); applyFold(g,on); setFold(g.getAttribute('data-cid'),on);
+  });
+
+  // Dismissible default-filter banner.
+  var ban=document.getElementById('mBanner');
+  if(ban){
+    try{if(sessionStorage.getItem('jdmMBanHide')==='1')ban.style.display='none';}catch(e){}
+    var bx=document.getElementById('mBanX');
+    if(bx)bx.addEventListener('click',function(){ban.style.display='none';try{sessionStorage.setItem('jdmMBanHide','1');}catch(e){}});
   }
-  var mq=document.getElementById('mq'); if(mq)mq.addEventListener('input',function(e){st.q=e.target.value;apply();});
-  var ms=document.getElementById('msort'); if(ms)ms.addEventListener('change',function(e){st.sort=e.target.value;apply();});
-  var mg=document.getElementById('mgroup'); if(mg)mg.addEventListener('change',function(e){st.group=e.target.value;apply();});
-  var mc=document.getElementById('mclient'); if(mc)mc.addEventListener('change',function(e){st.client=e.target.value;apply();});
-  var mm=document.getElementById('mmake'); if(mm)mm.addEventListener('change',function(e){st.make=e.target.value;apply();});
-  var ma=document.getElementById('mauction'); if(ma)ma.addEventListener('change',function(e){st.auction=e.target.value;apply();});
-  [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
-  var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
-  grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
-  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){cards.forEach(function(c){if(c.__show){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
-  // Bulk actions post in the background: validate the selection, confirm the
-  // consequence, lock the bar while in flight, then fade the actioned cards out
-  // in place. A zero-selection click never leaves the page any more.
-  function selCards(){return cards.filter(function(c){var cb=c.querySelector('.msel');return cb&&cb.checked;});}
+
+  function pick(list){list.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=true;});syncBulk();}
+  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){pick(visCards());});
+  var qs2=document.getElementById('qStrong'); if(qs2)qs2.addEventListener('click',function(){pick(visCards().filter(function(c){return c.getAttribute('data-str')==='strong';}));});
+  var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){pick(visCards().filter(function(c){var d=parseFloat(c.getAttribute('data-days'));return !isNaN(d)&&d<=2;}));});
+  var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards().forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
+
+  // Remove a card in place, keeping its group header count honest. The count is
+  // the whole group (loaded or not), so it just decrements by one.
+  function bumpGroup(g,delta){
+    var el=g.querySelector('.gh-count'); if(!el)return;
+    var n=Math.max(0,(parseInt(el.getAttribute('data-n'),10)||0)+delta);
+    el.setAttribute('data-n',n); el.textContent=n+(n===1?' match':' matches');
+    var send=g.querySelector('.gh-send');
+    if(send)send.textContent='Send all '+n+' to '+(send.getAttribute('data-name')||'client');
+    if(n<=0&&g.parentNode)g.parentNode.removeChild(g);
+  }
+  function dropCard(c){
+    var g=c.closest('.mgroup');
+    c.style.transition='opacity .25s ease, transform .25s ease';
+    c.style.opacity='0'; c.style.transform='scale(.96)';
+    setTimeout(function(){ if(c.parentNode)c.parentNode.removeChild(c); if(g)bumpGroup(g,-1); },240);
+  }
+  function removeByIds(ids){
+    var set={}; ids.forEach(function(i){set[String(i)]=1;});
+    cards().forEach(function(c){ if(set[c.getAttribute('data-qid')])dropCard(c); });
+  }
+  function postBulk(action,ids){
+    var body=new URLSearchParams(); body.set('action',action);
+    ids.forEach(function(id){body.append('ids',id);});
+    return fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0; });
+  }
+
+  // Bulk bar: validate, confirm the consequence, lock while in flight.
+  function selIds(){var out=[];cards().forEach(function(c){var cb=c.querySelector('.msel');if(cb&&cb.checked)out.push(cb.value);});return out;}
   function bulkGo(ev,btn,action,busy,msg){
     ev.preventDefault();
-    var picked=selCards();
-    if(!picked.length){toast('Select at least one match first',true);return;}
-    if(!confirm(msg(picked.length)))return;
+    var ids=selIds();
+    if(!ids.length){toast('Select at least one match first',true);return;}
+    if(!confirm(msg(ids.length)))return;
     var btns=['bApprove','bSkip','bDelete'].map(function(id){return document.getElementById(id);});
     var orig=btn.textContent; btn.textContent=busy;
     btns.forEach(function(b){if(b)b.disabled=true;});
-    var body=new URLSearchParams(); body.set('action',action);
-    picked.forEach(function(c){var cb=c.querySelector('.msel'); if(cb)body.append('ids',cb.value);});
-    fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
-      picked.forEach(function(c){
-        var i=cards.indexOf(c); if(i>=0)cards.splice(i,1);
-        c.style.transition='opacity .25s ease, transform .25s ease';
-        c.style.opacity='0'; c.style.transform='scale(.96)';
-        setTimeout(function(){ if(c.parentNode)c.parentNode.removeChild(c); },240);
-      });
-      setTimeout(function(){apply();},260);
-      toast(action==='approve'?'Sent '+picked.length+' (one combined email per client)':action==='reject'?'Skipped '+picked.length:'Deleted '+picked.length);
-      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
+    postBulk(action,ids).then(function(){
+      removeByIds(ids);
+      toast(action==='approve'?'Sent '+ids.length+' (one combined email per client)':action==='reject'?'Skipped '+ids.length:'Deleted '+ids.length);
+      btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;}); syncBulk();
     }).catch(function(){
       btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
       toast('Could not action the selection, please try again',true);
@@ -3112,25 +3293,85 @@ function matchesScript() {
   var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,ba,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? Each client gets one combined email.';});});
   var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){bulkGo(ev,bs,'reject','Skipping…',function(n){return 'Skip the '+n+' selected match'+(n===1?'':'es')+'? The clients will not be contacted about these cars.';});});
   var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){bulkGo(ev,bd,'delete','Deleting…',function(n){return 'Permanently delete the '+n+' selected match'+(n===1?'':'es')+' from the queue? This cannot be undone.';});});
+
+  // Per-group "Send all N to [name]": one combined email via the same bulk
+  // path. Acts on every match in the group, loaded or not.
+  document.addEventListener('click',function(e){
+    var b=e.target&&e.target.closest?e.target.closest('.gh-send'):null; if(!b||b.disabled)return;
+    var ids=(b.getAttribute('data-ids')||'').split(',').filter(Boolean);
+    var name=b.getAttribute('data-name')||'the client';
+    if(!ids.length)return;
+    if(!confirm('Send all '+ids.length+' match'+(ids.length===1?'':'es')+' to '+name+'? This emails '+(ids.length===1?'this car':'these '+ids.length+' cars')+' in one message.'))return;
+    var orig=b.textContent; b.textContent='Sending…'; b.disabled=true;
+    var g=b.closest('.mgroup');
+    postBulk('approve',ids).then(function(){
+      if(g&&g.parentNode)g.parentNode.removeChild(g);
+      toast('Sent '+ids.length+' to '+name+' in one combined message');
+      syncBulk();
+    }).catch(function(){ b.textContent=orig; b.disabled=false; toast('Could not send, please try again',true); });
+  });
+
+  // Stale-Possible triage buttons: id lists are server-computed (loaded or
+  // not), the confirm states exactly how many will be skipped.
+  function wireTriage(id){
+    var btn=document.getElementById(id); if(!btn)return;
+    btn.addEventListener('click',function(){
+      var ids=(btn.getAttribute('data-ids')||'').split(',').filter(Boolean);
+      if(!ids.length){toast('Nothing to skip',true);return;}
+      if(!confirm('Skip '+ids.length+' '+(btn.getAttribute('data-noun')||'matches')+'? The clients will not be contacted about these cars.'))return;
+      var orig=btn.textContent; btn.textContent='Skipping…'; btn.disabled=true;
+      postBulk('reject',ids).then(function(){
+        removeByIds(ids);
+        btn.setAttribute('data-ids','');
+        btn.textContent=(btn.getAttribute('data-base')||'Skip')+' (0)';
+        toast('Skipped '+ids.length);
+        syncBulk();
+      }).catch(function(){ btn.textContent=orig; btn.disabled=false; toast('Could not skip, please try again',true); });
+    });
+  }
+  wireTriage('triStale'); wireTriage('triPoss');
+
+  // Load more: fetch the next server-rendered chunk and slot each card into its
+  // group (the plain href is the no-JS fallback). The next offset is simply how
+  // many cards are loaded now, which stays correct after in-place removals.
+  var more=document.getElementById('mMore');
+  if(more)more.addEventListener('click',function(e){
+    e.preventDefault();
+    if(more.getAttribute('data-busy'))return;
+    more.setAttribute('data-busy','1');
+    var orig=more.textContent; more.textContent='Loading…';
+    var off=cards().length;
+    var total=parseInt(more.getAttribute('data-total'),10)||0;
+    var qs=more.getAttribute('data-qs')||'';
+    fetch('/admin/matches/chunk?'+qs+'&offset='+off).then(function(r){ if(!r.ok)throw 0; return r.text(); }).then(function(html){
+      var t=document.createElement('template'); t.innerHTML=html;
+      var added=0;
+      [].slice.call(t.content.querySelectorAll('.mcard')).forEach(function(c){
+        var target=grouped?grid.querySelector('[data-cards="'+c.getAttribute('data-cid')+'"]'):grid.querySelector('[data-cards="flat"]');
+        if(target){target.appendChild(c);added++;}
+      });
+      more.removeAttribute('data-busy');
+      var now=cards().length, left=Math.max(0,total-now);
+      if(!added||left<=0){var w=more.parentNode;if(w&&w.parentNode)w.parentNode.removeChild(w);}
+      else{more.textContent='Load '+Math.min(30,left)+' more ('+left+' left)';}
+      try{var u=new URL(location.href);u.searchParams.set('shown',now);history.replaceState(null,'',u.toString());}catch(e2){}
+      applySearch(); syncBulk();
+    }).catch(function(){ more.removeAttribute('data-busy'); more.textContent=orig; toast('Could not load more, please try again',true); });
+  });
+
+  // Per-card Approve / Skip without leaving the page.
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
     var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
-      var i=cards.indexOf(card); if(i>=0)cards.splice(i,1);
       toast(approve?'Sent to client':'Skipped');
-      if(matchMedia('(prefers-reduced-motion: reduce)').matches){
-        if(card.parentNode)card.parentNode.removeChild(card); apply();
-      }else{
-        card.style.transition='opacity .25s ease, transform .25s ease';
-        card.style.opacity='0'; card.style.transform='scale(.96)';
-        setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); apply(); },240);
-      }
+      dropCard(card); syncBulk();
     }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'#571622':'#1C2027')+';color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
-  apply();
+
+  syncBulk();
 })();<\/script>`;
 }
 
@@ -3318,7 +3559,10 @@ function lotGalleryScript() {
 
 export async function lotDetailPage(env, queueId, session = { role: "admin", id: 0 }, opts = {}) {
   const qid = Number(queueId);
-  const back = `<a class="btn-dark" href="/admin?view=matches">Back to matches</a>`;
+  // Honour a ?ret= path (same-app only) so the back link restores the exact
+  // Matches filters, grouping and page the user came from.
+  const retPath = (opts.ret && String(opts.ret).startsWith("/admin")) ? String(opts.ret) : "/admin?view=matches";
+  const back = `<a class="btn-dark" href="${esc(retPath)}">Back to matches</a>`;
   const notFound = () => shell(sidebar("matches", {}, session),
     `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Vehicle</h1></div>${back}</div>
      <div class="content"><div class="card"><div class="empty">This vehicle is no longer in your queue.</div></div></div>`,
@@ -3761,7 +4005,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
-    ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+    ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
   const main = `

@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -484,9 +484,11 @@ export default {
         }));
       }
       if (view === "lot") {
+        const retRaw = url.searchParams.get("ret") || "";
         return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
           aiEnabled: !!env.ANTHROPIC_API_KEY,
           err: url.searchParams.get("err"),
+          ret: retRaw.startsWith("/admin") ? retRaw : "",
         }));
       }
       if (view === "auctionlot") {
@@ -502,6 +504,13 @@ export default {
         }));
       }
       const adminOpts = { err: url.searchParams.get("err") };
+      if (view === "matches") {
+        const sp = url.searchParams;
+        adminOpts.matchQuery = {
+          f: sp.get("f") || "", soon: sp.get("soon") || "",
+          group: sp.get("group") || "", shown: sp.get("shown") || "",
+        };
+      }
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
       if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
       // Re-rendered form values after a validation error (v_ prefixed params),
@@ -606,6 +615,17 @@ export default {
       const archiving = path === "/client/archive";
       return act(() => archiveClient(env, f.get("id"), archiving, session), "/admin?view=clients",
         archiving ? "Client archived" : "Client restored");
+    }
+
+    // HTML fragment: the next page of match cards for the current filters (the
+    // Matches "Load more" button). Session-scoped exactly like the full view.
+    if (path === "/admin/matches/chunk") {
+      const sp = url.searchParams;
+      const html = await matchesChunk(env, session, {
+        f: sp.get("f") || "", soon: sp.get("soon") || "", group: sp.get("group") || "",
+        offset: sp.get("offset") || "0",
+      });
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
     // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
