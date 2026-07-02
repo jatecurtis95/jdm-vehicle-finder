@@ -135,7 +135,7 @@ function presetSelect() {
   const opts = groups.map((g) =>
     `<optgroup label="${esc(g.name)}">${g.items.map(({ p, i }) => `<option value="${i}">${esc(p.name)}</option>`).join("")}</optgroup>`
   ).join("");
-  return `<div style="margin-bottom:14px;max-width:430px"><label>Quick preset <span class="opt">(optional shortcut for a known model)</span></label>
+  return `<div style="margin-bottom:16px;max-width:430px"><label>Quick preset <span class="opt">(optional shortcut for a known model)</span></label>
     <select onchange="jdmPreset(this)"><option value="">No preset</option>${opts}</select></div>`;
 }
 function presetScript() {
@@ -958,7 +958,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
     ? wls.map((w) => `<div class="dw-item"><div class="dw-item-t">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</div><div class="dw-item-s">${esc(yearRange(w.year_min, w.year_max))}${w.active ? "" : " &middot; paused"}</div></div>`).join("")
     : `<div class="dw-empty-sm">No searches yet.</div>`;
   // Per-match: show the match strength (how good a fit) and the engagement stage
-  // (sent / viewed / interested) — the two things that help close the client.
+  // (sent / viewed / interested), the two things that help close the client.
   const mList = matches.length
     ? matches.map((m) => {
         let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
@@ -1213,7 +1213,7 @@ function settingsView(settings, opts = {}) {
       <div class="card set-card" id="set-whatsapp">
         <h2><span class="num">2</span> WhatsApp <span class="opt" style="font-weight:400">&middot; auto-send matches</span></h2>
         <div style="max-width:640px">
-          <p class="help" style="margin:0 0 14px">Also deliver approved matches over WhatsApp (on top of email) to clients who left a number. ${waConfigured ? "Provider detected." : "<strong>No provider configured yet</strong> -add the Twilio or Meta secrets first, then turn this on."} Automated matches send via your approved message template.</p>
+          <p class="help" style="margin:0 0 16px">Also deliver approved matches over WhatsApp (on top of email) to clients who left a number. ${waConfigured ? "Provider detected." : "<strong>No provider configured yet</strong> -add the Twilio or Meta secrets first, then turn this on."} Automated matches send via your approved message template.</p>
           <div class="toggles" style="margin-top:0">
             ${toggleRow("whatsapp_enabled", "Send matches to clients on WhatsApp", "When you approve a match, also WhatsApp it to the client if they gave a number.", settingOn(s, "whatsapp_enabled"))}
           </div>
@@ -1239,7 +1239,7 @@ function settingsView(settings, opts = {}) {
       <div class="card set-card" id="set-payments">
         <h2><span class="num">4</span> Payments <span class="opt" style="font-weight:400">&middot; Stripe</span></h2>
         <div style="max-width:640px">
-          <p class="help" style="margin:0 0 14px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> -deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
+          <p class="help" style="margin:0 0 16px">Take a deposit from buyers in their portal. ${stripeSecret ? "Stripe key detected." : "<strong>No Stripe key set yet</strong> -deposits stay off until the <code>STRIPE_SECRET_KEY</code> secret is added."}</p>
           <div class="toggles" style="margin-top:0">
             ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client asked us to chase.", settingOn(s, "stripe_enabled"))}
           </div>
@@ -1248,7 +1248,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
-            <p class="help" style="margin-top:10px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
+            <p class="help" style="margin-top:8px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
           </details>
         </div>
       </div>
@@ -1256,7 +1256,7 @@ function settingsView(settings, opts = {}) {
       <div class="card set-card" id="set-pricing">
         <h2><span class="num">5</span> Membership</h2>
         <div style="max-width:640px">
-          <p class="help" style="margin:0 0 14px">The “Full access” plan, billed monthly via Stripe. Turn it on to show a Subscribe button in the buyer portal${stripeSecret ? "" : " (needs the <code>STRIPE_SECRET_KEY</code> secret first)"}. An active subscription makes the client a member automatically.</p>
+          <p class="help" style="margin:0 0 16px">The “Full access” plan, billed monthly via Stripe. Turn it on to show a Subscribe button in the buyer portal${stripeSecret ? "" : " (needs the <code>STRIPE_SECRET_KEY</code> secret first)"}. An active subscription makes the client a member automatically.</p>
           <div class="toggles" style="margin-top:0">
             ${toggleRow("membership_enabled", "Sell Full access in the portal", "Show the “Get full access” subscribe button to non-members.", settingOn(s, "membership_enabled"))}
           </div>
@@ -1270,13 +1270,13 @@ function settingsView(settings, opts = {}) {
       <div class="card set-card" id="set-ai">
         <h2><span class="num">6</span> AI auction-sheet reader</h2>
         <div style="max-width:640px">
-          <p class="help" style="margin:0 0 14px">Reads the Japanese inspection sheet from a car's photos. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> -the reader stays off until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
+          <p class="help" style="margin:0 0 16px">Reads the Japanese inspection sheet from a car's photos. ${opts.aiKey ? "API key detected." : "<strong>No API key set yet</strong> -the reader stays off until the <code>ANTHROPIC_API_KEY</code> secret is added."}</p>
           <div class="grid2">
             <div><label for="set-when">When to read</label><select id="set-when" name="ai_sheet_auto">${aiOpts(s.ai_sheet_auto, SHEET_AUTO_MODES, "off")}</select></div>
             <div><label for="set-model">Model <span class="opt">(cached per car)</span></label><select id="set-model" name="ai_sheet_model">${aiOpts(s.ai_sheet_model, SHEET_MODELS, DEFAULT_SHEET_MODEL)}</select></div>
           </div>
           <details class="set-disc"><summary>How auto-read works</summary>
-            <p class="help" style="margin-top:10px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
+            <p class="help" style="margin-top:8px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
           </details>
         </div>
       </div>
@@ -1320,7 +1320,7 @@ function paymentsView(payments, opts = {}) {
       <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
     </tr>`;
   }).join("");
-  const depositsSection = deposits.length ? `<div class="psec" style="margin-top:26px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
+  const depositsSection = deposits.length ? `<div class="psec" style="margin-top:24px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
     </div>` : "";
@@ -1330,7 +1330,7 @@ function paymentsView(payments, opts = {}) {
       <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
     ${depositsSection}
-    ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
+    ${payments.length ? `<div class="psec" style="margin-top:24px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
@@ -1359,10 +1359,10 @@ export function loginPage(opts = {}) {
       ${googleBlock}
       <label for="lg-email">Email</label>
       <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="160">
-      <label for="lg-pass" style="margin-top:14px">Password</label>
+      <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:18px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
+      <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -1385,7 +1385,7 @@ export function setPasswordPage(opts = {}) {
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
       <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
-      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="6">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
@@ -1413,7 +1413,7 @@ function dashScript() {
 
 // ---------------------------------------------------------------------------
 // Dashboard charts: dependency-free inline SVG, themed via CSS custom props.
-// No chart library — keeps the page lightweight and CSP-clean.
+// No chart library, keeps the page lightweight and CSP-clean.
 // ---------------------------------------------------------------------------
 function lastNDays(n) {
   const out = [], now = new Date();
@@ -1504,10 +1504,10 @@ async function dashboardData(env, session) {
   const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
   const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${acc.sql}`).first())?.n || 0;
   const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
-  // Most-wanted makes in the live review queue — a quick read on demand.
+  // Most-wanted makes in the live review queue, a quick read on demand.
   const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
   const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
-  // Pending lots whose auction closes within 48h — the work that can't wait.
+  // Pending lots whose auction closes within 48h, the work that can't wait.
   const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
 
   let people;
@@ -1551,7 +1551,7 @@ async function dashboardData(env, session) {
       ORDER BY t.due_date ASC, t.priority='high' DESC LIMIT 6`
   ).all()).results || [];
 
-  // Scheduled follow-ups due (or overdue) today — "who needs attention today?".
+  // Scheduled follow-ups due (or overdue) today, "who needs attention today?".
   const nextActionList = (await run(
     `SELECT w.id, w.status, w.next_action_date, w.next_action_note, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
        FROM wishlists w JOIN clients c ON c.id = w.client_id
@@ -1561,7 +1561,7 @@ async function dashboardData(env, session) {
   ).all()).results || [];
   const nextActionDue = nextActionList.length;
 
-  // Who owes money — deposits requested but not paid (the list, for the panel).
+  // Who owes money, deposits requested but not paid (the list, for the panel).
   const depositsList = (await run(
     `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
        FROM wishlists w JOIN clients c ON c.id = w.client_id
@@ -1569,7 +1569,7 @@ async function dashboardData(env, session) {
       ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
   ).all()).results || [];
 
-  // Closest to buying — interested / deposit stages, most-committed first.
+  // Closest to buying, interested / deposit stages, most-committed first.
   const closestList = (await run(
     `SELECT w.id, w.status, w.deposit_status, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
        FROM wishlists w JOIN clients c ON c.id = w.client_id
@@ -1614,9 +1614,9 @@ function dashboardView(session, data) {
     </div>`;
 
   const strengthParts = [
-    { label: "Strong", value: data.strength.Strong || 0, color: "#5BC08C" },
-    { label: "Good", value: data.strength.Good || 0, color: "#CAA34C" },
-    { label: "Possible", value: data.strength.Possible || 0, color: "#9BA0A7" },
+    { label: "Strong", value: data.strength.Strong || 0, color: "var(--good)" },
+    { label: "Good", value: data.strength.Good || 0, color: "var(--warn-c)" },
+    { label: "Possible", value: data.strength.Possible || 0, color: "var(--t3)" },
   ];
   const rev = data.reviewed || [];
   const revTotal = rev.reduce((s, r) => s + r.n, 0);
@@ -1635,10 +1635,10 @@ function dashboardView(session, data) {
   const foundTotal = found.reduce((s, r) => s + r.n, 0);
   const foundCard = `<div class="chart-card">
       <div class="chart-h"><span class="ct-t">New matches per day</span><span class="ct-s">${foundTotal} in 14 days</span></div>
-      ${barsSvg(found, "#6F86A6")}
+      ${barsSvg(found, "var(--info)")}
       <div class="bars-x"><span>${dayLbl(found[0] && found[0].d)}</span><span>today</span></div>
     </div>`;
-  // Most-wanted makes in the queue — a small horizontal bar list.
+  // Most-wanted makes in the queue, a small horizontal bar list.
   const maxMake = (data.topMakes || []).reduce((m, r) => Math.max(m, r.n), 0) || 1;
   const topMakesCard = (data.topMakes || []).length
     ? `<div class="chart-card">
@@ -1700,7 +1700,7 @@ function dashboardView(session, data) {
   }).join('<span class="ps-arrow">&rsaquo;</span>')}</div>`;
 
   // My tasks due (overdue + today), from the scoped list.
-  const dueColor = (t) => t === "over" ? "var(--bad)" : t === "today" ? "#C98A00" : "var(--t3)";
+  const dueColor = (t) => t === "over" ? "var(--bad)" : t === "today" ? "var(--warn-c)" : "var(--t3)";
   const taskRows = (data.tasksDueList || []).map((t) => {
     const d = taskDue(t.due_date);
     return `<a class="lrow" href="${t.wishlist_id ? `/admin?view=request&id=${t.wishlist_id}` : "/admin?view=tasks"}">
@@ -1709,7 +1709,7 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing due today. Nice.</div></div></div>`;
   const tasksSection = `<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div><div class="list">${taskRows}</div>`;
 
-  // Stalled requests — no movement in 14 days.
+  // Stalled requests, no movement in 14 days.
   const stalledRows = (data.stalledList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
     return `<a class="lrow" href="/admin?view=request&id=${w.id}">
@@ -1723,7 +1723,7 @@ function dashboardView(session, data) {
   // Reframe the closing-soon list as a question to match the rest of the board.
   const closingQ = `<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
 
-  // Who needs attention today — scheduled follow-ups due (or overdue).
+  // Who needs attention today, scheduled follow-ups due (or overdue).
   const naRows = (data.nextActionList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
     const d = taskDue(w.next_action_date);
@@ -1735,7 +1735,7 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
   const attentionSection = `<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${naRows}</div>`;
 
-  // Who owes money — deposits requested, not yet paid.
+  // Who owes money, deposits requested, not yet paid.
   const owesRows = (data.depositsList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
     return `<a class="lrow" href="/admin?view=request&id=${w.id}">
@@ -1746,7 +1746,7 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
   const owesSection = `<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div><div class="list">${owesRows}</div>`;
 
-  // Who's closest to buying — interested / deposit stages, most-committed first.
+  // Who's closest to buying, interested / deposit stages, most-committed first.
   const closeRows = (data.closestList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
     const lbl = (RSTATUS[w.status] || {}).label || w.status;
@@ -1840,7 +1840,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
-        <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
@@ -1880,7 +1880,7 @@ function clientsView(clients, wishlists, opts = {}) {
     const opts = `<option value=""${!c.agent_id ? " selected" : ""}>JDM Connect</option>` +
       agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
     // Reassigning is destructive (hands over the client + all their searches and
-    // matches), so confirm and revert on cancel — never a silent stray-click write.
+    // matches), so confirm and revert on cancel, never a silent stray-click write.
     return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="jdmConfirmSelect(this,'Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.',{ok:'Reassign',title:'Reassign this client?'})">${opts}</select></form>`;
   };
 
@@ -1927,9 +1927,9 @@ function clientsView(clients, wishlists, opts = {}) {
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:13px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:12px 0 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -1977,7 +1977,7 @@ function lastActivityLabel(iso) {
   const days = Math.floor((Date.now() - t) / 86400000);
   return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
-// "Have we sent this client examples, and did they open them?" — derived from
+// "Have we sent this client examples, and did they open them?", derived from
 // queue.sent_at / queue.viewed_at (no login tracking needed). Viewed is the
 // strongest buying signal, so it reads gold; sent-but-unopened reads amber;
 // nothing sent stays muted. Powers the Requests "Examples" column.
@@ -2263,7 +2263,7 @@ function matchTrackRow(q, back) {
 // ---- Quick-action + task + match mutation handlers -------------------------
 
 // Who did it, for the activity timeline. Sessions only carry {role,id}, so an
-// agent's display name is looked up — without this every agent action was
+// agent's display name is looked up, without this every agent action was
 // logged as the anonymous "Agent" (audit: shared-agent actions unattributable).
 async function actorName(env, session) {
   if (!session || session.role === "admin") return "JDM Connect";
@@ -2272,7 +2272,7 @@ async function actorName(env, session) {
 }
 
 // Add a free-text note to a request's timeline. Shared (co-search) agents may
-// add notes — additive, and attributed to them by name in the timeline.
+// add notes, additive, and attributed to them by name in the timeline.
 export async function addRequestNote(env, id, note, session) {
   const wid = Number(id);
   const text = String(note || "").trim().slice(0, 500);
@@ -2738,13 +2738,13 @@ function tasksView(rows, opts = {}) {
     ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
     : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
   const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
-  // What is this page? — the client asked for instructions. Collapsible so it
+  // What is this page?, the client asked for instructions. Collapsible so it
   // stays out of the way once staff know it, open by default the first time.
   const help = `<details class="tks-help" open>
     <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
     <div class="tks-help-b">
       <p>Your shared to-do list for moving deals forward. A task is a single next
-      step tied to a customer or request — "call Lee about the Laurel", "chase
+      step tied to a customer or request, "call Lee about the Laurel", "chase
       the deposit", "translate the auction sheet".</p>
       <ul>
         <li><b>Where tasks come from:</b> some are created automatically when you
@@ -2752,7 +2752,7 @@ function tasksView(rows, opts = {}) {
         adds a follow-up); you can also add your own from any request's page.</li>
         <li><b>Buckets:</b> tasks sort into <b>Overdue</b>, <b>Due today</b>,
         <b>This week</b>, <b>Later</b> and <b>No due date</b> by their due date.</li>
-        <li><b>Completing:</b> tick the box on the left to mark a task done — it
+        <li><b>Completing:</b> tick the box on the left to mark a task done, it
         moves to "Recently completed" for 7 days in case you need to undo.</li>
         <li><b>Who sees what:</b> you see tasks assigned to you and tasks on the
         customers you own or are shared on. Admins see everything.</li>
@@ -2970,10 +2970,10 @@ function matchesView(pending, opts = {}) {
   const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
   const ticker = `<div class="mticker">
     ${tk("Awaiting review", pending.length, "", "var(--t3)")}
-    ${tk("Strong", strong, "str", "#2E7D54")}
-    ${tk("Good", good, "gold", "var(--gold)")}
-    ${tk("Possible", poss, "", "#B6B9BC")}
-    ${tk("Closing in 48h", soon, "bad", "#B11226", true)}
+    ${tk("Strong", strong, "str", "var(--good)")}
+    ${tk("Good", good, "gold", "var(--warn-c)")}
+    ${tk("Possible", poss, "", "var(--t3)")}
+    ${tk("Closing in 48h", soon, "bad", "var(--bad)", true)}
   </div>`;
   const pause = sendOff
     ? `<div class="pausebar"><span><strong>Client emails are paused</strong> in Settings, so “Approve &amp; send” will mark a match handled without emailing the client.</span></div>`
@@ -3004,20 +3004,20 @@ function matchesView(pending, opts = {}) {
     </div>` : ""}
     <div class="fchips">
       <button type="button" class="fchip on" data-str="all">All</button>
-      <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:#46B17A"></span>Strong</button>
-      <button type="button" class="fchip" data-str="good"><span class="sd" style="background:#CAA34C"></span>Good</button>
-      <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:#B6B9BC"></span>Possible</button>
+      <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:var(--good)"></span>Strong</button>
+      <button type="button" class="fchip" data-str="good"><span class="sd" style="background:var(--warn-c)"></span>Good</button>
+      <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:var(--t3)"></span>Possible</button>
       <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
       <span class="quick">
         <button type="button" id="qAll">Select all shown</button>
         <button type="button" id="qStrong">Select all Strong</button>
         <button type="button" id="qSoon">Select all closing soon</button>
-        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
+        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (about 1 to 5 cents each)">Fix photos with AI</button></form>` : ""}
       </span>
     </div>
   </div>`;
   // "Delete" hard-removes the selected matches from the queue (client asked for
-  // a bulk delete "to start fresh") — distinct from "Skip", which keeps the row
+  // a bulk delete "to start fresh"), distinct from "Skip", which keeps the row
   // as rejected. Guarded by a confirm in the controller.
   const bulk = `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"></form>
     <div class="bulkbar2" id="bulkBar">
@@ -3192,9 +3192,9 @@ function strengthLegend() {
   return `<div class="slegend">
     <div class="sl-row">
       <span class="sl-t">Match strength</span>
-      <span class="sl-item"><span class="sl-dot" style="background:#46B17A"></span><b>Strong</b> well under budget and a clear step above the grade asked for</span>
-      <span class="sl-item"><span class="sl-dot" style="background:#CAA34C"></span><b>Good</b> a solid fit on budget and grade</span>
-      <span class="sl-item"><span class="sl-dot" style="background:#B6B9BC"></span><b>Possible</b> meets the basics, less margin</span>
+      <span class="sl-item"><span class="sl-dot" style="background:var(--good)"></span><b>Strong</b> well under budget and a clear step above the grade asked for</span>
+      <span class="sl-item"><span class="sl-dot" style="background:var(--warn-c)"></span><b>Good</b> a solid fit on budget and grade</span>
+      <span class="sl-item"><span class="sl-dot" style="background:var(--t3)"></span><b>Possible</b> meets the basics, less margin</span>
     </div>
     <details class="sl-more"><summary>How it's scored</summary><div class="sl-detail">Strength blends four things: how far under the client's max budget the lot sits, how far its auction grade beats the minimum grade asked for, an exact chassis-code or keyword match, and a bonus for top-condition lots (grade 4.5 or higher). Strong is a clear all-round fit; Possible just meets the basics and is lower priority.</div></details>
   </div>`;
@@ -3287,7 +3287,7 @@ function wishlistEditor(w, opts = {}) {
           ${field("Chassis or model code", "kuzov", null, "(contains, best match)")}
           ${field("Grade keyword", "grade_kw", null, "(contains)")}
         </div>
-        ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
+        ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
           <span class="help">Blank fields match anything.</span></div>
       </form>
@@ -3323,7 +3323,7 @@ function clientBulkBar(cid) {
 // Client detail page: contact, owner, their wishlists (editable) and their live
 // matches. Reached by clicking a client name in the Clients list.
 // Full detail + auction report for one matched lot (queue row). Renders entirely
-// from the lot_json snapshot taken at match time — every spec, photo, the
+// from the lot_json snapshot taken at match time, every spec, photo, the
 // equipment/info notes and the landed-cost estimate are already captured, so the
 // page makes no extra auction-feed calls.
 function lotGalleryScript() {
@@ -3352,7 +3352,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   if (!q._landed && lot._landed) q._landed = lot._landed;
   // Refresh the image set live from the feed (like the dealer portal reads a lot
   // on demand). We snapshot images at match time, but upcoming lots usually get
-  // the inspection sheet added closer to the sale — so heal the cached snapshot
+  // the inspection sheet added closer to the sale, so heal the cached snapshot
   // here so the gallery (and the AI reader) see the sheet once it exists.
   if (await refreshLotImages(env, lot)) {
     try { await env.DB.prepare("UPDATE queue SET lot_json = ? WHERE id = ?").bind(JSON.stringify(lot), q.id).run(); } catch (e) {}
@@ -3366,19 +3366,19 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
   // Share: a signed, view-only public link to this car (no login), with copy +
-  // WhatsApp. The token can only VIEW — never approve/skip.
+  // WhatsApp. The token can only VIEW, never approve/skip.
   const shareTitle = `${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""}`.replace(/\s+/g, " ").trim();
   const shareToken = await makeShareToken(env, q.id);
   const shareBtn = shareToken ? `<details class="ld-share">
       <summary class="btn-dark">Share</summary>
       <div class="ld-share-pop">
         <div class="ld-share-h">Share with a client</div>
-        <p class="ld-share-p">A view-only link to this car — no login needed.</p>
+        <p class="ld-share-p">A view-only link to this car, no login needed.</p>
         <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
         <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
       </div>
     </details>` : "";
-  const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" \\u2014 "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
+  const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
 
   // Images. The inspection sheet (first image, by feed convention) goes in its
   // own box; the rest are the car-photo gallery. Shared with the cards/emails via
@@ -3394,7 +3394,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   ]);
   const marketBox = marketPanel(market, fx);
   // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
-  // transforms — arbitrary widths return nothing. Hero = full, thumbs = &w=320.
+  // transforms, arbitrary widths return nothing. Hero = full, thumbs = &w=320.
   const big = (u) => u;
   const th = (u) => `${u}&w=320`;
   const gallery = photoBases.length
@@ -3503,8 +3503,8 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           ${sheetBox}
           ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
-            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent — if the inspection sheet isn't here, the feed didn't include it):</p>
-            <pre class="ld-raw">${esc(lot.images || "(empty — the feed sent no images for this lot)")}</pre>
+            <p class="help" style="margin:8px 0">Raw <code>images</code> field we received for this lot (this is everything the feed sent, if the inspection sheet isn't here, the feed didn't include it):</p>
+            <pre class="ld-raw">${esc(lot.images || "(empty, the feed sent no images for this lot)")}</pre>
           </details>` : ""}
           ${notes}
         </div>
@@ -3517,7 +3517,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div></div></div>
-            ${chips.length ? `<div class="why" style="padding:14px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
+            ${chips.length ? `<div class="why" style="padding:16px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
           </div>
         </aside>
       </div>
@@ -3570,7 +3570,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   // Engagement roll-up across ALL of this client's matches (not just pending) so
   // the CRM header can show at a glance: examples sent, how many they opened,
-  // and when they last looked — the numbers that tell staff how warm they are.
+  // and when they last looked, the numbers that tell staff how warm they are.
   const eng = (await env.DB.prepare(
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
@@ -3583,7 +3583,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // Surface the snapshotted landed cost on each match card (as the Matches view does).
   for (const q of matches) { try { const lot = JSON.parse(q.lot_json); if (lot._landed) q._landed = lot._landed; } catch (e) {} }
   // Hide the internal catch-all searches (Direct requests / Manual finds) from the
-  // editable Searches list — they're plumbing, not searches staff manage.
+  // editable Searches list, they're plumbing, not searches staff manage.
   const searchWls = wls.filter((w) => !SYSTEM_WISHLIST_LABELS.has(w.label));
 
   const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
@@ -3606,14 +3606,14 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
-  const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "—";
+  const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
   const head = `<div class="card cd-card">
     <div class="cd-head">
-      <span class="avatar" style="width:46px;height:46px;font-size:16px">${esc(initials(c.name))}</span>
+      <span class="avatar" style="width:46px;height:46px;font-size:15px">${esc(initials(c.name))}</span>
       <div style="flex:1;min-width:0">
-        <h2 style="border:0;padding:0;margin:0 0 5px">${esc(c.name)}</h2>
+        <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
         <div class="cd-chips">${statusChips}</div>
-        <div class="help" style="margin-top:7px">${contact}</div>
+        <div class="help" style="margin-top:8px">${contact}</div>
       </div>
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
@@ -3625,7 +3625,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       ${stat(eng.viewed, "Opened")}
       ${stat(eng.interested, "Interested")}
       <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${lastViewed}</div><div class="cd-stat-l">Last viewed</div></div>
-      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${c.last_seen ? String(c.last_seen).slice(0, 10) : "—"}</div><div class="cd-stat-l">Last login</div></div>
+      <div class="cd-stat"><div class="cd-stat-n cd-stat-sm">${c.last_seen ? String(c.last_seen).slice(0, 10) : "-"}</div><div class="cd-stat-l">Last login</div></div>
     </div>
   </div>${CRM_CSS}`;
 
@@ -3653,7 +3653,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="portal-acct">
       <div style="flex:1">
         <div class="pa-k">BUYER PORTAL</div>
-        <div style="font-weight:600;margin-top:3px">${portalState}</div>
+        <div style="font-weight:600;margin-top:4px">${portalState}</div>
       </div>
       <div class="pwrap">
         ${c.email
@@ -3662,10 +3662,10 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke portal access? This client is signed out everywhere, their password is cleared, and they cannot sign back in until you re-invite them." data-confirm-danger="1" data-confirm-ok="Revoke access" data-confirm-title="Revoke portal access?"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
-    ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--hair)">
+    ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)">
       <div style="flex:1">
         <div class="pa-k">MEMBERSHIP</div>
-        <div style="font-weight:600;margin-top:3px">${c.member ? "Member &middot; can use Auction search" : "Not a member"}</div>
+        <div style="font-weight:600;margin-top:4px">${c.member ? "Member &middot; can use Auction search" : "Not a member"}</div>
       </div>
       <div class="pwrap">
         ${session.role === "admin"
@@ -3697,7 +3697,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
-      <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:13px;color:#3A3C3F;cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${presetScript()}
@@ -3705,7 +3705,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const wlSection = `<div class="card">
     <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
-    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet — add what ${esc(c.name)} is chasing below.</div>`}
+    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
   // Manual auction search for this client (same access as managing them). Hits the
@@ -3721,9 +3721,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
       const qs = new URLSearchParams();
       for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
     } else {
-      findResults = `<div class="empty" style="margin-top:14px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
+      findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
   }
   const findMakers = canManage ? await distinctMakers(env) : [];
@@ -3740,12 +3740,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const prefilledFromWl = !findHasQuery && !!(primaryWl.marka_name || primaryWl.model_name);
   const fv = (k) => esc(findPrefill[k] ?? "");
   const foundFlash = opts.found === "added"
-    ? `<div class="flash" style="margin-top:14px">Added to ${esc(c.name)}'s review queue — scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
-    : opts.found === "dup" ? `<div class="dupnote" style="margin-top:14px">That car is already in ${esc(c.name)}'s queue.</div>`
-    : opts.found === "err" ? `<div class="dupnote" style="margin-top:14px">Sorry, we couldn't add that lot — please try again.</div>` : "";
+    ? `<div class="flash" style="margin-top:16px">Added to ${esc(c.name)}'s review queue, scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
+    : opts.found === "dup" ? `<div class="dupnote" style="margin-top:16px">That car is already in ${esc(c.name)}'s queue.</div>`
+    : opts.found === "err" ? `<div class="dupnote" style="margin-top:16px">Sorry, we couldn't add that lot, please try again.</div>` : "";
   const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
     <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
-    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search — tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue — then Approve &amp; send it like any match.</p>
+    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
       <div class="grid">
@@ -3846,7 +3846,7 @@ export async function requestPage(env, opts = {}) {
       ? `<div class="ob-card" style="border:1px solid var(--gold);background:linear-gradient(180deg,#FFFBEF,#fff)">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
-          <p class="ob-note-sm" style="margin:0 0 14px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
+          <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
           <a class="btn-gold" href="/login">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
@@ -3957,7 +3957,7 @@ export async function requestPage(env, opts = {}) {
                   <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
                 </div>
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
-                <div class="ob-fields" style="margin-top:18px">
+                <div class="ob-fields" style="margin-top:16px">
                   <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
                   <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
                 </div>
@@ -4063,7 +4063,7 @@ export async function requestPage(env, opts = {}) {
 }
 
 // Read-only public view of a shared car (the "Share" link). No login, no client
-// info, no admin actions — just the car, its inspection sheet, the specs and
+// info, no admin actions, just the car, its inspection sheet, the specs and
 // (optionally) the market panel, with an enquiry CTA. Self-contained styles so
 // it renders on the public brand shell. Access is the signed token alone, so
 // the caller must verify it before calling this.
@@ -4141,7 +4141,7 @@ function plvGalleryScript() {
 // public lot layout (gallery, inspection sheet, spec rows, market panel) and
 // adds role-appropriate actions: staff get an "Add to a client" picker; members
 // get "Request bid" + watchlist. Answers the client's "I cannot click onto a
-// vehicle" — every lot now opens its full details and auction report.
+// vehicle", every lot now opens its full details and auction report.
 export async function auctionLotPage(env, session, lotId, opts = {}) {
   const member = session && session.role === "client";
   // Members must have an active, member-enabled portal account (same gate as the
@@ -4198,7 +4198,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
 
   const elig = auctionEligibility(lot, nowYear);
-  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : " — ask us to confirm SEVS/age"}</div>`;
+  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : ", ask us to confirm SEVS/age"}</div>`;
 
   // Actions differ by surface. Members can request a bid and watch; staff can
   // add the lot to any client they can see (reuses the /client/find flow).
@@ -4581,7 +4581,7 @@ async function wishlistAccessibleBy(env, wishlistId, session) {
 }
 
 // Owner guard for wishlists (strict): admin, or the agent who owns the parent
-// client. Shared access is for co-searching (view/add matches) — it must never
+// client. Shared access is for co-searching (view/add matches), it must never
 // allow destructive or workflow-mutating actions (delete/edit/toggle a search,
 // reschedule follow-ups) on another agent's client.
 async function wishlistOwnedBy(env, wishlistId, session) {
@@ -4950,7 +4950,7 @@ export async function toggleAgent(env, id) {
 const REQ_MAX = { name: 120, email: 160, whatsapp: 40, label: 120, marka_name: 60, model_name: 60, kuzov: 40, grade_kw: 40 };
 const REQ_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Minimum realistic all-in import budget (AUD). Below this, an import isn't viable
-// — it's the hard floor that catches junk/lowball input; the on-form note does the
+//, it's the hard floor that catches junk/lowball input; the on-form note does the
 // rest of the time-waster filtering.
 const BUDGET_MIN_AUD = 5000;
 
@@ -5040,7 +5040,7 @@ export async function createRequest(env, form, session) {
   // auctions for "a car"). The matcher needs at least one of these to run.
   if (!g("marka_name") || !g("model_name")) return { ok: false, error: "vehicle", vals };
 
-  // A year range is required and must be sane — JDM generations and SEVS
+  // A year range is required and must be sane, JDM generations and SEVS
   // eligibility are year-bound, so an open-ended request isn't searchable.
   const yMinReq = Number(g("year_min")), yMaxReq = Number(g("year_max"));
   if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1960 || yMaxReq > 2100 || yMinReq > yMaxReq) {
@@ -5276,7 +5276,7 @@ function portalSidebar(c, active = "garage") {
 const DIRECT_REQUESTS_LABEL = "Direct requests";
 // Lots staff add to a client from the in-client auction search land here.
 const MANUAL_FINDS_LABEL = "Manual finds";
-// Internal catch-all searches that are plumbing, not staff-managed wishlists —
+// Internal catch-all searches that are plumbing, not staff-managed wishlists,
 // hidden from the client page's Searches list.
 const SYSTEM_WISHLIST_LABELS = new Set([DIRECT_REQUESTS_LABEL, MANUAL_FINDS_LABEL]);
 
@@ -5340,7 +5340,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
     }
     const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
     const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
-    const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
     body = `${tabs}${toolbar}${grid}${pager}`;
   }
 
@@ -5406,7 +5406,7 @@ export async function portalSoldPage(env, session, params = {}) {
   }
   const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; More recent</a>` : "";
   const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
-  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
 
   const main = `
     <div class="topbar">
@@ -5540,8 +5540,8 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     if (make && model) {
       const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
       intel = (m && m.count)
-        ? `<div style="margin-top:18px">${marketPanel(m, fx)}</div>`
-        : `<div class="empty" style="margin-top:14px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
+        ? `<div style="margin-top:16px">${marketPanel(m, fx)}</div>`
+        : `<div class="empty" style="margin-top:16px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
     }
     const panel = `<div class="card">
       <form method="GET" action="/admin">
@@ -5587,7 +5587,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     }
     const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page - 1 }))}">&larr; More recent</a>` : "";
     const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page + 1 }))}">Older &rarr;</a>` : "";
-    const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
     return `${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
   }
 
@@ -5613,7 +5613,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   }
   const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
   const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
-  const pager = (prev || next) ? `<div style="display:flex;gap:10px;justify-content:center;margin-top:26px">${prev}${next}</div>` : "";
+  const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
     : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
@@ -5625,7 +5625,7 @@ export async function setClientMember(env, clientId, on, session) {
   const id = Number(clientId);
   if (!Number.isInteger(id) || id <= 0) return;
   // Admin only (defence in depth alongside the route guard): membership is a
-  // paid feature — the Stripe webhook is the only other writer of this flag.
+  // paid feature, the Stripe webhook is the only other writer of this flag.
   if (session?.role !== "admin") return;
   await env.DB.prepare("UPDATE clients SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
 }
@@ -5799,7 +5799,7 @@ export async function portalPage(env, session, opts = {}) {
       ${memberCard}
       <div class="psec"><h2>Cars we've found for you${cars.length ? ` <span class="ct">${cars.length}</span>` : ""}</h2><p class="psub">Hand-reviewed by our team and matched to your search. Tap “Ask us to get this” and we'll pull the auction sheet, translate it, and come back to you${stripeOn ? " with next steps" : ""}.</p></div>
       ${carsBody}
-      <div class="psec" style="margin-top:34px"><h2>What you're searching for${wls.length ? ` <span class="ct">${activeSearches}/${wls.length}</span>` : ""}</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
+      <div class="psec" style="margin-top:32px"><h2>What you're searching for${wls.length ? ` <span class="ct">${activeSearches}/${wls.length}</span>` : ""}</h2><p class="psub">Edit a search or add another - changes apply on the next auction sweep.</p></div>
       ${wlBody}
       ${addForm}
       ${dashScript()}
