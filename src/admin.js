@@ -379,18 +379,48 @@ const CSS = `
     .topbar{top:52px}
     .mtools{top:52px}
   }
+  /* Mobile card lists: below 640px the wide tables (Requests, Customers,
+     Agents, Payments) swap for these server-rendered card rows. Both are in
+     the HTML; CSS decides which shows, so desktop keeps the tables. */
+  .mcl{display:none}
+  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink);min-height:44px}
+  a.mcl-row:active{background:var(--hover)}
+  .mcl-b{flex:1;min-width:0}
+  .mcl-t{font-size:14.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
+  .mcl-m{font-size:12.5px;color:var(--t3);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:1.4}
+  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
+  .mcl-rs{font-size:11.5px;color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
     .grid{grid-template-columns:1fr}
     .grid2{grid-template-columns:1fr}
     .topbar,.content{padding-left:20px;padding-right:20px}
-    /* M3: tighten the stacked header so the form starts higher */
-    .side{padding:12px 20px}.topbar{padding-top:22px;padding-bottom:20px}
+    /* One-row mobile page header: 20px title + the primary action; the kicker
+       and subline stack is desktop-only. */
+    .side{padding:12px 20px}
+    .topbar{padding-top:12px;padding-bottom:12px;align-items:center}
+    .topbar .kicker{display:none}
+    .topbar .subline{display:none}
+    .topbar h1{font-size:20px}
     /* M1: >=16px controls stop iOS Safari auto-zooming on focus */
     input,select,textarea{font-size:16px}
-    /* M2: comfortable 48px tap targets, full-width primary CTA */
+    /* M2: comfortable tap targets, full-width primary CTA */
     input,select,textarea{min-height:48px}
+    .btn-gold,.btn-dark,.btn-notify,.btn-skip,.btn-line,.btn-del,.btn-toggle,.bap,.bsk,.bdel,.rd-cta{min-height:44px}
     .actions{flex-wrap:wrap}
     .actions .btn-gold{width:100%;min-height:48px;padding:14px 22px}
+    /* Tables become card lists on the list-heavy views. */
+    .mcl{display:flex;flex-direction:column;gap:8px}
+    .tbl-desk{display:none}
+    .bulkbar{display:none} /* bulk allocation is a desktop tool */
+    /* Decision pages: Approve/Skip stay reachable without scrolling past the
+       gallery. */
+    .ld-actions{position:fixed;left:0;right:0;bottom:0;z-index:140;margin:0;background:var(--bg-2);border-top:1px solid var(--hair);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px}
+    .ld-actions form{flex:1;display:flex}
+    .ld-actions form button{width:100%;min-height:46px}
+    .ld-grid{padding-bottom:96px}
+    .plv-picker{position:fixed;left:0;right:0;bottom:0;z-index:140;margin:0;background:var(--bg-2);border-top:1px solid var(--hair);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px}
+    .plv-picker select{flex:1;min-width:0}
+    .plv-grid{padding-bottom:110px}
   }
   /* Matches review (v2) */
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:6px;border-bottom:1px solid var(--hair)}
@@ -1118,7 +1148,14 @@ function agentsView(agents, opts = {}) {
       </form>
     </div>
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <div class="mcl">${agents.map((a) => mobileCardRow({
+      name: a.name,
+      title: `${esc(a.name)}${a.pass_hash ? "" : ` <span class="chip muted">invited</span>`}`,
+      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
+      right: `<span class="chip${a.active ? "" : " muted"}">${a.active ? "Active" : "Paused"}</span>`,
+      rightSub: a.alerts ? "Alerts on" : "Alerts off",
+    })).join("") || `<div class="empty">No agents yet</div>`}</div>
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -1244,13 +1281,18 @@ function paymentsView(payments, opts = {}) {
     const [c, bg] = m[st] || m.created;
     return `<span style="display:inline-block;padding:4px 10px;border-radius:9999px;font-size:11px;font-weight:600;color:${c};background:${bg}">${esc(st || "-")}</span>`;
   };
+  // Stripe session ids are long enough to blow the table out; truncate with a
+  // copy button for the full id.
+  const sessCell = (p) => p.stripe_session
+    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 9px;font-size:11px" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
+    : "-";
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
     <td>${esc(p.client_name || ("#" + p.client_id))}</td>
     <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
-    <td style="font-size:11px;color:var(--t3)">${esc(p.stripe_session || "-")}</td>
+    <td style="font-size:11px;color:var(--t3);white-space:nowrap">${sessCell(p)}</td>
   </tr>`).join("") || `<tr><td colspan="6" class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</td></tr>`;
   const totalPaid = payments.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_cents || 0), 0);
   const paidCount = payments.filter((p) => p.status === "paid").length;
@@ -1277,7 +1319,14 @@ function paymentsView(payments, opts = {}) {
     </div>
     ${depositsSection}
     ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <div class="mcl">${payments.map((p) => mobileCardRow({
+      name: p.client_name || "?",
+      title: esc(p.client_name || ("#" + p.client_id)),
+      meta: [esc(p.description || ""), esc(String(p.created_at || "").slice(0, 16))].filter(Boolean).join(" &middot; "),
+      right: `<span style="font-weight:700;color:var(--ink)">${money(p.amount_cents, p.currency)}</span>`,
+      rightSub: badge(p.status),
+    })).join("") || `<div class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</div>`}</div>
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
@@ -1877,7 +1926,22 @@ function clientsView(clients, wishlists, opts = {}) {
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
   const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+  // Mobile card list: name, contact, searches and owner without the 560px-wide
+  // table's horizontal scroll. Bulk allocation stays a desktop tool.
+  const ownerName = (c) => {
+    if (!c.agent_id) return "JDM Connect";
+    const a = agents.find((x) => Number(x.id) === Number(c.agent_id));
+    return a ? a.name : "JDM Connect";
+  };
+  const mobile = `<div class="mcl">${clients.map((c) => mobileCardRow({
+    href: `/admin?view=client&id=${c.id}`,
+    name: c.name,
+    title: esc(c.name),
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`].filter(Boolean).join(" &middot; "),
+    right: c.archived ? `<span class="chip muted">archived</span>` : "",
+    rightSub: isAdmin ? esc(ownerName(c)) : "",
+  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
@@ -1936,6 +2000,21 @@ function engagementCell(sent, viewed) {
 // Requests list: the operational pipeline. Each row is a customer's search, with
 // a health dot, live status change, owner and last-activity. Pipeline cards along
 // the top show the count at each stage and filter the table on click.
+// One row of the mobile card list that replaces a table below 640px. Values
+// arriving here are already HTML (escaped by the caller).
+function mobileCardRow({ href, drawer, name, title, meta, right, rightSub, attrs = "" }) {
+  const tag = href ? "a" : "div";
+  const link = href ? ` href="${esc(href)}"${drawer ? ` data-drawer="${esc(drawer)}"` : ""}` : "";
+  return `<${tag} class="mcl-row"${link}${attrs}>
+    ${avatar(name || "?")}
+    <div class="mcl-b">
+      <div class="mcl-t">${title}</div>
+      ${meta ? `<div class="mcl-m">${meta}</div>` : ""}
+    </div>
+    <div class="mcl-r">${right || ""}${rightSub ? `<span class="mcl-rs">${rightSub}</span>` : ""}</div>
+  </${tag}>`;
+}
+
 function requestsView(requests, opts = {}) {
   const counts = {};
   REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
@@ -1977,14 +2056,30 @@ function requestsView(requests, opts = {}) {
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
   </div>`;
 
+  // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
+  // dot + relative time. Same data, no horizontal scroll.
+  const mobile = `<div class="mcl">${requests.map((r) => {
+    const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    return mobileCardRow({
+      href: `/admin?view=request&id=${r.id}`,
+      name: r.client_name,
+      title: `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>`,
+      meta: esc(veh),
+      right: statusBadge(r.status || "new"),
+      rightSub: `${healthDot(r.last_activity)}${esc(lastActivityLabel(r.last_activity))}`,
+      attrs: ` data-st="${esc(r.status || "new")}"`,
+    });
+  }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
+
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
     ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    ${mobile}
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
-    <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
+    <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
 }
 
 const REQ_CSS = `<style>
@@ -4652,6 +4747,13 @@ function tableToolsScript() {
     .rowmenu-item.danger svg{color:var(--bad)}
     .rowmenu-item.danger:hover{background:var(--bad-bg)}
     .rowmenu-sep{height:1px;background:var(--hair);margin:5px 3px}
+    /* On phones the kebab dropdown becomes a bottom sheet, so it can never be
+       clipped or land under a thumb. The JS positions with inline styles, so
+       these override with !important. */
+    @media(max-width:640px){
+      .rowmenu-pop{left:10px!important;right:10px!important;top:auto!important;bottom:calc(10px + env(safe-area-inset-bottom))!important;min-width:0;border-radius:14px;box-shadow:0 -12px 40px rgba(0,0,0,.3);padding:8px}
+      .rowmenu-item{padding:14px;font-size:15px;min-height:44px}
+    }
     /* Reusable table toolbar Export button. */
     .tbl-export{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:8px 13px;cursor:pointer;font-family:inherit;white-space:nowrap}
     .tbl-export:hover{border-color:var(--gold-line);color:var(--ink)}
