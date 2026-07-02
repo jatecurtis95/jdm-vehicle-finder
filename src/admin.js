@@ -328,9 +328,18 @@ const CSS = `
   .set-disc{margin-top:16px;font-size:var(--fs-sec)}
   .set-disc summary{cursor:pointer;color:var(--gold-txt);font-weight:600;list-style:none}
   .set-disc summary::-webkit-details-marker{display:none}
-  /* ONE sticky action bar. .actionbar-top pins under the header instead. */
-  .actionbar{position:sticky;bottom:0;z-index:6;display:flex;align-items:center;gap:12px;background:var(--bg);border-top:1px solid var(--hair);padding:12px 0}
-  .save-bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--hair);padding:12px 0;display:flex;justify-content:flex-end;z-index:5}
+  /* ONE sticky action bar. Variants: .actionbar-end right-aligns (settings
+     save bar), .actionbar-inline sits in the flow above a grid (client page
+     bulk bar). The matches .bulkbar2 is the floating top-pinned variant. */
+  .actionbar{position:sticky;bottom:0;z-index:6;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--bg);border-top:1px solid var(--hair);padding:12px 0}
+  .actionbar-end{justify-content:flex-end}
+  .actionbar-inline{position:static;border-top:0;background:transparent;padding:0;margin:0 0 16px}
+  .actionbar .ab-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:var(--fs-sec);margin:0}
+  .actionbar .ab-check input{width:auto;min-height:0}
+  .actionbar .ab-count{color:var(--t3);font-size:var(--fs-sec)}
+  .actionbar .ab-spring{flex:1}
+  .actionbar .bap{background:var(--gold);color:var(--gold-on);border:0;font-family:inherit;font-weight:600;font-size:var(--fs-sec);border-radius:var(--r-ctl);padding:8px 16px;cursor:pointer}
+  .actionbar .bsk{background:transparent;color:var(--t2);border:1px solid var(--hair);font-family:inherit;font-weight:600;font-size:var(--fs-sec);border-radius:var(--r-ctl);padding:8px 16px;cursor:pointer}
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:var(--sp-5);padding:16px 20px;background:var(--card);border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:var(--r-ctl)}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:var(--bad);display:inline-block}
   .banner .txt{font-size:var(--fs-sec);color:var(--t2)}
@@ -1270,7 +1279,7 @@ function settingsView(settings, opts = {}) {
         </div>
       </div>
 
-      <div class="save-bar"><button class="btn-gold" type="submit">Save settings</button></div>
+      <div class="actionbar actionbar-end"><button class="btn-gold" type="submit">Save settings</button></div>
     </form>`;
 }
 
@@ -1857,7 +1866,7 @@ function clientsView(clients, wishlists, opts = {}) {
       .filter((a) => Number(a.id) !== Number(c.agent_id) && !sharedIds.has(Number(a.id)))
       .map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     const picker = opts2
-      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="if(this.value&&confirm('Share this client with the selected agent?')){this.form.submit()}else{this.value=''}"><option value="">+ share…</option>${opts2}</select></form>`
+      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="jdmConfirmSelect(this,'Share this client with the selected agent? They can see and action this client alongside you.',{ok:'Share client',title:'Share this client?'})"><option value="">+ share…</option>${opts2}</select></form>`
       : "";
     return `${chips} ${picker}`;
   };
@@ -1870,7 +1879,7 @@ function clientsView(clients, wishlists, opts = {}) {
       agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
     // Reassigning is destructive (hands over the client + all their searches and
     // matches), so confirm and revert on cancel — never a silent stray-click write.
-    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="if(confirm('Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')){this.form.submit()}else{this.value=this.dataset.prev}">${opts}</select></form>`;
+    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="jdmConfirmSelect(this,'Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.',{ok:'Reassign',title:'Reassign this client?'})">${opts}</select></form>`;
   };
 
   const rows = clients.map((c) =>
@@ -1903,13 +1912,15 @@ function clientsView(clients, wishlists, opts = {}) {
         <span class="bulk-label">With selected clients:</span>
         <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
         ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
-        <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this.form)">Apply</button>
-        <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this.form)">${ICONS.trash || ""}Delete selected</button>
+        <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
+        <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
         <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
-      function jdmBulkApply(f){if(!jdmBulkTicked(f)){alert('Tick the clients you want first, then Apply.');return false;}return true;}
-      function jdmBulkDelete(f){var n=jdmBulkTicked(f);if(!n){alert('Tick the clients you want to delete first.');return false;}return confirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.');}</script>`
+      function jdmBulkApply(btn){var f=btn.form;if(!jdmBulkTicked(f)){jdmToast('Tick the clients you want first, then Apply.');return false;}return true;}
+      function jdmBulkDelete(btn){var f=btn.form;if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return true;}var n=jdmBulkTicked(f);if(!n){jdmToast('Tick the clients you want to delete first.');return false;}
+        jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,ok:'Delete '+n+' client'+(n===1?'':'s'),title:'Delete selected clients?'}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
+        return false;}</script>`
     : "";
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
@@ -2225,7 +2236,7 @@ function taskRow(t, opts = {}) {
     </div>
     <div class="tk-r">
       ${done ? `<span class="tk-due tk-none">Done ${esc(relTime(t.done_at))}</span>` : `<span class="tk-due tk-${due.tone}">${esc(due.label)}</span>`}
-      <form method="POST" action="/task/delete" class="tk-del" onsubmit="return confirm('Delete this task?')"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
+      <form method="POST" action="/task/delete" class="tk-del" data-confirm="Delete this task? It disappears from the board for everyone; this cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete task"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
     </div>
   </div>`;
 }
@@ -2546,7 +2557,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       ${statusSelect(wid, w.status, back)}
       <div class="rd-quick">
         ${w.status !== "purchased" ? `<form method="POST" action="/request/status"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="purchased"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta" type="submit">Mark purchased</button></form>` : ""}
-        ${w.status !== "lost" ? `<form method="POST" action="/request/status" onsubmit="return confirm('Mark this request as lost?')"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
+        ${w.status !== "lost" ? `<form method="POST" action="/request/status" data-confirm="Mark this request as lost? It leaves the active pipeline and stops appearing in follow-ups. You can reopen it later by changing the status." data-confirm-danger="1" data-confirm-ok="Mark lost" data-confirm-title="Mark as lost?"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
       </div>
       ${statusPipeline(w.status)}
     </div>
@@ -2819,7 +2830,7 @@ function wishlistsView(wishlists) {
       <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "-"}</td>
       <td>${esc(w.rate_min || "-")}</td>
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
-      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this wishlist? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its matches and history are removed and it stops matching new lots. This cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete wishlist"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
   }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -3004,7 +3015,7 @@ function matchesView(pending, opts = {}) {
         <button type="button" id="qAll">Select all shown</button>
         <button type="button" id="qStrong">Select all Strong</button>
         <button type="button" id="qSoon">Select all closing soon</button>
-        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
+        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (~1–5¢ each)">Fix photos with AI</button></form>` : ""}
       </span>
     </div>
   </div>`;
@@ -3024,9 +3035,10 @@ function matchesView(pending, opts = {}) {
   return ticker + pause + controls + bulk + grid + matchesScript() + ranToast() + fixToast();
 }
 
-// One-off toast after the "Fix photos with AI" button kicks off a background run.
+// One-off toast after the "Fix photos with AI" button kicks off a background
+// run. Uses the shared jdmToast from uiKitScript, injected at the top of body.
 function fixToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;var d=document.createElement("div");d.textContent="Reading auction photos in the background — refresh in a minute to see the covers update.";d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);max-width:90vw;background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:11px 18px;border-radius:9px;font:600 14px/1.35 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22);text-align:center";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},5200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;jdmToast("Reading auction photos in the background. Refresh in a minute to see the covers update.");history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
@@ -3036,7 +3048,7 @@ function fixToast() {
 // Shows a one-off "Found N new matches" / "No new matches" toast after a search,
 // reading the ?ran=N the /run redirect adds, then cleans it from the URL.
 function ranToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";var d=document.createElement("div");d.textContent=msg;d.style.cssText="position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:11px 18px;border-radius:9px;font:600 14px/1 -apple-system,Segoe UI,Arial;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22)";document.body.appendChild(d);setTimeout(function(){d.style.transition="opacity .4s";d.style.opacity="0";setTimeout(function(){d.remove();},420);},3200);history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;jdmToast(n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time");history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
 }
 
 function matchesScript() {
@@ -3123,13 +3135,22 @@ function matchesScript() {
   var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
   var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
-  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){if(!confirm('Approve and send the selected matches to their clients?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='approve';});
-  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){if(!confirm('Skip the selected matches?')){ev.preventDefault();return;}document.getElementById('bulkAction').value='reject';});
-  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){var n=document.getElementById('selCount');n=n?n.textContent:'';if(!confirm('Permanently delete the '+n+' selected match'+(n==='1'?'':'es')+' from the queue? This cannot be undone.')){ev.preventDefault();return;}document.getElementById('bulkAction').value='delete';});
+  function bulkGo(ev,action,msg,opts){
+    ev.preventDefault();
+    jdmConfirm(msg,opts).then(function(ok){
+      if(!ok)return;
+      document.getElementById('bulkAction').value=action;
+      document.getElementById('bulkForm').submit();
+    });
+  }
+  function selN(){var n=document.getElementById('selCount');return n?n.textContent:'';}
+  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,'approve','Approve and send the '+selN()+' selected match'+(selN()==='1'?'':'es')+'? Each client is notified about their car right away.',{ok:'Approve and send',title:'Send to clients?'});});
+  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){bulkGo(ev,'reject','Skip the selected matches? They leave the review queue and the clients are not contacted.',{ok:'Skip matches',title:'Skip these matches?'});});
+  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){bulkGo(ev,'delete','Permanently delete the '+selN()+' selected match'+(selN()==='1'?'':'es')+' from the queue? This cannot be undone.',{danger:true,ok:'Delete matches',title:'Delete from queue?'});});
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
-    var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
+    var approve=a.classList.contains('btn-notify'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       var i=cards.indexOf(card); if(i>=0)cards.splice(i,1);
@@ -3141,9 +3162,9 @@ function matchesScript() {
         card.style.opacity='0'; card.style.transform='scale(.96)';
         setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); apply(); },240);
       }
-    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+    }).catch(function(){ a.classList.remove('is-loading'); a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
   });
-  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  function toast(m){jdmToast(m);}
   apply();
 })();<\/script>`;
 }
@@ -3156,15 +3177,15 @@ function matchActionScript() {
   document.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
-    var approve=a.classList.contains('btn-notify'); a.textContent=approve?'Sending…':'Skipping…';
+    var approve=a.classList.contains('btn-notify'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       card.style.transition='opacity .2s'; card.style.opacity='0';
       setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); },200);
       toast(approve?'Sent to client':'Skipped');
-    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+    }).catch(function(){ a.classList.remove('is-loading'); a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
   });
-  function toast(m){var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:99';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  function toast(m){jdmToast(m);}
   })();<\/script>`;
 }
 
@@ -3248,7 +3269,9 @@ function wishlistEditor(w, opts = {}) {
       <div class="wlacts">
         ${searchBtn}
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
-        <form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>
+        ${opts.portal
+          ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`
+          : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`}
       </div>
     </div>
     <details class="wledit"${opts.open ? " open" : ""}>
@@ -3279,14 +3302,25 @@ function wishlistEditor(w, opts = {}) {
 // loaded here). Select-all + Approve/Skip the ticked matches, then return here.
 function clientBulkBar(cid) {
   return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="/admin?view=client&amp;id=${cid}"></form>
-    <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
-      <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
-      <span style="flex:1"></span>
-      <button type="submit" form="bulkForm" class="bap" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
-      <button type="submit" form="bulkForm" class="bsk" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
+    <div class="actionbar actionbar-inline">
+      <label class="ab-check"><input type="checkbox" id="cdAll"> Select all</label>
+      <span class="ab-count"><span id="cdCount">0</span> selected</span>
+      <span class="ab-spring"></span>
+      <button type="submit" form="bulkForm" class="bap" onclick="return jdmCdBulk(this,'approve')">Approve &amp; send</button>
+      <button type="submit" form="bulkForm" class="bsk" onclick="return jdmCdBulk(this,'reject')">Skip</button>
     </div>
-    <script>(function(){var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');function boxes(){return document.querySelectorAll('.mgrid .msel');}function upd(){var n=0,t=boxes().length;boxes().forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=t>0&&n===t;}if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});upd();})();</script>`;
+    <script>(function(){var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');function boxes(){return document.querySelectorAll('.mgrid .msel');}function upd(){var n=0,t=boxes().length;boxes().forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=t>0&&n===t;}if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});upd();
+    window.jdmCdBulk=function(btn,action){
+      var n=0;boxes().forEach(function(b){if(b.checked)n++;});
+      if(!n){jdmToast('Tick the matches you want first.');return false;}
+      var approve=action==='approve';
+      var msg=approve?('Approve and send the '+n+' selected match'+(n===1?'':'es')+'? The client is notified about each car right away.'):('Skip the '+n+' selected match'+(n===1?'':'es')+'? They leave the queue and the client is not contacted.');
+      jdmConfirm(msg,{ok:approve?'Approve and send':'Skip matches',title:approve?'Send to client?':'Skip these matches?'}).then(function(ok){
+        if(!ok)return;
+        document.getElementById('bulkAction').value=action;
+        document.getElementById('bulkForm').submit();
+      });
+      return false;};})();</script>`;
 }
 
 // Client detail page: contact, owner, their wishlists (editable) and their live
@@ -3417,7 +3451,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const info = String(lot.info || "").trim();
   const sheet = lot._sheet;
   const aiBtn = opts.aiEnabled
-    ? `<form method="POST" action="/lot/read-sheet" class="ld-ai-form" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Reading the sheet… (~10s)';"><input type="hidden" name="id" value="${q.id}"><button class="btn-dark" type="submit">${sheet ? "Re-read auction sheet with AI" : "Read auction sheet with AI"}</button></form>`
+    ? `<form method="POST" action="/lot/read-sheet" class="ld-ai-form" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Reading the sheet… (~10s)';"><input type="hidden" name="id" value="${q.id}"><button class="btn-dark" type="submit">${sheet ? "Re-read auction sheet with AI" : "Read auction sheet with AI"}</button></form>`
     : "";
   const aiBlock = sheet ? `<div class="ld-ai-read">
       <div class="ld-ai-head">AI reading of the inspection sheet${sheet.overall_grade ? ` &middot; grade ${esc(sheet.overall_grade)}` : ""}</div>
@@ -3446,7 +3480,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <input type="hidden" name="return" value="${esc(ret)}">
           <button class="btn-skip" type="submit">Skip</button>
         </form>
-        <form method="POST" action="/decide" onsubmit="return confirm('Approve and send this match to the client?')">
+        <form method="POST" action="/decide" data-confirm="Approve and send this match? The client is notified about this car right away." data-confirm-ok="Approve and send" data-confirm-title="Send to client?">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="return" value="${esc(ret)}">
@@ -3630,7 +3664,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.email
           ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
-        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" onsubmit="return confirm('Revoke this client&#39;s portal access and clear their password?')"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
+        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke portal access? This client is signed out everywhere, their password is cleared, and they cannot sign back in until you re-invite them." data-confirm-danger="1" data-confirm-ok="Revoke access" data-confirm-title="Revoke portal access?"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
     ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--hair)">
@@ -4314,7 +4348,9 @@ function rowMenu(items) {
     const ic = it.icon ? it.icon : "";
     const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
     if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
-    const conf = it.confirm ? ` onsubmit="return confirm('${esc(it.confirm)}')"` : "";
+    const conf = it.confirm
+      ? ` data-confirm="${esc(it.confirm)}"${it.danger ? ` data-confirm-danger="1" data-confirm-ok="${esc(it.label)}"` : ""}`
+      : "";
     return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
   }).join("");
   return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
@@ -4403,9 +4439,62 @@ function tableToolsScript() {
   </script>`;
 }
 
+// Shared UI kit: ONE toast (window.jdmToast) and ONE styled confirm dialog
+// (window.jdmConfirm) that replaces every native confirm() in the admin.
+// Injected at the top of <body> so every later inline script can rely on it.
+// Forms opt in declaratively with data-confirm="message" (+ optional
+// data-confirm-ok, data-confirm-title, data-confirm-danger="1"); selects use
+// jdmConfirmSelect(sel, message, opts) from an onchange handler.
+// No template interpolation inside this script string (house rule).
+function uiKitScript() {
+  return `<script>(function(){
+  window.jdmToast=function(m){var t=document.querySelector('.jdm-toast');if(t)t.remove();t=document.createElement('div');t.className='jdm-toast';t.setAttribute('role','status');t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.style.opacity='0';setTimeout(function(){t.remove();},420);},3600);};
+  window.jdmConfirm=function(msg,opts){opts=opts||{};return new Promise(function(res){
+    var prev=document.activeElement;
+    var scrim=document.createElement('div');scrim.className='cfm-scrim open';
+    var box=document.createElement('div');box.className='cfm'+(opts.danger?' danger':'');box.setAttribute('role','alertdialog');box.setAttribute('aria-modal','true');
+    var t=document.createElement('div');t.className='cfm-t';t.textContent=opts.title||'Please confirm';
+    var m=document.createElement('p');m.className='cfm-m';m.textContent=msg;
+    var a=document.createElement('div');a.className='cfm-a';
+    var c=document.createElement('button');c.type='button';c.className='cfm-cancel';c.textContent='Cancel';
+    var k=document.createElement('button');k.type='button';k.className='cfm-ok';k.textContent=opts.ok||(opts.danger?'Delete':'Confirm');
+    function done(v){document.removeEventListener('keydown',keys,true);scrim.remove();if(prev&&prev.focus){try{prev.focus();}catch(e){}}res(v);}
+    function keys(e){
+      if(e.key==='Escape'){e.preventDefault();done(false);return;}
+      if(e.key==='Tab'){e.preventDefault();(document.activeElement===k?c:k).focus();}
+    }
+    c.addEventListener('click',function(){done(false);});
+    k.addEventListener('click',function(){done(true);});
+    scrim.addEventListener('click',function(e){if(e.target===scrim)done(false);});
+    document.addEventListener('keydown',keys,true);
+    a.appendChild(c);a.appendChild(k);box.appendChild(t);box.appendChild(m);box.appendChild(a);scrim.appendChild(box);document.body.appendChild(scrim);k.focus();
+  });};
+  // Select-driven confirms (share / reassign pickers). Reverts on cancel.
+  window.jdmConfirmSelect=function(sel,msg,opts){
+    if(!sel.value)return;
+    var prev=sel.dataset.prev||'';
+    window.jdmConfirm(msg,opts).then(function(ok){if(ok){sel.form.submit();}else{sel.value=prev;}});
+  };
+  // Declarative form confirms: <form data-confirm="..."> shows the dialog and
+  // only submits on confirm. Preserves the clicked submitter's name/value.
+  document.addEventListener('submit',function(e){
+    var f=e.target;if(!f||!f.getAttribute)return;
+    var msg=f.getAttribute('data-confirm');if(!msg)return;
+    if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return;}
+    e.preventDefault();
+    var sub=e.submitter||null;
+    window.jdmConfirm(msg,{danger:f.getAttribute('data-confirm-danger')==='1',ok:f.getAttribute('data-confirm-ok')||'',title:f.getAttribute('data-confirm-title')||''}).then(function(ok){
+      if(!ok)return;
+      f.dataset.jdmConfirmed='1';
+      if(f.requestSubmit){f.requestSubmit(sub||undefined);}else{f.submit();}
+    });
+  },true);
+})();<\/script>`;
+}
+
 function shell(side, main, title) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+    <body><a class="skip-link" href="#admin-main">Skip to content</a>${uiKitScript()}<input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
