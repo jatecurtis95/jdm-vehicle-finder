@@ -217,6 +217,28 @@ feed), and the session rule not to deploy.
 
 ---
 
+## Follow-up round — remaining work completed (deployed `ebda9664`)
+
+After the initial 7 sections, the remaining deferred items were also done:
+
+- **Privacy policy** — public `/privacy` page (APP 5 compliant, analytics off),
+  email footer **Unsubscribe** + Privacy links, strengthened request-form
+  collection notice. *(Recommend your own adviser reviews the wording.)*
+- **Last-login tracking** — migration 0010 adds `last_seen`; stamped on every
+  login (form + Google); shown as "Last login" in the CRM header + drawer.
+- **Sold-grid clickable detail** — staff Sold cards now open the lot detail
+  (member Sold left unlinked to avoid a misleading "Request bid" on a sold car).
+- **Per-user session revocation** (audit Medium #8) — `session_ver` in the
+  cookie, bumped on deactivate / portal-revoke / password-reset; legacy cookies
+  grandfathered; fail-open on DB error. New `test/session-revocation.test.mjs`.
+- **`import-clients.sql` deleted** — confirmed the client rows are in prod
+  (5/7 sampled names present), then removed the PII file from the OneDrive tree.
+- **Migrations 0010 applied to prod**, **deployed** (`ebda9664`), **branch
+  pushed**, and **PR #45 opened** to `main`.
+
+Final suite: **213 tests passing**. The only remaining item is your legal review
+of the privacy-policy wording.
+
 ## Skipped / deferred (with reasons)
 
 - **True "last logged in" tracking** — not built. Needs a schema migration and a
