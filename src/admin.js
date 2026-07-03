@@ -26,6 +26,19 @@ function googleButton(intent, label) {
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
+// Client categories: who the client is commercially. A deliberately small,
+// fixed set — 'private' (default retail buyer) or 'dealer' (a trade buyer we
+// sell to/for). Stored on clients.category (migration 0011); extend this list
+// if a new relationship type becomes real.
+const CLIENT_CATEGORIES = [
+  { id: "private", label: "Private buyer" },
+  { id: "dealer", label: "Dealer" },
+];
+const CLIENT_CATEGORY_IDS = new Set(CLIENT_CATEGORIES.map((c) => c.id));
+export const isDealer = (c) => !!c && c.category === "dealer";
+const categorySelect = (id, current) => `<select id="${id}" name="category">${CLIENT_CATEGORIES.map((k) =>
+  `<option value="${k.id}"${(current || "private") === k.id ? " selected" : ""}>${esc(k.label)}</option>`).join("")}</select>`;
+
 function makerField(makers, id, placeholder = "Any maker", current = "") {
   if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA" value="${esc(current)}">`;
   return `<select name="marka_name" id="${id}"><option value="">${esc(placeholder)}</option>` +
@@ -655,7 +668,7 @@ const CSS = `
   .kebab{width:32px;height:32px;border-radius:var(--r-ctl);border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
   .kebab svg{width:18px;height:18px}
   .kebab:hover{background:var(--hover);color:var(--ink)}
-  @media(max-width:640px){.greet{font-size:30px}.ov{padding:0 16px}.ov .num{font-size:20px}}
+  @media(max-width:640px){.greet{font-size:30px}.overview{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 0}.ov{padding:0 12px 0 0;border-left:0}.ov .num{font-size:20px}.ov .cap{margin-top:5px}}
   /* Motion: hover lift + button press, compositor-friendly transforms only. */
   .acard,.chart-card,.mcard,.scard{transition:transform .16s ease,border-color .15s}
   .acard:hover,.chart-card:hover,.mcard:hover,.scard:hover{transform:translateY(-2px)}
@@ -971,6 +984,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
+    ["Category", isDealer(c) ? "Dealer" : "Private buyer"],
     ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
     ["Last contacted", `${healthDot(lc.t)}${esc(lastActivityLabel(lc.t))}`],
@@ -1904,6 +1918,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
           <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
           <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
+          <div><label for="ic-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ic-category", vals.category)}</div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -1938,6 +1953,11 @@ function clientsView(clients, wishlists, opts = {}) {
   const session = opts.session || { role: "admin" };
   const agents = opts.agents || [];
   const shares = opts.shares || {};
+  // Category filter (?cat=private|dealer). Filtered here, not in SQL — the list
+  // is already loaded, and the tabs need every category's count regardless.
+  const cat = opts.cat || "";
+  const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
+  const list = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
   const countFor = (id) => wishlists.filter((w) => w.client_id === id).length;
   const canManage = (c) => session.role === "admin" || Number(c.agent_id) === Number(session.id);
 
@@ -1976,10 +1996,11 @@ function clientsView(clients, wishlists, opts = {}) {
     const t = lastContact[c.id];
     return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
   };
-  const rows = clients.map((c) =>
+  const rows = list.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
+      <td>${isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : `<span class="chip muted">Private</span>`}</td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
@@ -1997,7 +2018,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 10 : 8}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -2020,7 +2041,10 @@ function clientsView(clients, wishlists, opts = {}) {
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}${cat ? `&cat=${cat}` : ""}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  // Category tabs: All / Private / Dealers, with live counts, archive-aware.
+  const catTabs = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${[["", "All"], ["private", "Private"], ["dealer", "Dealers"]].map(([id, label]) =>
+    `<a class="chip ${cat === id ? "chip-on" : "muted"}" style="text-decoration:none" href="/admin?view=clients${id ? `&cat=${id}` : ""}${opts.showArchived ? "&archived=1" : ""}">${label}${id ? ` (${catCount(id)})` : ""}</a>`).join("")}</div>`;
   // Mobile card list: name, contact, searches and owner without the 560px-wide
   // table's horizontal scroll. Bulk allocation stays a desktop tool.
   const ownerName = (c) => {
@@ -2028,16 +2052,16 @@ function clientsView(clients, wishlists, opts = {}) {
     const a = agents.find((x) => Number(x.id) === Number(c.agent_id));
     return a ? a.name : "JDM Connect";
   };
-  const mobile = `<div class="mcl">${clients.map((c) => mobileCardRow({
+  const mobile = `<div class="mcl">${list.map((c) => mobileCardRow({
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
     meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: c.archived ? `<span class="chip muted">archived</span>` : "",
+    right: `${isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Type</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2406,9 +2430,26 @@ function matchTrackRow(q, back) {
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-yes" type="submit"${q.response === "interested" ? " disabled" : ""}>Interested</button></form>
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="not_interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-no" type="submit"${q.response === "not_interested" ? " disabled" : ""}>Pass</button></form>
     </div>` : "";
+  // The variant and vitals, so staff can tell WHICH car this was — a bare
+  // "Mercedes Benz S Class" title hides whether it was the right trim/chassis.
+  const specs = [
+    lot.grade ? esc(String(lot.grade)) : "",
+    lot.kuzov ? `Chassis ${esc(String(lot.kuzov))}` : "",
+    Number(lot.mileage) > 0 ? `${Number(lot.mileage).toLocaleString("en-US")} km` : "",
+    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(String(lot.rate))}` : "",
+    lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "",
+    lot._landed && Number(lot._landed.grandTotal) > 0 ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")} landed` : "",
+  ].filter(Boolean).join(" &middot; ");
+  const thumb = imageUrls(lot).medium;
   return `<div class="mt">
-    <a class="mt-v" href="/admin?view=lot&id=${q.id}">${esc(veh)}</a>
-    <div class="mt-meta"><span class="chip ${tone}">${esc(stage)}</span>${when ? `<span class="mt-when">${when}</span>` : ""}</div>
+    <div class="mt-row">
+      ${thumb ? `<a href="/admin?view=lot&id=${q.id}" tabindex="-1" aria-hidden="true"><img class="mt-img" src="${esc(thumb)}" alt="" loading="lazy" width="76" height="57"></a>` : ""}
+      <div class="mt-main">
+        <a class="mt-v" href="/admin?view=lot&id=${q.id}">${esc(veh)}</a>
+        ${specs ? `<div class="mt-specs">${specs}</div>` : ""}
+        <div class="mt-meta"><span class="chip ${tone}">${esc(stage)}</span>${when ? `<span class="mt-when">${when}</span>` : ""}</div>
+      </div>
+    </div>
     ${acts}
   </div>`;
 }
@@ -2808,6 +2849,10 @@ const RD_CSS = `<style>
   .rd-find:hover{background:var(--gold-hover)}
   .rd-matches{display:flex;flex-direction:column;gap:8px}
   .mt{border:1px solid var(--hair);border-radius:var(--r-card);padding:12px}
+  .mt-row{display:flex;gap:12px;align-items:flex-start}
+  .mt-img{display:block;width:76px;height:57px;object-fit:cover;border-radius:8px;background:var(--soft)}
+  .mt-main{flex:1;min-width:0}
+  .mt-specs{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:1.6}
   .mt-v{display:block;font-size:var(--fs-sec);font-weight:600;color:var(--ink);text-decoration:none}
   .mt-v:hover{color:var(--gold-txt)}
   .mt-meta{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -4110,6 +4155,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
   const telDigits = String(c.whatsapp || "").replace(/[^0-9+]/g, "");
   const statusChips = [
+    isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : "",
     c.member ? `<span class="chip chip-gold">Member</span>` : `<span class="chip muted">Not a member</span>`,
     c.portal_enabled ? `<span class="chip chip-good">Portal ${c.pass_hash ? "active" : "invited"}</span>` : "",
     c.destination_country ? `<span class="chip muted">${esc(c.destination_country)}</span>` : (c.state ? `<span class="chip muted">${esc(c.state)}</span>` : ""),
@@ -4155,6 +4201,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
         <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
         <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+        <div><label for="ec-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ec-category", c.category)}</div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
@@ -5264,6 +5311,10 @@ export async function createClient(env, form, session) {
   if (!name) return { ok: false, error: "name" };
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   const state = normalizeState(form.get("state"));
+  // Unknown category values fall back to 'private' rather than erroring — the
+  // select only offers valid ids, so anything else is a stale/hand-built form.
+  const rawCategory = String(form.get("category") || "");
+  const category = CLIENT_CATEGORY_IDS.has(rawCategory) ? rawCategory : "private";
   const agentId = session && session.role === "agent" ? session.id : null;
 
   // Duplicate guard: fold a repeat into the existing client (matched by email or
@@ -5284,8 +5335,8 @@ export async function createClient(env, form, session) {
     }
   }
 
-  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
-    .bind(name, email || null, whatsapp || null, state, agentId).run();
+  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id, category) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(name, email || null, whatsapp || null, state, agentId, category).run();
   return { ok: true, id: r.meta?.last_row_id };
 }
 
@@ -5305,6 +5356,12 @@ export async function updateClient(env, form, session) {
   const email = String(form.get("email") || "").trim();
   const whatsapp = String(form.get("whatsapp") || "").trim();
   const state = normalizeState(form.get("state"));
+  // Absent field = a caller that doesn't know about categories (keep what's
+  // stored); an unknown value = a mangled form (fall back to private).
+  const rawCategory = form.get("category");
+  const category = rawCategory === null
+    ? (c.category || "private")
+    : (CLIENT_CATEGORY_IDS.has(String(rawCategory)) ? String(rawCategory) : "private");
   if (!name) return { ok: false, error: "name" };
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   // Portal sign-in and invite links are keyed to the email, so don't let it be
@@ -5316,8 +5373,8 @@ export async function updateClient(env, form, session) {
   const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(c.agent_id) });
   if (dup && Number(dup.id) !== cid) return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
 
-  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ? WHERE id = ?")
-    .bind(name, email || null, whatsapp || null, state, cid).run();
+  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ?, category = ? WHERE id = ?")
+    .bind(name, email || null, whatsapp || null, state, category, cid).run();
   return { ok: true, id: cid };
 }
 

@@ -165,6 +165,33 @@ export default {
       });
     }
 
+    // Lot-photo proxy for emails. Mail clients proxy or block images on
+    // third-party hosts, so email templates reference this route on OUR domain
+    // and the Worker fetches the photo from the auction CDN server-side.
+    // Locked to that CDN's /imgs/ path (host + prefix anchored, length-capped)
+    // so it can never be used as an open proxy; anything else 404s. Cached at
+    // the edge — the tokens are immutable, so a week is safe.
+    if (path === "/assets/lot-img") {
+      const u = String(url.searchParams.get("u") || "");
+      if (u.length > 500 || !/^https:\/\/[a-z0-9-]+\.ajes\.com\/imgs\/[!-~]+$/i.test(u)) {
+        return new Response("Not found", { status: 404 });
+      }
+      const upstream = await fetch(u, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "image/*,*/*;q=0.8",
+        },
+        cf: { cacheEverything: true, cacheTtl: 604800 },
+      });
+      const type = upstream.headers.get("Content-Type") || "";
+      if (!upstream.ok || !type.startsWith("image/")) {
+        return new Response("Not found", { status: 404 });
+      }
+      return new Response(upstream.body, {
+        headers: { "Content-Type": type, "Cache-Control": "public, max-age=604800, immutable" },
+      });
+    }
+
     // Emailed approve/skip links land here (GET) and show a confirmation page
     // whose button POSTs to /decide. This keeps a bare GET /decide POST-only, so
     // an email scanner / link-prefetcher can't silently approve or skip, while
@@ -522,7 +549,11 @@ export default {
         };
       }
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
-      if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
+      if (view === "clients") {
+        adminOpts.showArchived = url.searchParams.get("archived") === "1";
+        const cat = url.searchParams.get("cat") || "";
+        adminOpts.cat = cat === "private" || cat === "dealer" ? cat : "";
+      }
       // Re-rendered form values after a validation error (v_ prefixed params),
       // so a failed post never wipes what the user typed.
       if (view === "intake" || view === "agents") {
@@ -530,7 +561,7 @@ export default {
         adminOpts.vals = {
           name: sp.get("v_name") || "", email: sp.get("v_email") || "",
           whatsapp: sp.get("v_whatsapp") || "", state: sp.get("v_state") || "",
-          company: sp.get("v_company") || "",
+          company: sp.get("v_company") || "", category: sp.get("v_category") || "",
         };
       }
       if (view === "auctions") {
@@ -732,7 +763,7 @@ export default {
       // Validation error: bounce back with the submitted values so nothing the
       // user typed is lost.
       const qs = new URLSearchParams({ view: "intake", err: r.error || "save" });
-      for (const k of ["name", "email", "whatsapp", "state"]) {
+      for (const k of ["name", "email", "whatsapp", "state", "category"]) {
         const v = String(f.get(k) || "").trim();
         if (v) qs.set("v_" + k, v);
       }
