@@ -1326,7 +1326,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
-            <p class="help" style="margin-top:8px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
+            <p class="help" style="margin-top:8px;font-size:var(--fs-label);line-height:var(--lh-list)">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
           </details>
         </div>
       </div>
@@ -1354,7 +1354,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-model">Model <span class="opt">(cached per car)</span></label><select id="set-model" name="ai_sheet_model">${aiOpts(s.ai_sheet_model, SHEET_MODELS, DEFAULT_SHEET_MODEL)}</select></div>
           </div>
           <details class="set-disc"><summary>How auto-read works</summary>
-            <p class="help" style="margin-top:8px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
+            <p class="help" style="margin-top:8px;font-size:var(--fs-label)">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
           </details>
         </div>
       </div>
@@ -2995,7 +2995,7 @@ const TASKS_CSS = `<style>
   .tk-stat.bad .n{color:var(--bad)}.tk-stat.warn .n{color:var(--warn-c)}
   .tk-stat .l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .tks{margin-bottom:var(--sp-5)}
-  .tks-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+  .tks-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 8px;display:flex;align-items:center;gap:8px}
   .tks-over{color:var(--bad)}.tks-today{color:var(--warn-c)}
   .tks-n{background:var(--soft,rgba(0,0,0,.06));border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);color:var(--t2)}
   .tks-l{display:flex;flex-direction:column;gap:8px}
@@ -3813,9 +3813,9 @@ function clientBulkBar(cid, qs = "") {
   // so a native bulk action never wipes the search results off the page.
   const back = `/admin?view=client&id=${cid}${qs ? "&" + qs : ""}`;
   return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="${esc(back)}"></form>
-    <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
-      <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
+    <div style="display:flex;align-items:center;gap:16px;margin:0 0 16px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:var(--fs-sec)"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
+      <span style="color:var(--t3);font-size:var(--fs-sec)"><span id="cdCount">0</span> selected</span>
       <span style="flex:1"></span>
       <button type="submit" form="bulkForm" class="bap" id="cdApprove" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
       <button type="submit" form="bulkForm" class="bsk" id="cdSkip" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
@@ -4015,7 +4015,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       ? `Approve and send this car to ${esc(q.client_name || "the client")}? They get one message with this car.`
       : `${esc(q.client_name || "This client")} has no email or WhatsApp on file. Approving will mark this handled but nothing will reach them. Continue?`;
   const contactWarn = (!hasContact && !lot._watch && q.status === "pending")
-    ? `<div class="nocontact" style="margin:10px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
+    ? `<div class="nocontact" style="margin:12px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
     : "";
   const actions = q.status === "pending"
     ? `${contactWarn}<div class="ld-actions">
@@ -4044,14 +4044,14 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <div class="ld-topbtns">${shareBtn}${back}</div>
     </div>
     <div class="content wide">
-      ${opts.err ? `<div class="reqerr" style="margin-bottom:18px">${esc(opts.err)}</div>` : ""}
+      ${opts.err ? `<div class="reqerr" style="margin-bottom:16px">${esc(opts.err)}</div>` : ""}
       <div class="ld-grid">
         <div class="ld-left">
           ${gallery}
           ${sheetBox}
           ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
-            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
+            <p class="help" style="margin:12px 0 8px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
             <pre class="ld-raw">${esc(lot.images || "(empty, the feed sent no images for this lot)")}</pre>
           </details>` : ""}
           ${notes}
@@ -4180,7 +4180,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
   const head = `<div class="card cd-card">
     <div class="cd-head">
-      <span class="avatar" style="width:46px;height:46px;font-size:15px">${esc(initials(c.name))}</span>
+      <span class="avatar" style="width:46px;height:46px;font-size:var(--fs-body)">${esc(initials(c.name))}</span>
       <div style="flex:1;min-width:0">
         <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
         <div class="cd-chips">${statusChips}</div>
@@ -4269,7 +4269,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
-      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${presetScript()}
@@ -4302,7 +4302,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       // queue? Renders a Queued / Sent badge on the card instead of a dead-end
       // add-reload-duplicate loop.
       const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
-      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
     } else {
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -5196,7 +5196,7 @@ function drawerChrome() {
     .dw-row:last-child{border-bottom:0}
     .dw-k{font-size:var(--fs-label);color:var(--t3)}
     .dw-v{font-size:var(--fs-sec);font-weight:600;color:var(--ink);text-align:right}
-    .dw-sec{font-size:var(--fs-label);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin:var(--sp-4) 0 8px;display:flex;align-items:center;gap:8px}
+    .dw-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:var(--sp-4) 0 8px;display:flex;align-items:center;gap:8px}
     .dw-sec .ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label)}
     .dw-list{display:flex;flex-direction:column;gap:8px}
     .dw-item{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px}
