@@ -6,7 +6,7 @@ import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses,
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
@@ -5512,10 +5512,12 @@ export async function toggleAgent(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
   // Bump session_ver too: deactivating an agent should end their live sessions
-  // immediately, not just block the next login.
-  await env.DB.prepare(
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(aid).run();
+  // immediately, not just block the next login. Falls back to the legacy
+  // update if migration 0010 has not reached this database yet.
+  await runWithSessionVerFallback(env,
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?",
+    [aid], "toggleAgent");
 }
 
 // Hardening for the PUBLIC /request form (createClient/createWishlist are also
@@ -6696,7 +6698,9 @@ export async function revokeClientPortal(env, clientId, session) {
   // portal_revoked = 1 is the durable staff veto: without it, Google sign-in
   // and request-form self-signup would silently re-enable this client.
   // Bump session_ver so any cookie the client still holds stops validating now.
-  await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(cid).run();
+  // Falls back to the legacy update if migration 0010 is not applied yet.
+  await runWithSessionVerFallback(env,
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
+    [cid], "revokeClientPortal");
 }
