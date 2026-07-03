@@ -283,6 +283,20 @@ export async function agentByInviteToken(env, token) {
   return a;
 }
 
+// Schema-drift tolerance: run the preferred statement; if it fails only
+// because the session_ver column (migration 0010) has not reached this
+// database yet, run the legacy statement instead so the user-facing action
+// still completes. The session-version bump resumes once 0010 is applied.
+export async function runWithSessionVerFallback(env, preferredSql, legacySql, binds, who) {
+  try {
+    await env.DB.prepare(preferredSql).bind(...binds).run();
+  } catch (e) {
+    if (!/session_ver/i.test(String(e && e.message))) throw e;
+    console.error(`${who}: session_ver column missing (apply migration 0010); completing without the session bump`);
+    await env.DB.prepare(legacySql).bind(...binds).run();
+  }
+}
+
 // Set an agent's password from a valid invite token. Returns {ok, id, email}.
 export async function setAgentPassword(env, token, password) {
   const pwErr = passwordPolicyError(password);
@@ -292,9 +306,10 @@ export async function setAgentPassword(env, token, password) {
   const { salt, hash } = await hashPassword(password);
   // Bump session_ver so any older sessions for this agent stop validating once
   // the password changes (a reset should log out the old device).
-  await env.DB.prepare(
-    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(salt, hash, a.id).run();
+  await runWithSessionVerFallback(env,
+    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ?",
+    [salt, hash, a.id], "setAgentPassword");
   return { ok: true, id: a.id, email: a.email };
 }
 
@@ -317,8 +332,9 @@ export async function setClientPassword(env, token, password) {
   if (!c) return { ok: false, error: "This link is invalid or has expired." };
   const { salt, hash } = await hashPassword(password);
   // Bump session_ver so any older portal sessions stop validating on reset.
-  await env.DB.prepare(
-    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(salt, hash, c.id).run();
+  await runWithSessionVerFallback(env,
+    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?",
+    [salt, hash, c.id], "setClientPassword");
   return { ok: true, id: c.id, email: c.email };
 }

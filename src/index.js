@@ -380,22 +380,32 @@ export default {
         return null;
       };
       if (request.method === "POST") {
-        const form = await request.formData();
-        const token = form.get("token");
-        const pw = String(form.get("password") || "");
-        const found = await resolveInvite(token);
-        if (!found) return doc(setPasswordPage({ invalid: true }));
-        if (pw !== String(form.get("confirm") || "")) {
-          return doc(setPasswordPage({ token, name: found.person.name, error: "Those passwords don't match." }));
+        // Fully contained: a thrown handler here must re-render the branded
+        // page with an error, never surface a raw Worker exception to a
+        // customer holding their very first link from us.
+        let token = null, name = "";
+        try {
+          const form = await request.formData();
+          token = form.get("token");
+          const pw = String(form.get("password") || "");
+          const found = await resolveInvite(token);
+          if (!found) return doc(setPasswordPage({ invalid: true }));
+          name = found.person.name;
+          if (pw !== String(form.get("confirm") || "")) {
+            return doc(setPasswordPage({ token, name, error: "Those passwords don't match." }));
+          }
+          const r = found.kind === "agent"
+            ? await setAgentPassword(env, token, pw)
+            : await setClientPassword(env, token, pw);
+          if (r.ok) {
+            const role = found.kind === "agent" ? "agent" : "client";
+            return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
+          }
+          return doc(setPasswordPage({ token, name, error: r.error }));
+        } catch (e) {
+          console.error("/set-password POST failed:", e.message);
+          return doc(setPasswordPage({ token, name, error: "Sorry, something went wrong on our side. Please try the link again, and contact us if it keeps happening." }), 500);
         }
-        const r = found.kind === "agent"
-          ? await setAgentPassword(env, token, pw)
-          : await setClientPassword(env, token, pw);
-        if (r.ok) {
-          const role = found.kind === "agent" ? "agent" : "client";
-          return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
-        }
-        return doc(setPasswordPage({ token, name: found.person.name, error: r.error }));
       }
       const found = await resolveInvite(url.searchParams.get("token"));
       return doc(found ? setPasswordPage({ token: url.searchParams.get("token"), name: found.person.name }) : setPasswordPage({ invalid: true }));
