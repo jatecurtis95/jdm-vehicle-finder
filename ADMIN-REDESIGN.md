@@ -214,12 +214,70 @@ Tokens added to :root and consumed site-wide:
 - `--lh-body:1.5` for 15px body; `--lh-list:1.45` for 13px dense list rows.
 - Chips drop to weight 500.
 
-## Measured reference targets (filled from real screenshots, Step 3.5)
+## Measured reference targets (measured in Chrome, 3 July session)
 
-Pending: Linear issue list, Attio records list, Stripe payments table will be
-opened and screenshotted in Chrome; row height, cell padding, weights,
-tracking, elements per row, accent frequency and hover behaviour recorded
-here with numbers before any flagship elevation begins.
+Probed with getComputedStyle on live DOM: the Linear app demo issue list
+(dark), the Attio product data page (light), and the real JDM Connect Stripe
+Transactions table (light, read only). Raw probe JSON is preserved in the
+session transcript; values below are the design-driving subset.
+
+### Linear issue list (register for Matches)
+
+- Row: 40px tall, no border, transparent background, padding 0 24px 0 32px,
+  zero gap between rows. Separation is hover only.
+- Issue id: 13px, weight 400, muted rgb(138,143,152), tracking -0.13px.
+- Title: 13px, weight 510, ink rgb(208,214,224), tracking -0.13px.
+- Property labels (status, priority): 12px, weight 510, muted.
+- Elements per row: about 14 leaves total, of which one id, one title,
+  3 leading icons, 4 trailing property icons, one date. One line, no wraps.
+- Sidebar rows 28px at 13px/510, padding 0 6px; active row background
+  rgba(255,255,255,0.04) only.
+- Group headers 12px, weight 510.
+- Detail title: 20px, weight 590, tracking -0.24px, line-height 1.33.
+- Accent frequency in the list body: zero. Colour appears only inside status
+  and priority glyphs.
+
+### Attio records and record card (register for Customers, Requests)
+
+- Card: white, 1px hairline border (approx #EBEDF0), radius 12px, flat
+  (no shadow of consequence).
+- Card title: 14px, weight 600, tracking -0.22px.
+- Attribute rows: 30px tall, 12px weight 500, padding 6px 12px 5px, 1px
+  bottom hairline per row.
+- Table heads: 12px, weight 500, muted slate (approx #4A5563).
+- Chip anatomy: 12px weight 500, radius 8, padding 1px 5px, tinted fill
+  #E5EEFF with 1px border #D6E5FF and dark text #183C81. Tint plus border
+  plus dark text at weight 500; never a saturated fill, never bold.
+- Sidebar rows 28px at 14px/500, tracking -0.28px.
+
+### Stripe payments table (register for Payments and all money)
+
+- Row: 36px tall.
+- Amount cells: 14px, weight 600, tabular-nums, right aligned, ink
+  rgb(26,44,68).
+- Amount column head: 12px, weight 600 to 700, right aligned to match, muted
+  slate rgb(60,79,105).
+- Status text: 14px, weight 400, muted slate rgb(60,79,105), sitting in a
+  soft tint pill. Status is the quietest thing on the row; the amount is the
+  loudest.
+- Not captured before the session ended: exact cell horizontal padding and
+  hover background (Chrome session lost). Derived working values, marked as
+  derived: vertical padding approx (36 - 19) / 2 = 8px; hover treated as a
+  2 to 4 percent ink wash per the Linear measurement.
+
+### Cross-register conclusions the flagships must obey
+
+1. Dense rows are 36 to 40px, separated by hover or a single hairline,
+   never card-per-row.
+2. Titles are 13 to 14px at weight 500 to 600 with slight negative tracking;
+   ids and secondary text are weight 400 muted. Nothing in a list row is 700.
+3. Meta and heads are 12px weight 500 (600 max for table heads).
+4. Money is 14px semibold tabular right aligned in near-black ink; money is
+   the visual peak of a payments row.
+5. Status is quiet: weight 400 to 500, tint plus dark text, no saturated
+   fills, no bold caps.
+6. Accent (gold) frequency in any list body: at most one accent element per
+   row, and only when it is the primary action or money.
 
 ## Money integrity checklist (verified alongside the Stripe treatment)
 
