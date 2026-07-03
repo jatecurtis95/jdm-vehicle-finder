@@ -1750,7 +1750,7 @@ function dashboardView(session, data) {
   const charts = `<div class="charts">
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Reviewed per day</span><span class="ct-s">${revTotal} in 14 days</span></div>
-        ${barsSvg(rev, "var(--gold)")}
+        ${barsSvg(rev, "var(--t3)")}
         <div class="bars-x"><span>${dayLbl(rev[0] && rev[0].d)}</span><span>today</span></div>
       </div>
       ${foundCard}
@@ -1889,7 +1889,7 @@ const DASH2_CSS = `<style>
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:var(--sp-5)}
   .attn{margin:0 0 4px}
-  .attn-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .attn-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 12px}
   .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
   .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px;transition:border-color .15s,transform .15s}
   .acard:hover{transform:translateY(-2px)}
@@ -1902,7 +1902,7 @@ const DASH2_CSS = `<style>
   .pipestrip{display:flex;align-items:center;gap:2px;flex-wrap:nowrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px;margin:16px 0 4px;overflow-x:auto}
   .ps-c{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;padding:4px 8px;border-radius:var(--r-ctl);min-width:62px}
   .ps-c:hover{background:var(--hover,rgba(0,0,0,.04))}
-  .ps-n{font-size:var(--fs-sect);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ps-n{font-size:var(--fs-sect);font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);font-variant-numeric:tabular-nums}
   .ps-l{font-size:var(--fs-label);color:var(--t3);text-align:center;line-height:1.2}
   .ps-arrow{color:var(--faint);font-size:var(--fs-body);flex:none}
 </style>`;
@@ -1952,7 +1952,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
@@ -2071,7 +2071,7 @@ function clientsView(clients, wishlists, opts = {}) {
     right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Type</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:12px 2px 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
@@ -2229,7 +2229,7 @@ const REQ_CSS = `<style>
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
   .rstat-sel{padding:8px 24px 8px 12px;font-size:var(--fs-sec);border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);color:var(--ink);font-family:inherit}
   .req-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px;font-size:var(--fs-label);color:var(--t2);line-height:1.5}
-  .req-legend .lg-t{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+  .req-legend .lg-t{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
   .req-legend .health{margin-right:4px}
 </style>`;
 
@@ -2828,8 +2828,8 @@ const RD_CSS = `<style>
   @media(max-width:1180px){.rd{grid-template-columns:1fr}}
   .rdcol{display:flex;flex-direction:column;gap:16px}
   .rdcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--pad-card)}
-  .rd-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
-  .rd-ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);margin-left:6px;letter-spacing:0}
+  .rd-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .rd-ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);margin-left:8px;letter-spacing:0}
   .rd-toph{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px}
   .rd-cust{display:flex;align-items:center;gap:12px;margin-bottom:16px}
   .rd-name{font-size:var(--fs-sect);font-weight:700;color:var(--ink)}
@@ -2861,9 +2861,9 @@ const RD_CSS = `<style>
   .rd-matches{display:flex;flex-direction:column;gap:8px}
   .mt{border:1px solid var(--hair);border-radius:var(--r-card);padding:12px}
   .mt-row{display:flex;gap:12px;align-items:flex-start}
-  .mt-img{display:block;width:76px;height:57px;object-fit:cover;border-radius:8px;background:var(--soft)}
+  .mt-img{display:block;width:76px;height:57px;object-fit:cover;border-radius:var(--r-ctl);background:var(--soft)}
   .mt-main{flex:1;min-width:0}
-  .mt-specs{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:1.6}
+  .mt-specs{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:var(--lh-list)}
   .mt-v{display:block;font-size:var(--fs-sec);font-weight:600;color:var(--ink);text-decoration:none}
   .mt-v:hover{color:var(--gold-txt)}
   .mt-meta{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -2907,7 +2907,7 @@ const RD_CSS = `<style>
   .tk-r{display:flex;align-items:center;gap:8px;flex:none}
   .tk-due{font-size:var(--fs-label);font-weight:600;white-space:nowrap}
   .tk-over{color:var(--bad)}.tk-today{color:var(--warn-c)}.tk-soon{color:var(--t2)}.tk-none{color:var(--t3)}
-  .tk-del button{border:0;background:none;color:var(--t3);font-size:16px;cursor:pointer;line-height:1;padding:0 2px}
+  .tk-del button{border:0;background:none;color:var(--t3);font-size:var(--fs-body);cursor:pointer;line-height:1;padding:0 2px}
   .tk-del button:hover{color:var(--bad)}
   .tk-check{display:inline}
   .tl{list-style:none;margin:0;padding:0}
