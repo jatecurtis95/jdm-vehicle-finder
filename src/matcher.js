@@ -93,7 +93,7 @@ export function scoreMatch(lot, w) {
 // Bucket a score into a labelled strength with its brand colour.
 export function strengthFor(score) {
   if (score >= 1.3) return { label: "Strong", color: "#46B17A" };
-  if (score >= 0.6) return { label: "Good", color: "#CAA34C" };
+  if (score >= 0.6) return { label: "Good", color: "#C98A00" };
   return { label: "Possible", color: "#B6B9BC" };
 }
 
@@ -141,7 +141,7 @@ export async function runWishlist(env, wishlist) {
   if (room <= 0) return [];
   const take = fresh.slice(0, room);
 
-  // Estimate landed cost up front so it's snapshotted into lot_json — the admin
+  // Estimate landed cost up front so it's snapshotted into lot_json; the admin
   // Matches view then reuses it instead of re-calling the calculator per load.
   await attachLanded(env, take.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
   // Tag watch-only "lead" matches: they surface for a follow-up call but the

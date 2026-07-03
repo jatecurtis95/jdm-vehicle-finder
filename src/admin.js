@@ -27,7 +27,7 @@ function googleButton(intent, label) {
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
 // Client categories: who the client is commercially. A deliberately small,
-// fixed set — 'private' (default retail buyer) or 'dealer' (a trade buyer we
+// fixed set: 'private' (default retail buyer) or 'dealer' (a trade buyer we
 // sell to/for). Stored on clients.category (migration 0011); extend this list
 // if a new relationship type becomes real.
 const CLIENT_CATEGORIES = [
@@ -216,6 +216,13 @@ const CSS = `
     --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
     --pad-card:20px;--gap-grid:20px;
     --fs-label:12px;--fs-sec:13px;--fs-body:15px;--fs-sect:17px;--fs-page:28px;
+    /* Typography treatment: premium lives in weight, tracking and leading.
+       Labels are light (500) with positive tracking; the values they describe
+       are semibold ink. Titles and numerals track tight; body and dense list
+       rows breathe. Exact values recorded in ADMIN-REDESIGN.md. */
+    --w-label:500;--w-value:600;
+    --ls-label:0.06em;--ls-title:-0.01em;--ls-num:-0.02em;
+    --lh-body:1.5;--lh-list:1.45;
     --r:8px;--r-ctl:8px;--r-card:10px;}
   .skip-link{position:absolute;left:-9999px;top:0}
   .skip-link:focus{left:8px;top:8px;z-index:100;background:#fff;color:#111;padding:8px 12px;border-radius:var(--r-ctl)}
@@ -238,7 +245,10 @@ const CSS = `
     --info:#3B5E96;--info-bg:rgba(59,115,172,0.1);
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+  body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;line-height:var(--lh-body);-webkit-font-smoothing:antialiased}
+  /* ONE data numeral: every 20px stat figure (triage, tasks, pipeline,
+     client-detail) shares this treatment instead of five local copies. */
+  .stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
   a{color:inherit;text-decoration:none}
   .wrap{display:flex;min-height:100vh}
   .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:var(--bg-2);position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
@@ -275,16 +285,16 @@ const CSS = `
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
   .content.dash{width:100%;max-width:2040px;margin-left:auto;margin-right:auto}
   .card{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--pad-card);margin-bottom:var(--sp-5)}
-  .card h2{font-size:var(--fs-sect);font-weight:600;margin:0 0 var(--sp-4);display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4)}
+  .card h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0 0 var(--sp-4);display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4)}
   .card h2 .num{color:var(--t3);font-weight:700}
-  details.foldcard>summary{font-size:var(--fs-sect);font-weight:600;display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;margin:0}
+  details.foldcard>summary{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;margin:0}
   details.foldcard>summary::-webkit-details-marker{display:none}
   details.foldcard>summary::after{content:"+";margin-left:auto;color:var(--gold);font-weight:700;font-size:20px;line-height:1;transition:transform .15s}
   details.foldcard[open]>summary{border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4);margin-bottom:var(--sp-4)}
   details.foldcard[open]>summary::after{transform:rotate(45deg)}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px var(--gap-grid)}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px var(--gap-grid)}
-  label{display:block;font-size:var(--fs-label);color:var(--t2);margin-bottom:8px;font-weight:600;letter-spacing:0.02em}
+  label{display:block;font-size:var(--fs-label);color:var(--t2);margin-bottom:8px;font-weight:var(--w-label);letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:12px;border:1px solid var(--field-line);border-radius:var(--r-ctl);font-size:var(--fs-body);background:var(--field);color:var(--ink);font-family:${FONT}}
   input::placeholder{color:var(--ph)}
@@ -299,8 +309,8 @@ const CSS = `
   .is-loading{opacity:.7;pointer-events:none;position:relative}
   .help{color:var(--faint);font-size:var(--fs-sec)}
   table{width:100%;border-collapse:collapse;font-size:var(--fs-sec)}
-  th{text-align:left;padding:12px 8px;background:var(--off);color:var(--t3);font-weight:600;font-size:var(--fs-label);letter-spacing:.01em;border-bottom:1px solid var(--hair)}
-  td{padding:16px 8px;border-bottom:1px solid var(--hair-2);color:var(--t2)}
+  th{text-align:left;padding:12px 8px;background:var(--off);color:var(--t3);font-weight:var(--w-label);font-size:var(--fs-label);letter-spacing:.01em;border-bottom:1px solid var(--hair)}
+  td{padding:16px 8px;border-bottom:1px solid var(--hair-2);color:var(--t2);line-height:var(--lh-list)}
   .avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label);font-weight:600;vertical-align:middle;margin-right:8px}
   .yes{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label)}
   .btn-del{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);cursor:pointer;font-family:${FONT}}
@@ -314,7 +324,7 @@ const CSS = `
   /* ONE chip component. Neutral by default; tone classes carry the signal:
      chip-good / chip-warn / chip-bad = health and urgency,
      chip-info = engagement (viewed), chip-gold = member / brand only. */
-  .chip{display:inline-block;background:var(--soft);border:1px solid var(--hair);color:var(--t2);font-size:var(--fs-label);font-weight:600;padding:4px 10px;border-radius:9999px;font-family:${FONT};white-space:nowrap}
+  .chip{display:inline-block;background:var(--soft);border:1px solid var(--hair);color:var(--t2);font-size:var(--fs-label);font-weight:500;padding:4px 10px;border-radius:9999px;font-family:${FONT};white-space:nowrap}
   button.chip{cursor:pointer}
   button.chip:hover{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
   .chip.muted{background:var(--soft);border-color:var(--hair);color:var(--t3)}
@@ -323,6 +333,7 @@ const CSS = `
   .chip-bad{background:var(--bad-bg);border-color:transparent;color:var(--bad)}
   .chip-info{background:var(--info-bg);border-color:transparent;color:var(--info)}
   .chip-gold{background:var(--gold-tint);border-color:transparent;color:var(--gold-txt)}
+  .chip-on{background:var(--ink);border-color:var(--ink);color:var(--bg-2)}
   .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--field);color:var(--t2);cursor:pointer;font-family:${FONT}}
   .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
   .bulk-label{font-size:var(--fs-sec);font-weight:600;color:var(--t2)}
@@ -368,11 +379,11 @@ const CSS = `
   .mphoto .ttl .t{font-size:var(--fs-sect);font-weight:600;letter-spacing:-0.01em}
   .mphoto .ttl .a{font-size:var(--fs-label);color:#E6E7E8;margin-top:4px}
   .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px}
-  .mstats .s .k{font-size:var(--fs-label);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint)}
+  .mstats .s .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .mstats .s .v{font-size:var(--fs-sec);font-weight:600;margin-top:4px;color:var(--ink)}
   .mstats .s.gold .v{color:var(--ink);font-weight:700}
   .mland{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--gold-tint);border-top:1px solid var(--hair)}
-  .mland .ml-k{font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--gold-txt)}
+  .mland .ml-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--gold-txt)}
   .mland .ml-v{font-size:var(--fs-body);font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums}
   .mfoot{border-top:1px solid var(--hair);padding:16px;display:flex;align-items:center;gap:8px}
   .mfoot .who{flex:1;min-width:0}
@@ -410,8 +421,8 @@ const CSS = `
   .reqbadge{display:inline-flex;align-items:center;gap:6px;background:rgba(91,192,140,.13);border:1px solid rgba(91,192,140,.4);color:var(--str-fg);font-size:var(--fs-label);font-weight:600;padding:8px 12px;border-radius:9999px}
   .paybadge{display:inline-flex;align-items:center;gap:6px;background:var(--gold-tint);border:1px solid rgba(202,163,76,.4);color:var(--gold-txt);font-size:var(--fs-label);font-weight:600;padding:4px 8px;border-radius:9999px;margin-left:8px}
   .portal-acct{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .portal-acct .pa-k{font-size:12px;color:var(--t3)}
-  .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .portal-acct .pa-k{font-size:var(--fs-label);color:var(--t3)}
+  .pwrap{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   /* Mobile nav: off-canvas drawer toggled by a CSS checkbox (works without JS;
      a link click loads a new page, which resets the toggle). */
   .nav-cb{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
@@ -419,7 +430,7 @@ const CSS = `
   .nav-scrim{display:none}
   @media(max-width:920px){
     .wrap{flex-direction:column}
-    .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .nav-burger{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:var(--fs-sec);cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-burger svg{width:22px;height:22px}
     .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
     .nav{flex-direction:column}
@@ -438,13 +449,13 @@ const CSS = `
      Agents, Payments) swap for these server-rendered card rows. Both are in
      the HTML; CSS decides which shows, so desktop keeps the tables. */
   .mcl{display:none}
-  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink);min-height:44px}
+  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;text-decoration:none;color:var(--ink);min-height:44px}
   a.mcl-row:active{background:var(--hover)}
   .mcl-b{flex:1;min-width:0}
-  .mcl-t{font-size:14.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
-  .mcl-m{font-size:12.5px;color:var(--t3);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:1.4}
-  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
-  .mcl-rs{font-size:11.5px;color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
+  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
+  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list)}
+  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
+  .mcl-rs{font-size:var(--fs-label);color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
     :root{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
     .main{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
@@ -485,8 +496,8 @@ const CSS = `
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--hair)}
   .triage{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
   .tstat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;min-width:96px}
-  .tstat .k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:6px}
-  .tstat .v{font-size:20px;font-weight:700;margin-top:4px}
+  .tstat .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:8px}
+  .tstat .v{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);font-variant-numeric:tabular-nums;margin-top:4px}
   .tstat .d{width:8px;height:8px;border-radius:9999px;display:inline-block}
   .tstat.urgent{border-color:var(--bad-line);background:var(--bad-bg)}
   .tstat.urgent .v{color:var(--bad)}
@@ -552,7 +563,7 @@ const CSS = `
   .clink:hover{border-bottom-color:var(--gold)}
   .cd-head{display:flex;align-items:center;gap:16px}
   .cd-owner{text-align:right}
-  .cd-owner .k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .cd-owner .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .cd-owner .v{font-size:var(--fs-sec);font-weight:600;color:var(--ink);margin-top:4px}
   .wlrow{border:1px solid var(--hair);border-radius:var(--r-card);margin-bottom:12px;overflow:hidden}
   .wlhead{display:flex;align-items:center;gap:12px;padding:16px}
@@ -567,7 +578,7 @@ const CSS = `
   .wledit form{padding:4px 16px 16px}
   .slegend{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
   .sl-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:var(--fs-label);color:var(--t2)}
-  .sl-t{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .sl-t{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .sl-item{display:inline-flex;align-items:center;gap:8px}
   .sl-item b{font-weight:600;color:var(--ink)}
   .sl-dot{width:9px;height:9px;border-radius:9999px;display:inline-block}
@@ -619,7 +630,7 @@ const CSS = `
   .donut{position:relative;width:120px;height:120px;flex:0 0 auto}
   .donut-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
   .donut-mid .dm-n{font-size:var(--fs-page);font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
-  .donut-mid .dm-k{font-size:var(--fs-label);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:4px}
+  .donut-mid .dm-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin-top:4px}
   .legend{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0}
   .legend .lg{display:flex;align-items:center;gap:8px;font-size:var(--fs-sec)}
   .legend .lg-d{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
@@ -635,7 +646,7 @@ const CSS = `
   a.ov-link:hover .num{text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:4px}
   a.ov-link:hover .cap{color:var(--ink)}
   .sec-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}
-  .sec-h h2{font-size:var(--fs-sect);font-weight:600;margin:0}
+  .sec-h h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0}
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
   .sec-h .btn-gold{display:inline-flex;align-items:center;gap:6px}
   .sec-h .btn-gold svg{width:15px;height:15px}
@@ -651,7 +662,7 @@ const CSS = `
   .lrow .who{flex:1;min-width:0}
   .lrow .who .nm{font-weight:500;color:var(--ink);font-size:var(--fs-sec)}
   .lrow .who .nm small{color:var(--faint);font-weight:400}
-  .lrow .who .sub{font-size:var(--fs-label);color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .who .sub{font-size:var(--fs-label);color:var(--t3);margin-top:2px;line-height:var(--lh-list);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .lrow .meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .b{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-label);font-weight:500;padding:4px 8px;border-radius:9999px;white-space:nowrap}
   .b svg{width:12px;height:12px}
@@ -679,7 +690,7 @@ const CSS = `
   @media(min-width:760px){.mticker{grid-template-columns:repeat(5,1fr)}}
   .mtk{background:var(--card);padding:16px}
   .mtk.urgent{background:var(--bad-bg)}
-  .mtk-k{font-size:var(--fs-label);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
+  .mtk-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
   .mtk-row{display:flex;align-items:flex-end;justify-content:space-between;margin-top:12px}
   .mtk-n{font-size:var(--fs-page);font-weight:700;line-height:1;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .mtk-n.gold{color:var(--ink)}.mtk-n.str{color:var(--str-fg)}.mtk-n.bad{color:var(--bad)}
@@ -715,12 +726,12 @@ const CSS = `
   .sc-title{font-size:var(--fs-sect);font-weight:700;letter-spacing:-.01em;text-transform:uppercase;margin:0;color:var(--ink);line-height:1.2}
   .sc-sub{font-size:var(--fs-label);letter-spacing:.04em;text-transform:uppercase;color:var(--t3);margin:4px 0 0}
   .sc-landed{text-align:right;flex:0 0 auto}
-  .sc-landed-k{font-size:var(--fs-label);letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
+  .sc-landed-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
   .sc-landed-v{font-size:var(--fs-sect);font-weight:700;color:var(--gold-txt);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-top:2px}
   .sc-grid{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--hair);border-radius:var(--r-ctl);overflow:hidden;margin-bottom:16px}
   .sc-cell{padding:8px;text-align:center;border-left:1px solid var(--hair)}
   .sc-cell:first-child{border-left:0}
-  .sc-k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin-bottom:4px}
+  .sc-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin-bottom:4px}
   .sc-v{font-size:var(--fs-sec);font-weight:700;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .sc-v.gold{color:var(--ink)}
   .scard .why{padding:0;margin:0 0 12px}
@@ -762,9 +773,9 @@ const CSS = `
   @media(max-width:920px){.ld-right{position:static}.ld-hero{height:280px}}
   .ld-top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
   .ld-grade-n{font-size:var(--fs-page);font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
-  .ld-grade-k{font-size:var(--fs-label);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:4px}
+  .ld-grade-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin-top:4px}
   .ld-landed{text-align:right}
-  .ld-landed-k{font-size:var(--fs-label);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .ld-landed-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .ld-landed-v{font-size:20px;font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums;margin-top:2px}
   .ld-when-row{margin-bottom:16px}
   .ld-when{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warn-fg);background:var(--warn-bg);border:1px solid transparent;padding:4px 8px;border-radius:var(--r-ctl)}
@@ -774,7 +785,7 @@ const CSS = `
   .ld-row:last-child{border-bottom:0}
   .ld-k{color:var(--t3)}
   .ld-v{color:var(--ink);font-weight:600;text-align:right}
-  .ld-sec{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:16px 0 2px}
+  .ld-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin:16px 0 4px}
   .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
   .ld-cl-n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
   .ld-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px}
@@ -1378,7 +1389,7 @@ function paymentsView(payments, opts = {}) {
   // Stripe session ids are long enough to blow the table out; truncate with a
   // copy button for the full id.
   const sessCell = (p) => p.stripe_session
-    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 9px;font-size:11px" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
+    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 8px;font-size:var(--fs-label)" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
     : "-";
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
@@ -1412,7 +1423,7 @@ function paymentsView(payments, opts = {}) {
       <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
     ${depositsSection}
-    ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
+    ${payments.length ? `<div class="psec" style="margin-top:24px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
     <div class="mcl">${payments.map((p) => mobileCardRow({
       name: p.client_name || "?",
       title: esc(p.client_name || ("#" + p.client_id)),
@@ -1448,7 +1459,7 @@ export function loginPage(opts = {}) {
       ${googleBlock}
       <label for="lg-email">Email</label>
       <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
-      <label for="lg-pass" style="margin-top:14px">Password</label>
+      <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
@@ -1474,8 +1485,8 @@ export function setPasswordPage(opts = {}) {
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
       <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
-      <p id="sp-help" class="login-sub" style="margin:6px 0 0;font-size:12.5px">At least ${PW_MIN} characters.</p>
-      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <p id="sp-help" class="login-sub" style="margin:8px 0 0;font-size:var(--fs-label)">At least ${PW_MIN} characters.</p>
+      <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
@@ -1882,7 +1893,7 @@ const DASH2_CSS = `<style>
   .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
   .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px;transition:border-color .15s,transform .15s}
   .acard:hover{transform:translateY(-2px)}
-  .ac-n{font-size:var(--fs-page);font-weight:700;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ac-n{font-size:var(--fs-page);font-weight:700;letter-spacing:var(--ls-num);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
   .ac-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .acard-bad{border-color:var(--bad-line,var(--bad-bg))}.acard-bad .ac-n{color:var(--bad)}
   .acard-warn{border-color:var(--warn-c)}.acard-warn .ac-n{color:var(--warn-c)}
@@ -1953,7 +1964,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const session = opts.session || { role: "admin" };
   const agents = opts.agents || [];
   const shares = opts.shares || {};
-  // Category filter (?cat=private|dealer). Filtered here, not in SQL — the list
+  // Category filter (?cat=private|dealer). Filtered here, not in SQL; the list
   // is already loaded, and the tabs need every category's count regardless.
   const cat = opts.cat || "";
   const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
@@ -2000,7 +2011,7 @@ function clientsView(clients, wishlists, opts = {}) {
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
-      <td>${isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : `<span class="chip muted">Private</span>`}</td>
+      <td>${isDealer(c) ? `<span class="chip">Dealer</span>` : `<span class="chip muted">Private</span>`}</td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
@@ -2018,7 +2029,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 10 : 8}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 10 : 8}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -2041,9 +2052,9 @@ function clientsView(clients, wishlists, opts = {}) {
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}${cat ? `&cat=${cat}` : ""}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}${cat ? `&cat=${cat}` : ""}" style="font-size:var(--fs-label);font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
   // Category tabs: All / Private / Dealers, with live counts, archive-aware.
-  const catTabs = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${[["", "All"], ["private", "Private"], ["dealer", "Dealers"]].map(([id, label]) =>
+  const catTabs = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${[["", "All"], ["private", "Private"], ["dealer", "Dealers"]].map(([id, label]) =>
     `<a class="chip ${cat === id ? "chip-on" : "muted"}" style="text-decoration:none" href="/admin?view=clients${id ? `&cat=${id}` : ""}${opts.showArchived ? "&archived=1" : ""}">${label}${id ? ` (${catCount(id)})` : ""}</a>`).join("")}</div>`;
   // Mobile card list: name, contact, searches and owner without the 560px-wide
   // table's horizontal scroll. Bulk allocation stays a desktop tool.
@@ -2057,11 +2068,11 @@ function clientsView(clients, wishlists, opts = {}) {
     name: c.name,
     title: esc(c.name),
     meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: `${isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
+    right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
-  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Type</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Type</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:12px 2px 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2210,7 +2221,7 @@ const REQ_CSS = `<style>
   .pipe-card{text-align:left;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
   .pipe-card:hover{border-color:var(--field-line)}
   .pipe-card.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
-  .pipe-card .pc-n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .pipe-card .pc-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .pipe-card .pc-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px;line-height:1.25}
   .reqid{font-family:var(--mono,monospace);font-size:var(--fs-label);font-weight:600;color:var(--t2);text-decoration:none}
   a.reqid:hover{color:var(--ink)}
@@ -2430,7 +2441,7 @@ function matchTrackRow(q, back) {
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-yes" type="submit"${q.response === "interested" ? " disabled" : ""}>Interested</button></form>
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="not_interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-no" type="submit"${q.response === "not_interested" ? " disabled" : ""}>Pass</button></form>
     </div>` : "";
-  // The variant and vitals, so staff can tell WHICH car this was — a bare
+  // The variant and vitals, so staff can tell WHICH car this was; a bare
   // "Mercedes Benz S Class" title hides whether it was the right trim/chassis.
   const specs = [
     lot.grade ? esc(String(lot.grade)) : "",
@@ -2980,7 +2991,7 @@ const TASKS_CSS = `<style>
   .tk-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:var(--sp-5)}
   .tk-stat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px}
   .tk-stat.bad{border-color:var(--bad-line)}.tk-stat.warn{border-color:var(--warn-c)}
-  .tk-stat .n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .tk-stat .n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .tk-stat.bad .n{color:var(--bad)}.tk-stat.warn .n{color:var(--warn-c)}
   .tk-stat .l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .tks{margin-bottom:var(--sp-5)}
@@ -3036,7 +3047,7 @@ function wishlistsView(wishlists) {
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its queued matches and history go with it. This cannot be undone." data-danger><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
@@ -3310,9 +3321,9 @@ function matchesView(pending, opts = {}) {
   const chips = `<div class="fchips">
     ${chip("Strong + Good", { f: "sg" }, st.f === "sg")}
     ${chip("All", { f: "all" }, st.f === "all")}
-    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:#46B17A"></span>`)}
-    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:#CAA34C"></span>`)}
-    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:#B6B9BC"></span>`)}
+    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:var(--good)"></span>`)}
+    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:var(--warn-c)"></span>`)}
+    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:var(--t3)"></span>`)}
     ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
     <span class="bsp" style="flex:1"></span>
     ${chip("Grouped by client", { group: "client" }, st.group === "client")}
@@ -4072,7 +4083,7 @@ const CRM_CSS = `<style>
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
   .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
-  .cd-stat-n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
   .cd-stat-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
@@ -4155,7 +4166,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
   const telDigits = String(c.whatsapp || "").replace(/[^0-9+]/g, "");
   const statusChips = [
-    isDealer(c) ? `<span class="chip chip-info">Dealer</span>` : "",
+    isDealer(c) ? `<span class="chip">Dealer</span>` : "",
     c.member ? `<span class="chip chip-gold">Member</span>` : `<span class="chip muted">Not a member</span>`,
     c.portal_enabled ? `<span class="chip chip-good">Portal ${c.pass_hash ? "active" : "invited"}</span>` : "",
     c.destination_country ? `<span class="chip muted">${esc(c.destination_country)}</span>` : (c.state ? `<span class="chip muted">${esc(c.state)}</span>` : ""),
@@ -5040,16 +5051,23 @@ function tableToolsScript() {
 //    them on pageshow so bfcache back-navigation never leaves dead buttons.
 function uxGuardScript() {
   return `<style>
-    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.14);padding:12px 18px;border-radius:9px;font:600 13.5px/1.4 Inter,-apple-system,sans-serif;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
-    .jdm-toast.err{background:#571622}
+    /* The ONE toast and the ONE confirm dialog, on the same tokens they guard.
+       Both render against the dark root palette (appended to body), a calm
+       dark surface over either workspace, in the Linear dialog register:
+       hairline cancel, single gold confirm, red outline for danger. */
+    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:var(--card-2,#1C2027);color:var(--ink,#F4F2EC);border:1px solid var(--hair,rgba(255,255,255,0.14));padding:12px 16px;border-radius:var(--r-card,10px);font-family:inherit;font-size:var(--fs-sec,13px);font-weight:600;line-height:var(--lh-list,1.45);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
+    .jdm-toast.err{background:#571622;color:#fff}
     .jdmc-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9997}
-    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#fff);color:var(--ink,#15171B);border:1px solid var(--hair,rgba(0,0,0,.1));border-radius:14px;padding:20px;width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
-    .jdmc-m{font-size:14.5px;line-height:1.55;font-weight:500;white-space:pre-line}
-    .jdmc-b{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
-    .jdmc-b button{font-family:inherit;font-size:13.5px;font-weight:600;border-radius:9px;padding:10px 16px;cursor:pointer;min-height:44px}
-    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(0,0,0,.18));color:var(--ink,#15171B)}
-    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:#15120A}
-    .jdmc-ok.danger{background:transparent;border:1px solid rgba(226,96,122,.55);color:#B11226}
+    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#171A20);color:var(--ink,#F4F2EC);border:1px solid var(--hair,rgba(255,255,255,.08));border-radius:var(--r-card,10px);padding:var(--pad-card,20px);width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+    .jdmc-m{font-size:var(--fs-body,15px);line-height:var(--lh-body,1.5);font-weight:500;white-space:pre-line}
+    .jdmc-b{display:flex;gap:12px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+    .jdmc-b button{font-family:inherit;font-size:var(--fs-sec,13px);font-weight:600;border-radius:var(--r-ctl,8px);padding:10px 16px;cursor:pointer;min-height:44px}
+    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(255,255,255,.18));color:var(--ink,#F4F2EC)}
+    .jdmc-cancel:hover{background:var(--hover,rgba(255,255,255,.05))}
+    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:var(--gold-on,#15120A)}
+    .jdmc-ok:hover{background:var(--gold-hover,#D9B45F)}
+    .jdmc-ok.danger{background:transparent;border:1px solid var(--bad-line,rgba(226,96,122,.55));color:var(--bad,#E2607A)}
+    .jdmc-ok.danger:hover{background:var(--bad-bg,rgba(226,96,122,.12))}
   </style><script>(function(){
   var live=null;
   window.jdmToast=function(m,err,ms){
@@ -5311,7 +5329,7 @@ export async function createClient(env, form, session) {
   if (!name) return { ok: false, error: "name" };
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   const state = normalizeState(form.get("state"));
-  // Unknown category values fall back to 'private' rather than erroring — the
+  // Unknown category values fall back to 'private' rather than erroring; the
   // select only offers valid ids, so anything else is a stale/hand-built form.
   const rawCategory = String(form.get("category") || "");
   const category = CLIENT_CATEGORY_IDS.has(rawCategory) ? rawCategory : "private";
@@ -6198,8 +6216,10 @@ function queueStateBadge(status, name) {
     : status === "pending" ? `Queued${name ? " for " + esc(name) : ""}`
     : "";
   if (!label) return "";
-  const tone = status === "sent" ? "background:rgba(31,122,77,.14);color:#1F7A4D" : "background:var(--gold-tint);color:var(--gold-txt)";
-  return `<span class="qbadge" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;${tone}">&#10003; ${label}</span>`;
+  // Status is a chip, never gold: sent = good tone, queued = neutral.
+  return status === "sent"
+    ? `<span class="chip chip-good qbadge">&#10003; ${label}</span>`
+    : `<span class="chip muted qbadge">${label}</span>`;
 }
 
 // Sticky bottom send bar for the auction-search surfaces (client-page find
@@ -6221,16 +6241,16 @@ function staffSendBar(opts = {}) {
   </div>
   <style>
     .selcard{cursor:pointer;position:relative}
-    .selcard .fsel{position:absolute;top:10px;right:10px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
-    .acard.selcard .fsel{top:auto;bottom:11px;right:11px}
-    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:13px}
-    .qbadge-js{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;background:var(--gold-tint);color:var(--gold-txt)}
-    .qbadge-js.sent{background:rgba(31,122,77,.14);color:#1F7A4D}
-    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:#15181D;color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:10px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
+    .selcard .fsel{position:absolute;top:12px;right:12px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
+    .acard.selcard .fsel{top:auto;bottom:12px;right:12px}
+    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-card)}
+    /* The floating variant of the ONE action bar family (.actionbar /
+       .bulkbar2 / .sendbar): dark card surface on the shared tokens. */
+    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;background:var(--card-2,#1C2027);color:#F4F2EC;border:1px solid rgba(255,255,255,.16);border-radius:var(--r-card);padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:12px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
     .sendbar.show{transform:translate(-50%,0)}
-    .sendbar .sb-count{font-size:13px;font-weight:600;color:#cfd3d8;white-space:nowrap}
+    .sendbar .sb-count{font-size:var(--fs-sec);font-weight:600;color:#cfd3d8;white-space:nowrap}
     .sendbar .sb-count b{color:#fff}
-    .sendbar select{background:#1F242B;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:9px 30px 9px 11px;font-size:13.5px;max-width:180px}
+    .sendbar select{background:#1F242B;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:var(--r-ctl);padding:8px 28px 8px 12px;font-size:var(--fs-sec);max-width:180px}
     .sendbar button{min-height:44px}
     @media(max-width:640px){.sendbar{left:8px;right:8px;transform:translate(0,130%);max-width:none;margin-bottom:8px}.sendbar.show{transform:translate(0,0)}}
   </style>
@@ -6294,7 +6314,7 @@ function staffSendBar(opts = {}) {
           var cb=c.querySelector('.fsel'); if(cb){cb.checked=false;cb.disabled=true;}
           var f2=c.querySelector('form[action="/client/find"]');
           var badge=document.createElement('span');
-          badge.className='qbadge-js'+(send?' sent':'');
+          badge.className='chip '+(send?'chip-good':'muted');
           badge.textContent=(send?'Sent to ':'Queued for ')+name;
           if(f2&&f2.parentNode)f2.parentNode.replaceChild(badge,f2);
         });
