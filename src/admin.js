@@ -433,6 +433,7 @@ const CSS = `
     /* M2: comfortable 48px tap targets, full-width primary CTA */
     input,select,textarea{min-height:48px}
     .btn-gold,.btn-dark,.btn-del,.btn-notify{min-height:44px}
+    .cd-cta,.rd-cta,.dw-cta-b,.mt-btn,.btn-line,.btn-toggle{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
     .actions{flex-wrap:wrap}
     .actions .btn-gold{width:100%;min-height:48px;padding:12px 24px}
   }

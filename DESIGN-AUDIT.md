@@ -274,6 +274,67 @@ Target: one sticky action bar component used by all four.
   (e.g. `margin:-8px 0 16px`, `margin-top:18px`, `scroll-margin-top:80px`).
 - Checkbox `label` at 1779 and 3217/3618 hardcodes `color:#3A3C3F`.
 
+## Resolution log (Phase 5, steps 2 to 4)
+
+Every section above is resolved unless it appears under Deferrals below.
+
+1. Spacing: tokens `--sp-1..--sp-6` (4/8/12/16/24/32) plus `--pad-card`
+   (20 desktop / 16 mobile) and `--gap-grid` (20 / 12) now drive the shell and
+   every per-page CSS block (DASH2, REQ, RD, TASKS, CRM, drawer, table tools,
+   ALOT, PLV, AUCTION). All inline style spacing was swept onto the scale; the
+   only intentional negatives are -8px pulls that sit on the scale's magnitude.
+2. Type: tokens `--fs-label/sec/body/sect/page` (12/13/15/17/28, page drops to
+   20 under 640px). The 33px mobile h1 is gone. All 9 to 11.5px micro-labels
+   collapsed into the 12px label token; fractional sizes are gone. Large data
+   numerals sit on 28 (page token) or 20; the 42px greeting is deferred below.
+3. Colour: gold now appears only on primary actions (btn-gold / btn-notify /
+   btn-search / bap / rd-cta-gold / rd-find), money figures (landed cost
+   values, mland strip, price lines), focus rings, and brand chrome (logo,
+   sidebar active, kicker). Status/metadata gold (default chip, engagement,
+   rstat-active, why-chips, AI badges, avatars, select-all pills, card header
+   bands, auction card gold borders, view toggles) moved to neutral or the
+   correct signal tone. Green/amber/red are reserved for health and urgency;
+   `--info` blue was added for engagement (Viewed) and overseas markers.
+   The #C9A34C typo is gone. Light hairline is rgba(0,0,0,0.08); ad hoc
+   rgba(0,0,0,.05/.06/.10) hairlines now use `--hair`/`--hair-2`.
+4. Radius: `--r-card:10px` and `--r-ctl:8px` everywhere; tiny overlay tags
+   became true pills (9999) and dots use 50%. No 2/3/5/6/7/9/11/13/14 values
+   remain in admin CSS (the 6px inner radius of the nested grid/list view
+   toggle is the one nested-radius exception, see Deferrals).
+5. Chips: ONE `.chip` component (12px, 600, pill) with tone classes
+   chip-good / chip-warn / chip-bad / chip-info / chip-gold / muted. It now
+   renders: request stages (statusBadge), deposit states, engagement cells,
+   drawer stage + strength, client-detail header chips, task priority, the
+   payments status pill (was fully inline-styled), overseas markers and the
+   requests legend. Interested (green) and Viewed (info blue) are visually
+   distinct everywhere. The `.b` dot-chip family shares the same metrics and
+   is kept for photo-overlay strength badges.
+6. Buttons: primary = gold fill (btn-gold/btn-notify/btn-search/bap),
+   secondary = hairline (btn-dark/btn-line/rd-cta/cd-cta/dw-cta-b/mt-btn/
+   tbl-export/ac-sheet/bsk, all on 13px/600, radius 8, shared hover),
+   destructive = red text/border (btn-del/bdel). Built-in `:disabled` and
+   `.is-loading` states ship in the shell and are used by the AI-read, photo
+   fix and approve/skip flows. All buttons are 44px minimum on mobile.
+7. Dialogs: `window.jdmConfirm` (styled, focus-trapped, Escape/scrim cancel,
+   danger variant) replaces all 12 native confirm() sites plus the rowMenu
+   plumbing; each message now states the consequence of the action. Forms use
+   data-confirm attributes; selects use jdmConfirmSelect; the two alert()
+   calls became toasts. The buyer-portal copy of the search-delete form keeps
+   a native confirm because the portal shell does not load the admin UI kit.
+8. Toasts: `window.jdmToast` is the single implementation; fixToast, ranToast
+   and both per-page toast() helpers now delegate to it.
+9. Action bars: `.actionbar` (sticky bottom) with `-end` (settings save bar)
+   and `-inline` (client-detail bulk bar, which also gained proper confirm
+   dialogs) variants; the matches `.bulkbar2` is the top-pinned variant built
+   on the same tokens.
+10. Copy: no em or en dashes remain anywhere in src/admin.js or
+    src/auction-ui.js, in copy or comments (including the &ndash;/&mdash;
+    entities in the requests legend and the \\u2014 in the WhatsApp share).
+11. Verified in Chrome at 375px and 1440px on dashboard, matches, requests
+    and client detail: zero horizontal overflow, 20px mobile / 28px desktop
+    titles, 52px burger + ~114px topbar on mobile, 44px touch targets,
+    card padding 20px and radius 10px computed at 1440px. npm test: 213 pass.
+
 ## Deferrals (explicit, with reasons)
 
 - The 42px dashboard greeting (`.greet`) stays: it is the one intentional hero
@@ -292,3 +353,16 @@ Target: one sticky action bar component used by all four.
 - Portal-only classes that live in the admin CSS for legacy reasons (.reqbadge,
   .paybadge, .memcard) keep their look where they render on customer surfaces;
   where they appear inside the staff admin they adopt the chip component.
+- Mobile inputs stay at 16px (off the type scale) because anything smaller
+  makes iOS Safari auto-zoom on focus; this is a functional exception.
+- The Google sign-in button (GOOGLE_BTN_CSS) keeps Google's own metrics and
+  radius per their brand guidelines; it renders on login/onboarding only.
+- The match-strength scale (Strong green / Good amber / Possible neutral)
+  deliberately reuses the health palette: strength ranks how healthy a fit a
+  lot is, and the same three tones now read identically on cards, chips,
+  filter dots, the legend and the dashboard donut.
+- The grid/list view toggle keeps a 6px inner radius nested inside its 8px
+  container (a nested radius smaller than its parent is correct optics).
+- One native confirm() remains in the buyer-portal copy of the search-delete
+  form, because the portal runs on the brand shell which does not load the
+  admin UI kit; the staff copy of the same form uses the styled dialog.
