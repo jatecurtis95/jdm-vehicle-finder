@@ -100,7 +100,10 @@ export function auctionCardV2(lot, opts = {}) {
   const photoLink = detailHref ? `<a class="ac-link" href="${esc(detailHref)}" aria-label="View ${esc(name)} details"></a>` : "";
   const nameHtml = detailHref ? `<a class="ac-name-link" href="${esc(detailHref)}">${esc(name)}</a>` : esc(name);
 
-  return `<div class="acard">
+  // opts.select: staff bulk-send selection (checkbox + gold outline via the
+  // shared .selcard controller in the admin send bar).
+  return `<div class="acard${opts.select ? " selcard" : ""}"${opts.select ? ` data-lot="${esc(lot.id)}"` : ""}>
+    ${opts.select ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="ac-photo"${img ? ` style="background-image:url('${esc(img)}')"` : ""}>
       <span class="ac-grade">Grade ${esc(grade)}</span>
       ${heart}
@@ -156,8 +159,8 @@ export function auctionSearchHeader(o = {}) {
             <div class="asrch-adv-grid">
               <label>Year from<input name="yearMin" type="number" min="1960" value="${v("yearMin")}" placeholder="1990"></label>
               <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
-              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${v("priceMax")}" placeholder="3,000,000"></label>
-              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${v("gradeMin")}" placeholder="4"></label>
+              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
+              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
               <label>Chassis code<input name="kuzov" value="${v("kuzov")}" placeholder="GDB"></label>
             </div>
             <div class="asrch-adv-act"><button class="btn-gold" type="submit">Apply filters</button></div>

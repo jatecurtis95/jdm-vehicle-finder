@@ -6,7 +6,7 @@ import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses,
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken, passwordPolicyError, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
@@ -417,25 +417,56 @@ const CSS = `
     .topbar{top:52px}
     .mtools{top:52px}
   }
+  /* Health dots (last-contact recency) - shared by Requests, Customers and
+     the drawer. Green under 7 days, amber 7 to 14, red 14+ or never. */
+  .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
+  .health-green{background:#1F7A4D}.health-amber{background:#C98A00}.health-red{background:#B11226}
+  /* Mobile card lists: below 640px the wide tables (Requests, Customers,
+     Agents, Payments) swap for these server-rendered card rows. Both are in
+     the HTML; CSS decides which shows, so desktop keeps the tables. */
+  .mcl{display:none}
+  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink);min-height:44px}
+  a.mcl-row:active{background:var(--hover)}
+  .mcl-b{flex:1;min-width:0}
+  .mcl-t{font-size:14.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
+  .mcl-m{font-size:12.5px;color:var(--t3);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:1.4}
+  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
+  .mcl-rs{font-size:11.5px;color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
     :root{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
     .main{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
     .grid{grid-template-columns:1fr}
     .grid2{grid-template-columns:1fr}
     .topbar,.content{padding-left:16px;padding-right:16px}
-    /* M3: tighten the stacked header so the form starts higher. The 33px
-       mobile h1 is gone: --fs-page drops to 20 here. */
-    .side{padding:12px 16px}.topbar{padding-top:16px;padding-bottom:16px}
-    h1{margin:8px 0 4px}
+    /* One-row mobile page header: 20px title + the primary action; the kicker
+       and subline stack is desktop-only. The 33px mobile h1 is gone. */
+    .side{padding:12px 16px}
+    .topbar{padding-top:12px;padding-bottom:12px;align-items:center}
+    .topbar .kicker{display:none}
+    .topbar .subline{display:none}
+    .topbar h1{font-size:20px}
     /* M1: >=16px controls stop iOS Safari auto-zooming on focus (functional
        exception to the type scale, documented in DESIGN-AUDIT.md) */
     input,select,textarea{font-size:16px}
-    /* M2: comfortable 48px tap targets, full-width primary CTA */
+    /* M2: comfortable tap targets, full-width primary CTA */
     input,select,textarea{min-height:48px}
-    .btn-gold,.btn-dark,.btn-del,.btn-notify{min-height:44px}
-    .cd-cta,.rd-cta,.dw-cta-b,.mt-btn,.btn-line,.btn-toggle{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
+    .btn-gold,.btn-dark,.btn-notify,.btn-skip,.btn-line,.btn-del,.btn-toggle,.bap,.bsk,.bdel,.rd-cta{min-height:44px}
+    .cd-cta,.dw-cta-b,.mt-btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
     .actions{flex-wrap:wrap}
     .actions .btn-gold{width:100%;min-height:48px;padding:12px 24px}
+    /* Tables become card lists on the list-heavy views. */
+    .mcl{display:flex;flex-direction:column;gap:8px}
+    .tbl-desk{display:none}
+    .bulkbar{display:none} /* bulk allocation is a desktop tool */
+    /* Decision pages: Approve/Skip stay reachable without scrolling past the
+       gallery. */
+    .ld-actions{position:fixed;left:0;right:0;bottom:0;z-index:140;margin:0;background:var(--bg-2);border-top:1px solid var(--hair);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px}
+    .ld-actions form{flex:1;display:flex}
+    .ld-actions form button{width:100%;min-height:46px}
+    .ld-grid{padding-bottom:96px}
+    .plv-picker{position:fixed;left:0;right:0;bottom:0;z-index:140;margin:0;background:var(--bg-2);border-top:1px solid var(--hair);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px}
+    .plv-picker select{flex:1;min-width:0}
+    .plv-grid{padding-bottom:110px}
   }
   /* Matches review (v2) */
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--hair)}
@@ -767,21 +798,6 @@ const CSS = `
   .ld-share-row input{flex:1;min-width:0;font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink)}
   .ld-share-row .btn-dark{padding:8px 12px;font-size:var(--fs-sec)}
   .ld-share-wa{display:block;text-align:center;width:100%}
-  /* Styled confirm dialog: replaces every native confirm() in the admin. */
-  .cfm-scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;display:none;align-items:center;justify-content:center;padding:16px}
-  .cfm-scrim.open{display:flex}
-  .cfm{width:100%;max-width:420px;background:var(--card,#fff);color:var(--ink,#1b1c1e);border:1px solid var(--hair);border-radius:var(--r-card);box-shadow:0 24px 60px rgba(0,0,0,.3);padding:var(--sp-5)}
-  .cfm-t{font-size:var(--fs-sect);font-weight:700;margin:0 0 8px}
-  .cfm-m{font-size:var(--fs-sec);color:var(--t2);line-height:1.55;margin:0 0 var(--sp-4)}
-  .cfm-a{display:flex;gap:8px;justify-content:flex-end}
-  .cfm-a button{font-family:inherit;font-size:var(--fs-sec);font-weight:600;border-radius:var(--r-ctl);padding:12px 16px;cursor:pointer;min-height:44px}
-  .cfm-cancel{background:transparent;border:1px solid var(--hair);color:var(--t2)}
-  .cfm-cancel:hover{color:var(--ink);background:var(--hover)}
-  .cfm-ok{background:var(--gold);border:0;color:var(--gold-on)}
-  .cfm-ok:hover{background:var(--gold-hover)}
-  .cfm.danger .cfm-ok{background:var(--bad);color:#fff}
-  /* Single toast component (jdmToast). */
-  .jdm-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 16px;border-radius:var(--r-ctl);font:600 13px/1.35 ${FONT};z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.22);text-align:center;transition:opacity .4s}
 `;
 
 function initials(name) {
@@ -945,11 +961,19 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
             MAX(viewed_at) AS last_viewed
        FROM queue WHERE client_id = ?`
   ).bind(id).first()) || {};
+  // Derived last-contacted: newest of any sent vehicle, note or contact tap.
+  const lc = (await env.DB.prepare(
+    `SELECT MAX(ts) AS t FROM (
+        SELECT sent_at AS ts FROM queue WHERE client_id = ?1 AND sent_at IS NOT NULL
+        UNION ALL SELECT created_at FROM activity WHERE client_id = ?1 AND type IN ('note','contact')
+      )`
+  ).bind(id).first()) || {};
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
     ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
+    ["Last contacted", `${healthDot(lc.t)}${esc(lastActivityLabel(lc.t))}`],
     ["Examples sent", Number(eng.sent) ? `${eng.sent}${Number(eng.viewed) ? ` &middot; ${eng.viewed} viewed` : " &middot; none opened yet"}` : null],
     ["Last viewed", eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : null],
     ["Last login", c.last_seen ? String(c.last_seen).slice(0, 10) : null],
@@ -982,11 +1006,28 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
       <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
       <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
     </div>
-    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
+    ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" data-clog="${c.id}:call" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
     ${info ? `<div class="dw-card">${info}</div>` : ""}
     <div class="dw-sec">Requests <span class="ct">${wls.length}</span></div><div class="dw-list">${wlList}</div>
     <div class="dw-sec">Recent matches <span class="ct">${matches.length}</span></div><div class="dw-list">${mList}</div>
     <div class="dw-sec">Payments <span class="ct">${pays.length}</span></div><div class="dw-list">${pList}</div>`;
+}
+
+// Pending review queue, scoped to the session. Shared by the admin page shell
+// (sidebar badge + Matches view) and the Matches "Load more" chunk endpoint.
+async function queryPendingMatches(env, session) {
+  const acc = accessScope(session);
+  const stmt = env.DB.prepare(
+    `SELECT q.*, c.name AS client_name, c.state AS client_state,
+            c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
+            w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+       FROM queue q
+       JOIN clients c ON c.id = q.client_id
+       LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
+  );
+  return ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
 }
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
@@ -1004,26 +1045,28 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const wishlists = (await run(
     `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
   ).all()).results || [];
-  const pending = (await run(
-    `SELECT q.*, c.name AS client_name, c.state AS client_state,
-            c.email AS client_email, c.whatsapp AS client_whatsapp,
-            w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
-            w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-       FROM queue q
-       JOIN clients c ON c.id = q.client_id
-       LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
-  ).all()).results || [];
+  const pending = await queryPendingMatches(env, session);
 
   // For the Clients view: active agents (for the Share picker) and existing
   // shares (chips), so owners can share/unshare.
-  let shareAgents = [], sharesByClient = {};
+  let shareAgents = [], sharesByClient = {}, lastContact = {};
   if (view === "clients") {
     shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
       "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN agents a ON a.id = cs.agent_id"
     ).all()).results || [];
     for (const r of sh) (sharesByClient[r.client_id] = sharesByClient[r.client_id] || []).push({ id: r.agent_id, name: r.agent_name });
+    // Derived last-contacted per client: the newest of any sent vehicle, note
+    // or logged contact tap. Read-only aggregation, no manual upkeep.
+    try {
+      const lc = (await env.DB.prepare(
+        `SELECT client_id, MAX(ts) AS t FROM (
+            SELECT client_id, sent_at AS ts FROM queue WHERE sent_at IS NOT NULL
+            UNION ALL SELECT client_id, created_at FROM activity WHERE type IN ('note','contact')
+          ) GROUP BY client_id`
+      ).all()).results || [];
+      for (const r of lc) lastContact[r.client_id] = r.t;
+    } catch (e) { console.error("last-contact rollup failed:", e.message); }
   }
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
@@ -1109,11 +1152,11 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
-  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived });
+  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY });
-  else if (view === "agents") body = agentsView(agents);
+  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
+  else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
@@ -1140,7 +1183,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 }
 
 // Admin-only: manage agent logins.
-function agentsView(agents) {
+function agentsView(agents, opts = {}) {
+  const vals = opts.vals || {};
+  const vv = (k) => esc(vals[k] || "");
   const rows = agents.map((a) => {
     const invited = !a.pass_hash;
     return `<tr>
@@ -1164,16 +1209,23 @@ function agentsView(agents) {
       <h2><span class="num">+</span> New agent</h2>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" required></div>
-          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" required></div>
-          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka"></div>
+          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" value="${vv("name")}" required></div>
+          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" value="${vv("email")}" required></div>
+          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka" value="${vv("company")}"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </div>
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <div class="mcl">${agents.map((a) => mobileCardRow({
+      name: a.name,
+      title: `${esc(a.name)}${a.pass_hash ? "" : ` <span class="chip muted">invited</span>`}`,
+      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
+      right: `<span class="chip${a.active ? "" : " muted"}">${a.active ? "Active" : "Paused"}</span>`,
+      rightSub: a.alerts ? "Alerts on" : "Alerts off",
+    })).join("") || `<div class="empty">No agents yet</div>`}</div>
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
 }
 
@@ -1245,7 +1297,7 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("stripe_enabled", "Enable deposits in the buyer portal", "Show a “Pay deposit” button on cars a client asked us to chase.", settingOn(s, "stripe_enabled"))}
           </div>
           <div class="grid2" style="margin-top:16px">
-            <div><label for="set-deposit">Deposit amount <span class="opt">(AUD)</span></label><input id="set-deposit" name="stripe_deposit_aud" type="number" min="0" step="50" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
+            <div><label for="set-deposit">Deposit amount <span class="opt">(AUD)</span></label><input id="set-deposit" name="stripe_deposit_aud" type="number" min="0" step="any" value="${esc(s.stripe_deposit_aud || "")}" placeholder="e.g. 500"></div>
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
@@ -1262,8 +1314,8 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("membership_enabled", "Sell Full access in the portal", "Show the “Get full access” subscribe button to non-members.", settingOn(s, "membership_enabled"))}
           </div>
           <div class="grid2" style="margin-top:16px">
-            <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="1" value="${esc(s.membership_monthly_aud || "49")}"></div>
-            <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="1" value="${esc(s.free_result_limit || "1")}"></div>
+            <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="any" value="${esc(s.membership_monthly_aud || "49")}"></div>
+            <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="any" value="${esc(s.free_result_limit || "1")}"></div>
           </div>
         </div>
       </div>
@@ -1283,7 +1335,17 @@ function settingsView(settings, opts = {}) {
       </div>
 
       <div class="actionbar actionbar-end"><button class="btn-gold" type="submit">Save settings</button></div>
-    </form>`;
+    </form>
+    <script>(function(){
+      // Unsaved-changes warning: leaving the page with edited, unsaved settings
+      // asks first. Cleared on submit so saving never triggers it.
+      var f=document.querySelector('form[action="/settings"]'); if(!f)return;
+      var dirty=false;
+      f.addEventListener('input',function(){dirty=true;});
+      f.addEventListener('change',function(){dirty=true;});
+      f.addEventListener('submit',function(){dirty=false;});
+      window.addEventListener('beforeunload',function(e){ if(dirty){e.preventDefault();e.returnValue='';} });
+    })();</script>`;
 }
 
 // Admin-only: list of Stripe deposits taken through the buyer portal.
@@ -1299,13 +1361,18 @@ function paymentsView(payments, opts = {}) {
     const tone = { paid: "chip-good", created: "chip-warn", expired: "muted", failed: "chip-bad" }[st] || "chip-warn";
     return `<span class="chip ${tone}">${esc(st || "-")}</span>`;
   };
+  // Stripe session ids are long enough to blow the table out; truncate with a
+  // copy button for the full id.
+  const sessCell = (p) => p.stripe_session
+    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 9px;font-size:11px" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
+    : "-";
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
     <td>${esc(p.client_name || ("#" + p.client_id))}</td>
     <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
-    <td style="font-size:var(--fs-label);color:var(--t3)">${esc(p.stripe_session || "-")}</td>
+    <td style="font-size:var(--fs-label);color:var(--t3);white-space:nowrap">${sessCell(p)}</td>
   </tr>`).join("") || `<tr><td colspan="6" class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</td></tr>`;
   const totalPaid = payments.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_cents || 0), 0);
   const paidCount = payments.filter((p) => p.status === "paid").length;
@@ -1331,8 +1398,15 @@ function paymentsView(payments, opts = {}) {
       <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
     ${depositsSection}
-    ${payments.length ? `<div class="psec" style="margin-top:24px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
+    <div class="mcl">${payments.map((p) => mobileCardRow({
+      name: p.client_name || "?",
+      title: esc(p.client_name || ("#" + p.client_id)),
+      meta: [esc(p.description || ""), esc(String(p.created_at || "").slice(0, 16))].filter(Boolean).join(" &middot; "),
+      right: `<span style="font-weight:700;color:var(--ink)">${money(p.amount_cents, p.currency)}</span>`,
+      rightSub: badge(p.status),
+    })).join("") || `<div class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</div>`}</div>
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
@@ -1359,8 +1433,8 @@ export function loginPage(opts = {}) {
       ${err}
       ${googleBlock}
       <label for="lg-email">Email</label>
-      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="160">
-      <label for="lg-pass" style="margin-top:16px">Password</label>
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
+      <label for="lg-pass" style="margin-top:14px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
@@ -1385,9 +1459,10 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="6">
-      <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
-      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="6">
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
+      <p id="sp-help" class="login-sub" style="margin:6px 0 0;font-size:12.5px">At least ${PW_MIN} characters.</p>
+      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
@@ -1708,7 +1783,11 @@ function dashboardView(session, data) {
         <div class="who"><div class="nm">${esc(t.title)}</div><div class="sub">${t.client_name ? esc(t.client_name) + " · " : ""}<span style="color:${dueColor(d.tone)};font-weight:600">${esc(d.label)}</span></div></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing due today. Nice.</div></div></div>`;
-  const tasksSection = `<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div><div class="list">${taskRows}</div>`;
+  // Each dashboard section is ONE grid item (heading above its own list). As
+  // two loose siblings, the .dcols two-column grid auto-placed every heading
+  // into column 1 and every list into column 2, which shattered the layout.
+  const dsec = (head, list) => `<div class="dsec">${head}${list}</div>`;
+  const tasksSection = dsec(`<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div>`, `<div class="list">${taskRows}</div>`);
 
   // Stalled requests, no movement in 14 days.
   const stalledRows = (data.stalledList || []).map((w) => {
@@ -1719,10 +1798,10 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">${esc((RSTATUS[w.status] || {}).label || w.status)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No stalled requests. Everything's moving.</div></div></div>`;
-  const stalledSection = `<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div><div class="list">${stalledRows}</div>`;
+  const stalledSection = dsec(`<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div>`, `<div class="list">${stalledRows}</div>`);
 
   // Reframe the closing-soon list as a question to match the rest of the board.
-  const closingQ = `<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div><div class="list">${closingRows}</div>`;
+  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div>`, `<div class="list">${closingRows}</div>`);
 
   // Who needs attention today, scheduled follow-ups due (or overdue).
   const naRows = (data.nextActionList || []).map((w) => {
@@ -1734,7 +1813,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${d.tone === "over" ? "b-warn" : "b-neu"}">${esc(d.label)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
-  const attentionSection = `<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${naRows}</div>`;
+  const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${naRows}</div>`);
 
   // Who owes money, deposits requested, not yet paid.
   const owesRows = (data.depositsList || []).map((w) => {
@@ -1745,7 +1824,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">Deposit requested</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
-  const owesSection = `<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div><div class="list">${owesRows}</div>`;
+  const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div>`, `<div class="list">${owesRows}</div>`);
 
   // Who's closest to buying, interested / deposit stages, most-committed first.
   const closeRows = (data.closestList || []).map((w) => {
@@ -1757,7 +1836,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${w.status === "deposit_paid" ? "b-ok" : "b-warn"}">${esc(lbl)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
-  const closestSection = `<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div><div class="list">${closeRows}</div>`;
+  const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${closeRows}</div>`);
 
   // Hierarchy (top → bottom): business snapshot → what needs action today →
   // pipeline → detail lists → trend charts. The roll-up used to sit BELOW the
@@ -1779,6 +1858,8 @@ function dashboardView(session, data) {
 }
 
 const DASH2_CSS = `<style>
+  /* One grid item per Q&A section: heading sits above its own list. */
+  .dsec{min-width:0}
   /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:var(--sp-5)}
@@ -1804,6 +1885,10 @@ const DASH2_CSS = `<style>
 function intakeView(clients, makers, opts = {}) {
   const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
     || `<option value="">(add a client first)</option>`;
+  // After a validation error the submitted values come back via opts.vals, so
+  // the fix is one field rather than the whole form again.
+  const vals = opts.vals || {};
+  const vv = (k) => esc(vals[k] || "");
   const errBanner = opts.err === "contact"
     ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
     : opts.err === "name"
@@ -1815,10 +1900,10 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" required></div>
-          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com"></div>
-          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX"></div>
-          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions("")}</select></div>
+          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" value="${vv("name")}" required></div>
+          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
+          <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -1837,7 +1922,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
           <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
           <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000"></label></div>
-          <div><label>Min grade<input name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></label></div>
+          <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
@@ -1860,7 +1945,7 @@ function clientsView(clients, wishlists, opts = {}) {
     const shared = shares[c.id] || [];
     const chips = shared.map((a) =>
       canManage(c)
-        ? `<form method="POST" action="/share/remove" style="display:inline" title="Remove ${esc(a.name)}"><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="agent_id" value="${a.id}"><button class="chip chip-on" type="submit">${esc(a.name)} ✕</button></form>`
+        ? `<form method="POST" action="/share/remove" style="display:inline" title="Remove ${esc(a.name)}" data-confirm="Stop sharing this client with ${esc(a.name)}? They lose access to the client's searches and matches."><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="agent_id" value="${a.id}"><button class="chip chip-on" type="submit">${esc(a.name)} ✕</button></form>`
         : `<span class="chip">${esc(a.name)}</span>`
     ).join(" ");
     if (!canManage(c)) return chips || `<span class="chip muted">shared with you</span>`;
@@ -1869,7 +1954,7 @@ function clientsView(clients, wishlists, opts = {}) {
       .filter((a) => Number(a.id) !== Number(c.agent_id) && !sharedIds.has(Number(a.id)))
       .map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     const picker = opts2
-      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="jdmConfirmSelect(this,'Share this client with the selected agent? They can see and action this client alongside you.',{ok:'Share client',title:'Share this client?'})"><option value="">+ share…</option>${opts2}</select></form>`
+      ? `<form method="POST" action="/share" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Share ${esc(c.name)} with an agent" onchange="if(this.value)jdmConfirmSelect(this,'Share this client with the selected agent? They can see and action the client, but not delete or reassign them.')"><option value="">+ share…</option>${opts2}</select></form>`
       : "";
     return `${chips} ${picker}`;
   };
@@ -1882,15 +1967,22 @@ function clientsView(clients, wishlists, opts = {}) {
       agents.map((a) => `<option value="${a.id}"${Number(c.agent_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("");
     // Reassigning is destructive (hands over the client + all their searches and
     // matches), so confirm and revert on cancel, never a silent stray-click write.
-    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="jdmConfirmSelect(this,'Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.',{ok:'Reassign',title:'Reassign this client?'})">${opts}</select></form>`;
+    return `<form method="POST" action="/client/assign" style="display:inline"><input type="hidden" name="client_id" value="${c.id}"><select name="agent_id" class="share-pick" aria-label="Owner for ${esc(c.name)}" onfocus="this.dataset.prev=this.value" onchange="jdmConfirmSelect(this,'Reassign this client to the selected owner? They get the client and all their searches, matches and alerts.')">${opts}</select></form>`;
   };
 
+  // Derived last-contacted (sent vehicles + notes + logged contact taps).
+  const lastContact = opts.lastContact || {};
+  const contactCell = (c) => {
+    const t = lastContact[c.id];
+    return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
+  };
   const rows = clients.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
       <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
@@ -1905,7 +1997,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 8 : 6}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -1922,15 +2014,30 @@ function clientsView(clients, wishlists, opts = {}) {
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
       function jdmBulkApply(btn){var f=btn.form;if(!jdmBulkTicked(f)){jdmToast('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(btn){var f=btn.form;if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return true;}var n=jdmBulkTicked(f);if(!n){jdmToast('Tick the clients you want to delete first.');return false;}
-        jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,ok:'Delete '+n+' client'+(n===1?'':'s'),title:'Delete selected clients?'}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
+        jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,okLabel:'Delete '+n+' client'+(n===1?'':'s')}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
         return false;}</script>`
     : "";
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:13px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div><div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:12px 0 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  // Mobile card list: name, contact, searches and owner without the 560px-wide
+  // table's horizontal scroll. Bulk allocation stays a desktop tool.
+  const ownerName = (c) => {
+    if (!c.agent_id) return "JDM Connect";
+    const a = agents.find((x) => Number(x.id) === Number(c.agent_id));
+    return a ? a.name : "JDM Connect";
+  };
+  const mobile = `<div class="mcl">${clients.map((c) => mobileCardRow({
+    href: `/admin?view=client&id=${c.id}`,
+    name: c.name,
+    title: esc(c.name),
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
+    right: c.archived ? `<span class="chip muted">archived</span>` : "",
+    rightSub: contactCell(c),
+  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -1992,6 +2099,21 @@ function engagementCell(sent, viewed) {
 // Requests list: the operational pipeline. Each row is a customer's search, with
 // a health dot, live status change, owner and last-activity. Pipeline cards along
 // the top show the count at each stage and filter the table on click.
+// One row of the mobile card list that replaces a table below 640px. Values
+// arriving here are already HTML (escaped by the caller).
+function mobileCardRow({ href, drawer, name, title, meta, right, rightSub, attrs = "" }) {
+  const tag = href ? "a" : "div";
+  const link = href ? ` href="${esc(href)}"${drawer ? ` data-drawer="${esc(drawer)}"` : ""}` : "";
+  return `<${tag} class="mcl-row"${link}${attrs}>
+    ${avatar(name || "?")}
+    <div class="mcl-b">
+      <div class="mcl-t">${title}</div>
+      ${meta ? `<div class="mcl-m">${meta}</div>` : ""}
+    </div>
+    <div class="mcl-r">${right || ""}${rightSub ? `<span class="mcl-rs">${rightSub}</span>` : ""}</div>
+  </${tag}>`;
+}
+
 function requestsView(requests, opts = {}) {
   const counts = {};
   REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
@@ -2033,14 +2155,30 @@ function requestsView(requests, opts = {}) {
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
   </div>`;
 
+  // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
+  // dot + relative time. Same data, no horizontal scroll.
+  const mobile = `<div class="mcl">${requests.map((r) => {
+    const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    return mobileCardRow({
+      href: `/admin?view=request&id=${r.id}`,
+      name: r.client_name,
+      title: `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>`,
+      meta: esc(veh),
+      right: statusBadge(r.status || "new"),
+      rightSub: `${healthDot(r.last_activity)}${esc(lastActivityLabel(r.last_activity))}`,
+      attrs: ` data-st="${esc(r.status || "new")}"`,
+    });
+  }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
+
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
     ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
-    <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    ${mobile}
+    <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
-    <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}if(!on)btn.classList.add('on');}</script>`;
+    <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
 }
 
 const REQ_CSS = `<style>
@@ -2075,6 +2213,19 @@ export async function logActivity(env, { wishlist_id = null, client_id = null, t
     await env.DB.prepare("INSERT INTO activity (wishlist_id, client_id, type, detail, actor) VALUES (?,?,?,?,?)")
       .bind(wishlist_id, client_id, type, detail, actor).run();
   } catch (e) { console.error("logActivity failed:", e.message); }
+}
+
+// Log a WhatsApp / Call / Email button tap as a lightweight contact event, so
+// "when did we last talk?" answers itself without anyone typing anything.
+// Access-checked; best-effort (a failed log never blocks the tap's navigation).
+export async function logContactTap(env, clientId, channel, session) {
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false };
+  if (!(await clientAccessibleBy(env, cid, session))) return { ok: false };
+  const label = channel === "whatsapp" ? "WhatsApp" : channel === "call" ? "Call" : channel === "email" ? "Email" : "Contact";
+  const actor = await actorName(env, session);
+  await logActivity(env, { client_id: cid, type: "contact", detail: `${label} opened from the app`, actor });
+  return { ok: true };
 }
 
 // Deposit state on a request (Priority 6): none -> requested -> paid.
@@ -2176,6 +2327,7 @@ const firstNameOf = (name) => String(name || "").trim().split(/\s+/)[0] || "ther
 const ACT_TONE = {
   created: "neu", status: "gold", owner: "neu", match_sent: "blue",
   viewed: "blue", note: "neu", deposit: "warn", task: "gold", interested: "good",
+  contact: "gold", login: "blue",
 };
 function activityTimeline(acts) {
   if (!acts.length) return `<div class="rd-empty">No activity yet.</div>`;
@@ -2231,7 +2383,7 @@ function taskRow(t, opts = {}) {
     </div>
     <div class="tk-r">
       ${done ? `<span class="tk-due tk-none">Done ${esc(relTime(t.done_at))}</span>` : `<span class="tk-due tk-${due.tone}">${esc(due.label)}</span>`}
-      <form method="POST" action="/task/delete" class="tk-del" data-confirm="Delete this task? It disappears from the board for everyone; this cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete task"><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
+      <form method="POST" action="/task/delete" class="tk-del" data-confirm="Delete this task? This cannot be undone." data-danger><input type="hidden" name="id" value="${t.id}"><input type="hidden" name="back" value="${esc(back)}"><button type="submit" aria-label="Delete task">&times;</button></form>
     </div>
   </div>`;
 }
@@ -2396,6 +2548,15 @@ export async function recordMatchSent(env, queueId, session) {
     if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
     const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
+    // Autopilot: the first lot sent moves an early-stage request to "Vehicles
+    // sent" (which also seeds the 3-day follow-up task). A manually chosen
+    // later stage always wins because only early stages advance.
+    if (q.wishlist_id) {
+      const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
+      if (w && ["new", "qualified", "searching"].includes(w.status || "new")) {
+        await updateRequestStatus(env, q.wishlist_id, "vehicles_sent", session);
+      }
+    }
   } catch (e) { console.error("recordMatchSent failed:", e.message); }
 }
 
@@ -2489,9 +2650,9 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     ["Portal", w.portal_enabled ? "Enabled" : "Not enabled"],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="rd-row"><span class="rd-k">${k}</span><span class="rd-v">${v}</span></div>`).join("");
   const contactBtns = [
-    waNum ? `<a class="rd-cta" href="https://wa.me/${waNum}" target="_blank" rel="noopener">WhatsApp</a>` : "",
-    w.client_whatsapp ? `<a class="rd-cta" href="tel:${esc(w.client_whatsapp)}">Call</a>` : "",
-    w.client_email ? `<a class="rd-cta" href="mailto:${esc(w.client_email)}">Email</a>` : "",
+    waNum ? `<a class="rd-cta" data-clog="${w.client_id}:whatsapp" href="https://wa.me/${waNum}" target="_blank" rel="noopener">WhatsApp</a>` : "",
+    w.client_whatsapp ? `<a class="rd-cta" data-clog="${w.client_id}:call" href="tel:${esc(w.client_whatsapp)}">Call</a>` : "",
+    w.client_email ? `<a class="rd-cta" data-clog="${w.client_id}:email" href="mailto:${esc(w.client_email)}">Email</a>` : "",
   ].filter(Boolean).join("");
   const customerCol = `<div class="rdcol">
     <div class="rdcard">
@@ -2553,7 +2714,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       ${statusSelect(wid, w.status, back)}
       <div class="rd-quick">
         ${w.status !== "purchased" ? `<form method="POST" action="/request/status"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="purchased"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta" type="submit">Mark purchased</button></form>` : ""}
-        ${w.status !== "lost" ? `<form method="POST" action="/request/status" data-confirm="Mark this request as lost? It leaves the active pipeline and stops appearing in follow-ups. You can reopen it later by changing the status." data-confirm-danger="1" data-confirm-ok="Mark lost" data-confirm-title="Mark as lost?"><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
+        ${w.status !== "lost" ? `<form method="POST" action="/request/status" data-confirm="Mark this request as lost? It leaves the active pipeline. You can reopen it any time from the status select." data-danger><input type="hidden" name="id" value="${wid}"><input type="hidden" name="status" value="lost"><input type="hidden" name="back" value="${esc(back)}"><button class="rd-cta rd-cta-bad" type="submit">Mark lost</button></form>` : ""}
       </div>
       ${statusPipeline(w.status)}
     </div>
@@ -2564,8 +2725,8 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         : `<div class="rd-empty">No follow-up scheduled.</div>`}
       <form method="POST" action="/request/next-action" class="rd-na">
         <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
-        <input type="date" name="next_action_date" value="${esc(w.next_action_date || "")}" aria-label="Next action date">
-        <input name="next_action_note" value="${esc(w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
+        <input type="date" name="next_action_date" value="${esc(opts.naDate || w.next_action_date || "")}" aria-label="Next action date">
+        <input name="next_action_note" value="${esc(opts.naNote || w.next_action_note || "")}" placeholder="What's the next step?" maxlength="160">
         <div class="rd-naact"><button class="rd-cta rd-cta-gold" type="submit">Set follow-up</button>${w.next_action_date ? `<button class="rd-cta rd-cta-bad" type="submit" name="clear" value="1">Clear</button>` : ""}</div>
       </form>
     </div>
@@ -2573,7 +2734,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       <div class="rd-h">Add a note</div>
       <form method="POST" action="/request/note">
         <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
-        <textarea name="note" rows="2" class="rd-note" placeholder="Call notes, next step, anything worth logging…" maxlength="500"></textarea>
+        <textarea name="note" rows="2" class="rd-note" placeholder="Call notes, next step, anything worth logging…" maxlength="500">${esc(opts.note || "")}</textarea>
         <div class="rd-noteact"><button class="rd-cta rd-cta-gold" type="submit">Log note</button></div>
       </form>
     </div>
@@ -2745,7 +2906,7 @@ function tasksView(rows, opts = {}) {
     <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
     <div class="tks-help-b">
       <p>Your shared to-do list for moving deals forward. A task is a single next
-      step tied to a customer or request, "call Lee about the Laurel", "chase
+      step tied to a customer or request, like "call Lee about the Laurel", "chase
       the deposit", "translate the auction sheet".</p>
       <ul>
         <li><b>Where tasks come from:</b> some are created automatically when you
@@ -2753,7 +2914,7 @@ function tasksView(rows, opts = {}) {
         adds a follow-up); you can also add your own from any request's page.</li>
         <li><b>Buckets:</b> tasks sort into <b>Overdue</b>, <b>Due today</b>,
         <b>This week</b>, <b>Later</b> and <b>No due date</b> by their due date.</li>
-        <li><b>Completing:</b> tick the box on the left to mark a task done, it
+        <li><b>Completing:</b> tick the box on the left to mark a task done. It
         moves to "Recently completed" for 7 days in case you need to undo.</li>
         <li><b>Who sees what:</b> you see tasks assigned to you and tasks on the
         customers you own or are shared on. Admins see everything.</li>
@@ -2828,7 +2989,7 @@ function wishlistsView(wishlists) {
       <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "-"}</td>
       <td>${esc(w.rate_min || "-")}</td>
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
-      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its matches and history are removed and it stops matching new lots. This cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete wishlist"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its queued matches and history go with it. This cannot be undone." data-danger><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
   }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -2880,7 +3041,7 @@ function scoresChips(lot) {
   return `<div class="sc-scores">${s.ext ? `<span class="sc-score">Ext <b>${esc(s.ext)}</b></span>` : ""}${s.int ? `<span class="sc-score">Int <b>${esc(s.int)}</b></span>` : ""}${s.ai ? `<span class="sc-score ai">AI read</span>` : ""}</div>`;
 }
 
-function matchCard(q) {
+function matchCard(q, cardOpts = {}) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
@@ -2889,14 +3050,24 @@ function matchCard(q) {
   const strKey = strengthLabel === "Strong" ? "strong" : strengthLabel === "Good" ? "good" : "poss";
   const strBadge = strengthLabel === "Strong" ? "b-str" : strengthLabel === "Good" ? "b-good" : "b-pos";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price);
-  const approve = `/decide?token=${esc(q.token)}&action=approve`;
-  const skip = `/decide?token=${esc(q.token)}&action=reject`;
+  // cardOpts.ret: the /admin path to come back to (current filters included),
+  // threaded through the lot links and the decide fallback so filter state
+  // survives the round trip.
+  const ret = (cardOpts.ret && String(cardOpts.ret).startsWith("/admin")) ? String(cardOpts.ret) : "";
+  const lotHref = `/admin?view=lot&id=${q.id}${ret ? `&ret=${encodeURIComponent(ret)}` : ""}`;
+  // Fallback hrefs go to the GET confirmation page (/decide is POST-only, so a
+  // bare GET there is a dead 405). The AJAX click handlers read token/action
+  // from the query string and POST to /decide directly.
+  const retQ = ret ? `&return=${encodeURIComponent(ret)}` : "";
+  const approve = `/decide/confirm?token=${esc(q.token)}&action=approve${retQ}`;
+  const skip = `/decide/confirm?token=${esc(q.token)}&action=reject${retQ}`;
   const days = daysUntil(lot.auction_date);
   const auc = esc(lot.auction || "");
   const aucDate = esc((lot.auction_date || "").slice(0, 10));
-  const when = (days === 0) ? `<span class="sc-when urgent">Auction today</span>`
-    : (days === 1) ? `<span class="sc-when urgent">Auction in 1 day</span>`
-    : (days === 2) ? `<span class="sc-when soon">Auction in 2 days</span>`
+  // Urgency chips: red inside 24h, amber inside 48h.
+  const when = (days <= 0) ? `<span class="sc-when urgent">Closing today</span>`
+    : (days === 1) ? `<span class="sc-when soon">Closing in 1 day</span>`
+    : (days === 2) ? `<span class="sc-when soon">Closing in 2 days</span>`
     : (days > 2) ? `<span class="sc-when">Auction in ${days} days</span>`
     : aucDate ? `<span class="sc-when">${aucDate}</span>` : "";
   const landedNum = q._landed ? Number(q._landed.grandTotal) : 0;
@@ -2910,9 +3081,9 @@ function matchCard(q) {
   ].filter(Boolean).join(" · ");
   const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
   const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
-  return `<div class="mcard scard" data-qid="${q.id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
+  return `<div class="mcard scard" data-qid="${q.id}" data-cid="${q.client_id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
-    <a class="sc-img" href="/admin?view=lot&id=${q.id}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+    <a class="sc-img" href="${lotHref}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="sc-grad"></div>
       <div class="sc-tags">
         <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
@@ -2923,7 +3094,7 @@ function matchCard(q) {
       <div class="sc-main">
         <div class="sc-head">
           <div class="sc-id">
-            <h3 class="sc-title"><a href="/admin?view=lot&id=${q.id}">${title}</a></h3>
+            <h3 class="sc-title"><a href="${lotHref}">${title}</a></h3>
             ${sub ? `<p class="sc-sub">${sub}</p>` : ""}
           </div>
           ${q._landed ? `<div class="sc-landed"><div class="sc-landed-k">Est. landed ${esc(q._landed.state)}</div><div class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : ""}
@@ -2935,7 +3106,7 @@ function matchCard(q) {
           ${cell("Bid", bid)}
         </div>
         ${scoresChips(lot)}
-        <a class="sc-more" href="/admin?view=lot&id=${q.id}">View details &amp; auction report &rarr;</a>
+        <a class="sc-more" href="${lotHref}">View details &amp; auction report &rarr;</a>
         ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
         <div class="sc-client">
           ${avatar(q.client_name)}
@@ -2951,72 +3122,179 @@ function matchCard(q) {
   </div>`;
 }
 
+// ---- Matches triage helpers (server-side filter, group, page) ---------------
+// The Matches queue regularly holds 200+ cards, so the server does the heavy
+// lifting: strength/closing filters, group-by-client and paging all live in the
+// URL query (surviving a round trip to lot detail), and only a page of cards is
+// rendered per response.
+const MATCH_PAGE = 30;
+
+// Canonical filter state from the ?f/&soon/&group/&shown params.
+function matchQueryState(sp = {}) {
+  const f = ["all", "strong", "good", "poss", "sg"].includes(sp.f) ? sp.f : "sg";
+  return {
+    f, // sg = Strong + Good (the triage default)
+    soon: sp.soon === "1",
+    group: sp.group === "none" ? "none" : "client",
+    shown: Math.min(400, Math.max(1, parseInt(sp.shown, 10) || MATCH_PAGE)),
+  };
+}
+
+// Decorate pending queue rows once with the parsed lot, a strength key, days to
+// auction and age, so filter/group/sort never re-parse lot_json.
+function decorateMatches(pending) {
+  for (const q of pending) {
+    if (q._lot) continue;
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    q._lot = lot;
+    if (!q._landed && lot._landed) q._landed = lot._landed;
+    const s = lot._strength || "Possible";
+    q._str = s === "Strong" ? "strong" : s === "Good" ? "good" : "poss";
+    q._days = daysUntil(lot.auction_date);
+    const t = tsMs(q.created_at);
+    q._ageDays = Number.isFinite(t) ? Math.floor((Date.now() - t) / 86400000) : 0;
+  }
+  return pending;
+}
+
+function filterMatches(pending, st) {
+  return pending.filter((q) => {
+    if (st.f === "sg" && q._str === "poss") return false;
+    if ((st.f === "strong" || st.f === "good" || st.f === "poss") && q._str !== st.f) return false;
+    if (st.soon && q._days > 2) return false;
+    return true;
+  });
+}
+
+// Order the filtered rows soonest-closing first. In group mode rows are grouped
+// per client (groups ordered by their soonest-closing lot); `flat` is the final
+// render order either way, so paging is a simple slice of it.
+function orderMatches(filtered, st) {
+  const byDays = (a, b) => (a._days - b._days) || (b.id - a.id);
+  if (st.group === "none") return { groups: null, flat: [...filtered].sort(byDays) };
+  const by = new Map();
+  for (const q of filtered) {
+    if (!by.has(q.client_id)) by.set(q.client_id, []);
+    by.get(q.client_id).push(q);
+  }
+  const groups = [...by.values()];
+  for (const rows of groups) rows.sort(byDays);
+  groups.sort((A, B) => byDays(A[0], B[0]));
+  return { groups, flat: groups.flat() };
+}
+
+// The next page of cards for the current filters (the "Load 30 more" fetch).
+// Session-scoped exactly like the full view.
+export async function matchesChunk(env, session, sp = {}) {
+  const st = matchQueryState(sp);
+  const offset = Math.max(0, parseInt(sp.offset, 10) || 0);
+  const pending = decorateMatches(await queryPendingMatches(env, session));
+  const { flat } = orderMatches(filterMatches(pending, st), st);
+  const p = new URLSearchParams({ view: "matches" });
+  if (st.f !== "sg") p.set("f", st.f);
+  if (st.soon) p.set("soon", "1");
+  if (st.group === "none") p.set("group", "none");
+  p.set("shown", String(offset + MATCH_PAGE));
+  const ret = "/admin?" + p.toString();
+  return flat.slice(offset, offset + MATCH_PAGE).map((q) => matchCard(q, { ret })).join("");
+}
+
 function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
       No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
+  decorateMatches(pending);
+  const st = matchQueryState(opts.query || {});
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
+
+  // Whole-queue counts (pre-filter) for the ticker.
   let strong = 0, good = 0, poss = 0, soon = 0;
   for (const q of pending) {
-    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
-    const s = lot._strength || "Possible";
-    if (s === "Strong") strong++; else if (s === "Good") good++; else poss++;
-    if (daysUntil(lot.auction_date) <= 2) soon++;
+    if (q._str === "strong") strong++; else if (q._str === "good") good++; else poss++;
+    if (q._days <= 2) soon++;
   }
-  // Distinct clients + makers in the current queue, for the filter dropdowns.
-  const clients = [...new Set(pending.map((q) => q.client_name).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const makes = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).marka_name; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const auctions = [...new Set(pending.map((q) => { try { return JSON.parse(q.lot_json).auction; } catch (e) { return ""; } }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
-  const tk = (k, n, ncls, dot, urgent) => `<div class="mtk${urgent ? " urgent" : ""}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></div>`;
+  // The Strong + Good default would render an empty page when the queue holds
+  // no Strong or Good at all; fall back to everything in that case.
+  if (st.f === "sg" && strong + good === 0) st.f = "all";
+
+  // URL builder: every filter control is a link, so the chosen filter lives in
+  // the URL and survives navigating into a lot and back.
+  const params = (over = {}) => {
+    const f = over.f !== undefined ? over.f : st.f;
+    const soonV = over.soon !== undefined ? over.soon : st.soon;
+    const groupV = over.group !== undefined ? over.group : st.group;
+    const p = new URLSearchParams({ view: "matches" });
+    if (f !== "sg") p.set("f", f);
+    if (soonV) p.set("soon", "1");
+    if (groupV === "none") p.set("group", "none");
+    return p.toString();
+  };
+  const linkTo = (over) => "/admin?" + params(over);
+  const retPath = "/admin?" + params({}) + (st.shown !== MATCH_PAGE ? "&shown=" + st.shown : "");
+
+  const filtered = filterMatches(pending, st);
+  const { groups, flat } = orderMatches(filtered, st);
+  const shownRows = flat.slice(0, st.shown);
+  const shownSet = new Set(shownRows.map((q) => q.id));
+  const remaining = flat.length - shownRows.length;
+
+  // Stat tiles double as filters: tap Strong / Good / Possible / Closing 48h
+  // to filter, tap Awaiting review for everything.
+  const tk = (k, n, ncls, dot, urgent, href, on) =>
+    `<a class="mtk${urgent ? " urgent" : ""}${on ? " on" : ""}" href="${href}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></a>`;
   const ticker = `<div class="mticker">
-    ${tk("Awaiting review", pending.length, "", "var(--t3)")}
-    ${tk("Strong", strong, "str", "var(--good)")}
-    ${tk("Good", good, "gold", "var(--warn-c)")}
-    ${tk("Possible", poss, "", "var(--t3)")}
-    ${tk("Closing in 48h", soon, "bad", "var(--bad)", true)}
+    ${tk("Awaiting review", pending.length, "", "var(--t3)", false, linkTo({ f: "all", soon: false }), st.f === "all" && !st.soon)}
+    ${tk("Strong", strong, "str", "var(--good)", false, linkTo({ f: "strong" }), st.f === "strong")}
+    ${tk("Good", good, "gold", "var(--warn-c)", false, linkTo({ f: "good" }), st.f === "good")}
+    ${tk("Possible", poss, "", "var(--t3)", false, linkTo({ f: "poss" }), st.f === "poss")}
+    ${tk("Closing in 48h", soon, "bad", "var(--bad)", true, linkTo({ soon: !st.soon }), st.soon)}
   </div>`;
+
   const pause = sendOff
     ? `<div class="pausebar"><span><strong>Client emails are paused</strong> in Settings, so “Approve &amp; send” will mark a match handled without emailing the client.</span></div>`
     : "";
+
+  // Default-filter banner: the queue opens on Strong + Good, closing soonest.
+  const banner = (st.f === "sg" && poss > 0)
+    ? `<div class="mbanner" id="mBanner"><span>Showing ${filtered.length} Strong and Good match${filtered.length === 1 ? "" : "es"}, closing soonest first. ${poss} Possible hidden.</span><a href="${linkTo({ f: "all" })}">Show all</a><button type="button" class="bx" id="mBanX" aria-label="Dismiss">&times;</button></div>`
+    : "";
+
+  const chip = (label, over, on, extraCls = "", dot = "") =>
+    `<a class="fchip${on ? " on" : ""}${extraCls}" href="${linkTo(over)}"${on ? ' aria-current="true"' : ""}>${dot}${label}</a>`;
+  const chips = `<div class="fchips">
+    ${chip("Strong + Good", { f: "sg" }, st.f === "sg")}
+    ${chip("All", { f: "all" }, st.f === "all")}
+    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:#46B17A"></span>`)}
+    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:#CAA34C"></span>`)}
+    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:#B6B9BC"></span>`)}
+    ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
+    <span class="bsp" style="flex:1"></span>
+    ${chip("Grouped by client", { group: "client" }, st.group === "client")}
+    ${chip("Flat list", { group: "none" }, st.group === "none")}
+  </div>`;
+
+  // Triage row: every bulk tool in one place. The skip buttons act on ALL
+  // matching queue rows (loaded or not); their id lists are computed here.
+  const stale = pending.filter((q) => q._str === "poss" && q._ageDays >= 7);
+  const allPoss = pending.filter((q) => q._str === "poss");
+  const triage = `<div class="mtriage"><span class="quick">
+      <button type="button" id="qAll">Select all shown</button>
+      <button type="button" id="qStrong">Select all Strong</button>
+      <button type="button" id="qSoon">Select all closing soon</button>
+      ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triStale" data-ids="${stale.map((q) => q.id).join(",")}" data-base="Skip Possible older than 7 days" data-noun="Possible match${stale.length === 1 ? "" : "es"} older than 7 days"${stale.length ? "" : " disabled"}>Skip Possible older than 7 days (${stale.length})</button>` : ""}
+      ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triPoss" data-ids="${allPoss.map((q) => q.id).join(",")}" data-base="Skip all Possible" data-noun="Possible match${allPoss.length === 1 ? "" : "es"}"${allPoss.length ? "" : " disabled"}>Skip all Possible (${allPoss.length})</button>` : ""}
+      ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (about 1 to 5 cents each)">Fix photos with AI</button></form>` : ""}
+    </span></div>`;
+
   const controls = `<div class="mtools">
     <div class="crow">
       <label class="msearch"><input id="mq" type="search" placeholder="Search car, chassis, lot or client…" autocomplete="off"></label>
-      <select id="msort" class="mctl" aria-label="Sort matches">
-        <option value="priority">Sort: Priority</option>
-        <option value="soonest">Sort: Auction soonest</option>
-        <option value="strength">Sort: Strength</option>
-        <option value="landed">Sort: Lowest landed</option>
-        <option value="color">Sort: Colour</option>
-        <option value="new">Sort: Newest</option>
-      </select>
-      <select id="mgroup" class="mctl" aria-label="Group matches">
-        <option value="none">Group: None</option>
-        <option value="client">Group: Client</option>
-        <option value="make">Group: Make</option>
-        <option value="auction">Group: Auction</option>
-        <option value="color">Group: Colour</option>
-      </select>
     </div>
-    ${(clients.length > 1 || makes.length > 1 || auctions.length > 1) ? `<div class="crow crow-filters">
-      ${clients.length > 1 ? `<select id="mclient" class="mctl" aria-label="Filter by client"><option value="">Client: all</option>${clients.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
-      ${makes.length > 1 ? `<select id="mmake" class="mctl" aria-label="Filter by make"><option value="">Make: all</option>${makes.map((n) => `<option value="${esc(n)}">${esc(displayName(n))}</option>`).join("")}</select>` : ""}
-      ${auctions.length > 1 ? `<select id="mauction" class="mctl" aria-label="Filter by auction house"><option value="">Auction: all</option>${auctions.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
-    </div>` : ""}
-    <div class="fchips">
-      <button type="button" class="fchip on" data-str="all">All</button>
-      <button type="button" class="fchip" data-str="strong"><span class="sd" style="background:var(--good)"></span>Strong</button>
-      <button type="button" class="fchip" data-str="good"><span class="sd" style="background:var(--warn-c)"></span>Good</button>
-      <button type="button" class="fchip" data-str="poss"><span class="sd" style="background:var(--t3)"></span>Possible</button>
-      <button type="button" class="fchip urgent" id="mSoon">Closing in 48h</button>
-      <span class="quick">
-        <button type="button" id="qAll">Select all shown</button>
-        <button type="button" id="qStrong">Select all Strong</button>
-        <button type="button" id="qSoon">Select all closing soon</button>
-        ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (about 1 to 5 cents each)">Fix photos with AI</button></form>` : ""}
-      </span>
-    </div>
+    ${chips}
+    ${triage}
   </div>`;
+
   // "Delete" hard-removes the selected matches from the queue (client asked for
   // a bulk delete "to start fresh"), distinct from "Skip", which keeps the row
   // as rejected. Guarded by a confirm in the controller.
@@ -3029,14 +3307,81 @@ function matchesView(pending, opts = {}) {
       <button type="submit" form="bulkForm" class="bdel" id="bDelete">Delete</button>
       <button type="button" class="bcl" id="bClear">Clear</button>
     </div>`;
-  const grid = `<div class="scards" id="mGrid">${pending.map((q) => matchCard(q)).join("")}<div class="mempty" id="mEmpty" style="display:none">No matches fit these filters.</div></div>`;
-  return ticker + pause + controls + bulk + grid + matchesScript() + ranToast() + fixToast();
+
+  // Grid. Group headers always render (with accurate whole-group counts and a
+  // summary strip) even when their cards are beyond the current page.
+  let gridInner;
+  if (groups) {
+    gridInner = groups.map((rows) => {
+      const q0 = rows[0];
+      const cid = q0.client_id;
+      const name = q0.client_name || "Client";
+      const first = firstNameOf(name);
+      const gs = rows.filter((q) => q._str === "strong").length;
+      const gg = rows.filter((q) => q._str === "good").length;
+      const gp = rows.filter((q) => q._str === "poss").length;
+      const labels = [...new Set(rows.map((r) => r.wlabel).filter(Boolean))].slice(0, 2).join(" · ");
+      const minDays = rows[0]._days;
+      const closes = minDays <= 0 ? "closes today" : minDays === 1 ? "closes tomorrow" : `closes in ${minDays} days`;
+      const strengthBits = [gs ? `${gs} Strong` : "", gg ? `${gg} Good` : "", gp ? `${gp} Possible` : ""].filter(Boolean).join(", ");
+      const ids = rows.map((r) => r.id).join(",");
+      const loaded = rows.filter((r) => shownSet.has(r.id));
+      return `<section class="mgroup" data-cid="${cid}">
+        <div class="ghead2">
+          <button type="button" class="gh-fold" aria-expanded="true" aria-label="Collapse ${esc(name)}'s matches"></button>
+          ${avatar(name)}
+          <div class="gh-id">
+            <div class="gh-name"><a class="clink" href="/admin?view=client&id=${cid}" data-drawer="/admin/drawer?id=${cid}">${esc(name)}</a> <span class="gh-count" data-n="${rows.length}">${rows.length} match${rows.length === 1 ? "" : "es"}</span></div>
+            <div class="gh-sub">${[esc(labels), strengthBits, closes].filter(Boolean).join(" · ")}</div>
+          </div>
+          <button type="button" class="bap gh-send" data-ids="${ids}" data-name="${esc(first)}">Send all ${rows.length} to ${esc(first)}</button>
+        </div>
+        <div class="scards gh-cards" data-cards="${cid}">${loaded.map((q) => matchCard(q, { ret: retPath })).join("")}</div>
+      </section>`;
+    }).join("");
+    gridInner += `<div class="mempty" id="mEmpty" style="display:${groups.length ? "none" : ""}">No matches fit these filters.</div>`;
+  } else {
+    gridInner = `<div class="scards" data-cards="flat">${shownRows.map((q) => matchCard(q, { ret: retPath })).join("")}</div>
+      <div class="mempty" id="mEmpty" style="display:${flat.length ? "none" : ""}">No matches fit these filters.</div>`;
+  }
+  const grid = `<div id="mGrid" data-group="${st.group}">${gridInner}</div>`;
+
+  const more = remaining > 0
+    ? `<div class="mmore"><a class="btn-dark" id="mMore" href="${linkTo({})}&shown=${st.shown + MATCH_PAGE}" data-offset="${st.shown}" data-total="${flat.length}" data-qs="${esc(params({}))}">Load ${Math.min(MATCH_PAGE, remaining)} more (${remaining} left)</a></div>`
+    : "";
+
+  const css = `<style>
+    a.mtk{text-decoration:none;color:inherit;cursor:pointer}
+    .mtk.on{outline:2px solid var(--gold);outline-offset:-2px}
+    .mbanner{display:flex;align-items:center;gap:12px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--ink);border-radius:11px;padding:11px 14px;margin:0 0 14px;font-size:13.5px;flex-wrap:wrap}
+    .mbanner a{color:var(--gold-txt);font-weight:700;text-decoration:none;white-space:nowrap}
+    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:18px;line-height:1;color:var(--t3);cursor:pointer;padding:4px 6px}
+    a.fchip{text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+    .mtriage{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+    .mgroup{margin:0 0 26px}
+    .ghead2{display:flex;align-items:center;gap:12px;padding:10px 2px;flex-wrap:wrap}
+    .gh-fold{width:34px;height:34px;border:1px solid var(--hair);border-radius:8px;background:var(--card);cursor:pointer;color:var(--t2);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+    .gh-fold:after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;transition:transform .15s}
+    .mgroup.folded .gh-fold:after{transform:rotate(-90deg)}
+    .mgroup.folded .gh-cards{display:none}
+    .gh-id{flex:1;min-width:180px}
+    .gh-name{font-size:15px;font-weight:700}
+    .gh-name a{color:inherit;text-decoration:none}
+    .gh-name a:hover{color:var(--gold-txt)}
+    .gh-count{font-size:12px;font-weight:600;color:var(--t3);margin-left:8px}
+    .gh-sub{font-size:12.5px;color:var(--t3);margin-top:2px}
+    .gh-send{white-space:nowrap}
+    .scards.gh-cards{margin-top:8px}
+    .mmore{display:flex;justify-content:center;margin:20px 0 6px}
+  </style>`;
+
+  return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
 }
 
 // One-off toast after the "Fix photos with AI" button kicks off a background
-// run. Uses the shared jdmToast from uiKitScript, injected at the top of body.
+// run. Uses the shared jdmToast from the shell's uxGuardScript.
 function fixToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;jdmToast("Reading auction photos in the background. Refresh in a minute to see the covers update.");history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){function go(){try{var p=new URLSearchParams(location.search);if(!p.has("fixing"))return;if(window.jdmToast)window.jdmToast("Reading auction photos in the background. Refresh in a minute to see the covers update.",false,5200);p.delete("fixing");var qs=p.toString();history.replaceState(null,"",location.pathname+(qs?"?"+qs:""));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>`;
 }
 
 // Client-side controller for the Matches view: search, strength + closing-soon
@@ -3046,124 +3391,200 @@ function fixToast() {
 // Shows a one-off "Found N new matches" / "No new matches" toast after a search,
 // reading the ?ran=N the /run redirect adds, then cleans it from the URL.
 function ranToast() {
-  return `<script>(function(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;jdmToast(n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time");history.replaceState(null,"",location.pathname+"?view=matches");}catch(e){}})();</script>`;
+  return `<script>(function(){function go(){try{var p=new URLSearchParams(location.search);if(!p.has("ran"))return;var n=parseInt(p.get("ran"),10)||0;var msg=n>0?("Found "+n+" new match"+(n===1?"":"es")):"No new matches this time";if(window.jdmToast)window.jdmToast(msg);p.delete("ran");var qs=p.toString();history.replaceState(null,"",location.pathname+(qs?"?"+qs:""));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>`;
 }
 
+// Client-side controller for the reorganised Matches view. The server owns
+// filtering, grouping and paging (all in the URL); this script handles the
+// loaded cards only: search-as-you-type, selection + bulk actions, per-group
+// send-all, the stale-Possible triage buttons, collapsible groups and the
+// Load-more chunk fetch. No template literals or ${} inside this string.
 function matchesScript() {
   return `<script>(function(){
   var grid=document.getElementById('mGrid'); if(!grid) return;
-  var cards=[].slice.call(grid.getElementsByClassName('mcard'));
-  var st={q:'',str:'all',soon:false,sort:'priority',group:'none',client:'',make:'',auction:''};
-  function gv(c,k){return c.getAttribute('data-'+k)||''}
-  function gn(c,k){var n=parseFloat(c.getAttribute('data-'+k));return isNaN(n)?0:n}
-  function rank(c){var s=gv(c,'str');return s==='strong'?3:s==='good'?2:1}
-  function grpKey(c){return st.group==='make'?gv(c,'make'):st.group==='auction'?gv(c,'auction'):st.group==='color'?(gv(c,'color')||'No colour'):gv(c,'client')}
-  function cmp(a,b){
-    if(st.sort==='priority')return (rank(b)*1000-gn(b,'days'))-(rank(a)*1000-gn(a,'days'));
-    if(st.sort==='soonest')return gn(a,'days')-gn(b,'days');
-    if(st.sort==='strength')return rank(b)-rank(a);
-    if(st.sort==='landed')return (gn(a,'landed')||1e12)-(gn(b,'landed')||1e12);
-    if(st.sort==='color')return gv(a,'color').localeCompare(gv(b,'color'))||(gn(b,'qid')-gn(a,'qid'));
-    return gn(b,'qid')-gn(a,'qid');
-  }
+  var grouped=grid.getAttribute('data-group')!=='none';
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+  function conf(m,go){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go();});}else if(confirm(m))go();}
+  function cards(){return [].slice.call(grid.querySelectorAll('.mcard'));}
+  function visCards(){return cards().filter(function(c){return c.style.display!=='none';});}
   function syncBulk(){
     var n=0;
-    cards.forEach(function(c){var cb=c.querySelector('.msel'); if(cb&&cb.checked){n++; c.classList.add('picked');} else c.classList.remove('picked');});
+    cards().forEach(function(c){var cb=c.querySelector('.msel'); if(cb&&cb.checked){n++; c.classList.add('picked');} else c.classList.remove('picked');});
     var sc=document.getElementById('selCount'); if(sc)sc.textContent=n;
     var bar=document.getElementById('bulkBar'); if(bar)bar.className=n?'bulkbar2 show':'bulkbar2';
   }
-  function headEl(name){
-    var d=document.createElement('div'); d.className='ghead';
-    var s=document.createElement('span'); s.className='gh-n'; s.textContent=name; d.appendChild(s);
-    var b=document.createElement('button'); b.type='button'; b.className='gh-sel'; b.textContent='Select all';
-    b.addEventListener('click',function(){cards.forEach(function(c){ if(c.__show&&grpKey(c)===name){var cb=c.querySelector('.msel'); if(cb)cb.checked=true;} }); syncBulk();});
-    d.appendChild(b); return d;
+  document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
+
+  // Search over the loaded cards (strength / closing / grouping are server
+  // filters in the URL, so they survive a round trip to lot detail).
+  var mq=document.getElementById('mq');
+  function applySearch(){
+    var q=(mq&&mq.value?mq.value:'').toLowerCase(), shown=0;
+    cards().forEach(function(c){var ok=!q||(c.getAttribute('data-search')||'').indexOf(q)>=0;c.style.display=ok?'':'none';if(ok)shown++;});
+    [].slice.call(grid.querySelectorAll('.mgroup')).forEach(function(g){
+      var any=[].slice.call(g.querySelectorAll('.mcard')).some(function(c){return c.style.display!=='none';});
+      g.style.display=(any||!q)?'':'none';
+    });
+    var e=document.getElementById('mEmpty'); if(e)e.style.display=shown?'none':'';
   }
-  function apply(){
-    try{
-      // FLIP: record positions of currently-visible cards before we reorder,
-      // then animate each from its old spot to the new one. Reduced-motion skips it.
-      var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-      var first=null;
-      if(!reduce){ first=[]; cards.forEach(function(c){ if(c.style.display!=='none')first.push([c,c.getBoundingClientRect()]); }); }
-      var ql=st.q.toLowerCase(), shown=0;
-      cards.forEach(function(c){
-        var ok=true;
-        if(st.str!=='all'&&gv(c,'str')!==st.str)ok=false;
-        if(st.soon&&gn(c,'days')>2)ok=false;
-        if(st.client&&gv(c,'client')!==st.client)ok=false;
-        if(st.make&&gv(c,'make')!==st.make)ok=false;
-        if(st.auction&&gv(c,'auction')!==st.auction)ok=false;
-        if(ql&&gv(c,'search').indexOf(ql)<0)ok=false;
-        c.__show=ok; if(ok)shown++;
-      });
-      var vis=cards.filter(function(c){return c.__show}); vis.sort(cmp);
-      var olds=grid.getElementsByClassName('ghead'); while(olds.length)olds[0].remove();
-      var frag=document.createDocumentFragment(), last=null;
-      vis.forEach(function(c){
-        if(st.group!=='none'){var g=grpKey(c)||'Other'; if(g!==last){frag.appendChild(headEl(g)); last=g;}}
-        c.style.display=''; frag.appendChild(c);
-      });
-      cards.forEach(function(c){ if(!c.__show){c.style.display='none'; frag.appendChild(c);} });
-      var empty=document.getElementById('mEmpty'); if(empty){empty.style.display=shown?'none':''; frag.appendChild(empty);}
-      grid.appendChild(frag);
-      if(first){
-        first.forEach(function(p){
-          var c=p[0]; if(c.style.display==='none')return;
-          var o=p[1], r=c.getBoundingClientRect(), dx=o.left-r.left, dy=o.top-r.top;
-          if((dx||dy)&&Math.abs(dx)+Math.abs(dy)<2400){
-            c.style.transition='none'; c.style.transform='translate('+dx+'px,'+dy+'px)';
-            requestAnimationFrame(function(){ c.style.transition='transform .34s cubic-bezier(.2,.7,.3,1)'; c.style.transform=''; });
-          }
-        });
-      }
-      syncBulk();
-    }catch(e){}
+  if(mq)mq.addEventListener('input',applySearch);
+
+  // Collapsible client groups; the collapsed set is remembered per tab session.
+  var FOLD='jdmMGrpFold';
+  function foldMap(){try{return JSON.parse(sessionStorage.getItem(FOLD)||'{}')||{};}catch(e){return {};}}
+  function setFold(cid,on){try{var m=foldMap();if(on)m[cid]=1;else delete m[cid];sessionStorage.setItem(FOLD,JSON.stringify(m));}catch(e){}}
+  function applyFold(g,on){g.classList.toggle('folded',on);var b=g.querySelector('.gh-fold');if(b)b.setAttribute('aria-expanded',on?'false':'true');}
+  (function(){var m=foldMap();[].slice.call(grid.querySelectorAll('.mgroup')).forEach(function(g){if(m[g.getAttribute('data-cid')])applyFold(g,true);});})();
+  grid.addEventListener('click',function(e){
+    var b=e.target&&e.target.closest?e.target.closest('.gh-fold'):null; if(!b)return;
+    var g=b.closest('.mgroup'); if(!g)return;
+    var on=!g.classList.contains('folded'); applyFold(g,on); setFold(g.getAttribute('data-cid'),on);
+  });
+
+  // Dismissible default-filter banner.
+  var ban=document.getElementById('mBanner');
+  if(ban){
+    try{if(sessionStorage.getItem('jdmMBanHide')==='1')ban.style.display='none';}catch(e){}
+    var bx=document.getElementById('mBanX');
+    if(bx)bx.addEventListener('click',function(){ban.style.display='none';try{sessionStorage.setItem('jdmMBanHide','1');}catch(e){}});
   }
-  var mq=document.getElementById('mq'); if(mq)mq.addEventListener('input',function(e){st.q=e.target.value;apply();});
-  var ms=document.getElementById('msort'); if(ms)ms.addEventListener('change',function(e){st.sort=e.target.value;apply();});
-  var mg=document.getElementById('mgroup'); if(mg)mg.addEventListener('change',function(e){st.group=e.target.value;apply();});
-  var mc=document.getElementById('mclient'); if(mc)mc.addEventListener('change',function(e){st.client=e.target.value;apply();});
-  var mm=document.getElementById('mmake'); if(mm)mm.addEventListener('change',function(e){st.make=e.target.value;apply();});
-  var ma=document.getElementById('mauction'); if(ma)ma.addEventListener('change',function(e){st.auction=e.target.value;apply();});
-  [].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(ch){ch.addEventListener('click',function(){st.str=ch.getAttribute('data-str');[].slice.call(document.querySelectorAll('.fchip[data-str]')).forEach(function(x){x.classList.remove('on')});ch.classList.add('on');apply();});});
-  var soonBtn=document.getElementById('mSoon'); if(soonBtn)soonBtn.addEventListener('click',function(){st.soon=!st.soon;soonBtn.classList.toggle('on');apply();});
-  grid.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))syncBulk();});
-  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){cards.forEach(function(c){if(c.__show){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var qs=document.getElementById('qStrong'); if(qs)qs.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gv(c,'str')==='strong'){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){cards.forEach(function(c){if(c.__show&&gn(c,'days')<=2){var cb=c.querySelector('.msel');if(cb)cb.checked=true;}});syncBulk();});
-  var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
-  function bulkGo(ev,action,msg,opts){
+
+  function pick(list){list.forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=true;});syncBulk();}
+  var qa=document.getElementById('qAll'); if(qa)qa.addEventListener('click',function(){pick(visCards());});
+  var qs2=document.getElementById('qStrong'); if(qs2)qs2.addEventListener('click',function(){pick(visCards().filter(function(c){return c.getAttribute('data-str')==='strong';}));});
+  var qn=document.getElementById('qSoon'); if(qn)qn.addEventListener('click',function(){pick(visCards().filter(function(c){var d=parseFloat(c.getAttribute('data-days'));return !isNaN(d)&&d<=2;}));});
+  var bcl=document.getElementById('bClear'); if(bcl)bcl.addEventListener('click',function(){cards().forEach(function(c){var cb=c.querySelector('.msel');if(cb)cb.checked=false;});syncBulk();});
+
+  // Remove a card in place, keeping its group header count honest. The count is
+  // the whole group (loaded or not), so it just decrements by one.
+  function bumpGroup(g,delta){
+    var el=g.querySelector('.gh-count'); if(!el)return;
+    var n=Math.max(0,(parseInt(el.getAttribute('data-n'),10)||0)+delta);
+    el.setAttribute('data-n',n); el.textContent=n+(n===1?' match':' matches');
+    var send=g.querySelector('.gh-send');
+    if(send)send.textContent='Send all '+n+' to '+(send.getAttribute('data-name')||'client');
+    if(n<=0&&g.parentNode)g.parentNode.removeChild(g);
+  }
+  function dropCard(c){
+    var g=c.closest('.mgroup');
+    c.style.transition='opacity .25s ease, transform .25s ease';
+    c.style.opacity='0'; c.style.transform='scale(.96)';
+    setTimeout(function(){ if(c.parentNode)c.parentNode.removeChild(c); if(g)bumpGroup(g,-1); },240);
+  }
+  function removeByIds(ids){
+    var set={}; ids.forEach(function(i){set[String(i)]=1;});
+    cards().forEach(function(c){ if(set[c.getAttribute('data-qid')])dropCard(c); });
+  }
+  function postBulk(action,ids){
+    var body=new URLSearchParams(); body.set('action',action);
+    ids.forEach(function(id){body.append('ids',id);});
+    return fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0; });
+  }
+
+  // Bulk bar: validate, confirm the consequence, lock while in flight.
+  function selIds(){var out=[];cards().forEach(function(c){var cb=c.querySelector('.msel');if(cb&&cb.checked)out.push(cb.value);});return out;}
+  function bulkGo(ev,btn,action,busy,msg){
     ev.preventDefault();
-    jdmConfirm(msg,opts).then(function(ok){
-      if(!ok)return;
-      document.getElementById('bulkAction').value=action;
-      document.getElementById('bulkForm').submit();
+    var ids=selIds();
+    if(!ids.length){toast('Select at least one match first',true);return;}
+    conf(msg(ids.length),function(){
+      var btns=['bApprove','bSkip','bDelete'].map(function(id){return document.getElementById(id);});
+      var orig=btn.textContent; btn.textContent=busy;
+      btns.forEach(function(b){if(b)b.disabled=true;});
+      postBulk(action,ids).then(function(){
+        removeByIds(ids);
+        toast(action==='approve'?'Sent '+ids.length+' (one combined email per client)':action==='reject'?'Skipped '+ids.length:'Deleted '+ids.length);
+        btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;}); syncBulk();
+      }).catch(function(){
+        btn.textContent=orig; btns.forEach(function(b){if(b)b.disabled=false;});
+        toast('Could not action the selection, please try again',true);
+      });
     });
   }
-  function selN(){var n=document.getElementById('selCount');return n?n.textContent:'';}
-  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,'approve','Approve and send the '+selN()+' selected match'+(selN()==='1'?'':'es')+'? Each client is notified about their car right away.',{ok:'Approve and send',title:'Send to clients?'});});
-  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){bulkGo(ev,'reject','Skip the selected matches? They leave the review queue and the clients are not contacted.',{ok:'Skip matches',title:'Skip these matches?'});});
-  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){bulkGo(ev,'delete','Permanently delete the '+selN()+' selected match'+(selN()==='1'?'':'es')+' from the queue? This cannot be undone.',{danger:true,ok:'Delete matches',title:'Delete from queue?'});});
+  var ba=document.getElementById('bApprove'); if(ba)ba.addEventListener('click',function(ev){bulkGo(ev,ba,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? Each client gets one combined email.';});});
+  var bs=document.getElementById('bSkip'); if(bs)bs.addEventListener('click',function(ev){bulkGo(ev,bs,'reject','Skipping…',function(n){return 'Skip the '+n+' selected match'+(n===1?'':'es')+'? The clients will not be contacted about these cars.';});});
+  var bd=document.getElementById('bDelete'); if(bd)bd.addEventListener('click',function(ev){bulkGo(ev,bd,'delete','Deleting…',function(n){return 'Permanently delete the '+n+' selected match'+(n===1?'':'es')+' from the queue? This cannot be undone.';});});
+
+  // Per-group "Send all N to [name]": one combined email via the same bulk
+  // path. Acts on every match in the group, loaded or not.
+  document.addEventListener('click',function(e){
+    var b=e.target&&e.target.closest?e.target.closest('.gh-send'):null; if(!b||b.disabled)return;
+    var ids=(b.getAttribute('data-ids')||'').split(',').filter(Boolean);
+    var name=b.getAttribute('data-name')||'the client';
+    if(!ids.length)return;
+    conf('Send all '+ids.length+' match'+(ids.length===1?'':'es')+' to '+name+'? This emails '+(ids.length===1?'this car':'these '+ids.length+' cars')+' in one message.',function(){
+      var orig=b.textContent; b.textContent='Sending…'; b.disabled=true;
+      var g=b.closest('.mgroup');
+      postBulk('approve',ids).then(function(){
+        if(g&&g.parentNode)g.parentNode.removeChild(g);
+        toast('Sent '+ids.length+' to '+name+' in one combined message');
+        syncBulk();
+      }).catch(function(){ b.textContent=orig; b.disabled=false; toast('Could not send, please try again',true); });
+    });
+  });
+
+  // Stale-Possible triage buttons: id lists are server-computed (loaded or
+  // not), the confirm states exactly how many will be skipped.
+  function wireTriage(id){
+    var btn=document.getElementById(id); if(!btn)return;
+    btn.addEventListener('click',function(){
+      var ids=(btn.getAttribute('data-ids')||'').split(',').filter(Boolean);
+      if(!ids.length){toast('Nothing to skip',true);return;}
+      conf('Skip '+ids.length+' '+(btn.getAttribute('data-noun')||'matches')+'? The clients will not be contacted about these cars.',function(){
+        var orig=btn.textContent; btn.textContent='Skipping…'; btn.disabled=true;
+        postBulk('reject',ids).then(function(){
+          removeByIds(ids);
+          btn.setAttribute('data-ids','');
+          btn.textContent=(btn.getAttribute('data-base')||'Skip')+' (0)';
+          toast('Skipped '+ids.length);
+          syncBulk();
+        }).catch(function(){ btn.textContent=orig; btn.disabled=false; toast('Could not skip, please try again',true); });
+      });
+    });
+  }
+  wireTriage('triStale'); wireTriage('triPoss');
+
+  // Load more: fetch the next server-rendered chunk and slot each card into its
+  // group (the plain href is the no-JS fallback). The next offset is simply how
+  // many cards are loaded now, which stays correct after in-place removals.
+  var more=document.getElementById('mMore');
+  if(more)more.addEventListener('click',function(e){
+    e.preventDefault();
+    if(more.getAttribute('data-busy'))return;
+    more.setAttribute('data-busy','1');
+    var orig=more.textContent; more.textContent='Loading…';
+    var off=cards().length;
+    var total=parseInt(more.getAttribute('data-total'),10)||0;
+    var qs=more.getAttribute('data-qs')||'';
+    fetch('/admin/matches/chunk?'+qs+'&offset='+off).then(function(r){ if(!r.ok)throw 0; return r.text(); }).then(function(html){
+      var t=document.createElement('template'); t.innerHTML=html;
+      var added=0;
+      [].slice.call(t.content.querySelectorAll('.mcard')).forEach(function(c){
+        var target=grouped?grid.querySelector('[data-cards="'+c.getAttribute('data-cid')+'"]'):grid.querySelector('[data-cards="flat"]');
+        if(target){target.appendChild(c);added++;}
+      });
+      more.removeAttribute('data-busy');
+      var now=cards().length, left=Math.max(0,total-now);
+      if(!added||left<=0){var w=more.parentNode;if(w&&w.parentNode)w.parentNode.removeChild(w);}
+      else{more.textContent='Load '+Math.min(30,left)+' more ('+left+' left)';}
+      try{var u=new URL(location.href);u.searchParams.set('shown',now);history.replaceState(null,'',u.toString());}catch(e2){}
+      applySearch(); syncBulk();
+    }).catch(function(){ more.removeAttribute('data-busy'); more.textContent=orig; toast('Could not load more, please try again',true); });
+  });
+
+  // Per-card Approve / Skip without leaving the page.
   grid.addEventListener('click',function(e){
     var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
     var approve=a.classList.contains('btn-notify'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
-      var i=cards.indexOf(card); if(i>=0)cards.splice(i,1);
       toast(approve?'Sent to client':'Skipped');
-      if(matchMedia('(prefers-reduced-motion: reduce)').matches){
-        if(card.parentNode)card.parentNode.removeChild(card); apply();
-      }else{
-        card.style.transition='opacity .25s ease, transform .25s ease';
-        card.style.opacity='0'; card.style.transform='scale(.96)';
-        setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); apply(); },240);
-      }
-    }).catch(function(){ a.classList.remove('is-loading'); a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+      dropCard(card); syncBulk();
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m){jdmToast(m);}
-  apply();
+
+  syncBulk();
 })();<\/script>`;
 }
 
@@ -3181,9 +3602,9 @@ function matchActionScript() {
       card.style.transition='opacity .2s'; card.style.opacity='0';
       setTimeout(function(){ if(card.parentNode)card.parentNode.removeChild(card); },200);
       toast(approve?'Sent to client':'Skipped');
-    }).catch(function(){ a.classList.remove('is-loading'); a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again'); });
+    }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m){jdmToast(m);}
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'#571622':'#1C2027')+';color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   })();<\/script>`;
 }
 
@@ -3199,6 +3620,39 @@ function strengthLegend() {
     </div>
     <details class="sl-more"><summary>How it's scored</summary><div class="sl-detail">Strength blends four things: how far under the client's max budget the lot sits, how far its auction grade beats the minimum grade asked for, an exact chassis-code or keyword match, and a bonus for top-condition lots (grade 4.5 or higher). Strong is a clear all-round fit; Possible just meets the basics and is lower priority.</div></details>
   </div>`;
+}
+
+// Follow-up autopilot (cron): when a request's sent cars have sat unopened for
+// 3 days with no response, seed one follow-up task through the existing task
+// path so the dashboard attention panel surfaces it. Idempotent: skips any
+// request with an open follow-up task, or one created in the last 3 days.
+export async function autoFollowUps(env) {
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT q.wishlist_id, q.client_id, c.name AS client_name, w.owner_id, c.agent_id
+         FROM queue q
+         JOIN clients c ON c.id = q.client_id
+         LEFT JOIN wishlists w ON w.id = q.wishlist_id
+        WHERE q.status = 'sent' AND q.sent_at IS NOT NULL AND q.sent_at <= datetime('now','-3 days')
+          AND q.viewed_at IS NULL AND q.response IS NULL AND q.wishlist_id IS NOT NULL
+        GROUP BY q.wishlist_id`
+    ).all()).results || [];
+    let created = 0;
+    for (const r of rows) {
+      const first = String(r.client_name || "this client").trim().split(/\s+/)[0] || "this client";
+      const dupe = await env.DB.prepare(
+        "SELECT id FROM tasks WHERE wishlist_id = ? AND type = 'follow_up' AND (status != 'done' OR created_at >= datetime('now','-3 days'))"
+      ).bind(r.wishlist_id).first();
+      if (dupe) continue;
+      await insertTask(env, {
+        title: `Follow up with ${first}, sent cars unopened for 3 days`,
+        type: "follow_up", wishlist_id: r.wishlist_id, client_id: r.client_id,
+        assigned_to: r.owner_id || r.agent_id || null, due: new Date(), priority: "normal",
+      });
+      created++;
+    }
+    return created;
+  } catch (e) { console.error("autoFollowUps failed:", e.message); return 0; }
 }
 
 // Mark pending matches whose auction has already ended as 'expired', so the
@@ -3269,7 +3723,7 @@ function wishlistEditor(w, opts = {}) {
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
         ${opts.portal
           ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`
-          : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-confirm-danger="1" data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`}
+          : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-danger data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`}
       </div>
     </div>
     <details class="wledit"${opts.open ? " open" : ""}>
@@ -3298,27 +3752,49 @@ function wishlistEditor(w, opts = {}) {
 
 // Self-contained bulk bar for the client page (the main Matches controller isn't
 // loaded here). Select-all + Approve/Skip the ticked matches, then return here.
-function clientBulkBar(cid) {
-  return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="/admin?view=client&amp;id=${cid}"></form>
-    <div class="actionbar actionbar-inline">
-      <label class="ab-check"><input type="checkbox" id="cdAll"> Select all</label>
-      <span class="ab-count"><span id="cdCount">0</span> selected</span>
-      <span class="ab-spring"></span>
-      <button type="submit" form="bulkForm" class="bap" onclick="return jdmCdBulk(this,'approve')">Approve &amp; send</button>
-      <button type="submit" form="bulkForm" class="bsk" onclick="return jdmCdBulk(this,'reject')">Skip</button>
+function clientBulkBar(cid, qs = "") {
+  // The no-JS fallback posts with a `back` that carries the current find query,
+  // so a native bulk action never wipes the search results off the page.
+  const back = `/admin?view=client&id=${cid}${qs ? "&" + qs : ""}`;
+  return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="${esc(back)}"></form>
+    <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
+      <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
+      <span style="flex:1"></span>
+      <button type="submit" form="bulkForm" class="bap" id="cdApprove" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
+      <button type="submit" form="bulkForm" class="bsk" id="cdSkip" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
     </div>
-    <script>(function(){var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');function boxes(){return document.querySelectorAll('.mgrid .msel');}function upd(){var n=0,t=boxes().length;boxes().forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=t>0&&n===t;}if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});upd();
-    window.jdmCdBulk=function(btn,action){
-      var n=0;boxes().forEach(function(b){if(b.checked)n++;});
-      if(!n){jdmToast('Tick the matches you want first.');return false;}
-      var approve=action==='approve';
-      var msg=approve?('Approve and send the '+n+' selected match'+(n===1?'':'es')+'? The client is notified about each car right away.'):('Skip the '+n+' selected match'+(n===1?'':'es')+'? They leave the queue and the client is not contacted.');
-      jdmConfirm(msg,{ok:approve?'Approve and send':'Skip matches',title:approve?'Send to client?':'Skip these matches?'}).then(function(ok){
-        if(!ok)return;
-        document.getElementById('bulkAction').value=action;
-        document.getElementById('bulkForm').submit();
-      });
-      return false;};})();</script>`;
+    <script>(function(){
+      var all=document.getElementById('cdAll'),cnt=document.getElementById('cdCount');
+      function boxes(){return [].slice.call(document.querySelectorAll('.mgrid .msel'));}
+      function upd(){var bs=boxes(),n=0;bs.forEach(function(b){if(b.checked)n++;});if(cnt)cnt.textContent=n;if(all)all.checked=bs.length>0&&n===bs.length;}
+      function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+      function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
+      function go(ev,btn,action,busy,msg){
+        ev.preventDefault();
+        var picked=boxes().filter(function(b){return b.checked;});
+        if(!picked.length){toast('Select at least one match first',true);return;}
+        conf(msg(picked.length),function(){
+          var btns=[document.getElementById('cdApprove'),document.getElementById('cdSkip')];
+          var orig=btn.textContent;btn.textContent=busy;btns.forEach(function(b){if(b)b.disabled=true;});
+          var body=new URLSearchParams();body.set('action',action);
+          picked.forEach(function(b){body.append('ids',b.value);});
+          fetch('/matches/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;
+            picked.forEach(function(b){var card=b.closest('.mcard');if(card){card.style.transition='opacity .25s ease, transform .25s ease';card.style.opacity='0';card.style.transform='scale(.96)';setTimeout(function(){if(card.parentNode)card.parentNode.removeChild(card);upd();},240);}});
+            toast(action==='approve'?'Sent '+picked.length+' in one combined message':'Skipped '+picked.length);
+            btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+          }).catch(function(){
+            btn.textContent=orig;btns.forEach(function(b){if(b)b.disabled=false;});
+            toast('Could not action the selection, please try again',true);
+          });
+        });
+      }
+      var bap=document.getElementById('cdApprove');if(bap)bap.addEventListener('click',function(ev){go(ev,bap,'approve','Sending…',function(n){return 'Send the '+n+' selected match'+(n===1?'':'es')+' now? The client gets one combined email.';});});
+      var bsk=document.getElementById('cdSkip');if(bsk)bsk.addEventListener('click',function(ev){go(ev,bsk,'reject','Skipping…',function(n){return 'Skip the '+n+' selected match'+(n===1?'':'es')+'? The client will not be contacted about '+(n===1?'this car':'these cars')+'.';});});
+      if(all)all.addEventListener('change',function(){boxes().forEach(function(b){b.checked=all.checked;});upd();});
+      document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('msel'))upd();});
+      upd();
+    })();</script>`;
 }
 
 // Client detail page: contact, owner, their wishlists (editable) and their live
@@ -3333,14 +3809,18 @@ function lotGalleryScript() {
 
 export async function lotDetailPage(env, queueId, session = { role: "admin", id: 0 }, opts = {}) {
   const qid = Number(queueId);
-  const back = `<a class="btn-dark" href="/admin?view=matches">Back to matches</a>`;
+  // Honour a ?ret= path (same-app only) so the back link restores the exact
+  // Matches filters, grouping and page the user came from.
+  const retPath = (opts.ret && String(opts.ret).startsWith("/admin")) ? String(opts.ret) : "/admin?view=matches";
+  const back = `<a class="btn-dark" href="${esc(retPath)}">Back to matches</a>`;
   const notFound = () => shell(sidebar("matches", {}, session),
     `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Vehicle</h1></div>${back}</div>
      <div class="content"><div class="card"><div class="empty">This vehicle is no longer in your queue.</div></div></div>`,
     "Vehicle - JDM Connect");
   if (!Number.isInteger(qid) || qid <= 0) return notFound();
   const q = await env.DB.prepare(
-    `SELECT q.*, c.name AS client_name, w.label AS wlabel, w.rate_min AS w_rate,
+    `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
+            w.label AS wlabel, w.rate_min AS w_rate,
             w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
        FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
       WHERE q.id = ?`
@@ -3374,7 +3854,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <summary class="btn-dark">Share</summary>
       <div class="ld-share-pop">
         <div class="ld-share-h">Share with a client</div>
-        <p class="ld-share-p">A view-only link to this car, no login needed.</p>
+        <p class="ld-share-p">A view-only link to this car. No login needed.</p>
         <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
         <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
       </div>
@@ -3468,17 +3948,28 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     </div>`;
 
   // Skip/Approve here are full navigations (no AJAX), so send the user back to
-  // the client they came from instead of dumping them on the Matches home.
-  const ret = `/admin?view=client&id=${q.client_id}`;
+  // where they came from (the ret path when present, else the client's page).
+  const ret = opts.ret && String(opts.ret).startsWith("/admin") ? String(opts.ret) : `/admin?view=client&id=${q.client_id}`;
+  // The confirm states the consequence, including the contactless case the
+  // match cards already warn about.
+  const hasContact = !!(q.client_email || q.client_whatsapp);
+  const approveConfirm = lot._watch
+    ? `Mark this lead match as done? ${esc(q.client_name || "The client")} is watch-only and will not be contacted.`
+    : hasContact
+      ? `Approve and send this car to ${esc(q.client_name || "the client")}? They get one message with this car.`
+      : `${esc(q.client_name || "This client")} has no email or WhatsApp on file. Approving will mark this handled but nothing will reach them. Continue?`;
+  const contactWarn = (!hasContact && !lot._watch && q.status === "pending")
+    ? `<div class="nocontact" style="margin:10px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
+    : "";
   const actions = q.status === "pending"
-    ? `<div class="ld-actions">
+    ? `${contactWarn}<div class="ld-actions">
         <form method="POST" action="/decide">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="reject">
           <input type="hidden" name="return" value="${esc(ret)}">
           <button class="btn-skip" type="submit">Skip</button>
         </form>
-        <form method="POST" action="/decide" data-confirm="Approve and send this match? The client is notified about this car right away." data-confirm-ok="Approve and send" data-confirm-title="Send to client?">
+        <form method="POST" action="/decide" data-confirm="${approveConfirm}" data-confirm-ok="${lot._watch ? "Mark done" : "Send it"}">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="return" value="${esc(ret)}">
@@ -3504,7 +3995,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           ${sheetBox}
           ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
-            <p class="help" style="margin:8px 0">Raw <code>images</code> field we received for this lot (this is everything the feed sent, if the inspection sheet isn't here, the feed didn't include it):</p>
+            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
             <pre class="ld-raw">${esc(lot.images || "(empty, the feed sent no images for this lot)")}</pre>
           </details>` : ""}
           ${notes}
@@ -3569,6 +4060,28 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
+  // Sent-lot history: everything already actioned (sent Tue, opened Wed,
+  // passed), so the page answers "what did we send and what happened?".
+  const history = (await env.DB.prepare(
+    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.client_id = ? AND q.status != 'pending' ORDER BY COALESCE(q.decided_at, q.created_at) DESC LIMIT 20`
+  ).bind(cid).all()).results || [];
+
+  // Unified activity feed: notes, sends, views, responses and contact taps all
+  // land in `activity`; fold in payments and the latest portal login. Data the
+  // app already records - nothing here needs manual upkeep.
+  const actsRaw = (await env.DB.prepare(
+    "SELECT type, detail, actor, created_at FROM activity WHERE client_id = ? ORDER BY created_at DESC, id DESC LIMIT 30"
+  ).bind(cid).all()).results || [];
+  const payEvents = (await env.DB.prepare(
+    "SELECT amount_cents, currency, status, COALESCE(paid_at, created_at) AS created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 10"
+  ).bind(cid).all()).results || [];
+  const feed = [
+    ...actsRaw,
+    ...payEvents.map((p) => ({ type: "deposit", detail: `Payment ${p.status}: A$${(Number(p.amount_cents || 0) / 100).toLocaleString("en-AU")}`, actor: "Stripe", created_at: p.created_at })),
+    ...(c.last_seen ? [{ type: "login", detail: "Signed in to the portal", actor: c.name, created_at: c.last_seen }] : []),
+  ].sort((a, b) => (tsMs(b.created_at) || 0) - (tsMs(a.created_at) || 0)).slice(0, 25);
+
   // Engagement roll-up across ALL of this client's matches (not just pending) so
   // the CRM header can show at a glance: examples sent, how many they opened,
   // and when they last looked, the numbers that tell staff how warm they are.
@@ -3602,8 +4115,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     c.destination_country ? `<span class="chip muted">${esc(c.destination_country)}</span>` : (c.state ? `<span class="chip muted">${esc(c.state)}</span>` : ""),
   ].filter(Boolean).join("");
   const contactBtns = [
-    waDigits ? `<a class="cd-cta" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" href="tel:${esc(telDigits)}">Call</a>` : "",
-    c.email ? `<a class="cd-cta" href="mailto:${esc(c.email)}">Email</a>` : "",
+    waDigits ? `<a class="cd-cta" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" data-clog="${c.id}:call" href="tel:${esc(telDigits)}">Call</a>` : "",
+    c.email ? `<a class="cd-cta" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : "",
     canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
@@ -3660,7 +4173,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.email
           ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
-        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke portal access? This client is signed out everywhere, their password is cleared, and they cannot sign back in until you re-invite them." data-confirm-danger="1" data-confirm-ok="Revoke access" data-confirm-title="Revoke portal access?"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
+        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
     ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)">
@@ -3695,7 +4208,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
         <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
         <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
-        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="0.5" placeholder="e.g. 4"></div>
+        <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
@@ -3715,14 +4228,23 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const sp = opts.search || {};
   const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
   const findHasQuery = findKeys.some((k) => String(sp[k] || "").trim());
+  // The current find query as a query string, threaded through the POST round
+  // trips (add-to-queue, bulk approve) so the search results survive redirects.
+  const findQs = (() => {
+    const qs = new URLSearchParams();
+    for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
+    return qs.toString();
+  })();
   let findResults = "";
   if (canManage && findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
-      const qs = new URLSearchParams();
-      for (const k of findKeys) { const v = String(sp[k] || "").trim(); if (v) qs.set(k, v); }
-      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, qs.toString())).join("")}</div>`;
+      // Cheap existence check: which of these lots are already in this client's
+      // queue? Renders a Queued / Sent badge on the card instead of a dead-end
+      // add-reload-duplicate loop.
+      const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
+      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
     } else {
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -3754,8 +4276,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Model <span class="opt">(contains)</span><input name="model" value="${fv("model")}" placeholder="e.g. SKYLINE"></label></div>
         <div><label>Year from<input name="yearMin" type="number" min="1960" value="${fv("yearMin")}" placeholder="1990"></label></div>
         <div><label>Year to<input name="yearMax" type="number" min="1960" value="${fv("yearMax")}" placeholder="2002"></label></div>
-        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="10000" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
-        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="0.5" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
+        <div><label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${fv("priceMax")}" placeholder="3,000,000"></label></div>
+        <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
@@ -3765,7 +4287,20 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
-    ${matches.length ? strengthLegend() + clientBulkBar(cid) + `<div class="mgrid">${matches.map((q) => matchCard(q)).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+    ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
+  </div>`;
+
+  // Compact history of already-actioned cars, with the Interested / Pass
+  // response buttons so replies can be logged from here too.
+  const historyCard = history.length ? `<div class="card">
+    <h2><span class="num">${history.length}</span> Sent and past cars</h2>
+    <p class="help" style="margin:-8px 0 16px">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
+    <div class="rd-matches">${history.map((q) => matchTrackRow(q, `/admin?view=client&id=${cid}`)).join("")}</div>
+  </div>` : "";
+
+  const feedCard = `<div class="card">
+    <h2><span class="num">&middot;</span> Activity</h2>
+    ${activityTimeline(feed)}
   </div>`;
 
   const main = `
@@ -3777,7 +4312,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${reqSection}${portalCard}${editCard}</div>${matchActionScript()}`;
+    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}${feedCard}${portalCard}${editCard}</div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -3955,7 +4490,7 @@ export async function requestPage(env, opts = {}) {
                 ${budgetChips()}
                 <div class="ob-budget">
                   <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
-                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="500" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
                 </div>
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:16px">
@@ -3965,8 +4500,8 @@ export async function requestPage(env, opts = {}) {
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>
                   <div class="ob-fields">
-                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="1000" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="0.5" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
+                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
                     <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
                     <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
                   </div>
@@ -4306,20 +4841,28 @@ function revealScript() {
     if(!('IntersectionObserver' in window))return;
     var els=[].slice.call(document.querySelectorAll('.acard,.chart-card,.scard,.mcard,.tstat'));
     if(!els.length)return;
-    els.forEach(function(el){el.style.opacity='0';el.style.transform='translateY(14px)';});
+    // Immediate first pass: anything already in (or near) the viewport stays
+    // visible on first paint, so short pages never look broken while waiting
+    // for a scroll event. Only genuinely below-fold cards animate in later.
+    var vh=window.innerHeight||document.documentElement.clientHeight||0;
+    var below=[];
+    els.forEach(function(el){
+      var r=el.getBoundingClientRect();
+      if(r.top<vh+40)return;
+      el.style.opacity='0';el.style.transform='translateY(14px)';below.push(el);
+    });
+    if(!below.length)return;
+    function show(el){
+      el.style.transition='opacity .5s ease, transform .5s cubic-bezier(.2,.7,.3,1)';
+      requestAnimationFrame(function(){el.style.opacity='';el.style.transform='';});
+    }
     var io=new IntersectionObserver(function(ents,obs){
-      ents.forEach(function(en){
-        if(!en.isIntersecting)return;
-        var el=en.target;
-        var sibs=[].slice.call((el.parentNode||document).children).filter(function(x){return els.indexOf(x)>=0});
-        var idx=sibs.indexOf(el); if(idx<0)idx=0;
-        el.style.transition='opacity .5s ease, transform .5s cubic-bezier(.2,.7,.3,1)';
-        el.style.transitionDelay=Math.min(idx,8)*45+'ms';
-        requestAnimationFrame(function(){el.style.opacity='';el.style.transform='';});
-        obs.unobserve(el);
-      });
+      ents.forEach(function(en){ if(!en.isIntersecting)return; show(en.target); obs.unobserve(en.target); });
     },{rootMargin:'0px 0px -6% 0px',threshold:0.04});
-    els.forEach(function(el){io.observe(el);});
+    below.forEach(function(el){io.observe(el);});
+    // Failsafe: never leave content hidden if the observer misses (zoom,
+    // resize, dynamically removed nodes).
+    setTimeout(function(){below.forEach(function(el){if(el.style.opacity==='0'){io.unobserve(el);show(el);}});},4000);
   }catch(e){}})();<\/script>`;
 }
 
@@ -4344,9 +4887,7 @@ function rowMenu(items) {
     const ic = it.icon ? it.icon : "";
     const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
     if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
-    const conf = it.confirm
-      ? ` data-confirm="${esc(it.confirm)}"${it.danger ? ` data-confirm-danger="1" data-confirm-ok="${esc(it.label)}"` : ""}`
-      : "";
+    const conf = it.confirm ? ` data-confirm="${esc(it.confirm)}"${it.danger ? " data-danger" : ""}` : "";
     return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
   }).join("");
   return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
@@ -4394,6 +4935,13 @@ function tableToolsScript() {
     .rowmenu-item.danger svg{color:var(--bad)}
     .rowmenu-item.danger:hover{background:var(--bad-bg)}
     .rowmenu-sep{height:1px;background:var(--hair);margin:4px}
+    /* On phones the kebab dropdown becomes a bottom sheet, so it can never be
+       clipped or land under a thumb. The JS positions with inline styles, so
+       these override with !important. */
+    @media(max-width:640px){
+      .rowmenu-pop{left:12px!important;right:12px!important;top:auto!important;bottom:calc(12px + env(safe-area-inset-bottom))!important;min-width:0;border-radius:var(--r-card);box-shadow:0 -12px 40px rgba(0,0,0,.3);padding:8px}
+      .rowmenu-item{padding:16px;font-size:var(--fs-body);min-height:44px}
+    }
     /* Reusable table toolbar Export button (secondary button alias). */
     .tbl-export{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;font-family:inherit;white-space:nowrap}
     .tbl-export:hover{border-color:var(--field-line);color:var(--ink)}
@@ -4435,62 +4983,122 @@ function tableToolsScript() {
   </script>`;
 }
 
-// Shared UI kit: ONE toast (window.jdmToast) and ONE styled confirm dialog
-// (window.jdmConfirm) that replaces every native confirm() in the admin.
-// Injected at the top of <body> so every later inline script can rely on it.
-// Forms opt in declaratively with data-confirm="message" (+ optional
-// data-confirm-ok, data-confirm-title, data-confirm-danger="1"); selects use
-// jdmConfirmSelect(sel, message, opts) from an onchange handler.
-// No template interpolation inside this script string (house rule).
-function uiKitScript() {
-  return `<script>(function(){
-  window.jdmToast=function(m){var t=document.querySelector('.jdm-toast');if(t)t.remove();t=document.createElement('div');t.className='jdm-toast';t.setAttribute('role','status');t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.style.opacity='0';setTimeout(function(){t.remove();},420);},3600);};
-  window.jdmConfirm=function(msg,opts){opts=opts||{};return new Promise(function(res){
-    var prev=document.activeElement;
-    var scrim=document.createElement('div');scrim.className='cfm-scrim open';
-    var box=document.createElement('div');box.className='cfm'+(opts.danger?' danger':'');box.setAttribute('role','alertdialog');box.setAttribute('aria-modal','true');
-    var t=document.createElement('div');t.className='cfm-t';t.textContent=opts.title||'Please confirm';
-    var m=document.createElement('p');m.className='cfm-m';m.textContent=msg;
-    var a=document.createElement('div');a.className='cfm-a';
-    var c=document.createElement('button');c.type='button';c.className='cfm-cancel';c.textContent='Cancel';
-    var k=document.createElement('button');k.type='button';k.className='cfm-ok';k.textContent=opts.ok||(opts.danger?'Delete':'Confirm');
-    function done(v){document.removeEventListener('keydown',keys,true);scrim.remove();if(prev&&prev.focus){try{prev.focus();}catch(e){}}res(v);}
-    function keys(e){
-      if(e.key==='Escape'){e.preventDefault();done(false);return;}
-      if(e.key==='Tab'){e.preventDefault();(document.activeElement===k?c:k).focus();}
-    }
-    c.addEventListener('click',function(){done(false);});
-    k.addEventListener('click',function(){done(true);});
-    scrim.addEventListener('click',function(e){if(e.target===scrim)done(false);});
-    document.addEventListener('keydown',keys,true);
-    a.appendChild(c);a.appendChild(k);box.appendChild(t);box.appendChild(m);box.appendChild(a);scrim.appendChild(box);document.body.appendChild(scrim);k.focus();
-  });};
-  // Select-driven confirms (share / reassign pickers). Reverts on cancel.
-  window.jdmConfirmSelect=function(sel,msg,opts){
-    if(!sel.value)return;
-    var prev=sel.dataset.prev||'';
-    window.jdmConfirm(msg,opts).then(function(ok){if(ok){sel.form.submit();}else{sel.value=prev;}});
+// Shell-level UX guard, shared by every admin page:
+//  * window.jdmToast(message, isError): the single toast used by all AJAX
+//    handlers and flash messages. Bottom-center, success and error variants.
+//  * Renders the one-shot ?notice= / ?notice_err= params that the POST routes
+//    append to their redirects, then cleans them from the URL.
+//  * Disables a form's submit buttons while a native (non-AJAX) post is in
+//    flight so a slow Worker response cannot collect double-submits; restores
+//    them on pageshow so bfcache back-navigation never leaves dead buttons.
+function uxGuardScript() {
+  return `<style>
+    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.14);padding:12px 18px;border-radius:9px;font:600 13.5px/1.4 Inter,-apple-system,sans-serif;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
+    .jdm-toast.err{background:#571622}
+    .jdmc-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9997}
+    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#fff);color:var(--ink,#15171B);border:1px solid var(--hair,rgba(0,0,0,.1));border-radius:14px;padding:20px;width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+    .jdmc-m{font-size:14.5px;line-height:1.55;font-weight:500;white-space:pre-line}
+    .jdmc-b{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+    .jdmc-b button{font-family:inherit;font-size:13.5px;font-weight:600;border-radius:9px;padding:10px 16px;cursor:pointer;min-height:44px}
+    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(0,0,0,.18));color:var(--ink,#15171B)}
+    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:#15120A}
+    .jdmc-ok.danger{background:transparent;border:1px solid rgba(226,96,122,.55);color:#B11226}
+  </style><script>(function(){
+  var live=null;
+  window.jdmToast=function(m,err,ms){
+    try{
+      if(live&&live.parentNode)live.parentNode.removeChild(live);
+      var t=document.createElement('div');t.className='jdm-toast'+(err?' err':'');t.setAttribute('role','status');t.textContent=m;
+      document.body.appendChild(t);live=t;
+      setTimeout(function(){t.style.transition='opacity .35s';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);if(live===t)live=null;},360);},ms||(err?4200:2600));
+    }catch(e){}
   };
-  // Declarative form confirms: <form data-confirm="..."> shows the dialog and
-  // only submits on confirm. Preserves the clicked submitter's name/value.
-  document.addEventListener('submit',function(e){
-    var f=e.target;if(!f||!f.getAttribute)return;
-    var msg=f.getAttribute('data-confirm');if(!msg)return;
-    if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return;}
-    e.preventDefault();
-    var sub=e.submitter||null;
-    window.jdmConfirm(msg,{danger:f.getAttribute('data-confirm-danger')==='1',ok:f.getAttribute('data-confirm-ok')||'',title:f.getAttribute('data-confirm-title')||''}).then(function(ok){
-      if(!ok)return;
-      f.dataset.jdmConfirmed='1';
-      if(f.requestSubmit){f.requestSubmit(sub||undefined);}else{f.submit();}
+  // The one styled confirm dialog (replaces native confirm()). Returns a
+  // Promise<boolean>; falls back to native confirm if the DOM path fails.
+  window.jdmConfirm=function(msg,opts){
+    opts=opts||{};
+    return new Promise(function(resolve){
+      try{
+        var prev=document.getElementById('jdmConfirm'); if(prev)prev.remove();
+        var wrap=document.createElement('div'); wrap.id='jdmConfirm';
+        wrap.innerHTML='<div class="jdmc-scrim"></div><div class="jdmc-card" role="alertdialog" aria-modal="true" aria-label="Please confirm"><div class="jdmc-m"></div><div class="jdmc-b"><button type="button" class="jdmc-cancel">Cancel</button><button type="button" class="jdmc-ok'+(opts.danger?' danger':'')+'"></button></div></div>';
+        wrap.querySelector('.jdmc-m').textContent=String(msg||'Are you sure?');
+        var okBtn=wrap.querySelector('.jdmc-ok'); okBtn.textContent=opts.okLabel||'Confirm';
+        var last=document.activeElement;
+        function done(v){ if(wrap.parentNode)wrap.parentNode.removeChild(wrap); document.removeEventListener('keydown',onKey); if(last&&last.focus){try{last.focus();}catch(e){}} resolve(v); }
+        function onKey(e){ if(e.key==='Escape')done(false); }
+        wrap.querySelector('.jdmc-cancel').addEventListener('click',function(){done(false);});
+        okBtn.addEventListener('click',function(){done(true);});
+        wrap.querySelector('.jdmc-scrim').addEventListener('click',function(){done(false);});
+        document.addEventListener('keydown',onKey);
+        document.body.appendChild(wrap);
+        okBtn.focus();
+      }catch(e){ resolve(confirm(msg)); }
     });
+  };
+  // Confirm-on-change for destructive select pickers (share / reassign): keeps
+  // the previous value (from data-prev, set on focus) when the user cancels.
+  window.jdmConfirmSelect=function(sel,msg){
+    var prevVal=sel.dataset.prev||'';
+    window.jdmConfirm(msg).then(function(ok){
+      if(ok&&sel.form){ if(sel.form.requestSubmit)sel.form.requestSubmit(); else sel.form.submit(); }
+      else if(!ok)sel.value=prevVal;
+    });
+  };
+  // Declarative confirms: a form with data-confirm shows the styled dialog and
+  // only submits on Confirm. data-danger styles the confirm button red.
+  document.addEventListener('submit',function(e){
+    var f=e.target; if(!f||!f.getAttribute)return;
+    var msg=f.getAttribute('data-confirm');
+    if(msg&&!f.__jdmOk){
+      e.preventDefault();
+      window.jdmConfirm(msg,{danger:f.hasAttribute('data-danger'),okLabel:f.getAttribute('data-confirm-ok')||''}).then(function(ok){
+        if(!ok)return;
+        f.__jdmOk=true;
+        if(f.requestSubmit)f.requestSubmit(); else f.submit();
+      });
+    }
   },true);
-})();<\/script>`;
+  try{
+    var p=new URLSearchParams(location.search),ok=p.get('notice'),bad=p.get('notice_err');
+    if(ok||bad){
+      window.jdmToast(bad||ok,!!bad);
+      p.delete('notice');p.delete('notice_err');
+      var qs=p.toString();
+      history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash);
+    }
+  }catch(e){}
+  var locked=[];
+  document.addEventListener('submit',function(e){
+    var f=e.target; if(!f||!f.tagName||f.tagName!=='FORM'||f.hasAttribute('data-noguard'))return;
+    // Defer so (a) AJAX handlers can preventDefault first and (b) the browser
+    // snapshots the form data before any submit button is disabled.
+    setTimeout(function(){
+      if(e.defaultPrevented)return;
+      var btns=[].slice.call(f.querySelectorAll('button[type=submit],button:not([type]),input[type=submit]'));
+      if(f.id){btns=btns.concat([].slice.call(document.querySelectorAll('button[form="'+f.id+'"],input[type=submit][form="'+f.id+'"]')));}
+      btns.forEach(function(b){if(!b.disabled){b.disabled=true;locked.push(b);}});
+    },0);
+  },true);
+  window.addEventListener('pageshow',function(){locked.forEach(function(b){b.disabled=false;});locked=[];});
+  // Contact-tap logging: WhatsApp / Call / Email buttons carry
+  // data-clog="clientId:channel"; a beacon records the touch without ever
+  // blocking the tel:/mailto:/wa.me navigation.
+  document.addEventListener('click',function(e){
+    var el=e.target&&e.target.closest?e.target.closest('[data-clog]'):null; if(!el)return;
+    try{
+      var v=(el.getAttribute('data-clog')||'').split(':');
+      var fd=new FormData(); fd.append('id',v[0]||''); fd.append('channel',v[1]||'other');
+      if(navigator.sendBeacon)navigator.sendBeacon('/client/contact-log',fd);
+      else fetch('/client/contact-log',{method:'POST',body:fd,keepalive:true});
+    }catch(err){}
+  });
+})();</script>`;
 }
 
 function shell(side, main, title) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><a class="skip-link" href="#admin-main">Skip to content</a>${uiKitScript()}<input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${revealScript()}${tableToolsScript()}</body></html>`;
+    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}</body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -4730,11 +5338,11 @@ const str = (form, k) => { const v = form.get(k); return v === null || v === "" 
 
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
-  if (!clientId) return;
+  if (!clientId) return { ok: false, error: "client" };
   // An agent can add a wishlist to any client they own or that's shared to them.
-  if (!(await clientAccessibleBy(env, clientId, session))) return;
+  if (!(await clientAccessibleBy(env, clientId, session))) return { ok: false, error: "forbidden" };
   // Don't save a whole-feed wishlist: require at least one narrowing term.
-  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return;
+  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return { ok: false, error: "term" };
   await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
@@ -4744,6 +5352,7 @@ export async function createWishlist(env, form, clientIdOverride, session) {
     num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
     num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0
   ).run();
+  return { ok: true };
 }
 
 // Delete a client and everything attached to them - their wishlists, queued
@@ -4940,10 +5549,12 @@ export async function toggleAgent(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
   // Bump session_ver too: deactivating an agent should end their live sessions
-  // immediately, not just block the next login.
-  await env.DB.prepare(
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(aid).run();
+  // immediately, not just block the next login. Falls back to the legacy
+  // update if migration 0010 has not reached this database yet.
+  await runWithSessionVerFallback(env,
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?",
+    [aid], "toggleAgent");
 }
 
 // Hardening for the PUBLIC /request form (createClient/createWishlist are also
@@ -5460,7 +6071,7 @@ export async function addLotToClient(env, clientId, lotId, session) {
 
   // Already in this client's queue? Don't add a duplicate.
   const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(cid, String(lot.id)).first();
-  if (existing) return { ok: true, already: true, lot };
+  if (existing) return { ok: true, already: true, lot, queueId: existing.id };
 
   let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
   let wishlistId = wl?.id;
@@ -5475,23 +6086,187 @@ export async function addLotToClient(env, clientId, lotId, session) {
   } catch (e) { /* card just renders without a landed figure */ }
   lot._strength = "Manual";
 
-  await env.DB.prepare(
+  const ins = await env.DB.prepare(
     "INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token, reason) VALUES (?, ?, ?, ?, 'pending', ?, 'Added by staff from auction search')"
   ).bind(wishlistId, cid, String(lot.id), JSON.stringify(lot), randomToken()).run();
   try { await env.DB.prepare("INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)").bind(wishlistId, String(lot.id)).run(); } catch (e) {}
-  return { ok: true, lot };
+  return { ok: true, lot, queueId: ins.meta?.last_row_id };
+}
+
+// Bulk form of addLotToClient for the send-selected flow: queue every lot for
+// one client and, in send mode, approve them via the same bulk-decision path
+// so the client receives ONE combined email. One failure never stops the rest.
+export async function addLotsToClient(env, clientId, lotIds, session) {
+  const ids = [...new Set((lotIds || []).map(String).filter(Boolean))].slice(0, 40);
+  const queued = [];
+  let failed = 0;
+  for (const lotId of ids) {
+    try {
+      const r = await addLotToClient(env, clientId, lotId, session);
+      if (r.ok && r.queueId) queued.push(Number(r.queueId));
+      else if (!r.ok) failed++;
+    } catch (e) {
+      console.error(`addLotsToClient failed (lot ${lotId}):`, e.message);
+      failed++;
+    }
+  }
+  return { queued, failed, requested: ids.length };
 }
 
 // A live-auction search result on the admin client page, with an "Add to queue"
 // action that files it as a pending match for this client. qsBack preserves the
 // current search so the result list survives the add.
-function staffFindCard(lot, clientId, firstName, qsBack) {
+// Which of these lot ids are already in a client's queue, and in what state.
+// Read-only; returns Map(lot_id -> queue status). Used to badge search-result
+// cards so staff can see at a glance what has already been queued or sent.
+async function lotQueueStates(env, clientId, lotIds) {
+  const out = new Map();
+  const ids = [...new Set((lotIds || []).map((x) => String(x)).filter(Boolean))].slice(0, 100);
+  if (!ids.length || !clientId) return out;
+  try {
+    const marks = ids.map(() => "?").join(",");
+    const rows = (await env.DB.prepare(
+      `SELECT lot_id, status FROM queue WHERE client_id = ? AND lot_id IN (${marks})`
+    ).bind(Number(clientId), ...ids).all()).results || [];
+    for (const r of rows) out.set(String(r.lot_id), r.status);
+  } catch (e) { console.error("lotQueueStates failed:", e.message); }
+  return out;
+}
+
+// Badge for a lot that is already in a client's queue. `status` is the queue
+// row's status; anything already actioned reads as Sent, a live row as Queued.
+function queueStateBadge(status, name) {
+  if (!status) return "";
+  const label = status === "sent" ? `Sent${name ? " to " + esc(name) : ""}`
+    : status === "pending" ? `Queued${name ? " for " + esc(name) : ""}`
+    : "";
+  if (!label) return "";
+  const tone = status === "sent" ? "background:rgba(31,122,77,.14);color:#1F7A4D" : "background:var(--gold-tint);color:var(--gold-txt)";
+  return `<span class="qbadge" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;${tone}">&#10003; ${label}</span>`;
+}
+
+// Sticky bottom send bar for the auction-search surfaces (client-page find
+// results and the Auctions live tab). Slides up when 1+ result cards are
+// selected. "Send N to [name]" queues the lots and approves them through the
+// bulk-decision path (ONE combined email); "Queue for review" just queues.
+// opts.mode: "fixed" (client known: clientId/clientName/hasContact) or
+// "picker" (opts.clients = [{id, name, hasContact}]). opts.back: no-JS return.
+function staffSendBar(opts = {}) {
+  const picker = opts.mode === "picker";
+  const options = picker
+    ? (opts.clients || []).map((c) => `<option value="${c.id}" data-contact="${c.hasContact ? 1 : 0}">${esc(c.name)}</option>`).join("")
+    : "";
+  return `<div class="sendbar" id="sendBar" data-client="${opts.clientId || ""}" data-name="${esc(opts.clientName || "")}" data-contact="${opts.hasContact ? 1 : 0}">
+    <span class="sb-count"><b id="sbN">0</b> selected</span>
+    ${picker ? `<select id="sbClient" aria-label="Send the selected cars to which client"><option value="">Choose client…</option>${options}</select>` : ""}
+    <button type="button" class="btn-gold" id="sbSend">Send to ${esc(opts.clientName || "client")}</button>
+    <button type="button" class="btn-dark" id="sbQueue">Queue for review</button>
+  </div>
+  <style>
+    .selcard{cursor:pointer;position:relative}
+    .selcard .fsel{position:absolute;top:10px;right:10px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
+    .acard.selcard .fsel{top:auto;bottom:11px;right:11px}
+    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:13px}
+    .qbadge-js{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;background:var(--gold-tint);color:var(--gold-txt)}
+    .qbadge-js.sent{background:rgba(31,122,77,.14);color:#1F7A4D}
+    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:#15181D;color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:10px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
+    .sendbar.show{transform:translate(-50%,0)}
+    .sendbar .sb-count{font-size:13px;font-weight:600;color:#cfd3d8;white-space:nowrap}
+    .sendbar .sb-count b{color:#fff}
+    .sendbar select{background:#1F242B;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:9px 30px 9px 11px;font-size:13.5px;max-width:180px}
+    .sendbar button{min-height:44px}
+    @media(max-width:640px){.sendbar{left:8px;right:8px;transform:translate(0,130%);max-width:none;margin-bottom:8px}.sendbar.show{transform:translate(0,0)}}
+  </style>
+  <script>(function(){
+    var bar=document.getElementById('sendBar'); if(!bar)return;
+    function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}alert(m);}
+    function sel(){return [].slice.call(document.querySelectorAll('.selcard.picked'));}
+    var pickerEl=document.getElementById('sbClient');
+    if(pickerEl){try{var last=sessionStorage.getItem('jdmLastClient');if(last&&pickerEl.querySelector('option[value="'+last+'"]'))pickerEl.value=last;}catch(e){}}
+    function clientName(){ if(!pickerEl)return bar.getAttribute('data-name')||''; var o=pickerEl.options[pickerEl.selectedIndex]; return (o&&o.value)?o.textContent:''; }
+    function clientId(){ return pickerEl?pickerEl.value:(bar.getAttribute('data-client')||''); }
+    function hasContact(){ if(!pickerEl)return bar.getAttribute('data-contact')==='1'; var o=pickerEl.options[pickerEl.selectedIndex]; return !!(o&&o.getAttribute('data-contact')==='1'); }
+    function firstName(n){return String(n||'').trim().split(' ')[0]||'client';}
+    function upd(){
+      var n=sel().length;
+      var el=document.getElementById('sbN'); if(el)el.textContent=n;
+      var send=document.getElementById('sbSend');
+      if(send&&!send.disabled)send.textContent='Send '+n+' to '+firstName(clientName()||'client');
+      bar.classList.toggle('show',n>0);
+    }
+    if(pickerEl)pickerEl.addEventListener('change',upd);
+    document.addEventListener('click',function(e){
+      var card=e.target&&e.target.closest?e.target.closest('.selcard'):null;
+      if(!card)return;
+      if(e.target.closest('a,button,form,select')&&!e.target.classList.contains('fsel'))return;
+      var cb=card.querySelector('.fsel'); if(!cb||cb.disabled)return;
+      if(e.target!==cb)cb.checked=!cb.checked;
+      card.classList.toggle('picked',cb.checked);
+      upd();
+    });
+    function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
+    function go(send){
+      var cards=sel();
+      if(!cards.length){toast('Select at least one car first',true);return;}
+      var cid=clientId();
+      if(!cid){toast('Choose a client first',true);if(pickerEl)pickerEl.focus();return;}
+      var name=firstName(clientName());
+      var n=cards.length;
+      if(send){
+        var msg=hasContact()
+          ? 'This emails '+n+' car'+(n===1?'':'s')+' to '+name+' in one message.'
+          : name+' has no email or WhatsApp on file, so sending will mark these handled but nothing will reach them. Continue?';
+        conf(msg,function(){run(true,cards,cid,name);});
+        return;
+      }
+      run(false,cards,cid,name);
+    }
+    function run(send,cards,cid,name){
+      var body=new URLSearchParams();
+      body.set('client_id',cid); body.set('do',send?'send':'queue'); body.set('ajax','1');
+      cards.forEach(function(c){body.append('lot_ids',c.getAttribute('data-lot')||'');});
+      var sendBtn=document.getElementById('sbSend'),qBtn=document.getElementById('sbQueue');
+      var busy=send?sendBtn:qBtn; var orig=busy?busy.textContent:'';
+      if(busy)busy.textContent=send?'Sending…':'Queueing…';
+      if(sendBtn)sendBtn.disabled=true; if(qBtn)qBtn.disabled=true;
+      fetch('/client/find/bulk',{method:'POST',body:body}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){
+        if(!j||!j.ok)throw 0;
+        try{sessionStorage.setItem('jdmLastClient',cid);}catch(e){}
+        cards.forEach(function(c){
+          c.classList.remove('picked');
+          var cb=c.querySelector('.fsel'); if(cb){cb.checked=false;cb.disabled=true;}
+          var f2=c.querySelector('form[action="/client/find"]');
+          var badge=document.createElement('span');
+          badge.className='qbadge-js'+(send?' sent':'');
+          badge.textContent=(send?'Sent to ':'Queued for ')+name;
+          if(f2&&f2.parentNode)f2.parentNode.replaceChild(badge,f2);
+        });
+        if(sendBtn)sendBtn.disabled=false; if(qBtn){qBtn.disabled=false;qBtn.textContent='Queue for review';}
+        toast(send?('Sent '+j.queued+' to '+name+' in one combined message'):('Queued '+j.queued+' for review'));
+        upd();
+      }).catch(function(){
+        if(sendBtn){sendBtn.disabled=false;}
+        if(qBtn){qBtn.disabled=false;}
+        if(busy)busy.textContent=orig;
+        toast('Could not '+(send?'send':'queue')+' those cars, please try again',true);
+        upd();
+      });
+    }
+    var sb=document.getElementById('sbSend'); if(sb)sb.addEventListener('click',function(){go(true);});
+    var qb=document.getElementById('sbQueue'); if(qb)qb.addEventListener('click',function(){go(false);});
+  })();</script>`;
+}
+
+function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
+  // Selectable for the bulk send bar unless it has already gone to the client.
+  const selectable = queueState !== "sent";
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
   const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
-  return `<div class="mcard">
+  return `<div class="mcard${selectable ? " selcard" : ""}"${selectable ? ` data-lot="${esc(lot.id)}"` : ""}>
+    ${selectable ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
@@ -5506,7 +6281,9 @@ function staffFindCard(lot, clientId, firstName, qsBack) {
     ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
-      <form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>
+      ${(queueState === "pending" || queueState === "sent")
+        ? queueStateBadge(queueState, firstName)
+        : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
     </div>
   </div>`;
 }
@@ -5593,21 +6370,58 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   }
 
   const acc = accessScope(session);
-  const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+  const cstmt = env.DB.prepare(`SELECT id, name, email, whatsapp FROM clients c WHERE ${acc.sql} ORDER BY name`);
   const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
 
   const page = Math.max(1, parseInt(sp.page, 10) || 1);
   const { lots, hasMore } = await searchLots(env, { ...sp, page });
   const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
-  const pickerFor = (lot) => clients.length
-    ? `<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
-    : `<span class="help">Add a client first to queue cars.</span>`;
+
+  // Which of these lots are already queued for one of this session's clients?
+  // A Queued / Sent badge on the card stops the add-reload-duplicate loop.
+  const queuedByLot = new Map();
+  try {
+    const ids = [...new Set(lots.map((l) => String(l.id)).filter(Boolean))].slice(0, 100);
+    if (ids.length) {
+      const marks = ids.map(() => "?").join(",");
+      const qstmt = env.DB.prepare(
+        `SELECT q.lot_id, q.status, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.lot_id IN (${marks}) AND ${acc.sql}`
+      ).bind(...ids, ...acc.binds);
+      const rows = (await qstmt.all()).results || [];
+      for (const r of rows) {
+        if (!queuedByLot.has(String(r.lot_id)) || r.status === "sent") queuedByLot.set(String(r.lot_id), r);
+      }
+    }
+  } catch (e) { console.error("auction queue badges failed:", e.message); }
+
+  const pickerFor = (lot) => {
+    const q = queuedByLot.get(String(lot.id));
+    const badge = (q && (q.status === "pending" || q.status === "sent"))
+      ? queueStateBadge(q.status, String(q.client_name || "").trim().split(/\s+/)[0])
+      : "";
+    return clients.length
+      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
+      : `<span class="help">Add a client first to queue cars.</span>`;
+  };
+
+  // Remember the last client a lot was added to (this tab only, client-side) and
+  // default every picker to them, so queueing a run of cars is one tap each.
+  const lastClientScript = `<script>(function(){var KEY='jdmLastClient';
+    document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.classList||!f.classList.contains('ac-picker'))return;var s=f.querySelector('select[name=client_id]');if(s&&s.value){try{sessionStorage.setItem(KEY,s.value);}catch(err){}}},true);
+    try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
+  })();</script>`;
 
   const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
   let grid;
   if (lots.length) {
-    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+    // Cards are selectable (checkbox + tap outside the links) so a run of cars
+    // can go to one client via the sticky send bar in one combined email.
+    const selectable = (lot) => {
+      const q = queuedByLot.get(String(lot.id));
+      return clients.length > 0 && !(q && q.status === "sent");
+    };
+    grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=", select: selectable(lot) })).join("")}</div>`;
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
@@ -5618,7 +6432,10 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
     : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
-  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+  const sendBar = clients.length
+    ? staffSendBar({ mode: "picker", clients: clients.map((c) => ({ id: c.id, name: c.name, hasContact: !!(c.email || c.whatsapp) })) })
+    : "";
+  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).
@@ -5747,9 +6564,9 @@ export async function portalPage(env, session, opts = {}) {
         <div><label>Model <span class="opt">(pick or type)</span>${modelField("pl-models")}</label></div>
         <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
         <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
-        <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="10000" placeholder="3,000,000"></label></div>
-        <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="1000" placeholder="100,000"></label></div>
-        <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="0.5" placeholder="e.g. 4"></label></div>
+        <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="any" placeholder="3,000,000"></label></div>
+        <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="any" placeholder="100,000"></label></div>
+        <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="any" placeholder="e.g. 4"></label></div>
         <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
@@ -5918,8 +6735,10 @@ export async function revokeClientPortal(env, clientId, session) {
   // portal_revoked = 1 is the durable staff veto: without it, Google sign-in
   // and request-form self-signup would silently re-enable this client.
   // Bump session_ver so any cookie the client still holds stops validating now.
-  await env.DB.prepare(
-    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?"
-  ).bind(cid).run();
+  // Falls back to the legacy update if migration 0010 is not applied yet.
+  await runWithSessionVerFallback(env,
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
+    [cid], "revokeClientPortal");
 }
 // (Phase 5 design pass touched only presentation code above.)

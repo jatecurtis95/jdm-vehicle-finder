@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -136,7 +136,7 @@ async function touchLastSeen(env, role, id) {
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
-    ctx.waitUntil((async () => { await expirePast(env); await runMatcher(env); })());
+    ctx.waitUntil((async () => { await expirePast(env); await autoFollowUps(env); await runMatcher(env); })());
   },
 
   // -------- HTTP routes --------
@@ -314,7 +314,7 @@ export default {
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
           await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
-          return doc(loginPage({ locked: true, googleEnabled }), 429);
+          return doc(loginPage({ locked: true, googleEnabled, email: String(email || "") }), 429);
         }
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
@@ -324,7 +324,9 @@ export default {
         }
         await recordLoginFail(env, ip, email);
         await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
-        return doc(loginPage({ error: true, googleEnabled }), 401);
+        // Re-render with the submitted email preserved so a typo'd password
+        // never costs re-typing the address.
+        return doc(loginPage({ error: true, googleEnabled, email: String(email || "") }), 401);
       }
       const existing = await getSession(request, url, env);
       if (existing) return Response.redirect(here(homeFor(existing.role)), 303);
@@ -378,22 +380,32 @@ export default {
         return null;
       };
       if (request.method === "POST") {
-        const form = await request.formData();
-        const token = form.get("token");
-        const pw = String(form.get("password") || "");
-        const found = await resolveInvite(token);
-        if (!found) return doc(setPasswordPage({ invalid: true }));
-        if (pw !== String(form.get("confirm") || "")) {
-          return doc(setPasswordPage({ token, name: found.person.name, error: "Those passwords don't match." }));
+        // Fully contained: a thrown handler here must re-render the branded
+        // page with an error, never surface a raw Worker exception to a
+        // customer holding their very first link from us.
+        let token = null, name = "";
+        try {
+          const form = await request.formData();
+          token = form.get("token");
+          const pw = String(form.get("password") || "");
+          const found = await resolveInvite(token);
+          if (!found) return doc(setPasswordPage({ invalid: true }));
+          name = found.person.name;
+          if (pw !== String(form.get("confirm") || "")) {
+            return doc(setPasswordPage({ token, name, error: "Those passwords don't match." }));
+          }
+          const r = found.kind === "agent"
+            ? await setAgentPassword(env, token, pw)
+            : await setClientPassword(env, token, pw);
+          if (r.ok) {
+            const role = found.kind === "agent" ? "agent" : "client";
+            return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
+          }
+          return doc(setPasswordPage({ token, name, error: r.error }));
+        } catch (e) {
+          console.error("/set-password POST failed:", e.message);
+          return doc(setPasswordPage({ token, name, error: "Sorry, something went wrong on our side. Please try the link again, and contact us if it keeps happening." }), 500);
         }
-        const r = found.kind === "agent"
-          ? await setAgentPassword(env, token, pw)
-          : await setClientPassword(env, token, pw);
-        if (r.ok) {
-          const role = found.kind === "agent" ? "agent" : "client";
-          return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
-        }
-        return doc(setPasswordPage({ token, name: found.person.name, error: r.error }));
       }
       const found = await resolveInvite(url.searchParams.get("token"));
       return doc(found ? setPasswordPage({ token: url.searchParams.get("token"), name: found.person.name }) : setPasswordPage({ invalid: true }));
@@ -445,6 +457,24 @@ export default {
     }
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
+    // Append a one-shot outcome message to a redirect destination. The admin
+    // shell renders ?notice= as a success toast and ?notice_err= as an error
+    // toast, then cleans the URL, so no quick-action POST finishes silently.
+    const withNotice = (dest, msg, isErr = false) =>
+      msg ? dest + (dest.includes("?") ? "&" : "?") + (isErr ? "notice_err=" : "notice=") + encodeURIComponent(msg) : dest;
+    // Run a quick-action handler, then redirect with a visible outcome. A
+    // thrown handler is contained here: the user lands back on the page they
+    // came from with an error toast instead of a blank Worker error page.
+    // `dest` may be a (possibly async) function when it depends on the outcome.
+    const act = async (fn, dest, okMsg) => {
+      let failed = false;
+      try { await fn(); } catch (e) { failed = true; console.error(`${path} failed:`, e.message); }
+      const d = typeof dest === "function" ? await dest() : dest;
+      return Response.redirect(here(failed
+        ? withNotice(d, "Sorry, that did not save. Please try again.", true)
+        : withNotice(d, okMsg)), 303);
+    };
+
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
       if (view === "client") {
@@ -464,9 +494,11 @@ export default {
         }));
       }
       if (view === "lot") {
+        const retRaw = url.searchParams.get("ret") || "";
         return doc(await lotDetailPage(env, url.searchParams.get("id"), session, {
           aiEnabled: !!env.ANTHROPIC_API_KEY,
           err: url.searchParams.get("err"),
+          ret: retRaw.startsWith("/admin") ? retRaw : "",
         }));
       }
       if (view === "auctionlot") {
@@ -475,11 +507,32 @@ export default {
       if (view === "request") {
         return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
           saved: url.searchParams.get("saved") || "",
+          // Typed content preserved from a failed note / follow-up post.
+          note: url.searchParams.get("note") || "",
+          naDate: url.searchParams.get("na_date") || "",
+          naNote: url.searchParams.get("na_note") || "",
         }));
       }
       const adminOpts = { err: url.searchParams.get("err") };
+      if (view === "matches") {
+        const sp = url.searchParams;
+        adminOpts.matchQuery = {
+          f: sp.get("f") || "", soon: sp.get("soon") || "",
+          group: sp.get("group") || "", shown: sp.get("shown") || "",
+        };
+      }
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
       if (view === "clients") adminOpts.showArchived = url.searchParams.get("archived") === "1";
+      // Re-rendered form values after a validation error (v_ prefixed params),
+      // so a failed post never wipes what the user typed.
+      if (view === "intake" || view === "agents") {
+        const sp = url.searchParams;
+        adminOpts.vals = {
+          name: sp.get("v_name") || "", email: sp.get("v_email") || "",
+          whatsapp: sp.get("v_whatsapp") || "", state: sp.get("v_state") || "",
+          company: sp.get("v_company") || "",
+        };
+      }
       if (view === "auctions") {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
@@ -504,60 +557,94 @@ export default {
     // Move a request along the pipeline (Requests view + request detail).
     if (path === "/request/status" && request.method === "POST") {
       const f = await request.formData();
-      await updateRequestStatus(env, f.get("id"), f.get("status"), session);
-      return Response.redirect(here(crmBack(f)), 303);
+      return act(() => updateRequestStatus(env, f.get("id"), f.get("status"), session), crmBack(f), "Status updated");
     }
 
     // Add a free-text note to a request's timeline.
     if (path === "/request/note" && request.method === "POST") {
       const f = await request.formData();
-      await addRequestNote(env, f.get("id"), f.get("note"), session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      try {
+        await addRequestNote(env, f.get("id"), f.get("note"), session);
+        return Response.redirect(here(withNotice(dest, "Note added")), 303);
+      } catch (e) {
+        // Carry the typed note back so a failed post never wipes it.
+        console.error("/request/note failed:", e.message);
+        const keep = dest + (dest.includes("?") ? "&" : "?") + "note=" + encodeURIComponent(String(f.get("note") || "").slice(0, 500));
+        return Response.redirect(here(withNotice(keep, "Could not save the note. Your text is kept in the box.", true)), 303);
+      }
     }
 
     // (Re)assign a request's owner (admin only).
     if (path === "/request/owner" && request.method === "POST") {
       const f = await request.formData();
-      if (session.role === "admin") await assignRequestOwner(env, f.get("id"), f.get("owner_id"), session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      if (session.role !== "admin") return Response.redirect(here(dest), 303);
+      return act(() => assignRequestOwner(env, f.get("id"), f.get("owner_id"), session), dest, "Owner updated");
     }
 
     // Schedule / clear a request's next follow-up.
     if (path === "/request/next-action" && request.method === "POST") {
       const f = await request.formData();
-      await setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: f.get("clear") === "1" }, session);
-      return Response.redirect(here(crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`)), 303);
+      const dest = crmBack(f, `/admin?view=request&id=${Number(f.get("id")) || ""}`);
+      const clearing = f.get("clear") === "1";
+      try {
+        await setNextAction(env, f.get("id"), { date: f.get("next_action_date"), note: f.get("next_action_note"), clear: clearing }, session);
+        return Response.redirect(here(withNotice(dest, clearing ? "Follow-up cleared" : "Follow-up saved")), 303);
+      } catch (e) {
+        console.error("/request/next-action failed:", e.message);
+        const sep = dest.includes("?") ? "&" : "?";
+        const keep = dest + sep + "na_date=" + encodeURIComponent(String(f.get("next_action_date") || "")) + "&na_note=" + encodeURIComponent(String(f.get("next_action_note") || "").slice(0, 160));
+        return Response.redirect(here(withNotice(keep, "Could not save the follow-up. Your entry is kept in the form.", true)), 303);
+      }
     }
 
     // Tasks: create / toggle done / delete.
     if (path === "/task/create" && request.method === "POST") {
       const f = await request.formData();
-      await createTask(env, f, session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => createTask(env, f, session), crmBack(f, "/admin?view=tasks"), "Task created");
     }
     if (path === "/task/toggle" && request.method === "POST") {
       const f = await request.formData();
-      await toggleTask(env, f.get("id"), session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => toggleTask(env, f.get("id"), session), crmBack(f, "/admin?view=tasks"), "Task updated");
     }
     if (path === "/task/delete" && request.method === "POST") {
       const f = await request.formData();
-      await deleteTask(env, f.get("id"), session);
-      return Response.redirect(here(crmBack(f, "/admin?view=tasks")), 303);
+      return act(() => deleteTask(env, f.get("id"), session), crmBack(f, "/admin?view=tasks"), "Task deleted");
     }
 
     // Record a client's response to a sent vehicle (interested / passed).
     if (path === "/match/response" && request.method === "POST") {
       const f = await request.formData();
-      await setMatchResponse(env, f.get("id"), f.get("response"), session);
-      return Response.redirect(here(crmBack(f)), 303);
+      return act(() => setMatchResponse(env, f.get("id"), f.get("response"), session), crmBack(f), "Response recorded");
     }
 
     // Soft-archive / restore a customer.
     if ((path === "/client/archive" || path === "/client/unarchive") && request.method === "POST") {
       const f = await request.formData();
-      await archiveClient(env, f.get("id"), path === "/client/archive", session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const archiving = path === "/client/archive";
+      return act(() => archiveClient(env, f.get("id"), archiving, session), "/admin?view=clients",
+        archiving ? "Client archived" : "Client restored");
+    }
+
+    // Log a contact-button tap (WhatsApp / Call / Email) as an activity event.
+    // Fired as a beacon from the drawer and client-page quick actions; the
+    // response is ignored by the caller.
+    if (path === "/client/contact-log" && request.method === "POST") {
+      const f = await request.formData();
+      try { await logContactTap(env, f.get("id"), String(f.get("channel") || ""), session); } catch (e) { console.error("contact-log failed:", e.message); }
+      return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } });
+    }
+
+    // HTML fragment: the next page of match cards for the current filters (the
+    // Matches "Load more" button). Session-scoped exactly like the full view.
+    if (path === "/admin/matches/chunk") {
+      const sp = url.searchParams;
+      const html = await matchesChunk(env, session, {
+        f: sp.get("f") || "", soon: sp.get("soon") || "", group: sp.get("group") || "",
+        offset: sp.get("offset") || "0",
+      });
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
     // Customer drawer fragment (HTML partial loaded by the admin shell's drawer).
@@ -624,26 +711,37 @@ export default {
       const f = await request.formData();
       const action = f.get("action");
       const ids = f.getAll("ids").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
-      if (["approve", "reject"].includes(action) && ids.length) {
-        await applyBulkDecisions(env, action, ids, session);
-      } else if (action === "delete" && ids.length) {
-        await bulkDeleteMatches(env, ids, session);
-      }
       const back = f.get("back");
       const dest = (typeof back === "string" && back.startsWith("/admin")) ? back : "/admin?view=matches";
-      return Response.redirect(here(dest), 303);
+      if (!ids.length || !["approve", "reject", "delete"].includes(action)) {
+        return Response.redirect(here(withNotice(dest, "Select at least one match first", true)), 303);
+      }
+      const n = ids.length, plural = n === 1 ? "match" : "matches";
+      if (action === "delete") {
+        return act(() => bulkDeleteMatches(env, ids, session), dest, `Deleted ${n} ${plural}`);
+      }
+      return act(() => applyBulkDecisions(env, action, ids, session), dest,
+        action === "approve" ? `Sent ${n} ${plural} (one combined email per client)` : `Skipped ${n} ${plural}`);
     }
 
     if (path === "/client" && request.method === "POST") {
-      const r = await createClient(env, await request.formData(), session);
-      if (r.ok) return Response.redirect(here("/admin"), 303);
+      const f = await request.formData();
+      const r = await createClient(env, f, session);
+      if (r.ok) return Response.redirect(here(withNotice("/admin", "Client added")), 303);
       if (r.error === "duplicate") return Response.redirect(here(`/admin?view=client&id=${r.id}&dup=1`), 303);
-      return Response.redirect(here(`/admin?view=intake&err=${r.error}`), 303);
+      // Validation error: bounce back with the submitted values so nothing the
+      // user typed is lost.
+      const qs = new URLSearchParams({ view: "intake", err: r.error || "save" });
+      for (const k of ["name", "email", "whatsapp", "state"]) {
+        const v = String(f.get(k) || "").trim();
+        if (v) qs.set("v_" + k, v);
+      }
+      return Response.redirect(here(`/admin?${qs.toString()}`), 303);
     }
 
     if (path === "/client/delete" && request.method === "POST") {
-      await deleteClient(env, (await request.formData()).get("id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => deleteClient(env, id, session), "/admin?view=clients", "Client deleted");
     }
 
     // Edit a client's contact details (name, email, WhatsApp, state). Access and
@@ -677,18 +775,61 @@ export default {
       return Response.redirect(here(`${base}${q ? "&" + q : ""}#find`), 303);
     }
 
+    // Bulk add-and-send from the auction-search surfaces (client page find
+    // results + Auctions live tab): queue every selected lot for one client
+    // and, in send mode, approve them via the bulk-decision path so the client
+    // receives ONE combined email, not one per car.
+    if (path === "/client/find/bulk" && request.method === "POST") {
+      const f = await request.formData();
+      const cid = Number(f.get("client_id")) || 0;
+      const lotIds = f.getAll("lot_ids");
+      const send = f.get("do") === "send";
+      const ajax = f.get("ajax") === "1";
+      const backRaw = String(f.get("back") || "");
+      const dest = backRaw.startsWith("/admin") ? backRaw : `/admin?view=client&id=${cid}`;
+      const jsonRes = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+      const fail = (msg, status = 400) => ajax ? jsonRes({ ok: false, error: msg }, status) : Response.redirect(here(withNotice(dest, msg, true)), 303);
+      if (!cid) return fail("Choose a client first");
+      if (!lotIds.length) return fail("Select at least one car first");
+      try {
+        const r = await addLotsToClient(env, cid, lotIds, session);
+        if (!r.queued.length) return fail("Could not add those cars. Please try again.", 500);
+        if (send) await applyBulkDecisions(env, "approve", r.queued, session);
+        const n = r.queued.length;
+        const msg = send
+          ? `Sent ${n} car${n === 1 ? "" : "s"} in one combined message`
+          : `Queued ${n} car${n === 1 ? "" : "s"} for review`;
+        if (ajax) return jsonRes({ ok: true, queued: n, failed: r.failed, sent: send });
+        return Response.redirect(here(withNotice(dest, msg + (r.failed ? ` (${r.failed} failed)` : ""))), 303);
+      } catch (e) {
+        console.error("/client/find/bulk failed:", e.message);
+        return fail("Could not send those cars. Please try again.", 500);
+      }
+    }
+
     // Buyer portal access - enable + (re)send a set-password link, or revoke.
     // Owner/admin only (enforced inside the handlers).
     if (path === "/client/portal-invite" && request.method === "POST") {
       const id = (await request.formData()).get("id");
-      const r = await inviteClientPortal(env, id, session);
-      if (r.ok && r.token) await sendClientPortalInvite(env, r);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      const dest = `/admin?view=client&id=${Number(id) || ""}`;
+      try {
+        const r = await inviteClientPortal(env, id, session);
+        if (r.ok && r.token) {
+          await sendClientPortalInvite(env, r);
+          return Response.redirect(here(withNotice(dest, `Set-password link emailed to ${r.email}`)), 303);
+        }
+        const msg = r.error === "no-email"
+          ? "Add an email address for this client first, then invite them."
+          : "Could not send the portal invite. Please try again.";
+        return Response.redirect(here(withNotice(dest, msg, true)), 303);
+      } catch (e) {
+        console.error("/client/portal-invite failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not send the portal invite. Please try again.", true)), 303);
+      }
     }
     if (path === "/client/portal-revoke" && request.method === "POST") {
       const id = (await request.formData()).get("id");
-      await revokeClientPortal(env, id, session);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      return act(() => revokeClientPortal(env, id, session), `/admin?view=client&id=${Number(id) || ""}`, "Portal access revoked");
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
     // Admin only — membership is a paid feature; agents must never grant it.
@@ -696,41 +837,58 @@ export default {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       const id = f.get("id");
-      await setClientMember(env, id, f.get("member") === "1", session);
-      return Response.redirect(here(`/admin?view=client&id=${Number(id) || ""}`), 303);
+      const on = f.get("member") === "1";
+      return act(() => setClientMember(env, id, on, session), `/admin?view=client&id=${Number(id) || ""}`,
+        on ? "Member access granted" : "Member access removed");
     }
 
     // Allocate clients to agents - admin only.
     if (path === "/client/assign" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
-      await assignClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => assignClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Owner updated");
     }
     if (path === "/clients/bulk" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       // The "Delete selected" button posts do=delete; Apply uses the action select.
       const action = f.get("do") === "delete" ? "delete" : f.get("action");
-      await bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      const n = f.getAll("ids").length;
+      if (!n) return Response.redirect(here(withNotice("/admin?view=clients", "Tick at least one client first", true)), 303);
+      const plural = n === 1 ? "client" : "clients";
+      const okMsg = action === "delete" ? `Deleted ${n} ${plural}`
+        : action === "archive" ? `Archived ${n} ${plural}`
+        : action === "unarchive" ? `Restored ${n} ${plural}`
+        : action === "share" ? `Shared ${n} ${plural}`
+        : `Updated ${n} ${plural}`;
+      return act(() => bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session), "/admin?view=clients", okMsg);
     }
 
     if (path === "/wishlist" && request.method === "POST") {
       const f = await request.formData();
-      await createWishlist(env, f, undefined, session);
       const cid = f.get("client_id");
-      return Response.redirect(here(cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients"), 303);
+      const dest = cid ? `/admin?view=client&id=${cid}` : "/admin?view=clients";
+      try {
+        const r = await createWishlist(env, f, undefined, session);
+        if (r && r.ok) return Response.redirect(here(withNotice(dest, "Search added")), 303);
+        const msg = r && r.error === "term"
+          ? "Add at least a make, model, chassis code or grade keyword so the search has something to match on."
+          : "Could not add that search. Please try again.";
+        return Response.redirect(here(withNotice(dest, msg, true)), 303);
+      } catch (e) {
+        console.error("/wishlist failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not add that search. Please try again.", true)), 303);
+      }
     }
 
     if (path === "/wishlist/edit" && request.method === "POST") {
       const f = await request.formData();
-      await editWishlist(env, f, session);
       // Resolve the redirect target only if this session may actually see the
       // client, so a blocked edit never leaks a foreign client_id in the URL.
-      const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
-      const dest = (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
-      return Response.redirect(here(dest), 303);
+      return act(() => editWishlist(env, f, session), async () => {
+        const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
+        return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
+      }, "Search updated");
     }
 
     // Helper: a search's edits/toggle/delete should return to its client page.
@@ -742,63 +900,80 @@ export default {
     if (path === "/wishlist/toggle" && request.method === "POST") {
       const id = (await request.formData()).get("id");
       const dest = await searchClientDest(id);
-      await toggleWishlist(env, id, session);
-      return Response.redirect(here(dest), 303);
+      return act(() => toggleWishlist(env, id, session), dest, "Search updated");
     }
 
     if (path === "/wishlist/delete" && request.method === "POST") {
       const id = (await request.formData()).get("id");
       const dest = await searchClientDest(id); // resolve before the row is gone
-      await deleteWishlist(env, id, session);
-      return Response.redirect(here(dest), 303);
+      return act(() => deleteWishlist(env, id, session), dest, "Search deleted");
     }
 
     // Agent management - admin only.
     if (path === "/agent" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      const r = await createAgent(env, await request.formData());
-      if (r.ok && r.token) await sendInvite(env, r);
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const f = await request.formData();
+      try {
+        const r = await createAgent(env, f);
+        if (r && r.ok) {
+          if (r.token) await sendInvite(env, r);
+          return Response.redirect(here(withNotice("/admin?view=agents", "Agent added and invited")), 303);
+        }
+        // Keep the typed values on the re-render so the fix is one field, not
+        // the whole form again.
+        const qs = new URLSearchParams({ view: "agents" });
+        for (const k of ["name", "email", "company"]) {
+          const v = String(f.get(k) || "").trim();
+          if (v) qs.set("v_" + k, v);
+        }
+        const msg = r && r.error === "email already in use"
+          ? "That email is already an agent login. Use a different address."
+          : "Could not create the agent. Check the name and email.";
+        return Response.redirect(here(withNotice(`/admin?${qs.toString()}`, msg, true)), 303);
+      } catch (e) {
+        console.error("/agent failed:", e.message);
+        return Response.redirect(here(withNotice("/admin?view=agents", "Could not create the agent. Please try again.", true)), 303);
+      }
     }
     if (path === "/agent/invite" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      const r = await resendInvite(env, (await request.formData()).get("id"));
-      if (r) await sendInvite(env, r);
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(async () => {
+        const r = await resendInvite(env, id);
+        if (r) await sendInvite(env, r);
+      }, "/admin?view=agents", "Invite re-sent");
     }
     if (path === "/agent/alerts" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await toggleAgentAlerts(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => toggleAgentAlerts(env, id), "/admin?view=agents", "Alerts updated");
     }
     if (path === "/agent/toggle" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await toggleAgent(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => toggleAgent(env, id), "/admin?view=agents", "Agent updated");
     }
     if (path === "/agent/delete" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await deleteAgent(env, (await request.formData()).get("id"));
-      return Response.redirect(here("/admin?view=agents"), 303);
+      const id = (await request.formData()).get("id");
+      return act(() => deleteAgent(env, id), "/admin?view=agents", "Agent deleted, along with their clients and history");
     }
 
     // Settings - admin only.
     if (path === "/settings" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
-      await saveSettings(env, await request.formData());
-      return Response.redirect(here("/admin?view=settings"), 303);
+      const f = await request.formData();
+      return act(() => saveSettings(env, f), "/admin?view=settings", "Settings saved");
     }
 
     // Client sharing - owner or admin (enforced in the handlers).
     if (path === "/share" && request.method === "POST") {
       const f = await request.formData();
-      await shareClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => shareClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Client shared");
     }
     if (path === "/share/remove" && request.method === "POST") {
       const f = await request.formData();
-      await unshareClient(env, f.get("client_id"), f.get("agent_id"), session);
-      return Response.redirect(here("/admin?view=clients"), 303);
+      return act(() => unshareClient(env, f.get("client_id"), f.get("agent_id"), session), "/admin?view=clients", "Share removed");
     }
 
     return doc(notFoundPage(), 404);
