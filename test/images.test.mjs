@@ -29,10 +29,14 @@ test("a 2-image snapshot is [front, rear] — front is the cover, not the rear",
   assert.deepEqual(r.photos, ["front", "rear"]);
 });
 
-test("a 3-image snapshot still treats image[0] as the cover, not a sheet", () => {
-  const r = splitImages({ images: "front#rear#interior" });
-  assert.equal(r.sheet, null);
+test("a 3-image snapshot is [sheet, front, rear] — the sheet is stripped", () => {
+  // Live-feed sampling (July 2026): from 3 images up the fuller set has landed
+  // and image[0] is the inspection sheet. Leaving it in place emailed clients
+  // the Japanese grading sheet as the hero photo.
+  const r = splitImages({ images: "s#front#rear" });
+  assert.equal(r.sheet, "s");
   assert.equal(r.photos[0], "front");
+  assert.ok(!r.photos.includes("s"));
 });
 
 test("a full set (4+ images) with no AI still strips the leading sheet", () => {

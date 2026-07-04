@@ -71,6 +71,33 @@ test("searchLots filters on the auction house", async () => {
   assert.match(seen[0], /UPPER\(auction\) LIKE '%USS OSAKA%'/);
 });
 
+// The same two matching rules buildSql carries (RHD standard, trim-column
+// match) must also hold on the member search path. scoring.test.mjs asserts
+// them on buildSql; these mirror that on searchLots, which builds and runs its
+// own SQL rather than returning it.
+test("searchLots excludes left-hand-drive lots (RHD as standard)", async () => {
+  const seen = sqlStub();
+  await searchLots(env(), { make: "TOYOTA" });
+  assert.match(seen[0], /lhdrive IS NULL OR lhdrive <> 1/);
+});
+
+test("searchLots matches the model term against the trim column too (variant searches)", async () => {
+  // Feed models are broad family names ("S CLASS"); the variant ("S400") lives
+  // in the trim/grade string. A variant search must reach both columns.
+  const seen = sqlStub();
+  await searchLots(env(), { model: "S400" });
+  assert.match(seen[0], /\(UPPER\(model_name\) LIKE '%S400%' OR UPPER\(grade\) LIKE '%S400%'\)/);
+});
+
+test("searchLots escapes a maker so quotes cannot break out of the literal", async () => {
+  const seen = sqlStub();
+  await searchLots(env(), { make: "O'Brien" });
+  assert.ok(!/LIKE '%O'BRIEN%'/.test(seen[0]), "raw single quote must not survive");
+  // The maker is split on its first word, so the escaped literal is the leading
+  // token; confirm the apostrophe was doubled, not dropped.
+  assert.match(seen[0], /LIKE '%O''BRIEN%'/, "single quote is doubled into a safe literal");
+});
+
 test("distinctHouses returns the sorted, de-duped list from the feed", async () => {
   globalThis.fetch = async () => ({
     ok: true, status: 200,

@@ -15,6 +15,11 @@ export function buildSql(w) {
   // Only lots whose auction is still in the future.
   where.push("auction_date >= NOW()");
 
+  // RHD as standard: Australia-bound imports must be right-hand drive, so
+  // left-hand-drive lots (lhdrive = 1) never match. The feed marks RHD as '0'
+  // (or leaves the field empty), both of which pass this test.
+  where.push("(lhdrive IS NULL OR lhdrive <> 1)");
+
   if (w.marka_name) {
     // Best-match on the primary brand word so "Mercedes" / "Mercedes-Benz" both
     // catch the feed's "MERCEDES BENZ" AND "MERCEDES AMG" (where cars like the
@@ -23,7 +28,12 @@ export function buildSql(w) {
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   if (w.model_name) {
-    where.push(`UPPER(model_name) LIKE '%${sqlLike(w.model_name).toUpperCase()}%'`);
+    // Match the model term against the trim/grade column too. Feed models are
+    // broad family names ("S CLASS" covers every variant), so a wishlist for a
+    // specific variant ("S400", "GT-R NISMO") lives in the feed's `grade` trim
+    // string, not model_name. OR-ing keeps broad terms working unchanged.
+    const md = sqlLike(w.model_name).toUpperCase();
+    where.push(`(UPPER(model_name) LIKE '%${md}%' OR UPPER(grade) LIKE '%${md}%')`);
   }
   const yearMin = sqlInt(w.year_min);
   if (yearMin !== null) where.push(`year >= ${yearMin}`);
@@ -83,7 +93,7 @@ export function scoreMatch(lot, w) {
 // Bucket a score into a labelled strength with its brand colour.
 export function strengthFor(score) {
   if (score >= 1.3) return { label: "Strong", color: "#46B17A" };
-  if (score >= 0.6) return { label: "Good", color: "#CAA34C" };
+  if (score >= 0.6) return { label: "Good", color: "#C98A00" };
   return { label: "Possible", color: "#B6B9BC" };
 }
 
@@ -131,7 +141,7 @@ export async function runWishlist(env, wishlist) {
   if (room <= 0) return [];
   const take = fresh.slice(0, room);
 
-  // Estimate landed cost up front so it's snapshotted into lot_json — the admin
+  // Estimate landed cost up front so it's snapshotted into lot_json; the admin
   // Matches view then reuses it instead of re-calling the calculator per load.
   await attachLanded(env, take.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
   // Tag watch-only "lead" matches: they surface for a follow-up call but the

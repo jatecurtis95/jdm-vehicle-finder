@@ -49,6 +49,30 @@ test("updateClient requires at least one contact channel", async () => {
   assert.equal(r.error, "contact");
 });
 
+test("createClient stores a valid category and defaults unknown values to private", async () => {
+  const env = makeEnv();
+  const dealer = await seed(env, { name: "Trade Co", email: "trade@example.com", category: "dealer" });
+  let row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(dealer).first();
+  assert.equal(row.category, "dealer");
+  const odd = await seed(env, { name: "Odd One", email: "odd@example.com", category: "wholesaler" });
+  row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(odd).first();
+  assert.equal(row.category, "private", "unknown category falls back to private");
+});
+
+test("updateClient changes the category; a form without the field keeps what's stored", async () => {
+  const env = makeEnv();
+  const id = await seed(env, { name: "Flip", email: "flip@example.com" });
+  let r = await updateClient(env, fd({ id, name: "Flip", email: "flip@example.com", category: "dealer" }), ADMIN);
+  assert.equal(r.ok, true);
+  let row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(id).first();
+  assert.equal(row.category, "dealer");
+  // A caller that predates categories (no field at all) must not reset it.
+  r = await updateClient(env, fd({ id, name: "Flip", email: "flip@example.com" }), ADMIN);
+  assert.equal(r.ok, true);
+  row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(id).first();
+  assert.equal(row.category, "dealer", "category survives an edit that omits the field");
+});
+
 test("updateClient lets you keep the same email (self-match is not a duplicate)", async () => {
   const env = makeEnv();
   const id = await seed(env, { name: "Same", email: "same@example.com" });

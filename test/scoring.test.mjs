@@ -52,6 +52,18 @@ test("buildSql only queries upcoming auctions, applies maker/year/price, orders 
   assert.match(sql, /ORDER BY auction_date ASC LIMIT 25/);
 });
 
+test("buildSql excludes left-hand-drive lots (RHD as standard)", () => {
+  const sql = buildSql({ marka_name: "TOYOTA" });
+  assert.match(sql, /lhdrive IS NULL OR lhdrive <> 1/);
+});
+
+test("buildSql matches the model term against the trim column too (variant searches)", () => {
+  // Feed models are broad family names ("S CLASS"); the variant ("S400") lives
+  // in the trim/grade string. A variant search must reach both columns.
+  const sql = buildSql({ model_name: "S400" });
+  assert.match(sql, /\(UPPER\(model_name\) LIKE '%S400%' OR UPPER\(grade\) LIKE '%S400%'\)/);
+});
+
 test("buildSql escapes a maker so quotes cannot break out of the literal", () => {
   const sql = buildSql({ marka_name: "O'Brien" });
   assert.ok(!/LIKE '%O'BRIEN%'/.test(sql), "raw single quote must not survive");

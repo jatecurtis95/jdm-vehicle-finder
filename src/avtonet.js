@@ -128,13 +128,14 @@ export function splitImages(lot) {
   const ai = lot && lot._sheet;
   const inRange = (n) => Number.isInteger(n) && n >= 0 && n < bases.length;
 
-  // The auction house's initial upload is just [front, rear] (sometimes a third
-  // interior shot) — the inspection sheet only arrives later, as part of a fuller
-  // set. So image[0] is the FRONT photo on those small snapshots, not a sheet.
-  // Blindly treating it as the sheet dropped the front and showed the REAR as the
-  // cover. Only fall back to the "first image is the sheet" convention once the
-  // set is large enough to plausibly contain one; trust the AI's index otherwise.
-  const MIN_IMAGES_FOR_SHEET = 4;
+  // The auction house's initial upload is just [front, rear] — the inspection
+  // sheet only arrives later, with a fuller set. So image[0] is the FRONT photo
+  // on a 2-image snapshot, not a sheet; blindly treating it as one dropped the
+  // front and showed the REAR as the cover. From 3 images up, live-feed sampling
+  // (July 2026) shows the set is [sheet, front, rear, ...] — a threshold of 4
+  // here was emailing clients the inspection sheet as the hero photo on 3-image
+  // lots. Trust the AI's index when present; the convention otherwise.
+  const MIN_IMAGES_FOR_SHEET = 3;
 
   let sheetIdx = -1;
   if (ai && inRange(ai.sheet_index)) sheetIdx = ai.sheet_index;          // AI-identified
@@ -168,14 +169,23 @@ export function imageUrls(lot) {
 // Returns { lots, page, perPage, hasMore }. Upcoming auctions only, soonest
 // first. All inputs are escaped/coerced; the gateway only permits SELECT.
 export async function searchLots(env, p = {}) {
-  const where = ["auction_date >= NOW()"];
+  // RHD as standard: LHD lots (lhdrive = 1) never surface — AU imports must be
+  // right-hand drive. RHD rows carry '0' or an empty field, both pass. The
+  // matcher's buildSql applies the same rule.
+  const where = ["auction_date >= NOW()", "(lhdrive IS NULL OR lhdrive <> 1)"];
   const make = String(p.make || "").trim();
   if (make) {
     const mk = sqlLike(make).toUpperCase().split(/[\s-]+/).filter(Boolean)[0];
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
+  // The model term also matches the trim/grade string: feed models are broad
+  // family names ("S CLASS"), so a specific variant ("S400", "NISMO") lives in
+  // `grade`. OR-ing keeps broad model terms working unchanged.
   const model = String(p.model || "").trim();
-  if (model) where.push(`UPPER(model_name) LIKE '%${sqlLike(model).toUpperCase()}%'`);
+  if (model) {
+    const md = sqlLike(model).toUpperCase();
+    where.push(`(UPPER(model_name) LIKE '%${md}%' OR UPPER(grade) LIKE '%${md}%')`);
+  }
   const yMin = sqlInt(p.yearMin); if (yMin !== null) where.push(`year >= ${yMin}`);
   const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
   const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`((start > 0 AND start <= ${pMax}) OR start <= 0)`);

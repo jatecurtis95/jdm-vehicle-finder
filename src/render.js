@@ -59,12 +59,23 @@ function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
-// Wider hero image (~680px) for emails. Mobile clients scale images down to fit
-// but not up, so a too-small source leaves a gap beside the photo; this fills it.
-function heroSrc(lot) {
-  const f = imageUrls(lot).full;
-  if (!f) return null;
-  return f + (f.indexOf("?") >= 0 ? "&" : "?") + "w=680";
+// Email hero image. Two hard-won rules about the auction image CDN (verified
+// live, July 2026):
+//   * Size params append with '&' straight after the token — there is no '?'.
+//     Only &h=50 and &w=320 exist; '?w=...' is silently IGNORED (serves the
+//     plain original) and other '&w=...' values return an HTML error page.
+//   * Plain tokens serve the original photo, EXCEPT fresh-listing tokens
+//     (ending "-<digit>"), whose plain form is a 100x75 thumbnail — those must
+//     request &w=320 explicitly or the email hero is a blurry postage stamp.
+// Mail clients also proxy or block third-party image hosts, so emails never
+// reference the CDN directly: the src routes through the Worker's own
+// /assets/lot-img proxy on our domain (exempt from the canonical-host redirect,
+// like the logo, so old-domain emails keep working too).
+function heroSrc(lot, publicUrl) {
+  const base = imageUrls(lot).full;
+  if (!base) return null;
+  const sized = /-\d+$/.test(base) ? `${base}&w=320` : base;
+  return publicUrl ? `${publicUrl}/assets/lot-img?u=${encodeURIComponent(sized)}` : sized;
 }
 
 // Bulletproof button: VML roundrect for Outlook, styled <a> for everyone else.
@@ -147,7 +158,6 @@ function strengthTag(lot) {
 // INTERNAL digest (staff): "N new auction matches to review"
 // ---------------------------------------------------------------------------
 function internalCard(lot, wishlist, token, publicUrl) {
-  const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   // Link to a GET confirmation page (safe for email scanners, which never submit
   // a form) whose button POSTs to /decide. A bare GET /decide is POST-only, so a
@@ -163,8 +173,8 @@ function internalCard(lot, wishlist, token, publicUrl) {
 
   return `<tr><td style="padding:22px 30px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:14px;overflow:hidden;">
-      <tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;">${heroSrc(lot)
-        ? `<img src="${esc(heroSrc(lot))}" width="538" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;">`
+      <tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;">${heroSrc(lot, publicUrl)
+        ? `<img src="${esc(heroSrc(lot, publicUrl))}" width="538" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;">`
         : `<div style="height:150px;text-align:center;color:#9A854F;font-family:${FONT};font-size:12px;font-weight:600;line-height:150px;letter-spacing:0.12em;text-transform:uppercase;">Photo on request</div>`}</td></tr>
       <tr><td style="padding:20px 22px 2px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
@@ -365,7 +375,7 @@ export function clientRequestAlertHtml(client, lot, wishlist, publicUrl) {
     <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:23px;font-weight:600;line-height:1.2;color:${INK};">${esc(client?.name || "A client")} wants this car</h1>
     <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:${BODY};">They asked from the portal - pull the auction sheet, translate it, and follow up.</p>
   </td></tr>
-  ${heroSrc(lot) ? `<tr><td style="padding:18px 36px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;"><tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr></table></td></tr>` : ""}
+  ${heroSrc(lot, publicUrl) ? `<tr><td style="padding:18px 36px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;"><tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot, publicUrl))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr></table></td></tr>` : ""}
   <tr><td style="padding:18px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       ${row("Vehicle", title)}${row("Lot", lot.lot)}${row("Auction", lot.auction)}${row("Auction date", (lot.auction_date || "").slice(0, 10))}${row("Grade", displayGrade(lot.rate))}${row("Chassis", lot.kuzov)}${row("Search", wishlist?.label)}
@@ -389,7 +399,6 @@ function keySpec(label, value) {
 }
 
 export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded = true, upsell = null) {
-  const img = imageUrls(lot);
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
     ? "A$" + Number(landed.grandTotal).toLocaleString("en-AU")
@@ -431,7 +440,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
 
   <tr><td style="padding:20px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;">
-      ${heroSrc(lot) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
+      ${heroSrc(lot, publicUrl) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot, publicUrl))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
       <tr><td style="padding:16px 18px;">
         <div style="font-family:${FONT};font-size:19px;font-weight:600;line-height:1.2;color:${INK};">${title}</div>
         <div style="font-family:${FONT};font-size:12px;line-height:1.3;color:${MUTE};margin-top:4px;">${esc(lot.auction || "")}${lot.auction_date ? " &middot; " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div>
@@ -500,7 +509,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
 // ---------------------------------------------------------------------------
 // CLIENT email: several approved matches in ONE email (bulk approve)
 // ---------------------------------------------------------------------------
-function clientCarBlock(lot, wishlist, landed, showLanded = true) {
+function clientCarBlock(lot, wishlist, landed, showLanded = true, publicUrl = "") {
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.trim();
   const landedStr = landed && Number.isFinite(Number(landed.grandTotal))
     ? "A$" + Number(landed.grandTotal).toLocaleString("en-AU")
@@ -532,7 +541,7 @@ function clientCarBlock(lot, wishlist, landed, showLanded = true) {
         </tr></table>`;
   return `<tr><td style="padding:18px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${HAIR};border-radius:10px;overflow:hidden;">
-      ${heroSrc(lot) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
+      ${heroSrc(lot, publicUrl) ? `<tr><td bgcolor="#15171A" style="background:#15171A;font-size:0;line-height:0;"><img src="${esc(heroSrc(lot, publicUrl))}" width="526" alt="${title}" style="display:block;width:100%;max-width:100%;height:auto;border:0;"></td></tr>` : ""}
       <tr><td style="padding:16px 18px;">
         <div style="font-family:${FONT};font-size:18px;font-weight:600;line-height:1.2;color:${INK};">${title}</div>
         <div style="font-family:${FONT};font-size:12px;line-height:1.3;color:${MUTE};margin-top:4px;">${esc(lot.auction || "")}${lot.auction_date ? " &middot; " + esc((lot.auction_date || "").slice(0, 10)) : ""}${lot.lot ? " &middot; Lot " + esc(lot.lot) : ""}</div>
@@ -557,7 +566,7 @@ export function clientMultiHtml(client, items, publicUrl, showLanded = true) {
     <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:25px;font-weight:600;line-height:1.2;color:${INK};">Hi ${esc(first)}, we found ${n} ${n === 1 ? "car" : "cars"} for you.</h1>
     <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:${BODY};">These just came up at Japanese auctions and line up with what you're after. Reply about any one you'd like us to chase.</p>
   </td></tr>`;
-  const blocks = items.map((it) => clientCarBlock(it.lot, it.wishlist, it.landed, showLanded)).join("");
+  const blocks = items.map((it) => clientCarBlock(it.lot, it.wishlist, it.landed, showLanded, publicUrl)).join("");
   const ft = footer(`<div style="font-family:${FONT};font-size:11px;line-height:1.5;color:${MUTE};margin-top:8px;">${showLanded ? "Indicative landed cost includes auction, export, shipping and duties, confirmed before you commit. " : ""}Eligibility subject to SEVS/RAWS.</div>`);
   return shell(intro + blocks + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + ft, `${n} ${n === 1 ? "car" : "cars"} matched to your search`);
 }

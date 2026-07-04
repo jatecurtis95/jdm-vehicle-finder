@@ -26,6 +26,19 @@ function googleButton(intent, label) {
 
 // Maker field: a <select> of real feed makers, so the criteria always match the
 // auction naming. Falls back to a free-text input if the feed lookup is down.
+// Client categories: who the client is commercially. A deliberately small,
+// fixed set: 'private' (default retail buyer) or 'dealer' (a trade buyer we
+// sell to/for). Stored on clients.category (migration 0011); extend this list
+// if a new relationship type becomes real.
+const CLIENT_CATEGORIES = [
+  { id: "private", label: "Private buyer" },
+  { id: "dealer", label: "Dealer" },
+];
+const CLIENT_CATEGORY_IDS = new Set(CLIENT_CATEGORIES.map((c) => c.id));
+export const isDealer = (c) => !!c && c.category === "dealer";
+const categorySelect = (id, current) => `<select id="${id}" name="category">${CLIENT_CATEGORIES.map((k) =>
+  `<option value="${k.id}"${(current || "private") === k.id ? " selected" : ""}>${esc(k.label)}</option>`).join("")}</select>`;
+
 function makerField(makers, id, placeholder = "Any maker", current = "") {
   if (!makers || !makers.length) return `<input name="marka_name" id="${id}" placeholder="e.g. TOYOTA" value="${esc(current)}">`;
   return `<select name="marka_name" id="${id}"><option value="">${esc(placeholder)}</option>` +
@@ -193,7 +206,8 @@ const CSS = `
        Colour:  gold ONLY for primary actions, money figures and brand chrome;
                 green / amber / red ONLY for health and urgency; blue = info. */
   :root{--gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);--gold-on:#15120A;--avatar:rgba(202,163,76,0.16);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#8A909A;--bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;--hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
+    --ink:#F4F4F0;--t2:#CBD1DB;--t3:#99A1AE;--faint:#7F8894;--ph:#7F8894;--bg:#0F1115;--bg-2:#090A0D;--card:#171A20;--card-2:#1C2027;--off:#13161B;--hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
+    --on-solid:#F7F8F8;--media:#15171A;
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);--field-focus:#20242C;--hover:rgba(255,255,255,0.05);--soft:rgba(255,255,255,0.06);--bad:#E2607A;--bad-bg:rgba(226,96,122,0.12);--bad-line:rgba(226,96,122,0.34);
     --good:#5BC08C;--warn-c:#E0A94B;
     --ok-bg:rgba(91,192,140,0.14);--ok-fg:#7FD3A6;--warn-bg:rgba(224,169,75,0.16);--warn-fg:#E9BE6B;--neu-bg:rgba(255,255,255,0.06);--neu-fg:#C9CCD1;
@@ -203,6 +217,13 @@ const CSS = `
     --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
     --pad-card:20px;--gap-grid:20px;
     --fs-label:12px;--fs-sec:13px;--fs-body:15px;--fs-sect:17px;--fs-page:28px;
+    /* Typography treatment: premium lives in weight, tracking and leading.
+       Labels are light (500) with positive tracking; the values they describe
+       are semibold ink. Titles and numerals track tight; body and dense list
+       rows breathe. Exact values recorded in ADMIN-REDESIGN.md. */
+    --w-label:500;--w-value:600;
+    --ls-label:0.06em;--ls-title:-0.01em;--ls-num:-0.02em;
+    --lh-body:1.5;--lh-list:1.45;
     --r:8px;--r-ctl:8px;--r-card:10px;}
   .skip-link{position:absolute;left:-9999px;top:0}
   .skip-link:focus{left:8px;top:8px;z-index:100;background:#fff;color:#111;padding:8px 12px;border-radius:var(--r-ctl)}
@@ -211,21 +232,24 @@ const CSS = `
      dark root are overridden here; gold, radii and the scales are shared. */
   .main{
     color:var(--ink);
-    --ink:#1b1c1e;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;--ph:#6C727C;
-    --bg:#f4f4f1;--bg-2:#ffffff;--card:#ffffff;--card-2:#ffffff;--off:#f7f7f5;
+    --ink:#1A1D21;--t2:#545C68;--t3:#6E7684;--faint:#6E7684;--ph:#8A92A0;
+    --bg:#F5F6F7;--bg-2:#ffffff;--card:#ffffff;--card-2:#ffffff;--off:#F8F9FA;
     --hair:rgba(0,0,0,0.08);--hair-2:rgba(0,0,0,0.05);
-    --field:#fbfbfc;--field-line:rgba(0,0,0,0.14);--field-focus:#ffffff;
-    --hover:rgba(0,0,0,0.04);--soft:#f1f0ec;
+    --field:#FBFCFD;--field-line:rgba(0,0,0,0.14);--field-focus:#ffffff;
+    --hover:rgba(0,0,0,0.04);--soft:#EFF1F3;
     --gold-txt:#7A5E1C;--avatar:#F0E9D7;
     --bad:#B11226;--bad-bg:rgba(177,18,38,0.06);--bad-line:rgba(177,18,38,0.3);
-    --good:#1F7A4D;--warn-c:#C98A00;
-    --ok-bg:#E1F5EE;--ok-fg:#04342C;--warn-bg:#FAEEDA;--warn-fg:#633806;--neu-bg:#F1EFE8;--neu-fg:#444441;
+    --good:#1F7A4D;--warn-c:#9A6C00;
+    --ok-bg:#E1F5EE;--ok-fg:#04342C;--warn-bg:#FAF1DE;--warn-fg:#633806;--neu-bg:#EFF1F3;--neu-fg:#4A5260;
     --str-bg:#EAF3DE;--str-fg:#27500A;--good-bg:#FAEEDA;--good-fg:#633806;--pos-bg:#F1EFE8;--pos-fg:#444441;
     --elig-bg:#E1F5EE;--elig-fg:#04342C;--echk-bg:#FAEEDA;--echk-fg:#633806;--eno-bg:#FCEBEB;--eno-fg:#501313;
     --info:#3B5E96;--info-bg:rgba(59,115,172,0.1);
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+  body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;line-height:var(--lh-body);-webkit-font-smoothing:antialiased}
+  /* ONE data numeral: every 20px stat figure (triage, tasks, pipeline,
+     client-detail) shares this treatment instead of five local copies. */
+  .stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
   a{color:inherit;text-decoration:none}
   .wrap{display:flex;min-height:100vh}
   .side{width:256px;flex:0 0 256px;border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:26px 20px;background:var(--bg-2);position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
@@ -262,16 +286,16 @@ const CSS = `
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
   .content.dash{width:100%;max-width:2040px;margin-left:auto;margin-right:auto}
   .card{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--pad-card);margin-bottom:var(--sp-5)}
-  .card h2{font-size:var(--fs-sect);font-weight:600;margin:0 0 var(--sp-4);display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4)}
+  .card h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0 0 var(--sp-4);display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4)}
   .card h2 .num{color:var(--t3);font-weight:700}
-  details.foldcard>summary{font-size:var(--fs-sect);font-weight:600;display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;margin:0}
+  details.foldcard>summary{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;margin:0}
   details.foldcard>summary::-webkit-details-marker{display:none}
   details.foldcard>summary::after{content:"+";margin-left:auto;color:var(--gold);font-weight:700;font-size:20px;line-height:1;transition:transform .15s}
   details.foldcard[open]>summary{border-bottom:1px solid var(--hair);padding-bottom:var(--sp-4);margin-bottom:var(--sp-4)}
   details.foldcard[open]>summary::after{transform:rotate(45deg)}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px var(--gap-grid)}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px var(--gap-grid)}
-  label{display:block;font-size:var(--fs-label);color:var(--t2);margin-bottom:8px;font-weight:600;letter-spacing:0.02em}
+  label{display:block;font-size:var(--fs-label);color:var(--t2);margin-bottom:8px;font-weight:var(--w-label);letter-spacing:0.02em}
   label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
   input,select{width:100%;padding:12px;border:1px solid var(--field-line);border-radius:var(--r-ctl);font-size:var(--fs-body);background:var(--field);color:var(--ink);font-family:${FONT}}
   input::placeholder{color:var(--ph)}
@@ -286,8 +310,8 @@ const CSS = `
   .is-loading{opacity:.7;pointer-events:none;position:relative}
   .help{color:var(--faint);font-size:var(--fs-sec)}
   table{width:100%;border-collapse:collapse;font-size:var(--fs-sec)}
-  th{text-align:left;padding:12px 8px;background:var(--off);color:var(--t3);font-weight:600;font-size:var(--fs-label);letter-spacing:.01em;border-bottom:1px solid var(--hair)}
-  td{padding:16px 8px;border-bottom:1px solid var(--hair-2);color:var(--t2)}
+  th{text-align:left;padding:12px 8px;background:var(--off);color:var(--t3);font-weight:var(--w-label);font-size:var(--fs-label);letter-spacing:.01em;border-bottom:1px solid var(--hair)}
+  td{padding:16px 8px;border-bottom:1px solid var(--hair-2);color:var(--t2);line-height:var(--lh-list)}
   .avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label);font-weight:600;vertical-align:middle;margin-right:8px}
   .yes{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label)}
   .btn-del{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);cursor:pointer;font-family:${FONT}}
@@ -301,7 +325,7 @@ const CSS = `
   /* ONE chip component. Neutral by default; tone classes carry the signal:
      chip-good / chip-warn / chip-bad = health and urgency,
      chip-info = engagement (viewed), chip-gold = member / brand only. */
-  .chip{display:inline-block;background:var(--soft);border:1px solid var(--hair);color:var(--t2);font-size:var(--fs-label);font-weight:600;padding:4px 10px;border-radius:9999px;font-family:${FONT};white-space:nowrap}
+  .chip{display:inline-block;background:var(--soft);border:1px solid var(--hair);color:var(--t2);font-size:var(--fs-label);font-weight:500;padding:4px 10px;border-radius:9999px;font-family:${FONT};white-space:nowrap}
   button.chip{cursor:pointer}
   button.chip:hover{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
   .chip.muted{background:var(--soft);border-color:var(--hair);color:var(--t3)}
@@ -310,8 +334,15 @@ const CSS = `
   .chip-bad{background:var(--bad-bg);border-color:transparent;color:var(--bad)}
   .chip-info{background:var(--info-bg);border-color:transparent;color:var(--info)}
   .chip-gold{background:var(--gold-tint);border-color:transparent;color:var(--gold-txt)}
-  .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--field);color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .chip-on{background:var(--card);border-color:var(--ink);color:var(--ink)}
+  /* Row-level selects read as quiet text until pointed at (Attio register:
+     fields in a record row look inert until you interact). */
+  .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .share-pick:hover,.share-pick:focus{border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
+  /* In the bulk FORM the selects are the controls, not row metadata, so they
+     keep the field affordance the quiet row treatment removes. */
+  .bulkbar select.share-pick{width:auto;border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulk-label{font-size:var(--fs-sec);font-weight:600;color:var(--t2)}
   .toggles{margin-top:var(--sp-5);display:flex;flex-direction:column;gap:8px}
   .toggle{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid var(--hair);border-radius:var(--r-ctl);cursor:pointer}
@@ -345,22 +376,22 @@ const CSS = `
   .banner .txt{font-size:var(--fs-sec);color:var(--t2)}
   .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:var(--gap-grid)}
   .mcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;display:flex;flex-direction:column;content-visibility:auto;contain-intrinsic-size:auto 430px}
-  .mphoto{position:relative;height:188px;flex:0 0 auto;background:#15171a;background-size:cover;background-position:center}
+  .mphoto{position:relative;height:188px;flex:0 0 auto;background:var(--media);background-size:cover;background-position:center}
   .mphoto .grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0) 55%)}
-  .pill{position:absolute;top:12px;display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);border-radius:9999px;padding:4px 8px;font-size:var(--fs-label);font-weight:600;color:#fff;letter-spacing:0.04em}
+  .pill{position:absolute;top:12px;display:inline-flex;align-items:center;gap:4px;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);border-radius:9999px;padding:4px 8px;font-size:var(--fs-label);font-weight:600;color:var(--on-solid);letter-spacing:0.04em}
   .pill.lot{left:12px}
   .pill.str{right:12px;background:rgba(0,0,0,0.55)}
   .pill.str .sd{width:7px;height:7px;border-radius:9999px;display:inline-block}
-  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:#fff}
+  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:var(--on-solid)}
   .mphoto .ttl .t{font-size:var(--fs-sect);font-weight:600;letter-spacing:-0.01em}
   .mphoto .ttl .a{font-size:var(--fs-label);color:#E6E7E8;margin-top:4px}
   .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px}
-  .mstats .s .k{font-size:var(--fs-label);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint)}
+  .mstats .s .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .mstats .s .v{font-size:var(--fs-sec);font-weight:600;margin-top:4px;color:var(--ink)}
   .mstats .s.gold .v{color:var(--ink);font-weight:700}
   .mland{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--gold-tint);border-top:1px solid var(--hair)}
-  .mland .ml-k{font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--gold-txt)}
-  .mland .ml-v{font-size:var(--fs-body);font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums}
+  .mland .ml-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--gold-txt)}
+  .mland .ml-v{font-size:var(--fs-body);font-weight:var(--w-value);color:var(--gold-txt);font-variant-numeric:tabular-nums}
   .mfoot{border-top:1px solid var(--hair);padding:16px;display:flex;align-items:center;gap:8px}
   .mfoot .who{flex:1;min-width:0}
   .mfoot .who .n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
@@ -394,11 +425,11 @@ const CSS = `
   .dupnote{margin-bottom:16px;padding:12px 16px;background:var(--card);border:1px solid var(--hair);border-left:4px solid var(--t3);border-radius:var(--r-ctl);color:var(--ink);font-size:var(--fs-sec);line-height:1.45}
   .field-err{display:none;color:var(--bad);font-size:var(--fs-sec);line-height:1.45;margin-top:8px;font-weight:500}
   /* Client portal */
-  .reqbadge{display:inline-flex;align-items:center;gap:6px;background:rgba(91,192,140,.13);border:1px solid rgba(91,192,140,.4);color:var(--str-fg);font-size:var(--fs-label);font-weight:600;padding:8px 12px;border-radius:9999px}
-  .paybadge{display:inline-flex;align-items:center;gap:6px;background:var(--gold-tint);border:1px solid rgba(202,163,76,.4);color:var(--gold-txt);font-size:var(--fs-label);font-weight:600;padding:4px 8px;border-radius:9999px;margin-left:8px}
+  .reqbadge{display:inline-flex;align-items:center;gap:4px;background:rgba(91,192,140,.13);border:1px solid rgba(91,192,140,.4);color:var(--str-fg);font-size:var(--fs-label);font-weight:600;padding:8px 12px;border-radius:9999px}
+  .paybadge{display:inline-flex;align-items:center;gap:4px;background:var(--gold-tint);border:1px solid rgba(202,163,76,.4);color:var(--gold-txt);font-size:var(--fs-label);font-weight:600;padding:4px 8px;border-radius:9999px;margin-left:8px}
   .portal-acct{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .portal-acct .pa-k{font-size:12px;color:var(--t3)}
-  .pwrap{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .portal-acct .pa-k{font-size:var(--fs-label);color:var(--t3)}
+  .pwrap{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   /* Mobile nav: off-canvas drawer toggled by a CSS checkbox (works without JS;
      a link click loads a new page, which resets the toggle). */
   .nav-cb{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
@@ -406,7 +437,7 @@ const CSS = `
   .nav-scrim{display:none}
   @media(max-width:920px){
     .wrap{flex-direction:column}
-    .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .nav-burger{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:var(--fs-sec);cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-burger svg{width:22px;height:22px}
     .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
     .nav{flex-direction:column}
@@ -425,13 +456,13 @@ const CSS = `
      Agents, Payments) swap for these server-rendered card rows. Both are in
      the HTML; CSS decides which shows, so desktop keeps the tables. */
   .mcl{display:none}
-  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink);min-height:44px}
+  .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;text-decoration:none;color:var(--ink);min-height:44px}
   a.mcl-row:active{background:var(--hover)}
   .mcl-b{flex:1;min-width:0}
-  .mcl-t{font-size:14.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
-  .mcl-m{font-size:12.5px;color:var(--t3);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:1.4}
-  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
-  .mcl-rs{font-size:11.5px;color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
+  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
+  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list)}
+  .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
+  .mcl-rs{font-size:var(--fs-label);color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
     :root{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
     .main{--pad-card:16px;--gap-grid:12px;--fs-page:20px}
@@ -472,8 +503,9 @@ const CSS = `
   .mtools{position:sticky;top:0;z-index:5;background:var(--bg);padding:4px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--hair)}
   .triage{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
   .tstat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;min-width:96px}
-  .tstat .k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:6px}
-  .tstat .v{font-size:20px;font-weight:700;margin-top:4px}
+  .tstat .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:8px}
+  .tstat .v{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);font-variant-numeric:tabular-nums;margin-top:4px}
+  .tstat .v.money{color:var(--gold-txt)}
   .tstat .d{width:8px;height:8px;border-radius:9999px;display:inline-block}
   .tstat.urgent{border-color:var(--bad-line);background:var(--bad-bg)}
   .tstat.urgent .v{color:var(--bad)}
@@ -488,35 +520,38 @@ const CSS = `
   @media(max-width:640px){
     .crow{gap:8px}
     select.mctl{flex:1 1 calc(50% - 4px);min-width:0;width:auto}
-    .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
-    .fchips::-webkit-scrollbar{display:none}
-    .fchips .fchip,.fchips .quick{flex:0 0 auto}
+    /* Scoped to .mtools so this outranks the later base .fchips{flex-wrap:wrap}
+       (equal specificity let the base win and the chips stacked three rows
+       deep on phones instead of scrolling on one). */
+    .mtools .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none;min-width:0;flex-basis:100%}
+    .mtools .fchips::-webkit-scrollbar{display:none}
+    .mtools .fchips .fchip,.mtools .fchips .quick{flex:0 0 auto}
     .mtools{padding-bottom:8px}
   }
   /* Mobile QA pass: wide data tables scroll (not clip) on phones; match cards'
      multi-select checkbox works on touch (no hover); the match bulk bar and the
      client-detail header wrap instead of overflowing on small screens. */
   @media(max-width:640px){.sortable{min-width:560px}}
-  @media(max-width:920px){.mcard .msel,.scard .msel{display:block;width:26px;height:26px}}
+  @media(max-width:920px){.scard .msel{opacity:1;width:24px;height:24px}}
   @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk,.bulkbar2 .bdel{flex:1 1 auto}}
   @media(max-width:560px){.cd-head{flex-wrap:wrap}.cd-owner{text-align:left;flex-basis:100%;margin-top:8px}}
   .fchips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .fchip{border:1px solid var(--field-line);background:var(--field);color:var(--t2);font-size:var(--fs-label);font-weight:600;padding:8px 12px;border-radius:9999px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px}
   .fchip .sd{width:8px;height:8px;border-radius:9999px;display:inline-block}
   .fchip.on{background:var(--ink);color:var(--bg-2);border-color:var(--ink)}
-  .fchip.on.urgent{background:var(--bad);border-color:var(--bad);color:#fff}
+  .fchip.on.urgent{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
   .quick{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
   .quick button{font-family:inherit;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:9999px;padding:8px 12px;cursor:pointer}
   .quick button:hover{color:var(--ink);border-color:var(--field-line)}
   .pausebar{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:12px 16px;background:var(--bad-bg);border:1px solid var(--bad-line);border-left:3px solid var(--bad);border-radius:var(--r-ctl);font-size:var(--fs-sec);color:var(--t2)}
-  .bulkbar2{position:sticky;top:60px;z-index:6;display:none;align-items:center;gap:12px;background:var(--card-2);color:#F4F2EC;border:1px solid var(--gold-line);border-radius:var(--r-card);padding:8px 16px;margin:0 0 16px}
+  .bulkbar2{position:sticky;top:60px;z-index:6;display:none;align-items:center;gap:12px;background:var(--card-2);color:var(--on-solid);border:1px solid var(--gold-line);border-radius:var(--r-card);padding:8px 16px;margin:0 0 16px}
   .bulkbar2.show{display:flex}
   .bulkbar2 .bc{font-weight:600;font-size:var(--fs-sec)}.bulkbar2 .bsp{flex:1}
   .bulkbar2 button{font-family:inherit;font-weight:600;font-size:var(--fs-sec);border-radius:var(--r-ctl);padding:8px 16px;cursor:pointer;border:0}
   .bulkbar2 .bap{background:var(--gold);color:var(--gold-on)}
-  .bulkbar2 .bsk{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
+  .bulkbar2 .bsk{background:transparent;color:var(--on-solid);border:1px solid rgba(255,255,255,.3)}
   .bulkbar2 .bdel{background:transparent;color:#ff9a9a;border:1px solid rgba(255,120,120,.4)}
-  .bulkbar2 .bdel:hover{background:rgba(177,18,38,.25);color:#fff;border-color:rgba(255,120,120,.7)}
+  .bulkbar2 .bdel:hover{background:rgba(177,18,38,.25);color:var(--on-solid);border-color:rgba(255,120,120,.7)}
   .bulkbar2 .bcl{background:transparent;color:#cfd0d2;border:0;font-size:var(--fs-label)}
   .ghead{display:flex;align-items:center;gap:8px;grid-column:1/-1;padding:8px 2px 2px;border-bottom:1px solid var(--hair);margin-top:8px}
   .ghead .gh-n{font-size:var(--fs-sec);font-weight:600}
@@ -531,15 +566,24 @@ const CSS = `
   .why{padding:8px 16px 0;display:flex;gap:8px;flex-wrap:wrap}
   .why .wc{font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--soft);border:1px solid var(--hair);border-radius:9999px;padding:4px 8px}
   .why .wc.lead{color:var(--info);background:var(--info-bg);border-color:transparent}
-  .urg{display:inline-flex;align-items:center;gap:4px;background:var(--bad);color:#fff;font-size:var(--fs-label);font-weight:700;padding:2px 8px;border-radius:9999px;margin-right:6px}
-  .urg.soon{background:var(--warn-c);color:#fff}
+  /* Urgency register (measured, Stripe "Blocked"): pale tint, saturated dark
+     text. Solid traffic-light fills with white text are off register. */
+  .urg{display:inline-flex;align-items:center;gap:4px;background:var(--bad-bg);color:var(--bad);font-size:var(--fs-label);font-weight:600;padding:2px 8px;border-radius:9999px;margin-right:6px}
+  .urg.soon{background:var(--warn-bg);color:var(--warn-fg)}
   .nocontact{margin:8px 16px 0;padding:8px 12px;background:var(--warn-bg);border:1px solid transparent;border-radius:var(--r-ctl);font-size:var(--fs-label);color:var(--warn-fg);font-weight:600}
   .mempty{color:var(--faint);padding:40px 0;text-align:center;grid-column:1/-1}
   .clink{color:var(--ink);font-weight:500;border-bottom:1px solid transparent}
   .clink:hover{border-bottom-color:var(--gold)}
+  /* Identity cell (Attio register): name on top, one muted 12px meta line
+     under it, so a record needs one column instead of three. */
+  .idcell{display:inline-flex;flex-direction:column;vertical-align:middle;min-width:0}
+  .idcell .clink{align-self:flex-start}
+  .idsub{font-size:var(--fs-label);color:var(--t3);line-height:1.4}
+  /* Money / numeric cell (Stripe register): right-aligned semibold tabular. */
+  td.tnum{text-align:right;font-variant-numeric:tabular-nums;font-weight:var(--w-value);color:var(--ink);white-space:nowrap}
   .cd-head{display:flex;align-items:center;gap:16px}
   .cd-owner{text-align:right}
-  .cd-owner .k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .cd-owner .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .cd-owner .v{font-size:var(--fs-sec);font-weight:600;color:var(--ink);margin-top:4px}
   .wlrow{border:1px solid var(--hair);border-radius:var(--r-card);margin-bottom:12px;overflow:hidden}
   .wlhead{display:flex;align-items:center;gap:12px;padding:16px}
@@ -554,7 +598,7 @@ const CSS = `
   .wledit form{padding:4px 16px 16px}
   .slegend{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
   .sl-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:var(--fs-label);color:var(--t2)}
-  .sl-t{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .sl-t{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .sl-item{display:inline-flex;align-items:center;gap:8px}
   .sl-item b{font-weight:600;color:var(--ink)}
   .sl-dot{width:9px;height:9px;border-radius:9999px;display:inline-block}
@@ -567,7 +611,7 @@ const CSS = `
   .nav a svg{width:18px;height:18px;flex:0 0 auto;color:var(--t3)}
   .nav a:hover:not(.active) svg{color:var(--ink)}
   .nav a.active svg{color:var(--gold)}
-  .dtop{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-bottom:14px}
+  .dtop{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin-bottom:16px}
   .dtop a{color:var(--t3);display:inline-flex}
   .dtop a:hover{color:var(--ink)}
   .dtop svg{width:20px;height:20px}
@@ -579,7 +623,8 @@ const CSS = `
   .greet .nm{color:var(--gold-txt)}
   .ovwrap{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
   .ovwrap .ovlbl{font-size:var(--fs-sec);color:var(--t2)}
-  .ovwrap a{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sec);color:var(--gold-txt);font-weight:600}
+  .ovwrap a{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sec);color:var(--t2);font-weight:600}
+  .ovwrap a:hover{color:var(--ink)}
   .ovwrap a svg{width:14px;height:14px}
   .overview{display:flex;flex-wrap:wrap;margin:0 0 var(--sp-6)}
   .ov{padding:0 24px;border-left:1px solid var(--hair)}
@@ -606,7 +651,7 @@ const CSS = `
   .donut{position:relative;width:120px;height:120px;flex:0 0 auto}
   .donut-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
   .donut-mid .dm-n{font-size:var(--fs-page);font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
-  .donut-mid .dm-k{font-size:var(--fs-label);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:4px}
+  .donut-mid .dm-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin-top:4px}
   .legend{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0}
   .legend .lg{display:flex;align-items:center;gap:8px;font-size:var(--fs-sec)}
   .legend .lg-d{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
@@ -622,9 +667,9 @@ const CSS = `
   a.ov-link:hover .num{text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:4px}
   a.ov-link:hover .cap{color:var(--ink)}
   .sec-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}
-  .sec-h h2{font-size:var(--fs-sect);font-weight:600;margin:0}
+  .sec-h h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0}
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
-  .sec-h .btn-gold{display:inline-flex;align-items:center;gap:6px}
+  .sec-h .btn-gold{display:inline-flex;align-items:center;gap:8px}
   .sec-h .btn-gold svg{width:15px;height:15px}
   .dcols{display:grid;grid-template-columns:1fr;gap:8px 24px;align-items:start}
   @media(min-width:1100px){.dcols{grid-template-columns:1fr 1fr}}
@@ -638,7 +683,7 @@ const CSS = `
   .lrow .who{flex:1;min-width:0}
   .lrow .who .nm{font-weight:500;color:var(--ink);font-size:var(--fs-sec)}
   .lrow .who .nm small{color:var(--faint);font-weight:400}
-  .lrow .who .sub{font-size:var(--fs-label);color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .who .sub{font-size:var(--fs-label);color:var(--t3);margin-top:2px;line-height:var(--lh-list);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .lrow .meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .b{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-label);font-weight:500;padding:4px 8px;border-radius:9999px;white-space:nowrap}
   .b svg{width:12px;height:12px}
@@ -655,113 +700,105 @@ const CSS = `
   .kebab{width:32px;height:32px;border-radius:var(--r-ctl);border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
   .kebab svg{width:18px;height:18px}
   .kebab:hover{background:var(--hover);color:var(--ink)}
-  @media(max-width:640px){.greet{font-size:30px}.ov{padding:0 16px}.ov .num{font-size:20px}}
+  @media(max-width:640px){.greet{font-size:30px}.overview{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 0}.ov{padding:0 12px 0 0;border-left:0}.ov .num{font-size:20px}.ov .cap{margin-top:4px}}
   /* Motion: hover lift + button press, compositor-friendly transforms only. */
-  .acard,.chart-card,.mcard,.scard{transition:transform .16s ease,border-color .15s}
-  .acard:hover,.chart-card:hover,.mcard:hover,.scard:hover{transform:translateY(-2px)}
+  .acard,.chart-card{transition:transform .16s ease,border-color .15s}
+  .acard:hover,.chart-card:hover{transform:translateY(-2px)}
   .btn-gold:active,.btn-notify:active,.btn-dark:active,.btn-search:active,.bap:active,.bsk:active,.sc-actions a:active{transform:translateY(1px) scale(.99)}
   @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
-  /* --- Matches redesign: divided ticker + spec-sheet cards --- */
+  /* --- Matches: Linear-register queue. Measured targets in ADMIN-REDESIGN.md:
+     dense hairline rows inside one panel, quiet 13px type, colour only for
+     urgency and strength, one gold action per row. --- */
   .mticker{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;margin-bottom:16px}
   @media(min-width:760px){.mticker{grid-template-columns:repeat(5,1fr)}}
   .mtk{background:var(--card);padding:16px}
   .mtk.urgent{background:var(--bad-bg)}
-  .mtk-k{font-size:var(--fs-label);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
+  .mtk-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
   .mtk-row{display:flex;align-items:flex-end;justify-content:space-between;margin-top:12px}
-  .mtk-n{font-size:var(--fs-page);font-weight:700;line-height:1;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  .mtk-n.gold{color:var(--ink)}.mtk-n.str{color:var(--str-fg)}.mtk-n.bad{color:var(--bad)}
-  .mtk-dot{width:8px;height:8px;border-radius:9999px;display:inline-block;margin-bottom:6px}
-  .scards{display:grid;grid-template-columns:1fr;gap:16px}
-  @media(min-width:1180px){.scards{grid-template-columns:1fr 1fr}}
-  .scards .ghead{grid-column:1/-1}
-  .scards .mempty{grid-column:1/-1}
-  .scard{position:relative;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;transition:border-color .15s;content-visibility:auto;contain-intrinsic-size:auto 260px}
-  @media(min-width:560px){.scard{flex-direction:row}}
-  .scard:hover{border-color:var(--gold-line)}
-  .scard.picked{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-tint)}
-  .scard .msel{position:absolute;top:12px;right:12px;left:auto;z-index:4;width:20px;height:20px;accent-color:var(--gold);cursor:pointer;display:none}
-  .scard:hover .msel,.scard.picked .msel{display:block}
-  .sc-img{position:relative;flex:0 0 auto;height:200px;background:#15171a;background-size:cover;background-position:center}
-  @media(min-width:560px){.sc-img{width:40%;height:auto;min-height:236px}}
-  /* On the client page these cards live in a narrow 3-up grid, too tight for the
-     row layout, so keep them stacked so the Year/Grade/Odo/Bid strip never clips. */
-  .mgrid .scard{flex-direction:column}
-  .mgrid .scard .sc-img{width:auto;height:200px;min-height:0}
-  .sc-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0) 58%)}
-  .sc-tags{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
-  .sc-tags .b{box-shadow:0 1px 5px rgba(0,0,0,.3)}
-  .sc-lot{background:rgba(0,0,0,.55);backdrop-filter:blur(3px);color:#fff;font-size:var(--fs-label);font-weight:600;letter-spacing:.04em;padding:4px 8px;border-radius:9999px}
-  .sc-imgfoot{position:absolute;left:12px;right:12px;bottom:12px;z-index:1;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
-  .sc-when{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:rgba(255,255,255,.18);padding:4px 8px;border-radius:9999px}
-  .sc-when.urgent{background:var(--bad)}.sc-when.soon{background:var(--warn-c)}
-  .sc-auc{font-size:var(--fs-label);letter-spacing:.05em;text-transform:uppercase;color:#E6E7E8}
-  .sc-body{flex:1;min-width:0;display:flex;flex-direction:column}
-  .sc-main{flex:1;padding:var(--pad-card)}
-  .sc-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}
-  .sc-id{min-width:0}
-  .sc-title{font-size:var(--fs-sect);font-weight:700;letter-spacing:-.01em;text-transform:uppercase;margin:0;color:var(--ink);line-height:1.2}
-  .sc-sub{font-size:var(--fs-label);letter-spacing:.04em;text-transform:uppercase;color:var(--t3);margin:4px 0 0}
-  .sc-landed{text-align:right;flex:0 0 auto}
-  .sc-landed-k{font-size:var(--fs-label);letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
-  .sc-landed-v{font-size:var(--fs-sect);font-weight:700;color:var(--gold-txt);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-top:2px}
-  .sc-grid{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--hair);border-radius:var(--r-ctl);overflow:hidden;margin-bottom:16px}
-  .sc-cell{padding:8px;text-align:center;border-left:1px solid var(--hair)}
-  .sc-cell:first-child{border-left:0}
-  .sc-k{font-size:var(--fs-label);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin-bottom:4px}
-  .sc-v{font-size:var(--fs-sec);font-weight:700;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  .sc-v.gold{color:var(--ink)}
-  .scard .why{padding:0;margin:0 0 12px}
-  .scard .nocontact{margin:0 0 12px}
-  .sc-client{display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-ctl)}
-  .sc-client .avatar{margin-right:0;width:34px;height:34px;font-size:var(--fs-label);flex:0 0 auto}
-  .sc-cl{min-width:0}
-  .sc-cl-n{font-size:var(--fs-label);font-weight:600;color:var(--ink)}
-  .sc-cl-n .gold{color:var(--gold-txt)}
-  .sc-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sc-actions{display:flex;border-top:1px solid var(--hair)}
-  .sc-actions a{display:flex;align-items:center;justify-content:center;gap:8px;padding:16px 12px;font-size:var(--fs-sec);line-height:1;border-radius:0;white-space:nowrap}
-  .sc-actions .btn-skip{flex:1;color:var(--t2);font-weight:600;background:transparent;border-right:1px solid var(--hair)}
-  .sc-actions .btn-skip:hover{background:var(--off);color:var(--ink)}
-  .sc-actions .btn-notify{flex:2;color:var(--gold-on);font-weight:700;background:var(--gold);border:0}
-  .sc-actions .btn-notify:hover{background:var(--gold-hover)}
-  /* Clickable card affordances + lot detail page */
+  .mtk-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .mtk-n.str{color:var(--str-fg)}.mtk-n.bad{color:var(--bad)}
+  .mtk-dot{width:8px;height:8px;border-radius:9999px;display:inline-block;margin-bottom:4px}
+  .scards{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden}
+  .scard{position:relative;display:flex;flex-direction:row;align-items:center;gap:var(--sp-4);background:transparent;border:0;border-top:1px solid var(--hair-2);border-radius:0;padding:var(--sp-3) var(--sp-4);overflow:visible;transition:background .12s;content-visibility:auto;contain-intrinsic-size:auto 112px}
+  .scard:first-child{border-top:0}
+  .scard:hover{background:var(--hover)}
+  .scard.picked{background:var(--gold-tint)}
+  .scard .msel{position:static;width:16px;height:16px;margin:0;accent-color:var(--gold);cursor:pointer;flex:0 0 auto;opacity:0;transition:opacity .12s;display:block}
+  .scard:hover .msel,.scard.picked .msel,.scard .msel:focus-visible,.scard .msel:checked{opacity:1}
+  .sc-img{position:relative;flex:0 0 auto;width:148px;height:84px;border-radius:var(--r-ctl);background-color:var(--media);background-size:cover;background-position:center;overflow:hidden}
+  a.sc-img{cursor:pointer}
+  .sc-body{flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-4)}
+  .sc-main{flex:1;min-width:0}
+  .sc-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+  .sc-title{font-size:var(--fs-body);font-weight:var(--w-value);letter-spacing:var(--ls-title);margin:0;color:var(--ink);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .sc-title a{color:inherit;text-decoration:none}
   .sc-title a:hover{text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:2px}
-  a.sc-img{cursor:pointer}
-  .sc-more{display:inline-block;font-size:var(--fs-label);font-weight:600;color:var(--gold-txt);margin:0 0 12px;text-decoration:none}
-  .sc-more:hover{text-decoration:underline;text-underline-offset:2px}
-  .sc-scores{display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap}
-  .sc-score{font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:4px 8px}
-  .sc-score b{color:var(--ink);font-weight:700}
-  .sc-score.ai{color:var(--t2);background:var(--off);border-style:dashed}
+  .sc-landed{flex:0 0 auto;display:flex;align-items:baseline;gap:var(--sp-2)}
+  .sc-landed-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
+  .sc-landed-v{font-size:var(--fs-body);font-weight:var(--w-value);color:var(--gold-txt);letter-spacing:var(--ls-num);font-variant-numeric:tabular-nums}
+  .sc-sub{font-size:var(--fs-sec);color:var(--t3);margin:var(--sp-1) 0 0;line-height:var(--lh-list);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sc-meta{display:flex;align-items:center;gap:var(--sp-2) var(--sp-3);margin-top:var(--sp-2);flex-wrap:wrap;font-size:var(--fs-label);color:var(--t3);line-height:1.4}
+  .sc-close{font-weight:500}
+  .sc-close.urgent{color:var(--bad);font-weight:600}
+  .sc-close.soon{color:var(--warn-c);font-weight:600}
+  .sc-src{color:var(--faint)}
+  .sc-for a{color:var(--ink);font-weight:500;border-bottom:1px solid transparent}
+  .sc-for a:hover{border-bottom-color:var(--gold)}
+  .scard .nocontact{margin:var(--sp-2) 0 0;padding:var(--sp-1) var(--sp-2)}
+  .sc-actions{display:flex;gap:var(--sp-2);border:0;flex:0 0 auto}
+  .sc-actions a{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sec);font-weight:600;line-height:1;border-radius:var(--r-ctl);white-space:nowrap;text-decoration:none}
+  .sc-actions .btn-skip{color:var(--t2);background:transparent;border:1px solid var(--field-line)}
+  .sc-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
+  .sc-actions .btn-notify{color:var(--gold-on);background:var(--gold);border:1px solid transparent}
+  .sc-actions .btn-notify:hover{background:var(--gold-hover)}
+  /* Client-page 3-up grid (.mgrid) keeps the stacked card shape. */
+  .mgrid .scard{flex-direction:column;align-items:stretch;gap:0;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:0;contain-intrinsic-size:auto 300px}
+  .mgrid .scard .msel{position:absolute;top:12px;right:12px;width:20px;height:20px}
+  .mgrid .scard .sc-img{width:auto;height:160px;border-radius:0}
+  .mgrid .scard .sc-body{flex-direction:column;align-items:stretch;gap:var(--sp-3);padding:var(--sp-4)}
+  .mgrid .scard .sc-actions a{flex:1}
+  @media(max-width:700px){
+    .scard{gap:var(--sp-3);flex-wrap:wrap}
+    .sc-img{width:104px;height:72px}
+    /* Queue rows only: flatten the body so the thumb and text share the first
+       line and the actions drop to a full-width 44px line below (the two
+       buttons cannot fit beside a 104px thumb at 375px). The client-page
+       .mgrid cards keep their stacked sc-body. */
+    .scards .sc-body{display:contents}
+    .scards .sc-main{flex:1;min-width:0}
+    .scards .sc-actions{flex-basis:100%}
+    .sc-actions a{flex:1;min-height:44px}
+    .sc-head{flex-wrap:wrap}
+    .sc-title{white-space:normal}
+  }
   .ld-ai{font-size:var(--fs-label);font-weight:700;letter-spacing:.04em;color:var(--t3);background:var(--soft);border:1px solid var(--hair);border-radius:9999px;padding:1px 4px;margin-left:6px;vertical-align:middle}
   .ld-grid{display:grid;grid-template-columns:1fr;gap:var(--gap-grid)}
   @media(min-width:920px){.ld-grid{grid-template-columns:minmax(0,1fr) minmax(340px,420px);align-items:start}}
   .ld-left{min-width:0}
   .ld-gallery{margin-bottom:var(--sp-5)}
-  .ld-hero{height:420px;border-radius:var(--r-card);background:#15171a;background-size:cover;background-position:center;border:1px solid var(--hair)}
+  .ld-hero{height:420px;border-radius:var(--r-card);background:var(--media);background-size:cover;background-position:center;border:1px solid var(--hair)}
   .ld-hero.ld-noimg{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:var(--fs-sec);background:var(--off)}
   .ld-thumbs{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .ld-th{width:88px;height:62px;border-radius:var(--r-ctl);border:2px solid transparent;background:#15171a;background-size:cover;background-position:center;cursor:pointer;padding:0;opacity:.65;transition:opacity .15s,border-color .15s}
+  .ld-th{width:88px;height:62px;border-radius:var(--r-ctl);border:2px solid transparent;background:var(--media);background-size:cover;background-position:center;cursor:pointer;padding:0;opacity:.65;transition:opacity .15s,border-color .15s}
   .ld-th:hover{opacity:1}
   .ld-th.on{opacity:1;border-color:var(--gold)}
   .ld-right{position:sticky;top:84px}
   @media(max-width:920px){.ld-right{position:static}.ld-hero{height:280px}}
   .ld-top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
   .ld-grade-n{font-size:var(--fs-page);font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
-  .ld-grade-k{font-size:var(--fs-label);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:4px}
+  .ld-grade-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin-top:4px}
   .ld-landed{text-align:right}
-  .ld-landed-k{font-size:var(--fs-label);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .ld-landed-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
   .ld-landed-v{font-size:20px;font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums;margin-top:2px}
   .ld-when-row{margin-bottom:16px}
   .ld-when{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warn-fg);background:var(--warn-bg);border:1px solid transparent;padding:4px 8px;border-radius:var(--r-ctl)}
-  .ld-when.urgent{color:#fff;background:var(--bad);border-color:transparent}
+  .ld-when.urgent{color:var(--bad);background:var(--bad-bg);border-color:var(--bad-line)}
   .ld-rows{display:flex;flex-direction:column}
   .ld-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--hair-2);font-size:var(--fs-sec)}
   .ld-row:last-child{border-bottom:0}
   .ld-k{color:var(--t3)}
   .ld-v{color:var(--ink);font-weight:600;text-align:right}
-  .ld-sec{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:16px 0 2px}
+  .ld-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin:16px 0 4px}
   .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
   .ld-cl-n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
   .ld-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px}
@@ -785,7 +822,7 @@ const CSS = `
   .ld-sheet h2{margin-bottom:16px}
   .ld-sheet-link{position:relative;display:block;border-radius:var(--r-card);overflow:hidden;border:1px solid var(--hair);background:var(--off);line-height:0;aspect-ratio:3/2}
   .ld-sheet-img{display:block;width:100%;height:100%;object-fit:contain}
-  .ld-sheet-open{position:absolute;top:8px;right:8px;background:rgba(20,20,22,.72);color:#fff;font-size:var(--fs-label);font-weight:600;padding:4px 8px;border-radius:var(--r-ctl);letter-spacing:.02em;line-height:1}
+  .ld-sheet-open{position:absolute;top:8px;right:8px;background:rgba(20,20,22,.72);color:var(--on-solid);font-size:var(--fs-label);font-weight:600;padding:4px 8px;border-radius:var(--r-ctl);letter-spacing:.02em;line-height:1}
   .ld-sheet-link:hover .ld-sheet-open{background:rgba(20,20,22,.92)}
   .ld-topbtns{display:flex;gap:8px;align-items:center}
   .ld-share{position:relative}
@@ -971,6 +1008,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
 
   const info = [
     ["Email", c.email], ["Phone", c.whatsapp], ["State", c.state],
+    ["Category", isDealer(c) ? "Dealer" : "Private buyer"],
     ["Member", c.member ? "Yes &middot; auction access" : "No"],
     ["Portal", c.portal_enabled ? "Enabled" : "Not enabled"],
     ["Last contacted", `${healthDot(lc.t)}${esc(lastActivityLabel(lc.t))}`],
@@ -1301,7 +1339,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-currency">Currency</label><input id="set-currency" name="stripe_currency" value="${esc(s.stripe_currency || "aud")}" placeholder="aud"></div>
           </div>
           <details class="set-disc"><summary>Webhook setup</summary>
-            <p class="help" style="margin-top:8px;font-size:12px;line-height:1.55">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
+            <p class="help" style="margin-top:8px;font-size:var(--fs-label);line-height:var(--lh-list)">Add this endpoint in your Stripe dashboard for the <code>checkout.session.completed</code>, <code>customer.subscription.updated</code> and <code>customer.subscription.deleted</code> events, then set its signing secret as <code>STRIPE_WEBHOOK_SECRET</code>:<br><strong>${esc(webhookUrl)}</strong><br>For memberships, also enable the Customer Portal in Stripe so members can manage their plan.</p>
           </details>
         </div>
       </div>
@@ -1329,7 +1367,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-model">Model <span class="opt">(cached per car)</span></label><select id="set-model" name="ai_sheet_model">${aiOpts(s.ai_sheet_model, SHEET_MODELS, DEFAULT_SHEET_MODEL)}</select></div>
           </div>
           <details class="set-disc"><summary>How auto-read works</summary>
-            <p class="help" style="margin-top:8px;font-size:12px">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
+            <p class="help" style="margin-top:8px;font-size:var(--fs-label)">Auto modes read in the background after a search and cache the result, so each car is read once. “Strong”/“every match” are capped at 6 reads per search to control cost.</p>
           </details>
         </div>
       </div>
@@ -1364,12 +1402,14 @@ function paymentsView(payments, opts = {}) {
   // Stripe session ids are long enough to blow the table out; truncate with a
   // copy button for the full id.
   const sessCell = (p) => p.stripe_session
-    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 9px;font-size:11px" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
+    ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 8px;font-size:var(--fs-label)" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
     : "-";
+  // Stripe register (measured): the amount is the loudest thing on the row,
+  // 14px semibold tabular right-aligned ink; status stays the quietest.
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
     <td>${esc(p.client_name || ("#" + p.client_id))}</td>
-    <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
+    <td class="tnum">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
     <td style="font-size:var(--fs-label);color:var(--t3);white-space:nowrap">${sessCell(p)}</td>
@@ -1388,26 +1428,34 @@ function paymentsView(payments, opts = {}) {
       <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
     </tr>`;
   }).join("");
-  const depositsSection = deposits.length ? `<div class="psec" style="margin-top:24px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
+  const depositsSection = deposits.length ? `<div class="psec"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
     </div>` : "";
-  return `<div class="triage">
-      <div class="tstat"><div class="k">Collected</div><div class="v">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
+  // The trust surface: Collected is the one gold money headline; the section
+  // headers are a real rhythm class (32px above, 12px below), not bare h2s.
+  return `<style>
+    .psec{margin:var(--sp-6) 0 var(--sp-3)}
+    .psec h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0;display:flex;align-items:baseline;gap:var(--sp-2)}
+    .psec .ct{font-size:var(--fs-sec);font-weight:500;color:var(--t3)}
+    .triage+.psec,.psec:first-child{margin-top:0}
+  </style>
+    <div class="triage">
+      <div class="tstat"><div class="k">Collected</div><div class="v money">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
       <div class="tstat"><div class="k">Paid payments</div><div class="v">${paidCount}</div></div>
       <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
     ${depositsSection}
-    ${payments.length ? `<div class="psec" style="margin-top:26px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
+    ${payments.length ? `<div class="psec"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
     <div class="mcl">${payments.map((p) => mobileCardRow({
       name: p.client_name || "?",
       title: esc(p.client_name || ("#" + p.client_id)),
       meta: [esc(p.description || ""), esc(String(p.created_at || "").slice(0, 16))].filter(Boolean).join(" &middot; "),
-      right: `<span style="font-weight:700;color:var(--ink)">${money(p.amount_cents, p.currency)}</span>`,
+      right: `<span style="font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums">${money(p.amount_cents, p.currency)}</span>`,
       rightSub: badge(p.status),
     })).join("") || `<div class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</div>`}</div>
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
+      <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th style="text-align:right">Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
 
@@ -1434,7 +1482,7 @@ export function loginPage(opts = {}) {
       ${googleBlock}
       <label for="lg-email">Email</label>
       <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
-      <label for="lg-pass" style="margin-top:14px">Password</label>
+      <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
@@ -1460,8 +1508,8 @@ export function setPasswordPage(opts = {}) {
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
       <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
-      <p id="sp-help" class="login-sub" style="margin:6px 0 0;font-size:12.5px">At least ${PW_MIN} characters.</p>
-      <label for="sp-confirm" style="margin-top:14px">Confirm password</label>
+      <p id="sp-help" class="login-sub" style="margin:8px 0 0;font-size:var(--fs-label)">At least ${PW_MIN} characters.</p>
+      <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
@@ -1725,7 +1773,7 @@ function dashboardView(session, data) {
   const charts = `<div class="charts">
       <div class="chart-card">
         <div class="chart-h"><span class="ct-t">Reviewed per day</span><span class="ct-s">${revTotal} in 14 days</span></div>
-        ${barsSvg(rev, "var(--gold)")}
+        ${barsSvg(rev, "var(--t3)")}
         <div class="bars-x"><span>${dayLbl(rev[0] && rev[0].d)}</span><span>today</span></div>
       </div>
       ${foundCard}
@@ -1864,11 +1912,11 @@ const DASH2_CSS = `<style>
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:var(--sp-5)}
   .attn{margin:0 0 4px}
-  .attn-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .attn-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 12px}
   .acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
   .acard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px;transition:border-color .15s,transform .15s}
   .acard:hover{transform:translateY(-2px)}
-  .ac-n{font-size:var(--fs-page);font-weight:700;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ac-n{font-size:var(--fs-page);font-weight:700;letter-spacing:var(--ls-num);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
   .ac-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .acard-bad{border-color:var(--bad-line,var(--bad-bg))}.acard-bad .ac-n{color:var(--bad)}
   .acard-warn{border-color:var(--warn-c)}.acard-warn .ac-n{color:var(--warn-c)}
@@ -1877,7 +1925,7 @@ const DASH2_CSS = `<style>
   .pipestrip{display:flex;align-items:center;gap:2px;flex-wrap:nowrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px;margin:16px 0 4px;overflow-x:auto}
   .ps-c{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;padding:4px 8px;border-radius:var(--r-ctl);min-width:62px}
   .ps-c:hover{background:var(--hover,rgba(0,0,0,.04))}
-  .ps-n{font-size:var(--fs-sect);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ps-n{font-size:var(--fs-sect);font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);font-variant-numeric:tabular-nums}
   .ps-l{font-size:var(--fs-label);color:var(--t3);text-align:center;line-height:1.2}
   .ps-arrow{color:var(--faint);font-size:var(--fs-body);flex:none}
 </style>`;
@@ -1904,6 +1952,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
           <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
           <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
+          <div><label for="ic-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ic-category", vals.category)}</div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Add client</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
@@ -1926,7 +1975,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
         </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
@@ -1938,6 +1987,11 @@ function clientsView(clients, wishlists, opts = {}) {
   const session = opts.session || { role: "admin" };
   const agents = opts.agents || [];
   const shares = opts.shares || {};
+  // Category filter (?cat=private|dealer). Filtered here, not in SQL; the list
+  // is already loaded, and the tabs need every category's count regardless.
+  const cat = opts.cat || "";
+  const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
+  const list = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
   const countFor = (id) => wishlists.filter((w) => w.client_id === id).length;
   const canManage = (c) => session.role === "admin" || Number(c.agent_id) === Number(session.id);
 
@@ -1976,11 +2030,13 @@ function clientsView(clients, wishlists, opts = {}) {
     const t = lastContact[c.id];
     return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
   };
-  const rows = clients.map((c) =>
+  // Attio register: one identity cell (name over a muted email/state line,
+  // Dealer marked with the neutral chip) instead of Type / Email / State
+  // columns. Search still matches email and state; they live in the cell.
+  const rows = list.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
-      <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
+      <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
       <td style="text-align:right">${countFor(c.id)}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
@@ -1997,7 +2053,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 7 : 5}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -2020,7 +2076,10 @@ function clientsView(clients, wishlists, opts = {}) {
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}" style="font-size:12.5px;font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}${cat ? `&cat=${cat}` : ""}" style="font-size:var(--fs-label);font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  // Category tabs: All / Private / Dealers, with live counts, archive-aware.
+  const catTabs = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${[["", "All"], ["private", "Private"], ["dealer", "Dealers"]].map(([id, label]) =>
+    `<a class="chip ${cat === id ? "chip-on" : "muted"}" style="text-decoration:none" href="/admin?view=clients${id ? `&cat=${id}` : ""}${opts.showArchived ? "&archived=1" : ""}">${label}${id ? ` (${catCount(id)})` : ""}</a>`).join("")}</div>`;
   // Mobile card list: name, contact, searches and owner without the 560px-wide
   // table's horizontal scroll. Bulk allocation stays a desktop tool.
   const ownerName = (c) => {
@@ -2028,16 +2087,16 @@ function clientsView(clients, wishlists, opts = {}) {
     const a = agents.find((x) => Number(x.id) === Number(c.agent_id));
     return a ? a.name : "JDM Connect";
   };
-  const mobile = `<div class="mcl">${clients.map((c) => mobileCardRow({
+  const mobile = `<div class="mcl">${list.map((c) => mobileCardRow({
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
     meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: c.archived ? `<span class="chip muted">archived</span>` : "",
+    right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
-  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:14px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:10px 2px 0;font-size:12px">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2122,16 +2181,19 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("");
 
+  // Attio register: the customer IS the record, so the row leads with one
+  // identity cell (health dot, name, muted REQ reference under it) instead of
+  // separate Request / Customer columns. Destination folds into the vehicle
+  // cell as a chip only when it is the unusual case (overseas).
   const rows = requests.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
-    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "-";
+    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
+    const dest = String(r.destination_country || "").trim();
     return `<tr data-st="${r.status || "new"}">
-      <td>${healthDot(r.last_activity)}<a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></td>
-      <td><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></td>
-      <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</td>
-      <td>${destinationCell(r.destination_country, r.client_state)}</td>
-      <td style="white-space:nowrap">${budget}</td>
-      <td>${statusSelect(r.id, r.status)}</td>
+      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
+      <td class="req-veh"><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
+      <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
+      <td class="req-status">${statusSelect(r.id, r.status)}</td>
       <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
       <td>${esc(r.owner_name || "JDM Connect")}</td>
@@ -2141,19 +2203,20 @@ function requestsView(requests, opts = {}) {
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="11" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
   // Plain-English key so staff aren't guessing what the dots / REQ / Examples
-  // column mean (client asked "what do the green and red dots mean?").
-  const legend = `<div class="req-legend">
-    <span class="lg-t">Key</span>
+  // column mean (client asked "what do the green and red dots mean?"). Lives
+  // behind a quiet disclosure below the list (Attio register: no permanent
+  // legend card competing with the data).
+  const legend = `<details class="req-legend"><summary>Key to the dots and chips</summary><div class="lg-body">
     <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
     <span><span class="health health-amber"></span> Cooling (7 to 14 days)</span>
     <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
     <span><b class="reqid">REQ-###</b> Request reference, click to open the full request</span>
     <span><span class="chip chip-info">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
-  </div>`;
+  </div></details>`;
 
   // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
   // dot + relative time. Same data, no horizontal scroll.
@@ -2172,12 +2235,12 @@ function requestsView(requests, opts = {}) {
 
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
-    ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th class="req-veh">Vehicle</th><th style="text-align:right">Budget</th><th class="req-status">Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
+    ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
 }
 
@@ -2186,26 +2249,30 @@ const REQ_CSS = `<style>
   .pipe-card{text-align:left;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
   .pipe-card:hover{border-color:var(--field-line)}
   .pipe-card.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
-  .pipe-card .pc-n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .pipe-card .pc-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .pipe-card .pc-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px;line-height:1.25}
-  .reqid{font-family:var(--mono,monospace);font-size:var(--fs-label);font-weight:600;color:var(--t2);text-decoration:none}
+  .reqid{font-size:var(--fs-label);font-weight:400;color:var(--t3);text-decoration:none}
   a.reqid:hover{color:var(--ink)}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
-  .rstat-sel{padding:8px 24px 8px 12px;font-size:var(--fs-sec);border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);color:var(--ink);font-family:inherit}
-  .req-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px;font-size:var(--fs-label);color:var(--t2);line-height:1.5}
-  .req-legend .lg-t{font-size:var(--fs-label);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+  .rstat-sel{padding:8px 24px 8px 8px;font-size:var(--fs-sec);border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:inherit;cursor:pointer}
+  .rstat-sel:hover,.rstat-sel:focus{border-color:var(--field-line);background:var(--field)}
+  /* Keep the Status column wide enough for the full label and select on every
+     row (a long vehicle name used to squeeze it to "Ne"), and cap the Vehicle
+     column so a long car name wraps instead of stealing that width. */
+  .req-status{white-space:nowrap}
+  .req-status .rstat-sel{min-width:156px}
+  .req-veh{max-width:240px}
+  .req-veh .clink{overflow-wrap:anywhere}
+  .req-legend{margin:var(--sp-4) 0 0;font-size:var(--fs-label);color:var(--t2)}
+  .req-legend summary{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;padding:var(--sp-1) 0}
+  .req-legend summary::-webkit-details-marker{display:none}
+  .req-legend summary:after{content:"";width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;transition:transform .15s}
+  .req-legend[open] summary:after{transform:rotate(180deg)}
+  .req-legend .lg-body{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-4);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--sp-3) var(--sp-4);margin-top:var(--sp-2);line-height:1.5}
   .req-legend .health{margin-right:4px}
+  @media(max-width:640px){.req-legend summary{min-height:44px;align-items:center}}
 </style>`;
-
-// Destination cell for a request: the AU registration state by default, or an
-// "Overseas" badge with the country when a non-Australia destination is set.
-// Purely a marker - the AU landed-cost / eligibility flow is unchanged.
-function destinationCell(country, state) {
-  const c = String(country || "").trim();
-  if (c) return `<span class="chip chip-info" title="Overseas destination">${esc(c)}</span>`;
-  return state ? esc(state) : '<span class="chip muted">-</span>';
-}
 
 // Record one timeline event (Priority 8). Best-effort; never throws into a handler.
 export async function logActivity(env, { wishlist_id = null, client_id = null, type, detail = null, actor = null }) {
@@ -2406,9 +2473,26 @@ function matchTrackRow(q, back) {
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-yes" type="submit"${q.response === "interested" ? " disabled" : ""}>Interested</button></form>
       <form method="POST" action="/match/response" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="response" value="not_interested"><input type="hidden" name="back" value="${esc(back)}"><button class="mt-btn mt-no" type="submit"${q.response === "not_interested" ? " disabled" : ""}>Pass</button></form>
     </div>` : "";
+  // The variant and vitals, so staff can tell WHICH car this was; a bare
+  // "Mercedes Benz S Class" title hides whether it was the right trim/chassis.
+  const specs = [
+    lot.grade ? esc(String(lot.grade)) : "",
+    lot.kuzov ? `Chassis ${esc(String(lot.kuzov))}` : "",
+    Number(lot.mileage) > 0 ? `${Number(lot.mileage).toLocaleString("en-US")} km` : "",
+    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(String(lot.rate))}` : "",
+    lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "",
+    lot._landed && Number(lot._landed.grandTotal) > 0 ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")} landed` : "",
+  ].filter(Boolean).join(" &middot; ");
+  const thumb = imageUrls(lot).medium;
   return `<div class="mt">
-    <a class="mt-v" href="/admin?view=lot&id=${q.id}">${esc(veh)}</a>
-    <div class="mt-meta"><span class="chip ${tone}">${esc(stage)}</span>${when ? `<span class="mt-when">${when}</span>` : ""}</div>
+    <div class="mt-row">
+      ${thumb ? `<a href="/admin?view=lot&id=${q.id}" tabindex="-1" aria-hidden="true"><img class="mt-img" src="${esc(thumb)}" alt="" loading="lazy" width="76" height="57"></a>` : ""}
+      <div class="mt-main">
+        <a class="mt-v" href="/admin?view=lot&id=${q.id}">${esc(veh)}</a>
+        ${specs ? `<div class="mt-specs">${specs}</div>` : ""}
+        <div class="mt-meta"><span class="chip ${tone}">${esc(stage)}</span>${when ? `<span class="mt-when">${when}</span>` : ""}</div>
+      </div>
+    </div>
     ${acts}
   </div>`;
 }
@@ -2776,8 +2860,8 @@ const RD_CSS = `<style>
   @media(max-width:1180px){.rd{grid-template-columns:1fr}}
   .rdcol{display:flex;flex-direction:column;gap:16px}
   .rdcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--pad-card)}
-  .rd-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
-  .rd-ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);margin-left:6px;letter-spacing:0}
+  .rd-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 12px}
+  .rd-ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);margin-left:8px;letter-spacing:0}
   .rd-toph{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px}
   .rd-cust{display:flex;align-items:center;gap:12px;margin-bottom:16px}
   .rd-name{font-size:var(--fs-sect);font-weight:700;color:var(--ink)}
@@ -2808,6 +2892,10 @@ const RD_CSS = `<style>
   .rd-find:hover{background:var(--gold-hover)}
   .rd-matches{display:flex;flex-direction:column;gap:8px}
   .mt{border:1px solid var(--hair);border-radius:var(--r-card);padding:12px}
+  .mt-row{display:flex;gap:12px;align-items:flex-start}
+  .mt-img{display:block;width:76px;height:57px;object-fit:cover;border-radius:var(--r-ctl);background:var(--soft)}
+  .mt-main{flex:1;min-width:0}
+  .mt-specs{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:var(--lh-list)}
   .mt-v{display:block;font-size:var(--fs-sec);font-weight:600;color:var(--ink);text-decoration:none}
   .mt-v:hover{color:var(--gold-txt)}
   .mt-meta{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -2842,7 +2930,7 @@ const RD_CSS = `<style>
   .rd-newtask input{background:var(--field,var(--card));border:1px solid var(--hair);border-radius:var(--r-ctl);padding:8px;font-family:inherit;font-size:var(--fs-label);color:var(--ink)}
   .tk{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--hair);border-radius:var(--r-card);padding:8px 12px}
   .tk-done{opacity:.6}
-  .tk-box{width:20px;height:20px;border:1.5px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);cursor:pointer;color:var(--gold-on,#fff);font-size:var(--fs-label);line-height:1;flex:none;margin-top:1px}
+  .tk-box{width:20px;height:20px;border:1.5px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);cursor:pointer;color:var(--gold-on);font-size:var(--fs-label);line-height:1;flex:none;margin-top:1px}
   .tk-box.on{background:var(--gold);border-color:var(--gold)}
   .tk-b{flex:1;min-width:0}
   .tk-t{font-size:var(--fs-sec);font-weight:600;color:var(--ink);line-height:1.35}
@@ -2851,7 +2939,7 @@ const RD_CSS = `<style>
   .tk-r{display:flex;align-items:center;gap:8px;flex:none}
   .tk-due{font-size:var(--fs-label);font-weight:600;white-space:nowrap}
   .tk-over{color:var(--bad)}.tk-today{color:var(--warn-c)}.tk-soon{color:var(--t2)}.tk-none{color:var(--t3)}
-  .tk-del button{border:0;background:none;color:var(--t3);font-size:16px;cursor:pointer;line-height:1;padding:0 2px}
+  .tk-del button{border:0;background:none;color:var(--t3);font-size:var(--fs-body);cursor:pointer;line-height:1;padding:0 2px}
   .tk-del button:hover{color:var(--bad)}
   .tk-check{display:inline}
   .tl{list-style:none;margin:0;padding:0}
@@ -2935,11 +3023,11 @@ const TASKS_CSS = `<style>
   .tk-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:var(--sp-5)}
   .tk-stat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px}
   .tk-stat.bad{border-color:var(--bad-line)}.tk-stat.warn{border-color:var(--warn-c)}
-  .tk-stat .n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .tk-stat .n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .tk-stat.bad .n{color:var(--bad)}.tk-stat.warn .n{color:var(--warn-c)}
   .tk-stat .l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .tks{margin-bottom:var(--sp-5)}
-  .tks-h{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+  .tks-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 8px;display:flex;align-items:center;gap:8px}
   .tks-over{color:var(--bad)}.tks-today{color:var(--warn-c)}
   .tks-n{background:var(--soft,rgba(0,0,0,.06));border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);color:var(--t2)}
   .tks-l{display:flex;flex-direction:column;gap:8px}
@@ -2991,7 +3079,7 @@ function wishlistsView(wishlists) {
       <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
       <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its queued matches and history go with it. This cannot be undone." data-danger><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:#9a7b2e;font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
   return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
@@ -3001,12 +3089,6 @@ function wishlistsView(wishlists) {
 const daysUntil = (s) => { const t = Date.parse(s); return Number.isFinite(t) ? Math.round((t - Date.now()) / 86400000) : 999; };
 
 // Number of photos encoded in the feed's "#"-separated images field.
-function photoCount(lot) {
-  const raw = String(lot.images || "").trim();
-  if (!raw) return 0;
-  return raw.split("#").filter((u) => u.trim()).length;
-}
-
 // "Why it matched" chips, built from the wishlist criteria that were actually set.
 function whyChips(q) {
   const out = [];
@@ -3035,12 +3117,6 @@ function conditionScores(lot) {
   if (!ext && !int && (m = hay.match(/\b\d(?:\.\d)?\s+([A-E])\s*[\/\s]\s*([A-E])\b/))) { ext = m[1]; int = m[2]; }
   return (ext || int) ? { ext, int, ai: false } : null;
 }
-function scoresChips(lot) {
-  const s = conditionScores(lot);
-  if (!s) return "";
-  return `<div class="sc-scores">${s.ext ? `<span class="sc-score">Ext <b>${esc(s.ext)}</b></span>` : ""}${s.int ? `<span class="sc-score">Int <b>${esc(s.int)}</b></span>` : ""}${s.ai ? `<span class="sc-score ai">AI read</span>` : ""}</div>`;
-}
-
 function matchCard(q, cardOpts = {}) {
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
@@ -3064,53 +3140,45 @@ function matchCard(q, cardOpts = {}) {
   const days = daysUntil(lot.auction_date);
   const auc = esc(lot.auction || "");
   const aucDate = esc((lot.auction_date || "").slice(0, 10));
-  // Urgency chips: red inside 24h, amber inside 48h.
-  const when = (days <= 0) ? `<span class="sc-when urgent">Closing today</span>`
-    : (days === 1) ? `<span class="sc-when soon">Closing in 1 day</span>`
-    : (days === 2) ? `<span class="sc-when soon">Closing in 2 days</span>`
-    : (days > 2) ? `<span class="sc-when">Auction in ${days} days</span>`
-    : aucDate ? `<span class="sc-when">${aucDate}</span>` : "";
+  // Closing signal: red text inside 24h, amber inside 48h, quiet otherwise.
+  // Register rule: colour appears in a row only when it means urgency.
+  const when = (days <= 0) ? `<span class="sc-close urgent">Closes today</span>`
+    : (days === 1) ? `<span class="sc-close soon">Closes tomorrow</span>`
+    : (days === 2) ? `<span class="sc-close soon">Closes in 2 days</span>`
+    : (days > 2) ? `<span class="sc-close">Closes in ${days} days</span>`
+    : aucDate ? `<span class="sc-close">${aucDate}</span>` : "";
   const landedNum = q._landed ? Number(q._landed.grandTotal) : 0;
   const hasContact = !!(q.client_email || q.client_whatsapp);
-  const chips = whyChips(q);
-  const sub = [
+  // One muted spec line replaces the four-cell grid, the condition chips and
+  // the why chips (all still on lot detail): Linear register, one line only.
+  const cond = conditionScores(lot);
+  const grade = displayGrade(lot.rate);
+  const spec = [
+    (grade && grade !== "-") ? "Grade " + esc(grade) : "",
+    lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k km" : "",
     lot.kuzov ? esc(lot.kuzov) : "",
     lot.eng_v ? esc(lot.eng_v) + "cc" : "",
     lot.kpp ? esc(lot.kpp) : "",
-    photoCount(lot) ? photoCount(lot) + " photos" : "",
+    cond ? [cond.ext ? "Ext " + esc(cond.ext) : "", cond.int ? "Int " + esc(cond.int) : ""].filter(Boolean).join(" / ") : "",
+    bid ? "Bid " + bid : "",
   ].filter(Boolean).join(" · ");
   const haystack = esc(`${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""} ${q.client_name || ""} ${q.wlabel || ""} ${lot.kuzov || ""} ${lot.lot || ""}`.toLowerCase());
-  const cell = (k, v, gold) => `<div class="sc-cell"><div class="sc-k">${k}</div><div class="sc-v${gold ? " gold" : ""}">${v}</div></div>`;
   return `<div class="mcard scard" data-qid="${q.id}" data-cid="${q.client_id}" data-str="${strKey}" data-days="${days}" data-landed="${landedNum}" data-client="${esc(q.client_name || "")}" data-make="${esc(lot.marka_name || "")}" data-color="${esc((lot.color || "").toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase()))}" data-auction="${auc}" data-search="${haystack}">
     <input type="checkbox" class="msel" name="ids" value="${q.id}" form="bulkForm" aria-label="Select this match">
-    <a class="sc-img" href="${lotHref}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}">
-      <div class="sc-grad"></div>
-      <div class="sc-tags">
-        <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
-      </div>
-      ${(when || auc || lot.lot) ? `<div class="sc-imgfoot">${when}${(auc || lot.lot) ? `<span class="sc-auc">${[auc, lot.lot ? "Lot " + esc(lot.lot) : ""].filter(Boolean).join(" &middot; ")}</span>` : ""}</div>` : ""}
-    </a>
+    <a class="sc-img" href="${lotHref}" aria-label="View details" style="${img ? `background-image:url('${esc(img)}')` : ""}"></a>
     <div class="sc-body">
       <div class="sc-main">
         <div class="sc-head">
-          <div class="sc-id">
-            <h3 class="sc-title"><a href="${lotHref}">${title}</a></h3>
-            ${sub ? `<p class="sc-sub">${sub}</p>` : ""}
-          </div>
-          ${q._landed ? `<div class="sc-landed"><div class="sc-landed-k">Est. landed ${esc(q._landed.state)}</div><div class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : ""}
+          <h3 class="sc-title"><a href="${lotHref}">${title}</a></h3>
+          ${q._landed ? `<div class="sc-landed"><span class="sc-landed-k">Landed ${esc(q._landed.state)}</span><span class="sc-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</span></div>` : ""}
         </div>
-        <div class="sc-grid">
-          ${cell("Year", esc(lot.year || "-"))}
-          ${cell("Grade", esc(displayGrade(lot.rate)), true)}
-          ${cell("Odo", lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-")}
-          ${cell("Bid", bid)}
-        </div>
-        ${scoresChips(lot)}
-        <a class="sc-more" href="${lotHref}">View details &amp; auction report &rarr;</a>
-        ${(lot._watch || chips.length) ? `<div class="why">${lot._watch ? `<span class="wc lead">Lead · follow-up call</span>` : ""}${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
-        <div class="sc-client">
-          ${avatar(q.client_name)}
-          <div class="sc-cl"><div class="sc-cl-n">Match for: <a class="gold clink" href="/admin?view=client&id=${q.client_id}" data-drawer="/admin/drawer?id=${q.client_id}" title="See this client's engagement and history to help close them">${esc(q.client_name)}</a></div><div class="sc-cl-w">${esc(q.wlabel || "search")}</div></div>
+        ${spec ? `<p class="sc-sub">${spec}</p>` : ""}
+        <div class="sc-meta">
+          <span class="b ${strBadge}"><span class="bd"></span>${esc(strengthLabel)}</span>
+          ${lot._watch ? `<span class="b b-pos">Lead</span>` : ""}
+          ${when}
+          ${(auc || lot.lot) ? `<span class="sc-src">${[auc, lot.lot ? "Lot " + esc(lot.lot) : ""].filter(Boolean).join(" &middot; ")}</span>` : ""}
+          <span class="sc-for">for <a class="clink" href="/admin?view=client&id=${q.client_id}" data-drawer="/admin/drawer?id=${q.client_id}" title="See this client's engagement and history to help close them">${esc(q.client_name)}</a>${q.wlabel ? ` &middot; ${esc(q.wlabel)}` : ""}</span>
         </div>
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
@@ -3245,9 +3313,9 @@ function matchesView(pending, opts = {}) {
     `<a class="mtk${urgent ? " urgent" : ""}${on ? " on" : ""}" href="${href}"><div class="mtk-k">${k}</div><div class="mtk-row"><span class="mtk-n${ncls ? " " + ncls : ""}">${n}</span><span class="mtk-dot" style="background:${dot}"></span></div></a>`;
   const ticker = `<div class="mticker">
     ${tk("Awaiting review", pending.length, "", "var(--t3)", false, linkTo({ f: "all", soon: false }), st.f === "all" && !st.soon)}
-    ${tk("Strong", strong, "str", "var(--good)", false, linkTo({ f: "strong" }), st.f === "strong")}
-    ${tk("Good", good, "gold", "var(--warn-c)", false, linkTo({ f: "good" }), st.f === "good")}
-    ${tk("Possible", poss, "", "var(--t3)", false, linkTo({ f: "poss" }), st.f === "poss")}
+    ${tk("Strong", strong, "str", "var(--str-fg)", false, linkTo({ f: "strong" }), st.f === "strong")}
+    ${tk("Good", good, "", "var(--good-fg)", false, linkTo({ f: "good" }), st.f === "good")}
+    ${tk("Possible", poss, "", "var(--pos-fg)", false, linkTo({ f: "poss" }), st.f === "poss")}
     ${tk("Closing in 48h", soon, "bad", "var(--bad)", true, linkTo({ soon: !st.soon }), st.soon)}
   </div>`;
 
@@ -3265,33 +3333,34 @@ function matchesView(pending, opts = {}) {
   const chips = `<div class="fchips">
     ${chip("Strong + Good", { f: "sg" }, st.f === "sg")}
     ${chip("All", { f: "all" }, st.f === "all")}
-    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:#46B17A"></span>`)}
-    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:#CAA34C"></span>`)}
-    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:#B6B9BC"></span>`)}
+    ${chip("Strong", { f: "strong" }, st.f === "strong", "", `<span class="sd" style="background:var(--str-fg)"></span>`)}
+    ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:var(--good-fg)"></span>`)}
+    ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:var(--pos-fg)"></span>`)}
     ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
     <span class="bsp" style="flex:1"></span>
     ${chip("Grouped by client", { group: "client" }, st.group === "client")}
     ${chip("Flat list", { group: "none" }, st.group === "none")}
   </div>`;
 
-  // Triage row: every bulk tool in one place. The skip buttons act on ALL
-  // matching queue rows (loaded or not); their id lists are computed here.
+  // Triage tools live behind one quiet disclosure (Linear register: a single
+  // toolbar band above the list). The skip buttons act on ALL matching queue
+  // rows (loaded or not); their id lists are computed here.
   const stale = pending.filter((q) => q._str === "poss" && q._ageDays >= 7);
   const allPoss = pending.filter((q) => q._str === "poss");
-  const triage = `<div class="mtriage"><span class="quick">
+  const triage = `<details class="mtriage"><summary>Select &amp; bulk triage</summary><span class="quick">
       <button type="button" id="qAll">Select all shown</button>
       <button type="button" id="qStrong">Select all Strong</button>
       <button type="button" id="qSoon">Select all closing soon</button>
       ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triStale" data-ids="${stale.map((q) => q.id).join(",")}" data-base="Skip Possible older than 7 days" data-noun="Possible match${stale.length === 1 ? "" : "es"} older than 7 days"${stale.length ? "" : " disabled"}>Skip Possible older than 7 days (${stale.length})</button>` : ""}
       ${opts.isAdmin ? `<button type="button" class="tri-skip" id="triPoss" data-ids="${allPoss.map((q) => q.id).join(",")}" data-base="Skip all Possible" data-noun="Possible match${allPoss.length === 1 ? "" : "es"}"${allPoss.length ? "" : " disabled"}>Skip all Possible (${allPoss.length})</button>` : ""}
       ${opts.aiEnabled ? `<form method="POST" action="/lot/fix-photos" style="display:inline" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Starting…';"><button type="submit" id="qFix" title="AI-reads every car not read yet to fix cover photos and pull the inspection sheet (about 1 to 5 cents each)">Fix photos with AI</button></form>` : ""}
-    </span></div>`;
+    </span></details>`;
 
   const controls = `<div class="mtools">
     <div class="crow">
       <label class="msearch"><input id="mq" type="search" placeholder="Search car, chassis, lot or client…" autocomplete="off"></label>
+      ${chips}
     </div>
-    ${chips}
     ${triage}
   </div>`;
 
@@ -3352,27 +3421,37 @@ function matchesView(pending, opts = {}) {
 
   const css = `<style>
     a.mtk{text-decoration:none;color:inherit;cursor:pointer}
-    .mtk.on{outline:2px solid var(--gold);outline-offset:-2px}
-    .mbanner{display:flex;align-items:center;gap:12px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--ink);border-radius:11px;padding:11px 14px;margin:0 0 14px;font-size:13.5px;flex-wrap:wrap}
-    .mbanner a{color:var(--gold-txt);font-weight:700;text-decoration:none;white-space:nowrap}
-    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:18px;line-height:1;color:var(--t3);cursor:pointer;padding:4px 6px}
-    a.fchip{text-decoration:none;display:inline-flex;align-items:center;gap:7px}
-    .mtriage{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
-    .mgroup{margin:0 0 26px}
-    .ghead2{display:flex;align-items:center;gap:12px;padding:10px 2px;flex-wrap:wrap}
-    .gh-fold{width:34px;height:34px;border:1px solid var(--hair);border-radius:8px;background:var(--card);cursor:pointer;color:var(--t2);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+    .mtk.on{outline:2px solid var(--ink);outline-offset:-2px}
+    .mbanner{display:flex;align-items:center;gap:12px;background:var(--off);border:1px solid var(--hair);color:var(--t2);border-radius:var(--r-card);padding:var(--sp-3) var(--sp-4);margin:0 0 var(--sp-4);font-size:var(--fs-sec);flex-wrap:wrap}
+    .mbanner a{color:var(--gold-txt);font-weight:600;text-decoration:none;white-space:nowrap}
+    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:20px;line-height:1;color:var(--t3);cursor:pointer;padding:var(--sp-1) var(--sp-2)}
+    a.fchip{text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+    .mtriage{margin-top:var(--sp-2)}
+    .mtriage summary{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;padding:var(--sp-1) 0}
+    .mtriage summary::-webkit-details-marker{display:none}
+    .mtriage summary:after{content:"";width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;transition:transform .15s}
+    .mtriage[open] summary:after{transform:rotate(180deg)}
+    .mtriage .quick{margin:var(--sp-2) 0 0;display:flex;gap:var(--sp-2);flex-wrap:wrap}
+    .mgroup{margin:0 0 var(--sp-6)}
+    .ghead2{display:flex;align-items:center;gap:12px;padding:var(--sp-3) var(--sp-1);flex-wrap:wrap}
+    .gh-fold{width:28px;height:28px;border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);cursor:pointer;color:var(--t2);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
     .gh-fold:after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;transition:transform .15s}
     .mgroup.folded .gh-fold:after{transform:rotate(-90deg)}
     .mgroup.folded .gh-cards{display:none}
     .gh-id{flex:1;min-width:180px}
-    .gh-name{font-size:15px;font-weight:700}
+    .gh-name{font-size:var(--fs-body);font-weight:var(--w-value)}
     .gh-name a{color:inherit;text-decoration:none}
     .gh-name a:hover{color:var(--gold-txt)}
-    .gh-count{font-size:12px;font-weight:600;color:var(--t3);margin-left:8px}
-    .gh-sub{font-size:12.5px;color:var(--t3);margin-top:2px}
+    .gh-count{font-size:var(--fs-label);font-weight:var(--w-label);color:var(--t3);margin-left:var(--sp-2)}
+    .gh-sub{font-size:var(--fs-label);color:var(--t3);margin-top:var(--sp-1)}
     .gh-send{white-space:nowrap}
-    .scards.gh-cards{margin-top:8px}
-    .mmore{display:flex;justify-content:center;margin:20px 0 6px}
+    .scards.gh-cards{margin-top:var(--sp-2)}
+    .mmore{display:flex;justify-content:center;margin:var(--sp-5) 0 var(--sp-2)}
+    @media(max-width:640px){
+      .gh-fold{width:44px;height:44px}
+      .mtriage summary{min-height:44px;align-items:center}
+      .mtriage .quick button{min-height:44px}
+    }
   </style>`;
 
   return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
@@ -3604,7 +3683,7 @@ function matchActionScript() {
       toast(approve?'Sent to client':'Skipped');
     }).catch(function(){ a.textContent=approve?'Approve & send':'Skip'; toast('Could not action, try again',true); });
   });
-  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'#571622':'#1C2027')+';color:#fff;border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
+  function toast(m,err){if(window.jdmToast){window.jdmToast(m,err);return;}var t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:'+(err?'var(--bad)':'var(--card-2)')+';color:var(--on-solid);border:1px solid rgba(255,255,255,0.12);padding:12px 18px;border-radius:8px;font:600 13px sans-serif;z-index:9999';document.body.appendChild(t);setTimeout(function(){t.remove();},2200);}
   })();<\/script>`;
 }
 
@@ -3757,9 +3836,9 @@ function clientBulkBar(cid, qs = "") {
   // so a native bulk action never wipes the search results off the page.
   const back = `/admin?view=client&id=${cid}${qs ? "&" + qs : ""}`;
   return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="${esc(back)}"></form>
-    <div style="display:flex;align-items:center;gap:14px;margin:0 0 14px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
-      <span style="color:#9A9DA1;font-size:13px"><span id="cdCount">0</span> selected</span>
+    <div style="display:flex;align-items:center;gap:16px;margin:0 0 16px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:var(--fs-sec)"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
+      <span style="color:var(--t3);font-size:var(--fs-sec)"><span id="cdCount">0</span> selected</span>
       <span style="flex:1"></span>
       <button type="submit" form="bulkForm" class="bap" id="cdApprove" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
       <button type="submit" form="bulkForm" class="bsk" id="cdSkip" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
@@ -3959,7 +4038,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       ? `Approve and send this car to ${esc(q.client_name || "the client")}? They get one message with this car.`
       : `${esc(q.client_name || "This client")} has no email or WhatsApp on file. Approving will mark this handled but nothing will reach them. Continue?`;
   const contactWarn = (!hasContact && !lot._watch && q.status === "pending")
-    ? `<div class="nocontact" style="margin:10px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
+    ? `<div class="nocontact" style="margin:12px 0 0">No email or WhatsApp on file. Approving won't reach this client.</div>`
     : "";
   const actions = q.status === "pending"
     ? `${contactWarn}<div class="ld-actions">
@@ -3988,14 +4067,14 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       <div class="ld-topbtns">${shareBtn}${back}</div>
     </div>
     <div class="content wide">
-      ${opts.err ? `<div class="reqerr" style="margin-bottom:18px">${esc(opts.err)}</div>` : ""}
+      ${opts.err ? `<div class="reqerr" style="margin-bottom:16px">${esc(opts.err)}</div>` : ""}
       <div class="ld-grid">
         <div class="ld-left">
           ${gallery}
           ${sheetBox}
           ${marketBox}
           ${session.role === "admin" ? `<details class="ld-feed"><summary>Feed image data (${bases.length} image${bases.length === 1 ? "" : "s"} from the auction feed)</summary>
-            <p class="help" style="margin:10px 0 6px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
+            <p class="help" style="margin:12px 0 8px">Raw <code>images</code> field we received for this lot (this is everything the feed sent, so if the inspection sheet isn't here, the feed didn't include it):</p>
             <pre class="ld-raw">${esc(lot.images || "(empty, the feed sent no images for this lot)")}</pre>
           </details>` : ""}
           ${notes}
@@ -4021,13 +4100,21 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
 // engagement stat strip) and the lighter outline "back" button that replaces
 // the heavy black one the client flagged. Loaded once with the header.
 const CRM_CSS = `<style>
+  /* Attio record rhythm: the record header spans full width, then the work
+     (searches, find, matches) runs in a primary column with the quieter
+     record-keeping (activity, portal, edit) in a 340px side rail whose card
+     titles sit one type tier down. */
+  .cd-grid{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
+  @media(min-width:1100px){.cd-grid{grid-template-columns:minmax(0,1fr) 340px;column-gap:var(--gap-grid)}}
+  .cd-rail .card h2{font-size:var(--fs-body)}
+  .cd-head .avatar{width:44px;height:44px;font-size:var(--fs-body);margin-right:0}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
   /* cd-cta and btn-line alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
   .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
-  .cd-stat-n{font-size:20px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+  .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
   .cd-stat-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
   .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
@@ -4110,6 +4197,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
   const telDigits = String(c.whatsapp || "").replace(/[^0-9+]/g, "");
   const statusChips = [
+    isDealer(c) ? `<span class="chip">Dealer</span>` : "",
     c.member ? `<span class="chip chip-gold">Member</span>` : `<span class="chip muted">Not a member</span>`,
     c.portal_enabled ? `<span class="chip chip-good">Portal ${c.pass_hash ? "active" : "invited"}</span>` : "",
     c.destination_country ? `<span class="chip muted">${esc(c.destination_country)}</span>` : (c.state ? `<span class="chip muted">${esc(c.state)}</span>` : ""),
@@ -4123,7 +4211,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
   const head = `<div class="card cd-card">
     <div class="cd-head">
-      <span class="avatar" style="width:46px;height:46px;font-size:15px">${esc(initials(c.name))}</span>
+      <span class="avatar" style="width:46px;height:46px;font-size:var(--fs-body)">${esc(initials(c.name))}</span>
       <div style="flex:1;min-width:0">
         <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
         <div class="cd-chips">${statusChips}</div>
@@ -4155,6 +4243,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
         <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
         <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
+        <div><label for="ec-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ec-category", c.category)}</div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
@@ -4191,7 +4280,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const reqSection = requested.length ? `<div class="card">
     <h2><span class="num">${requested.length}</span> Cars ${esc(c.name)} asked us to action</h2>
-    <p class="help" style="margin:-8px 0 16px">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
@@ -4211,7 +4300,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
       </div>
-      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${presetScript()}
@@ -4244,7 +4333,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       // queue? Renders a Queued / Sent badge on the card instead of a dead-end
       // add-reload-duplicate loop.
       const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
-      findResults = `<div class="mgrid" style="margin-top:18px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
     } else {
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -4268,7 +4357,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:16px">Sorry, we couldn't add that lot, please try again.</div>` : "";
   const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
     <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
-    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
       <div class="grid">
@@ -4294,7 +4383,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // response buttons so replies can be logged from here too.
   const historyCard = history.length ? `<div class="card">
     <h2><span class="num">${history.length}</span> Sent and past cars</h2>
-    <p class="help" style="margin:-8px 0 16px">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
     <div class="rd-matches">${history.map((q) => matchTrackRow(q, `/admin?view=client&id=${cid}`)).join("")}</div>
   </div>` : "";
 
@@ -4304,7 +4393,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </div>`;
 
   const main = `
-    <div class="topbar">
+    <div class="topbar wide">
       <div>
         <div class="kicker">Vehicle Finder · Client</div>
         <h1>${esc(c.name)}</h1>
@@ -4312,7 +4401,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}${feedCard}${portalCard}${editCard}</div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}</div><aside class="cd-rail">${feedCard}${portalCard}${editCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -4809,7 +4898,7 @@ const PLV_STYLE = `<style>
   @media(min-width:920px){.plv-grid{grid-template-columns:minmax(0,1fr) minmax(300px,380px);align-items:start}}
   .plv-left{min-width:0}
   .plv-gallery{margin-bottom:24px}
-  .plv-hero{height:440px;border-radius:var(--r-card,10px);background:#15171a;background-size:cover;background-position:center;border:1px solid var(--hair)}
+  .plv-hero{height:440px;border-radius:var(--r-card,10px);background:var(--media);background-size:cover;background-position:center;border:1px solid var(--hair)}
   .plv-noimg{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:var(--fs-sec,13px)}
   .plv-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .plv-th{width:84px;height:60px;border-radius:var(--r-ctl,8px);border:1px solid var(--hair);background-size:cover;background-position:center;cursor:pointer;opacity:.7;transition:opacity .15s,border-color .15s;padding:0}
@@ -4913,11 +5002,11 @@ function tableToolsScript() {
     .tbl-search{flex:0 1 340px;max-width:340px;padding:8px 12px;border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);color:var(--ink);font-size:var(--fs-sec)}
     .tbl-search:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
     .tbl-count{font-size:var(--fs-label);color:var(--t3);font-variant-numeric:tabular-nums}
-    .bulk-del{display:inline-flex;align-items:center;gap:6px}
+    .bulk-del{display:inline-flex;align-items:center;gap:8px}
     .bulk-del svg{width:16px;height:16px;flex:0 0 auto}
-    .wl-search{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+    .wl-search{display:inline-flex;align-items:center;gap:8px;text-decoration:none}
     .wl-search svg{width:15px;height:15px;flex:0 0 auto}
-    .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--t2);font-size:var(--fs-sec);font-weight:600;text-decoration:none;margin-bottom:8px}
+    .backlink{display:inline-flex;align-items:center;gap:8px;color:var(--t2);font-size:var(--fs-sec);font-weight:600;text-decoration:none;margin-bottom:8px}
     .backlink:hover{color:var(--ink)}
     /* Reusable row action menu (kebab dropdown). */
     .rowmenu{position:relative;display:inline-block}
@@ -4943,7 +5032,7 @@ function tableToolsScript() {
       .rowmenu-item{padding:16px;font-size:var(--fs-body);min-height:44px}
     }
     /* Reusable table toolbar Export button (secondary button alias). */
-    .tbl-export{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;font-family:inherit;white-space:nowrap}
+    .tbl-export{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;font-family:inherit;white-space:nowrap}
     .tbl-export:hover{border-color:var(--field-line);color:var(--ink)}
     .tbl-export svg{width:14px;height:14px}
     /* Sortable table headers. */
@@ -4993,16 +5082,23 @@ function tableToolsScript() {
 //    them on pageshow so bfcache back-navigation never leaves dead buttons.
 function uxGuardScript() {
   return `<style>
-    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:#1C2027;color:#fff;border:1px solid rgba(255,255,255,0.14);padding:12px 18px;border-radius:9px;font:600 13.5px/1.4 Inter,-apple-system,sans-serif;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
-    .jdm-toast.err{background:#571622}
+    /* The ONE toast and the ONE confirm dialog, on the same tokens they guard.
+       Both render against the dark root palette (appended to body), a calm
+       dark surface over either workspace, in the Linear dialog register:
+       hairline cancel, single gold confirm, red outline for danger. */
+    .jdm-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,480px);background:var(--card-2,#1C2027);color:var(--ink,#F4F2EC);border:1px solid var(--hair,rgba(255,255,255,0.14));padding:12px 16px;border-radius:var(--r-card,10px);font-family:inherit;font-size:var(--fs-sec,13px);font-weight:600;line-height:var(--lh-list,1.45);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.28);text-align:center}
+    .jdm-toast.err{background:var(--bad);color:var(--on-solid)}
     .jdmc-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9997}
-    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#fff);color:var(--ink,#15171B);border:1px solid var(--hair,rgba(0,0,0,.1));border-radius:14px;padding:20px;width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
-    .jdmc-m{font-size:14.5px;line-height:1.55;font-weight:500;white-space:pre-line}
-    .jdmc-b{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
-    .jdmc-b button{font-family:inherit;font-size:13.5px;font-weight:600;border-radius:9px;padding:10px 16px;cursor:pointer;min-height:44px}
-    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(0,0,0,.18));color:var(--ink,#15171B)}
-    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:#15120A}
-    .jdmc-ok.danger{background:transparent;border:1px solid rgba(226,96,122,.55);color:#B11226}
+    .jdmc-card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9998;background:var(--card,#171A20);color:var(--ink,#F4F2EC);border:1px solid var(--hair,rgba(255,255,255,.08));border-radius:var(--r-card,10px);padding:var(--pad-card,20px);width:min(92vw,420px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+    .jdmc-m{font-size:var(--fs-body,15px);line-height:var(--lh-body,1.5);font-weight:500;white-space:pre-line}
+    .jdmc-b{display:flex;gap:12px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+    .jdmc-b button{font-family:inherit;font-size:var(--fs-sec,13px);font-weight:600;border-radius:var(--r-ctl,8px);padding:10px 16px;cursor:pointer;min-height:44px}
+    .jdmc-cancel{background:transparent;border:1px solid var(--hair,rgba(255,255,255,.18));color:var(--ink,#F4F2EC)}
+    .jdmc-cancel:hover{background:var(--hover,rgba(255,255,255,.05))}
+    .jdmc-ok{background:var(--gold,#CAA34C);border:0;color:var(--gold-on,#15120A)}
+    .jdmc-ok:hover{background:var(--gold-hover,#D9B45F)}
+    .jdmc-ok.danger{background:transparent;border:1px solid var(--bad-line,rgba(226,96,122,.55));color:var(--bad,#E2607A)}
+    .jdmc-ok.danger:hover{background:var(--bad-bg,rgba(226,96,122,.12))}
   </style><script>(function(){
   var live=null;
   window.jdmToast=function(m,err,ms){
@@ -5131,7 +5227,7 @@ function drawerChrome() {
     .dw-row:last-child{border-bottom:0}
     .dw-k{font-size:var(--fs-label);color:var(--t3)}
     .dw-v{font-size:var(--fs-sec);font-weight:600;color:var(--ink);text-align:right}
-    .dw-sec{font-size:var(--fs-label);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin:var(--sp-4) 0 8px;display:flex;align-items:center;gap:8px}
+    .dw-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:var(--sp-4) 0 8px;display:flex;align-items:center;gap:8px}
     .dw-sec .ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label)}
     .dw-list{display:flex;flex-direction:column;gap:8px}
     .dw-item{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px}
@@ -5264,6 +5360,10 @@ export async function createClient(env, form, session) {
   if (!name) return { ok: false, error: "name" };
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   const state = normalizeState(form.get("state"));
+  // Unknown category values fall back to 'private' rather than erroring; the
+  // select only offers valid ids, so anything else is a stale/hand-built form.
+  const rawCategory = String(form.get("category") || "");
+  const category = CLIENT_CATEGORY_IDS.has(rawCategory) ? rawCategory : "private";
   const agentId = session && session.role === "agent" ? session.id : null;
 
   // Duplicate guard: fold a repeat into the existing client (matched by email or
@@ -5284,8 +5384,8 @@ export async function createClient(env, form, session) {
     }
   }
 
-  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id) VALUES (?, ?, ?, ?, ?)")
-    .bind(name, email || null, whatsapp || null, state, agentId).run();
+  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id, category) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(name, email || null, whatsapp || null, state, agentId, category).run();
   return { ok: true, id: r.meta?.last_row_id };
 }
 
@@ -5305,6 +5405,12 @@ export async function updateClient(env, form, session) {
   const email = String(form.get("email") || "").trim();
   const whatsapp = String(form.get("whatsapp") || "").trim();
   const state = normalizeState(form.get("state"));
+  // Absent field = a caller that doesn't know about categories (keep what's
+  // stored); an unknown value = a mangled form (fall back to private).
+  const rawCategory = form.get("category");
+  const category = rawCategory === null
+    ? (c.category || "private")
+    : (CLIENT_CATEGORY_IDS.has(String(rawCategory)) ? String(rawCategory) : "private");
   if (!name) return { ok: false, error: "name" };
   if (!email && !whatsapp) return { ok: false, error: "contact" };
   // Portal sign-in and invite links are keyed to the email, so don't let it be
@@ -5316,8 +5422,8 @@ export async function updateClient(env, form, session) {
   const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(c.agent_id) });
   if (dup && Number(dup.id) !== cid) return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
 
-  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ? WHERE id = ?")
-    .bind(name, email || null, whatsapp || null, state, cid).run();
+  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ?, category = ? WHERE id = ?")
+    .bind(name, email || null, whatsapp || null, state, category, cid).run();
   return { ok: true, id: cid };
 }
 
@@ -6141,8 +6247,10 @@ function queueStateBadge(status, name) {
     : status === "pending" ? `Queued${name ? " for " + esc(name) : ""}`
     : "";
   if (!label) return "";
-  const tone = status === "sent" ? "background:rgba(31,122,77,.14);color:#1F7A4D" : "background:var(--gold-tint);color:var(--gold-txt)";
-  return `<span class="qbadge" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;${tone}">&#10003; ${label}</span>`;
+  // Status is a chip, never gold: sent = good tone, queued = neutral.
+  return status === "sent"
+    ? `<span class="chip chip-good qbadge">&#10003; ${label}</span>`
+    : `<span class="chip muted qbadge">${label}</span>`;
 }
 
 // Sticky bottom send bar for the auction-search surfaces (client-page find
@@ -6164,16 +6272,16 @@ function staffSendBar(opts = {}) {
   </div>
   <style>
     .selcard{cursor:pointer;position:relative}
-    .selcard .fsel{position:absolute;top:10px;right:10px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
-    .acard.selcard .fsel{top:auto;bottom:11px;right:11px}
-    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:13px}
-    .qbadge-js{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:9999px;white-space:nowrap;background:var(--gold-tint);color:var(--gold-txt)}
-    .qbadge-js.sent{background:rgba(31,122,77,.14);color:#1F7A4D}
-    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:#15181D;color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:10px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
+    .selcard .fsel{position:absolute;top:12px;right:12px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
+    .acard.selcard .fsel{top:auto;bottom:12px;right:12px}
+    .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-card)}
+    /* The floating variant of the ONE action bar family (.actionbar /
+       .bulkbar2 / .sendbar): dark card surface on the shared tokens. */
+    .sendbar{position:fixed;left:50%;bottom:0;transform:translate(-50%,130%);display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;background:var(--card-2,#1C2027);color:#F4F2EC;border:1px solid rgba(255,255,255,.16);border-radius:var(--r-card);padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));margin-bottom:12px;z-index:300;transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:min(94vw,640px);box-shadow:0 12px 34px rgba(0,0,0,.35)}
     .sendbar.show{transform:translate(-50%,0)}
-    .sendbar .sb-count{font-size:13px;font-weight:600;color:#cfd3d8;white-space:nowrap}
-    .sendbar .sb-count b{color:#fff}
-    .sendbar select{background:#1F242B;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:9px 30px 9px 11px;font-size:13.5px;max-width:180px}
+    .sendbar .sb-count{font-size:var(--fs-sec);font-weight:600;color:#cfd3d8;white-space:nowrap}
+    .sendbar .sb-count b{color:var(--on-solid)}
+    .sendbar select{background:#1F242B;color:var(--on-solid);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-ctl);padding:8px 28px 8px 12px;font-size:var(--fs-sec);max-width:180px}
     .sendbar button{min-height:44px}
     @media(max-width:640px){.sendbar{left:8px;right:8px;transform:translate(0,130%);max-width:none;margin-bottom:8px}.sendbar.show{transform:translate(0,0)}}
   </style>
@@ -6237,7 +6345,7 @@ function staffSendBar(opts = {}) {
           var cb=c.querySelector('.fsel'); if(cb){cb.checked=false;cb.disabled=true;}
           var f2=c.querySelector('form[action="/client/find"]');
           var badge=document.createElement('span');
-          badge.className='qbadge-js'+(send?' sent':'');
+          badge.className='chip '+(send?'chip-good':'muted');
           badge.textContent=(send?'Sent to ':'Queued for ')+name;
           if(f2&&f2.parentNode)f2.parentNode.replaceChild(badge,f2);
         });
