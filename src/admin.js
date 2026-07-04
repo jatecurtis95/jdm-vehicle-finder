@@ -387,7 +387,7 @@ const CSS = `
   .mstats .s.gold .v{color:var(--ink);font-weight:700}
   .mland{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--gold-tint);border-top:1px solid var(--hair)}
   .mland .ml-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--gold-txt)}
-  .mland .ml-v{font-size:var(--fs-body);font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums}
+  .mland .ml-v{font-size:var(--fs-body);font-weight:var(--w-value);color:var(--gold-txt);font-variant-numeric:tabular-nums}
   .mfoot{border-top:1px solid var(--hair);padding:16px;display:flex;align-items:center;gap:8px}
   .mfoot .who{flex:1;min-width:0}
   .mfoot .who .n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
@@ -501,6 +501,7 @@ const CSS = `
   .tstat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;min-width:96px}
   .tstat .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:8px}
   .tstat .v{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);font-variant-numeric:tabular-nums;margin-top:4px}
+  .tstat .v.money{color:var(--gold-txt)}
   .tstat .d{width:8px;height:8px;border-radius:9999px;display:inline-block}
   .tstat.urgent{border-color:var(--bad-line);background:var(--bad-bg)}
   .tstat.urgent .v{color:var(--bad)}
@@ -1387,10 +1388,12 @@ function paymentsView(payments, opts = {}) {
   const sessCell = (p) => p.stripe_session
     ? `<span style="font-family:var(--mono,ui-monospace,monospace)" title="${esc(p.stripe_session)}">${esc(String(p.stripe_session).slice(0, 18))}&hellip;</span> <button type="button" class="tbl-export" style="padding:4px 8px;font-size:var(--fs-label)" data-sess="${esc(p.stripe_session)}" onclick="var b=this;(navigator.clipboard?navigator.clipboard.writeText(b.getAttribute('data-sess')):Promise.reject()).then(function(){if(window.jdmToast)jdmToast('Session id copied');},function(){prompt('Copy the session id:',b.getAttribute('data-sess'));})">Copy</button>`
     : "-";
+  // Stripe register (measured): the amount is the loudest thing on the row,
+  // 14px semibold tabular right-aligned ink; status stays the quietest.
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
     <td>${esc(p.client_name || ("#" + p.client_id))}</td>
-    <td style="font-weight:600;color:var(--ink)">${money(p.amount_cents, p.currency)}</td>
+    <td class="tnum">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
     <td style="font-size:var(--fs-label);color:var(--t3);white-space:nowrap">${sessCell(p)}</td>
@@ -1409,26 +1412,34 @@ function paymentsView(payments, opts = {}) {
       <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
     </tr>`;
   }).join("");
-  const depositsSection = deposits.length ? `<div class="psec" style="margin-top:24px"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
+  const depositsSection = deposits.length ? `<div class="psec"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
     </div>` : "";
-  return `<div class="triage">
-      <div class="tstat"><div class="k">Collected</div><div class="v">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
+  // The trust surface: Collected is the one gold money headline; the section
+  // headers are a real rhythm class (32px above, 12px below), not bare h2s.
+  return `<style>
+    .psec{margin:var(--sp-6) 0 var(--sp-3)}
+    .psec h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0;display:flex;align-items:baseline;gap:var(--sp-2)}
+    .psec .ct{font-size:var(--fs-sec);font-weight:500;color:var(--t3)}
+    .triage+.psec,.psec:first-child{margin-top:0}
+  </style>
+    <div class="triage">
+      <div class="tstat"><div class="k">Collected</div><div class="v money">A$${(totalPaid / 100).toLocaleString("en-AU")}</div></div>
       <div class="tstat"><div class="k">Paid payments</div><div class="v">${paidCount}</div></div>
       <div class="tstat"><div class="k">Deposits outstanding</div><div class="v">${deposits.length}</div></div>
     </div>
     ${depositsSection}
-    ${payments.length ? `<div class="psec" style="margin-top:24px"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
+    ${payments.length ? `<div class="psec"><h2>Payments<span class="ct">${payments.length}</span></h2></div>${tableToolbar("paymentsTbl", "Search payments by client, status or description…", "jdm-payments")}` : ""}
     <div class="mcl">${payments.map((p) => mobileCardRow({
       name: p.client_name || "?",
       title: esc(p.client_name || ("#" + p.client_id)),
       meta: [esc(p.description || ""), esc(String(p.created_at || "").slice(0, 16))].filter(Boolean).join(" &middot; "),
-      right: `<span style="font-weight:700;color:var(--ink)">${money(p.amount_cents, p.currency)}</span>`,
+      right: `<span style="font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums">${money(p.amount_cents, p.currency)}</span>`,
       rightSub: badge(p.status),
     })).join("") || `<div class="empty">No payments yet.${opts.stripeSecret ? "" : " Add your Stripe key and turn on deposits in Settings to start taking them."}</div>`}</div>
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th>Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
+      <table id="paymentsTbl" class="sortable"><tr><th>When</th><th>Client</th><th style="text-align:right">Amount</th><th>For</th><th>Status</th><th>Stripe session</th></tr>${rows}</table>
     </div>`;
 }
 
