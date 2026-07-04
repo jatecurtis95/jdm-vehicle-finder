@@ -102,12 +102,16 @@ export function carAudToLanded(carAud) {
   return Math.round(v * ON_VALUE_TAX + IMPORT_OVERHEAD_AUD);
 }
 
-// The lot's working purchase price in JPY (starting bid, else market estimate).
+// The lot's working purchase price in JPY for landed estimates. Prefer the
+// recent market average: start prices are teaser bids (often 1 yen) and
+// systematically understate what the car will hammer for. Fall back to the
+// starting bid only when no market average exists. Scoring's lotPrice keeps
+// its own start-first rule; that one asks affordability, this one asks cost.
 function lotJpy(lot) {
-  const s = Number(lot?.start);
   const a = Number(lot?.avg_price);
-  if (s > 0) return s;
+  const s = Number(lot?.start);
   if (a > 0) return a;
+  if (s > 0) return s;
   return 0;
 }
 
