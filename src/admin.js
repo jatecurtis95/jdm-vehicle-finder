@@ -333,8 +333,11 @@ const CSS = `
   .chip-bad{background:var(--bad-bg);border-color:transparent;color:var(--bad)}
   .chip-info{background:var(--info-bg);border-color:transparent;color:var(--info)}
   .chip-gold{background:var(--gold-tint);border-color:transparent;color:var(--gold-txt)}
-  .chip-on{background:var(--ink);border-color:var(--ink);color:var(--bg-2)}
-  .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--field);color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .chip-on{background:var(--card);border-color:var(--ink);color:var(--ink)}
+  /* Row-level selects read as quiet text until pointed at (Attio register:
+     fields in a record row look inert until you interact). */
+  .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--t2);cursor:pointer;font-family:${FONT}}
+  .share-pick:hover,.share-pick:focus{border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
   .bulk-label{font-size:var(--fs-sec);font-weight:600;color:var(--t2)}
   .toggles{margin-top:var(--sp-5);display:flex;flex-direction:column;gap:8px}
@@ -561,6 +564,13 @@ const CSS = `
   .mempty{color:var(--faint);padding:40px 0;text-align:center;grid-column:1/-1}
   .clink{color:var(--ink);font-weight:500;border-bottom:1px solid transparent}
   .clink:hover{border-bottom-color:var(--gold)}
+  /* Identity cell (Attio register): name on top, one muted 12px meta line
+     under it, so a record needs one column instead of three. */
+  .idcell{display:inline-flex;flex-direction:column;vertical-align:middle;min-width:0}
+  .idcell .clink{align-self:flex-start}
+  .idsub{font-size:var(--fs-label);color:var(--t3);line-height:1.4}
+  /* Money / numeric cell (Stripe register): right-aligned semibold tabular. */
+  td.tnum{text-align:right;font-variant-numeric:tabular-nums;font-weight:var(--w-value);color:var(--ink);white-space:nowrap}
   .cd-head{display:flex;align-items:center;gap:16px}
   .cd-owner{text-align:right}
   .cd-owner .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
@@ -1993,12 +2003,13 @@ function clientsView(clients, wishlists, opts = {}) {
     const t = lastContact[c.id];
     return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
   };
+  // Attio register: one identity cell (name over a muted email/state line,
+  // Dealer marked with the neutral chip) instead of Type / Email / State
+  // columns. Search still matches email and state; they live in the cell.
   const rows = list.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td>${avatar(c.name)}<a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a></td>
-      <td>${isDealer(c) ? `<span class="chip">Dealer</span>` : `<span class="chip muted">Private</span>`}</td>
-      <td>${esc(c.email || "-")}</td><td>${esc(c.state || "-")}</td>
+      <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
       <td style="text-align:right">${countFor(c.id)}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
@@ -2015,7 +2026,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 10 : 8}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 7 : 5}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -2057,8 +2068,8 @@ function clientsView(clients, wishlists, opts = {}) {
     right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th>Type</th><th>Email</th><th>State</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:12px 2px 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2143,15 +2154,18 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("");
 
+  // Attio register: the customer IS the record, so the row leads with one
+  // identity cell (health dot, name, muted REQ reference under it) instead of
+  // separate Request / Customer columns. Destination folds into the vehicle
+  // cell as a chip only when it is the unusual case (overseas).
   const rows = requests.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
-    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "-";
+    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
+    const dest = String(r.destination_country || "").trim();
     return `<tr data-st="${r.status || "new"}">
-      <td>${healthDot(r.last_activity)}<a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></td>
-      <td><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></td>
-      <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</td>
-      <td>${destinationCell(r.destination_country, r.client_state)}</td>
-      <td style="white-space:nowrap">${budget}</td>
+      <td>${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
+      <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
+      <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
       <td>${statusSelect(r.id, r.status)}</td>
       <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
@@ -2162,19 +2176,20 @@ function requestsView(requests, opts = {}) {
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="11" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
   // Plain-English key so staff aren't guessing what the dots / REQ / Examples
-  // column mean (client asked "what do the green and red dots mean?").
-  const legend = `<div class="req-legend">
-    <span class="lg-t">Key</span>
+  // column mean (client asked "what do the green and red dots mean?"). Lives
+  // behind a quiet disclosure below the list (Attio register: no permanent
+  // legend card competing with the data).
+  const legend = `<details class="req-legend"><summary>Key to the dots and chips</summary><div class="lg-body">
     <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
     <span><span class="health health-amber"></span> Cooling (7 to 14 days)</span>
     <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
     <span><b class="reqid">REQ-###</b> Request reference, click to open the full request</span>
     <span><span class="chip chip-info">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
-  </div>`;
+  </div></details>`;
 
   // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
   // dot + relative time. Same data, no horizontal scroll.
@@ -2193,12 +2208,12 @@ function requestsView(requests, opts = {}) {
 
   return `${REQ_CSS}
     <div class="pipe">${cards}</div>
-    ${legend}
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Destination</th><th>Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Vehicle</th><th style="text-align:right">Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
+    ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
 }
 
@@ -2209,24 +2224,20 @@ const REQ_CSS = `<style>
   .pipe-card.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
   .pipe-card .pc-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .pipe-card .pc-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px;line-height:1.25}
-  .reqid{font-family:var(--mono,monospace);font-size:var(--fs-label);font-weight:600;color:var(--t2);text-decoration:none}
+  .reqid{font-size:var(--fs-label);font-weight:400;color:var(--t3);text-decoration:none}
   a.reqid:hover{color:var(--ink)}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
-  .rstat-sel{padding:8px 24px 8px 12px;font-size:var(--fs-sec);border:1px solid var(--hair);border-radius:var(--r-ctl);background:var(--card);color:var(--ink);font-family:inherit}
-  .req-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px;font-size:var(--fs-label);color:var(--t2);line-height:1.5}
-  .req-legend .lg-t{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
+  .rstat-sel{padding:8px 24px 8px 8px;font-size:var(--fs-sec);border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:inherit;cursor:pointer}
+  .rstat-sel:hover,.rstat-sel:focus{border-color:var(--field-line);background:var(--field)}
+  .req-legend{margin:var(--sp-4) 0 0;font-size:var(--fs-label);color:var(--t2)}
+  .req-legend summary{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;padding:var(--sp-1) 0}
+  .req-legend summary::-webkit-details-marker{display:none}
+  .req-legend summary:after{content:"";width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;transition:transform .15s}
+  .req-legend[open] summary:after{transform:rotate(180deg)}
+  .req-legend .lg-body{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-4);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--sp-3) var(--sp-4);margin-top:var(--sp-2);line-height:1.5}
   .req-legend .health{margin-right:4px}
 </style>`;
-
-// Destination cell for a request: the AU registration state by default, or an
-// "Overseas" badge with the country when a non-Australia destination is set.
-// Purely a marker - the AU landed-cost / eligibility flow is unchanged.
-function destinationCell(country, state) {
-  const c = String(country || "").trim();
-  if (c) return `<span class="chip chip-info" title="Overseas destination">${esc(c)}</span>`;
-  return state ? esc(state) : '<span class="chip muted">-</span>';
-}
 
 // Record one timeline event (Priority 8). Best-effort; never throws into a handler.
 export async function logActivity(env, { wishlist_id = null, client_id = null, type, detail = null, actor = null }) {
@@ -4049,6 +4060,14 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
 // engagement stat strip) and the lighter outline "back" button that replaces
 // the heavy black one the client flagged. Loaded once with the header.
 const CRM_CSS = `<style>
+  /* Attio record rhythm: the record header spans full width, then the work
+     (searches, find, matches) runs in a primary column with the quieter
+     record-keeping (activity, portal, edit) in a 340px side rail whose card
+     titles sit one type tier down. */
+  .cd-grid{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
+  @media(min-width:1100px){.cd-grid{grid-template-columns:minmax(0,1fr) 340px;column-gap:var(--gap-grid)}}
+  .cd-rail .card h2{font-size:var(--fs-body)}
+  .cd-head .avatar{width:44px;height:44px;font-size:var(--fs-body);margin-right:0}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
   /* cd-cta and btn-line alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
@@ -4221,7 +4240,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const reqSection = requested.length ? `<div class="card">
     <h2><span class="num">${requested.length}</span> Cars ${esc(c.name)} asked us to action</h2>
-    <p class="help" style="margin:-8px 0 16px">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
@@ -4298,7 +4317,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:16px">Sorry, we couldn't add that lot, please try again.</div>` : "";
   const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
     <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
-    <p class="help" style="margin:-8px 0 16px">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
       <div class="grid">
@@ -4324,7 +4343,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // response buttons so replies can be logged from here too.
   const historyCard = history.length ? `<div class="card">
     <h2><span class="num">${history.length}</span> Sent and past cars</h2>
-    <p class="help" style="margin:-8px 0 16px">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
+    <p class="help" style="margin:0 0 var(--sp-4)">What ${esc(firstName)} has already been sent, whether they opened it, and their response.</p>
     <div class="rd-matches">${history.map((q) => matchTrackRow(q, `/admin?view=client&id=${cid}`)).join("")}</div>
   </div>` : "";
 
@@ -4334,7 +4353,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   </div>`;
 
   const main = `
-    <div class="topbar">
+    <div class="topbar wide">
       <div>
         <div class="kicker">Vehicle Finder · Client</div>
         <h1>${esc(c.name)}</h1>
@@ -4342,7 +4361,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}${feedCard}${portalCard}${editCard}</div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}</div><aside class="cd-rail">${feedCard}${portalCard}${editCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
