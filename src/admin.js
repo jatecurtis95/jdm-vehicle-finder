@@ -1220,7 +1220,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // Deposits outstanding: requests whose deposit is requested but not yet paid.
   const deposits = (view === "payments" && !isAgent)
     ? (await env.DB.prepare(
-        `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+        `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
            FROM wishlists w JOIN clients c ON c.id = w.client_id
           WHERE w.deposit_status = 'requested' ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 100`
       ).all()).results || []
@@ -1480,6 +1480,17 @@ function settingsView(settings, opts = {}) {
 }
 
 // Admin-only: list of Stripe deposits taken through the buyer portal.
+// IA-AUDIT item 14: the chase affordance. A WhatsApp deep link with a
+// pre-filled deposit reminder; the data-clog beacon logs the tap to activity,
+// so "mark chased" happens as a side effect of actually chasing.
+function chaseWaLink(clientId, whatsapp, name, veh) {
+  const digits = String(whatsapp || "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  const first = firstNameOf(name || "") || "there";
+  const msg = `Hi ${first}, just a friendly reminder about the deposit for your ${veh} import - once it lands we can secure the car. Any questions, just reply here.`;
+  return `<a class="b b-warn" data-clog="${clientId}:whatsapp" href="https://wa.me/${digits}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" style="text-decoration:none">Chase on WhatsApp</a>`;
+}
+
 function paymentsView(payments, opts = {}) {
   const money = (cents, cur) => {
     const v = Number(cents) / 100;
@@ -1501,7 +1512,7 @@ function paymentsView(payments, opts = {}) {
   // 14px semibold tabular right-aligned ink; status stays the quietest.
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
-    <td>${esc(p.client_name || ("#" + p.client_id))}</td>
+    <td>${p.client_id ? `<a class="clink" href="/admin?view=client&id=${p.client_id}">${esc(p.client_name || ("#" + p.client_id))}</a>` : esc(p.client_name || "-")}</td>
     <td class="tnum">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
@@ -1518,12 +1529,13 @@ function paymentsView(payments, opts = {}) {
       <td><a class="clink" href="/admin?view=client&id=${d.client_id}">${esc(d.client_name)}</a></td>
       <td>${esc(veh)}</td>
       <td style="white-space:nowrap">${esc(lastActivityLabel(d.last_activity))}</td>
+      <td style="white-space:nowrap">${chaseWaLink(d.client_id, d.client_whatsapp, d.client_name, veh)}</td>
       <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
     </tr>`;
   }).join("");
   const depositsSection = deposits.length ? `<div class="psec"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
+      <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th><th></th></tr>${depRows}</table>
     </div>` : "";
   // The trust surface: Collected is the one gold money headline; the section
   // headers are a real rhythm class (32px above, 12px below), not bare h2s.
@@ -1812,7 +1824,7 @@ async function dashboardData(env, session) {
 
   // Who owes money, deposits requested but not paid (the list, for the panel).
   const depositsList = (await run(
-    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
        FROM wishlists w JOIN clients c ON c.id = w.client_id
       WHERE w.deposit_status = 'requested' AND ${acc.sql} AND c.archived = 0
       ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
@@ -1996,13 +2008,17 @@ function dashboardView(session, data) {
   const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2>${secBtn(data.nextActionDue, "/admin?view=requests", "Open")}</div>`, `<div class="list">${naRows}</div>`);
 
   // Who owes money, deposits requested, not yet paid.
+  // IA-AUDIT item 14: the owes list answers "how", not just "who" - a chase
+  // deep link with the logged-touch beacon sits where the badge was. A div
+  // row (not an anchor) so the chase link can nest validly.
   const owesRows = (data.depositsList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
-    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+    const chase = chaseWaLink(w.client_id, w.client_whatsapp, w.client_name, veh);
+    return `<div class="lrow">
         ${avatar(w.client_name)}
-        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
-        <div class="meta"><span class="b b-warn">Deposit requested</span></div>
-      </a>`;
+        <div class="who"><div class="nm"><a class="clink" href="/admin?view=request&id=${w.id}">${esc(w.client_name)}</a></div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta">${chase || `<span class="b b-warn">Deposit requested</span>`}</div>
+      </div>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
   const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2>${secBtn(data.depositsOut, `/admin?view=${isAdmin ? "payments" : "requests"}`, "Open")}</div>`, `<div class="list">${owesRows}</div>`);
 
