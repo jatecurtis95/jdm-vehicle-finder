@@ -525,7 +525,7 @@ const CSS = `
      multi-select checkbox works on touch (no hover); the match bulk bar and the
      client-detail header wrap instead of overflowing on small screens. */
   @media(max-width:640px){.sortable{min-width:560px}}
-  @media(max-width:920px){.scard .msel{opacity:1;width:22px;height:22px}}
+  @media(max-width:920px){.scard .msel{opacity:1;width:24px;height:24px}}
   @media(max-width:560px){.bulkbar2{flex-wrap:wrap;gap:8px}.bulkbar2 .bsp{display:none}.bulkbar2 .bap,.bulkbar2 .bsk,.bulkbar2 .bdel{flex:1 1 auto}}
   @media(max-width:560px){.cd-head{flex-wrap:wrap}.cd-owner{text-align:left;flex-basis:100%;margin-top:8px}}
   .fchips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -748,12 +748,18 @@ const CSS = `
   .mgrid .scard .sc-body{flex-direction:column;align-items:stretch;gap:var(--sp-3);padding:var(--sp-4)}
   .mgrid .scard .sc-actions a{flex:1}
   @media(max-width:700px){
-    .scard{gap:var(--sp-3)}
+    .scard{gap:var(--sp-3);flex-wrap:wrap}
     .sc-img{width:104px;height:72px}
-    .sc-body{flex-direction:column;align-items:stretch;gap:var(--sp-3)}
+    /* Queue rows only: flatten the body so the thumb and text share the first
+       line and the actions drop to a full-width 44px line below (the two
+       buttons cannot fit beside a 104px thumb at 375px). The client-page
+       .mgrid cards keep their stacked sc-body. */
+    .scards .sc-body{display:contents}
+    .scards .sc-main{flex:1;min-width:0}
+    .scards .sc-actions{flex-basis:100%}
+    .sc-actions a{flex:1;min-height:44px}
     .sc-head{flex-wrap:wrap}
     .sc-title{white-space:normal}
-    .sc-actions a{flex:1;min-height:44px}
   }
   .ld-ai{font-size:var(--fs-label);font-weight:700;letter-spacing:.04em;color:var(--t3);background:var(--soft);border:1px solid var(--hair);border-radius:9999px;padding:1px 4px;margin-left:6px;vertical-align:middle}
   .ld-grid{display:grid;grid-template-columns:1fr;gap:var(--gap-grid)}
@@ -2248,6 +2254,7 @@ const REQ_CSS = `<style>
   .req-legend[open] summary:after{transform:rotate(180deg)}
   .req-legend .lg-body{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-4);background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--sp-3) var(--sp-4);margin-top:var(--sp-2);line-height:1.5}
   .req-legend .health{margin-right:4px}
+  @media(max-width:640px){.req-legend summary{min-height:44px;align-items:center}}
 </style>`;
 
 // Record one timeline event (Priority 8). Best-effort; never throws into a handler.
@@ -3400,7 +3407,7 @@ function matchesView(pending, opts = {}) {
     .mtk.on{outline:2px solid var(--ink);outline-offset:-2px}
     .mbanner{display:flex;align-items:center;gap:12px;background:var(--off);border:1px solid var(--hair);color:var(--t2);border-radius:var(--r-card);padding:var(--sp-3) var(--sp-4);margin:0 0 var(--sp-4);font-size:var(--fs-sec);flex-wrap:wrap}
     .mbanner a{color:var(--gold-txt);font-weight:600;text-decoration:none;white-space:nowrap}
-    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:18px;line-height:1;color:var(--t3);cursor:pointer;padding:4px 6px}
+    .mbanner .bx{margin-left:auto;background:transparent;border:0;font-size:20px;line-height:1;color:var(--t3);cursor:pointer;padding:var(--sp-1) var(--sp-2)}
     a.fchip{text-decoration:none;display:inline-flex;align-items:center;gap:8px}
     .mtriage{margin-top:var(--sp-2)}
     .mtriage summary{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;padding:var(--sp-1) 0}
@@ -3423,6 +3430,11 @@ function matchesView(pending, opts = {}) {
     .gh-send{white-space:nowrap}
     .scards.gh-cards{margin-top:var(--sp-2)}
     .mmore{display:flex;justify-content:center;margin:var(--sp-5) 0 var(--sp-2)}
+    @media(max-width:640px){
+      .gh-fold{width:44px;height:44px}
+      .mtriage summary{min-height:44px;align-items:center}
+      .mtriage .quick button{min-height:44px}
+    }
   </style>`;
 
   return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
