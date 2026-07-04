@@ -3,8 +3,8 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
-import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
@@ -457,6 +457,7 @@ const CSS = `
      the drawer. Green under 7 days, amber 7 to 14, red 14+ or never. */
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:#1F7A4D}.health-amber{background:#C98A00}.health-red{background:#B11226}
+  .health-neutral{background:transparent;border:1.5px solid var(--faint)}
   /* Mobile card lists: below 640px the wide tables (Requests, Customers,
      Agents, Payments) swap for these server-rendered card rows. Both are in
      the HTML; CSS decides which shows, so desktop keeps the tables. */
@@ -761,6 +762,17 @@ const CSS = `
   .sc-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
   .sc-actions .btn-notify{color:var(--gold-on);background:var(--gold);border:1px solid transparent}
   .sc-actions .btn-notify:hover{background:var(--gold-hover)}
+  /* Snooze: the quiet third action. The summary reads like a text button; the
+     open state reveals the two deferral options inline. */
+  .sc-snz{display:inline-flex;align-items:center}
+  .sc-snz summary{list-style:none;cursor:pointer;color:var(--t3);font-size:var(--fs-sec);font-weight:600;padding:var(--sp-2) var(--sp-2);border-radius:var(--r-ctl)}
+  .sc-snz summary::-webkit-details-marker{display:none}
+  .sc-snz summary:hover{color:var(--ink);background:var(--hover)}
+  .sc-snz[open] summary{color:var(--ink)}
+  .sc-snz-menu{display:inline-flex;gap:var(--sp-1);flex-wrap:wrap}
+  .sc-snz-opt{font-family:inherit;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:9999px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+  .sc-snz-opt:hover{background:var(--hover);color:var(--ink)}
+  .sc-snz-until{font-size:var(--fs-label);color:var(--t3);align-self:center;white-space:nowrap}
   /* Client-page 3-up grid (.mgrid) keeps the stacked card shape. */
   .mgrid .scard{flex-direction:column;align-items:stretch;gap:0;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:0;contain-intrinsic-size:auto 300px}
   .mgrid .scard .msel{position:absolute;top:12px;right:12px;width:20px;height:20px}
@@ -812,8 +824,10 @@ const CSS = `
   .ld-k{color:var(--t3)}
   .ld-v{color:var(--ink);font-weight:600;text-align:right}
   .ld-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin:16px 0 4px}
-  .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
+  .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0;margin-top:8px;border-top:1px solid var(--hair)}
   .ld-cl-n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .ld-cl-b{font-size:var(--fs-label);color:var(--t2);margin-top:4px}
+  .ld-cl-b.over{color:var(--bad);font-weight:600}
   .ld-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px}
   .ld-actions{display:flex;gap:8px;margin:16px 0 var(--sp-4)}
   .ld-actions .btn-skip{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:var(--r-ctl);color:var(--t2);font-weight:600;padding:12px}
@@ -935,7 +949,7 @@ const HEADERS = {
   requests: { kicker: "Vehicle Finder", title: "Requests", sub: "Every active vehicle search and where it sits in the pipeline.", btn: "" },
   tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
-  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
+  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "New auction search" },
   auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
@@ -1076,9 +1090,42 @@ async function queryPendingMatches(env, session) {
        FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
+      WHERE q.status = 'pending' AND ${SNOOZE_LIVE} AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
   );
   return ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
+}
+
+// IA-AUDIT item 12: a snoozed match is invisible to every pending surface
+// until due. NULL or a past timestamp = live. The fragment assumes the queue
+// table is aliased q.
+const SNOOZE_LIVE = "(q.snoozed_until IS NULL OR q.snoozed_until <= datetime('now'))";
+
+// Defer a pending match: "1d" = revisit tomorrow, "close" = wake 24h before
+// the auction, "clear" = wake now. Throws on bad input or no access, so the
+// router's act() helper surfaces the standard failure notice.
+export async function snoozeMatch(env, queueId, until, session = {}) {
+  const qid = Number(queueId);
+  if (!Number.isInteger(qid) || qid <= 0) throw new Error("bad id");
+  const q = await env.DB.prepare("SELECT id, client_id, status, lot_json FROM queue WHERE id = ?").bind(qid).first();
+  if (!q) throw new Error("not found");
+  if (!(await clientAccessibleBy(env, q.client_id, session))) throw new Error("no access");
+  if (until === "clear") {
+    await env.DB.prepare("UPDATE queue SET snoozed_until = NULL WHERE id = ?").bind(qid).run();
+    return { ok: true };
+  }
+  if (q.status !== "pending") throw new Error("not pending");
+  if (until === "close") {
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const t = tsMs(lot.auction_date);
+    if (!Number.isFinite(t)) throw new Error("no auction date");
+    const wake = t - 24 * 3600 * 1000;
+    if (wake <= Date.now()) throw new Error("closes too soon");
+    const iso = new Date(wake).toISOString().replace("T", " ").slice(0, 19);
+    await env.DB.prepare("UPDATE queue SET snoozed_until = ? WHERE id = ?").bind(iso, qid).run();
+    return { ok: true };
+  }
+  await env.DB.prepare("UPDATE queue SET snoozed_until = datetime('now','+1 day') WHERE id = ?").bind(qid).run();
+  return { ok: true };
 }
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
@@ -1100,7 +1147,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 
   // For the Clients view: active agents (for the Share picker) and existing
   // shares (chips), so owners can share/unshare.
-  let shareAgents = [], sharesByClient = {}, lastContact = {};
+  let shareAgents = [], sharesByClient = {}, lastContact = {}, pendingCounts = {}, engagedClients = new Set();
   if (view === "clients") {
     shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
@@ -1118,6 +1165,15 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
       ).all()).results || [];
       for (const r of lc) lastContact[r.client_id] = r.t;
     } catch (e) { console.error("last-contact rollup failed:", e.message); }
+    // IA-AUDIT item 10: live match count per client ("who has cars sitting
+    // unsent?") and who has engaged (opened or said interested) - engagement
+    // decides whether a long silence reads as alarm red or cooling amber.
+    try {
+      const pc = (await env.DB.prepare("SELECT client_id, COUNT(*) AS n FROM queue WHERE status = 'pending' AND (snoozed_until IS NULL OR snoozed_until <= datetime('now')) GROUP BY client_id").all()).results || [];
+      for (const r of pc) pendingCounts[r.client_id] = r.n;
+      const en = (await env.DB.prepare("SELECT DISTINCT client_id FROM queue WHERE viewed_at IS NOT NULL OR response = 'interested'").all()).results || [];
+      for (const r of en) engagedClients.add(r.client_id);
+    } catch (e) { console.error("clients queue rollup failed:", e.message); }
   }
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
@@ -1152,7 +1208,10 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // Admin-only: agent list (for the Agents view) and the logged-in agent's name.
   const agents = (!isAgent && view === "agents")
     ? (await env.DB.prepare(
-        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.name`
+        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count,
+                (SELECT COUNT(*) FROM wishlists w JOIN clients c2 ON c2.id = w.client_id
+                  WHERE c2.agent_id = a.id AND COALESCE(w.status, 'new') NOT IN ('delivered','lost')) AS open_requests
+           FROM agents a ORDER BY a.name`
       ).all()).results || []
     : [];
   const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
@@ -1164,7 +1223,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // Deposits outstanding: requests whose deposit is requested but not yet paid.
   const deposits = (view === "payments" && !isAgent)
     ? (await env.DB.prepare(
-        `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+        `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
            FROM wishlists w JOIN clients c ON c.id = w.client_id
           WHERE w.deposit_status = 'requested' ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 100`
       ).all()).results || []
@@ -1204,16 +1263,40 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact, pendingCounts, engagedClients });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
+  else if (view === "matches") {
+    // Parked matches for the Snoozed chip/filter - same joins as the live
+    // queue, waking soonest first. Nothing snoozed can vanish irrecoverably.
+    const acc2 = accessScope(session);
+    const snzStmt = env.DB.prepare(
+      `SELECT q.*, c.name AS client_name, c.state AS client_state,
+              c.email AS client_email, c.whatsapp AS client_whatsapp,
+              w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+         FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+        WHERE q.status = 'pending' AND q.snoozed_until > datetime('now') AND ${acc2.sql}
+        ORDER BY q.snoozed_until ASC LIMIT 100`
+    );
+    const snoozedRows = ((await (acc2.binds.length ? snzStmt.bind(...acc2.binds) : snzStmt).all()).results) || [];
+    // IA-AUDIT item 13: send recency per client for the group headers, so
+    // over-sending in the same week is visible at the moment of approval.
+    const srStmt = env.DB.prepare(
+      `SELECT q.client_id, COUNT(*) AS n, MAX(q.sent_at) AS t,
+              SUM(CASE WHEN q.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS v
+         FROM queue q JOIN clients c ON c.id = q.client_id
+        WHERE q.sent_at >= datetime('now','-7 days') AND ${acc2.sql} GROUP BY q.client_id`
+    );
+    const sentRecency = {};
+    for (const r of ((await (acc2.binds.length ? srStmt.bind(...acc2.binds) : srStmt).all()).results) || []) sentRecency[r.client_id] = r;
+    body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {}, snoozedRows, sentRecency });
+  }
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
   else if (view === "search") body = searchView(await adminSearch(env, session, opts.q || ""));
   else if (view === "requests") body = requestsView(requests);
-  else if (view === "tasks") body = tasksView(tasks);
+  else if (view === "tasks") body = tasksView(tasks, { clients, session, mine: !!opts.taskMine });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
   const wide = view === "matches" || view === "auctions";
@@ -1244,6 +1327,7 @@ function agentsView(agents, opts = {}) {
       <td>${esc(a.email)}</td>
       <td>${esc(a.company || "-")}</td>
       <td style="text-align:right">${a.client_count}</td>
+      <td style="text-align:right">${a.open_requests || 0}</td>
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
@@ -1254,10 +1338,13 @@ function agentsView(agents, opts = {}) {
         ])}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" class="empty">No agents yet</td></tr>`;
-  return `
-    <div class="card">
-      <h2><span class="num">+</span> New agent</h2>
+  }).join("") || `<tr><td colspan="8" class="empty">No agents yet</td></tr>`;
+  // IA-AUDIT item 17: the team list is the daily read, the invite form the
+  // occasional tool - list first, form folded. A validation bounce (vals
+  // carries what was typed) or an empty team springs it open.
+  const formOpen = Object.values(vals).some(Boolean) || !agents.length;
+  const newAgent = `<details class="card foldcard" id="newAgent"${formOpen ? " open" : ""}>
+      <summary>Invite a new agent</summary>
       <form method="POST" action="/agent">
         <div class="grid">
           <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" value="${vv("name")}" required></div>
@@ -1267,17 +1354,19 @@ function agentsView(agents, opts = {}) {
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
-    </div>
+    </details>`;
+  return `
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
     <div class="mcl">${agents.map((a) => mobileCardRow({
       name: a.name,
       title: `${esc(a.name)}${a.pass_hash ? "" : ` <span class="chip muted">invited</span>`}`,
-      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
+      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`, `${a.open_requests || 0} open request${(a.open_requests || 0) === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
       right: `<span class="chip${a.active ? "" : " muted"}">${a.active ? "Active" : "Paused"}</span>`,
       rightSub: a.alerts ? "Alerts on" : "Alerts off",
     })).join("") || `<div class="empty">No agents yet</div>`}</div>
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th style="text-align:right">Open requests</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>
+    ${newAgent}`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -1311,6 +1400,8 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "Email the car to the client when you approve a match.", settingOn(s, "send_to_client"))}
           </div>
+          <div class="actions" style="margin-top:12px"><button class="btn-dark" type="submit" form="tsEmail">Send me a test email</button>
+            <span class="help">Verifies the channel end to end, to the alert email above (save first if you changed it).</span></div>
         </div>
       </div>
 
@@ -1327,6 +1418,12 @@ function settingsView(settings, opts = {}) {
                 <option value="twilio"${(s.whatsapp_provider || "twilio") === "twilio" ? " selected" : ""}>Twilio</option>
                 <option value="meta"${s.whatsapp_provider === "meta" ? " selected" : ""}>Meta (Cloud API)</option>
               </select>
+            </div>
+            <div><label for="set-wa-test">Test number <span class="opt">(yours, +61…)</span></label>
+              <div style="display:flex;gap:8px">
+                <input id="set-wa-test" name="to" form="tsWa" type="tel" inputmode="tel" placeholder="+61 4XX XXX XXX" style="flex:1"${waConfigured ? "" : " disabled"}>
+                <button class="btn-dark" type="submit" form="tsWa" style="white-space:nowrap"${waConfigured ? "" : " disabled"}>Send a test WhatsApp</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1387,6 +1484,8 @@ function settingsView(settings, opts = {}) {
 
       <div class="actionbar actionbar-end"><button class="btn-gold" type="submit">Save settings</button></div>
     </form>
+    <form id="tsEmail" method="POST" action="/settings/test-email"></form>
+    <form id="tsWa" method="POST" action="/settings/test-whatsapp"></form>
     <script>(function(){
       // Unsaved-changes warning: leaving the page with edited, unsaved settings
       // asks first. Cleared on submit so saving never triggers it.
@@ -1400,6 +1499,17 @@ function settingsView(settings, opts = {}) {
 }
 
 // Admin-only: list of Stripe deposits taken through the buyer portal.
+// IA-AUDIT item 14: the chase affordance. A WhatsApp deep link with a
+// pre-filled deposit reminder; the data-clog beacon logs the tap to activity,
+// so "mark chased" happens as a side effect of actually chasing.
+function chaseWaLink(clientId, whatsapp, name, veh) {
+  const digits = String(whatsapp || "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  const first = firstNameOf(name || "") || "there";
+  const msg = `Hi ${first}, just a friendly reminder about the deposit for your ${veh} import - once it lands we can secure the car. Any questions, just reply here.`;
+  return `<a class="b b-warn" data-clog="${clientId}:whatsapp" href="https://wa.me/${digits}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" style="text-decoration:none">Chase on WhatsApp</a>`;
+}
+
 function paymentsView(payments, opts = {}) {
   const money = (cents, cur) => {
     const v = Number(cents) / 100;
@@ -1421,7 +1531,7 @@ function paymentsView(payments, opts = {}) {
   // 14px semibold tabular right-aligned ink; status stays the quietest.
   const rows = payments.map((p) => `<tr>
     <td>${esc(String(p.created_at || "").slice(0, 16))}</td>
-    <td>${esc(p.client_name || ("#" + p.client_id))}</td>
+    <td>${p.client_id ? `<a class="clink" href="/admin?view=client&id=${p.client_id}">${esc(p.client_name || ("#" + p.client_id))}</a>` : esc(p.client_name || "-")}</td>
     <td class="tnum">${money(p.amount_cents, p.currency)}</td>
     <td>${esc(p.description || "-")}</td>
     <td>${badge(p.status)}</td>
@@ -1438,12 +1548,13 @@ function paymentsView(payments, opts = {}) {
       <td><a class="clink" href="/admin?view=client&id=${d.client_id}">${esc(d.client_name)}</a></td>
       <td>${esc(veh)}</td>
       <td style="white-space:nowrap">${esc(lastActivityLabel(d.last_activity))}</td>
+      <td style="white-space:nowrap">${chaseWaLink(d.client_id, d.client_whatsapp, d.client_name, veh)}</td>
       <td style="text-align:right"><form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${d.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="/admin?view=payments"><button class="btn-toggle on" type="submit">Mark paid</button></form></td>
     </tr>`;
   }).join("");
   const depositsSection = deposits.length ? `<div class="psec"><h2>Deposits outstanding<span class="ct">${deposits.length}</span></h2></div>
     <div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th></tr>${depRows}</table>
+      <table><tr><th>Request</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th></th><th></th></tr>${depRows}</table>
     </div>` : "";
   // The trust surface: Collected is the one gold money headline; the section
   // headers are a real rhythm class (32px above, 12px below), not bare h2s.
@@ -1622,9 +1733,9 @@ async function dashboardData(env, session) {
   const agents = session.role === "admin"
     ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
     : 0;
-  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql}`).first())?.n || 0;
-  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
-  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY s`).all()).results || [];
+  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
+  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
+  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY s`).all()).results || [];
   const strength = { Strong: 0, Good: 0, Possible: 0 };
   for (const r of strRows) if (r.s in strength) strength[r.s] = r.n;
   const days14 = lastNDays(14);
@@ -1639,13 +1750,13 @@ async function dashboardData(env, session) {
   }
   // Throughput + demand signals (all role-scoped via run()).
   const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
-  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${acc.sql}`).first())?.n || 0;
+  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
   const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
   // Most-wanted makes in the live review queue, a quick read on demand.
-  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
+  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
   const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
   // Pending lots whose auction closes within 48h, the work that can't wait.
-  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
+  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
 
   let people;
   if (session.role === "admin") {
@@ -1732,7 +1843,7 @@ async function dashboardData(env, session) {
 
   // Who owes money, deposits requested but not paid (the list, for the panel).
   const depositsList = (await run(
-    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
+    `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
        FROM wishlists w JOIN clients c ON c.id = w.client_id
       WHERE w.deposit_status = 'requested' AND ${acc.sql} AND c.archived = 0
       ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
@@ -1916,13 +2027,17 @@ function dashboardView(session, data) {
   const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2>${secBtn(data.nextActionDue, "/admin?view=requests", "Open")}</div>`, `<div class="list">${naRows}</div>`);
 
   // Who owes money, deposits requested, not yet paid.
+  // IA-AUDIT item 14: the owes list answers "how", not just "who" - a chase
+  // deep link with the logged-touch beacon sits where the badge was. A div
+  // row (not an anchor) so the chase link can nest validly.
   const owesRows = (data.depositsList || []).map((w) => {
     const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "Any vehicle";
-    return `<a class="lrow" href="/admin?view=request&id=${w.id}">
+    const chase = chaseWaLink(w.client_id, w.client_whatsapp, w.client_name, veh);
+    return `<div class="lrow">
         ${avatar(w.client_name)}
-        <div class="who"><div class="nm">${esc(w.client_name)}</div><div class="sub">${esc(veh)}</div></div>
-        <div class="meta"><span class="b b-warn">Deposit requested</span></div>
-      </a>`;
+        <div class="who"><div class="nm"><a class="clink" href="/admin?view=request&id=${w.id}">${esc(w.client_name)}</a></div><div class="sub">${esc(veh)}</div></div>
+        <div class="meta">${chase || `<span class="b b-warn">Deposit requested</span>`}</div>
+      </div>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
   const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2>${secBtn(data.depositsOut, `/admin?view=${isAdmin ? "payments" : "requests"}`, "Open")}</div>`, `<div class="list">${owesRows}</div>`);
 
@@ -1958,6 +2073,7 @@ function dashboardView(session, data) {
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
+      ${watchAlertBlock("/admin?view=auctions&tab=watch")}
       ${attention}
       ${pipelineStrip}
       ${overview}
@@ -2060,9 +2176,43 @@ function clientsView(clients, wishlists, opts = {}) {
   // is already loaded, and the tabs need every category's count regardless.
   const cat = opts.cat || "";
   const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
-  const list = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
+  const filteredList = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
+  // IA-AUDIT item 10: the working set floats up - most recent contact first,
+  // never-contacted prospects last (Attio's last-touched default, not A-Z).
+  const lastContact = opts.lastContact || {};
+  const list = [...filteredList].sort((a, b) => {
+    const ta = tsMs(lastContact[a.id]) || 0, tb = tsMs(lastContact[b.id]) || 0;
+    return (tb - ta) || String(a.name || "").localeCompare(String(b.name || ""));
+  });
   const countFor = (id) => wishlists.filter((w) => w.client_id === id).length;
   const canManage = (c) => session.role === "admin" || Number(c.agent_id) === Number(session.id);
+  const pendingCounts = opts.pendingCounts || {};
+  const engagedClients = opts.engagedClients || new Set();
+  // Furthest-along pipeline stage across the client's requests (lost only when
+  // everything is lost), so "who is close to money" reads without opening rows.
+  const stageIdx = Object.fromEntries(REQUEST_STATUSES.map((s, i) => [s.id, i]));
+  const stageFor = (id) => {
+    const sts = wishlists.filter((w) => w.client_id === id).map((w) => w.status || "new");
+    if (!sts.length) return "";
+    const live = sts.filter((s) => s !== "lost");
+    if (!live.length) return "lost";
+    return live.reduce((best, s) => ((stageIdx[s] ?? 0) > (stageIdx[best] ?? 0) ? s : best), live[0]);
+  };
+  const mwCell = (id) => {
+    const n = pendingCounts[id] || 0;
+    return n ? `<a class="mw-link" href="/admin?view=client&id=${id}" title="${n} live match${n === 1 ? "" : "es"} awaiting review">${n}</a>` : `<span class="mw-zero">0</span>`;
+  };
+  // State-aware contact dot (replaces ambient alarm): neutral when never
+  // contacted, green fresh, amber cooling, red only past 14d with prior
+  // engagement - red then MEANS a warm buyer going cold.
+  const contactDot = (c) => {
+    const t = tsMs(lastContact[c.id]);
+    if (!Number.isFinite(t)) return `<span class="health health-neutral" title="Never contacted" aria-label="Never contacted"></span>`;
+    const days = (Date.now() - t) / 86400000;
+    const tone = days <= 7 ? "green" : (days > 14 && engagedClients.has(c.id)) ? "red" : "amber";
+    const title = `Last contacted ${Math.floor(days)} day${Math.floor(days) === 1 ? "" : "s"} ago${tone === "red" ? ", engaged buyer going quiet" : ""}`;
+    return `<span class="health health-${tone}" title="${title}" aria-label="${title}"></span>`;
+  };
 
   const shareCell = (c) => {
     const shared = shares[c.id] || [];
@@ -2094,10 +2244,9 @@ function clientsView(clients, wishlists, opts = {}) {
   };
 
   // Derived last-contacted (sent vehicles + notes + logged contact taps).
-  const lastContact = opts.lastContact || {};
   const contactCell = (c) => {
     const t = lastContact[c.id];
-    return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
+    return `${contactDot(c)}${esc(t ? lastActivityLabel(t) : "never")}`;
   };
   // Attio register: one identity cell (name over a muted email/state line,
   // Dealer marked with the neutral chip) instead of Type / Email / State
@@ -2107,6 +2256,8 @@ function clientsView(clients, wishlists, opts = {}) {
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      <td style="text-align:right">${mwCell(c.id)}</td>
+      <td>${stageFor(c.id) ? statusBadge(stageFor(c.id)) : `<span class="chip muted">&mdash;</span>`}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
@@ -2122,21 +2273,24 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 7 : 5}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
   // Each button checks something is ticked; delete also confirms with the count.
+  // IA-AUDIT item 10: the bar appears only when something is ticked (the
+  // Matches rule), so a destructive Delete and a no-op gold Apply are not the
+  // page's most prominent chrome at rest.
   const bulkBar = isAdmin
     ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
-        <span class="bulk-label">With selected clients:</span>
+        <span class="bulk-label"><span id="bulkSel">0</span> selected:</span>
         <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
         ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
         <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
         <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
-        <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
+      document.addEventListener('change',function(e){var t=e.target;if(!t||t.type!=='checkbox')return;setTimeout(function(){var f=document.getElementById('bulkform');if(!f)return;var n=jdmBulkTicked(f);f.classList.toggle('show',n>0);var s=document.getElementById('bulkSel');if(s)s.textContent=n;},0);});
       function jdmBulkApply(btn){var f=btn.form;if(!jdmBulkTicked(f)){jdmToast('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(btn){var f=btn.form;if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return true;}var n=jdmBulkTicked(f);if(!n){jdmToast('Tick the clients you want to delete first.');return false;}
         jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,okLabel:'Delete '+n+' client'+(n===1?'':'s')}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
@@ -2160,12 +2314,19 @@ function clientsView(clients, wishlists, opts = {}) {
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
-    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, pendingCounts[c.id] ? `<b>${pendingCounts[c.id]} match${pendingCounts[c.id] === 1 ? "" : "es"} waiting</b>` : "", isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
+    right: `${stageFor(c.id) ? statusBadge(stageFor(c.id)) : ""}${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
   return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th style="text-align:right">Matches waiting</th><th>Stage</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}<style>
+    .bulkbar{display:none}
+    .bulkbar.show{display:flex}
+    .mw-link{font-weight:700;color:var(--gold-txt);text-decoration:none;letter-spacing:var(--ls-num)}
+    .mw-link:hover{text-decoration:underline}
+    .mw-zero{color:var(--faint)}
+    .mcl-m b{color:var(--gold-txt);font-weight:600}
+  </style>`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2348,6 +2509,7 @@ const REQ_CSS = `<style>
   a.reqid:hover{color:var(--ink)}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
+  .health-neutral{background:transparent;border:1.5px solid var(--faint)}
   .rstat-sel{padding:8px 24px 8px 8px;font-size:var(--fs-sec);border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:inherit;cursor:pointer}
   .rstat-sel:hover,.rstat-sel:focus{border-color:var(--field-line);background:var(--field)}
   /* Keep the Status column wide enough for the full label and select on every
@@ -2707,6 +2869,17 @@ export async function createTask(env, form, session) {
     if (!cid) { const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first(); cid = w ? w.client_id : null; }
   } else if (cid) {
     if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  } else if (form.get("client_name")) {
+    // Quick-add types a name (IA-AUDIT item 16). Link only on an unambiguous,
+    // access-scoped, case-insensitive exact match; otherwise the task is
+    // created unlinked rather than guessed onto the wrong buyer.
+    const nm = String(form.get("client_name")).trim();
+    if (nm) {
+      const acc = accessScope(session);
+      const st = env.DB.prepare(`SELECT c.id FROM clients c WHERE ${acc.sql} AND c.archived = 0 AND LOWER(c.name) = LOWER(?) LIMIT 2`);
+      const hits = (await (acc.binds.length ? st.bind(...acc.binds, nm) : st.bind(nm)).all()).results || [];
+      if (hits.length === 1) cid = hits[0].id;
+    }
   }
   const due = form.get("due_date") ? String(form.get("due_date")).slice(0, 10) : null;
   const priority = ["low", "normal", "high"].includes(form.get("priority")) ? form.get("priority") : "normal";
@@ -3107,6 +3280,12 @@ async function tasksData(env, session) {
   return rows;
 }
 function tasksView(rows, opts = {}) {
+  // IA-AUDIT item 16: an assigned-to-me filter. Agents already only see their
+  // scope; Mine narrows to explicit assignments so five people sharing the
+  // board stop reading one undifferentiated list.
+  const mine = !!opts.mine;
+  const sid = Number(opts.session && opts.session.id);
+  if (mine) rows = rows.filter((t) => Number(t.assigned_to) === sid);
   const open = rows.filter((t) => t.status !== "done");
   const done = rows.filter((t) => t.status === "done");
   const buckets = { over: [], today: [], soon: [], later: [], none: [] };
@@ -3124,9 +3303,11 @@ function tasksView(rows, opts = {}) {
     ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
     : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
   const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
-  // What is this page?, the client asked for instructions. Collapsible so it
-  // stays out of the way once staff know it, open by default the first time.
-  const help = `<details class="tks-help" open>
+  // What is this page?, the client asked for instructions. IA-AUDIT item 16:
+  // closed on the server; a script opens it for first-time browsers only and
+  // remembers the dismissal in localStorage, so onboarding copy never again
+  // outranks the work.
+  const help = `<details class="tks-help" id="tksHelp">
     <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
     <div class="tks-help-b">
       <p>Your shared to-do list for moving deals forward. A task is a single next
@@ -3145,18 +3326,48 @@ function tasksView(rows, opts = {}) {
       </ul>
     </div>
   </details>`;
+  // Quick-add (IA-AUDIT item 16): follow-up capture at the moment of thought.
+  // The client field autocompletes from the visible directory; the server
+  // links only an unambiguous name match, never a guess.
+  const quickAdd = `<form class="card tk-add" method="POST" action="/task/create">
+    <input type="hidden" name="back" value="/admin?view=tasks${mine ? "&mine=1" : ""}">
+    <input class="tk-add-t" name="title" placeholder="Add a task, e.g. call Sam re finance" required maxlength="160" aria-label="Task title">
+    <input class="tk-add-c" name="client_name" list="tkClients" placeholder="Client (optional)" aria-label="Client" autocomplete="off">
+    <datalist id="tkClients">${(opts.clients || []).map((c) => `<option value="${esc(c.name)}">`).join("")}</datalist>
+    <input class="tk-add-d" type="date" name="due_date" aria-label="Due date">
+    <button class="btn-gold" type="submit">Add task</button>
+  </form>`;
+  const chips = `<div class="fchips" style="margin:0 0 var(--sp-4)">
+    <a class="fchip${mine ? "" : " on"}" href="/admin?view=tasks"${mine ? "" : ' aria-current="true"'}>${(opts.session && opts.session.role) === "admin" ? "Everyone" : "All my tasks"}</a>
+    <a class="fchip${mine ? " on" : ""}" href="/admin?view=tasks&mine=1"${mine ? ' aria-current="true"' : ""}>Assigned to me</a>
+  </div>`;
+  const helpScript = `<script>(function(){var d=document.getElementById('tksHelp');if(!d)return;var KEY='jdmTasksHelpHidden';
+    try{if(!localStorage.getItem(KEY))d.open=true;}catch(e){d.open=true;}
+    d.addEventListener('toggle',function(){try{if(d.open){localStorage.removeItem(KEY);}else{localStorage.setItem(KEY,'1');}}catch(e){}});
+  })();</script>`;
   return `${TASKS_CSS}
-    ${help}
     <div class="tk-strip">
       <div class="tk-stat${buckets.over.length ? " bad" : ""}"><div class="n">${buckets.over.length}</div><div class="l">Overdue</div></div>
       <div class="tk-stat${buckets.today.length ? " warn" : ""}"><div class="n">${buckets.today.length}</div><div class="l">Due today</div></div>
       <div class="tk-stat"><div class="n">${buckets.soon.length}</div><div class="l">This week</div></div>
       <div class="tk-stat"><div class="n">${open.length}</div><div class="l">Open total</div></div>
     </div>
-    ${body}${doneSec}`;
+    ${quickAdd}
+    ${chips}
+    ${body}${doneSec}
+    ${help}${helpScript}`;
 }
 const TASKS_CSS = `<style>
   .tk-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:var(--sp-5)}
+  .tk-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;margin-bottom:var(--sp-4)}
+  .tk-add input{width:auto}
+  .tk-add .tk-add-t{flex:2 1 240px}
+  .tk-add .tk-add-c{flex:1 1 160px}
+  .tk-add .tk-add-d{flex:0 1 150px}
+  @media(max-width:640px){
+    .tk-add .tk-add-t,.tk-add .tk-add-c,.tk-add .tk-add-d{flex:1 1 100%}
+    .tk-add button{width:100%;min-height:44px}
+  }
   .tk-stat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px}
   .tk-stat.bad{border-color:var(--bad-line)}.tk-stat.warn{border-color:var(--warn-c)}
   .tk-stat .n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
@@ -3319,11 +3530,26 @@ function matchCard(q, cardOpts = {}) {
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
       <div class="sc-actions">
+        ${snoozeCtl(q, lot, ret)}
         <a class="btn-skip" href="${skip}">Skip</a>
         <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
       </div>
     </div>
   </div>`;
+}
+
+// IA-AUDIT item 12: the quiet third action between Skip (terminal) and
+// Approve (sends now). A snoozed card - visible only under the Snoozed
+// filter - swaps the menu for a Wake now button.
+function snoozeCtl(q, lot, ret) {
+  const back = ret || "/admin?view=matches";
+  const form = (until, label) => `<form method="POST" action="/matches/snooze" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="until" value="${until}"><input type="hidden" name="back" value="${esc(back)}"><button class="sc-snz-opt" type="submit">${label}</button></form>`;
+  const snoozed = q.snoozed_until && (tsMs(q.snoozed_until) || 0) > Date.now();
+  if (snoozed) {
+    return `<span class="sc-snz-until">Snoozed until ${esc(String(q.snoozed_until).slice(0, 10))}</span>${form("clear", "Wake now")}`;
+  }
+  const canClose = Number.isFinite(tsMs(lot.auction_date)) && tsMs(lot.auction_date) - 24 * 3600 * 1000 > Date.now();
+  return `<details class="sc-snz"><summary>Snooze</summary><span class="sc-snz-menu">${form("1d", "Tomorrow")}${canClose ? form("close", "24h before close") : ""}</span></details>`;
 }
 
 // ---- Matches triage helpers (server-side filter, group, page) ---------------
@@ -3335,7 +3561,7 @@ const MATCH_PAGE = 30;
 
 // Canonical filter state from the ?f/&soon/&group/&shown params.
 function matchQueryState(sp = {}) {
-  const f = ["all", "strong", "good", "poss", "sg"].includes(sp.f) ? sp.f : "sg";
+  const f = ["all", "strong", "good", "poss", "sg", "snoozed"].includes(sp.f) ? sp.f : "sg";
   return {
     f, // sg = Strong + Good (the triage default)
     soon: sp.soon === "1",
@@ -3363,6 +3589,9 @@ function decorateMatches(pending) {
 
 function filterMatches(pending, st) {
   return pending.filter((q) => {
+    // Snoozed mode receives the snoozed rows as its source; strength filters
+    // don't apply, only the closing-soon toggle.
+    if (st.f === "snoozed") return !(st.soon && q._days > 2);
     if (st.f === "sg" && q._str === "poss") return false;
     if ((st.f === "strong" || st.f === "good" || st.f === "poss") && q._str !== st.f) return false;
     if (st.soon && q._days > 2) return false;
@@ -3404,11 +3633,13 @@ export async function matchesChunk(env, session, sp = {}) {
 }
 
 function matchesView(pending, opts = {}) {
-  if (pending.length === 0) {
+  const snoozedRows = opts.snoozedRows || [];
+  if (pending.length === 0 && snoozedRows.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every search.</div></div>` + ranToast();
+      No matches awaiting review. Press <strong>New auction search</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
   decorateMatches(pending);
+  decorateMatches(snoozedRows);
   const st = matchQueryState(opts.query || {});
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
 
@@ -3437,7 +3668,9 @@ function matchesView(pending, opts = {}) {
   const linkTo = (over) => "/admin?" + params(over);
   const retPath = "/admin?" + params({}) + (st.shown !== MATCH_PAGE ? "&shown=" + st.shown : "");
 
-  const filtered = filterMatches(pending, st);
+  // Snoozed mode renders the parked rows; every count above still reads from
+  // the live queue, so the ticker never lies about workload.
+  const filtered = filterMatches(st.f === "snoozed" ? snoozedRows : pending, st);
   const { groups, flat } = orderMatches(filtered, st);
   const shownRows = flat.slice(0, st.shown);
   const shownSet = new Set(shownRows.map((q) => q.id));
@@ -3453,6 +3686,23 @@ function matchesView(pending, opts = {}) {
     ${tk("Good", good, "", "var(--good-fg)", false, linkTo({ f: "good" }), st.f === "good")}
     ${tk("Possible", poss, "", "var(--pos-fg)", false, linkTo({ f: "poss" }), st.f === "poss")}
     ${tk("Closing in 48h", soon, "bad", "var(--bad)", true, linkTo({ soon: !st.soon }), st.soon)}
+  </div>`;
+
+  // IA-AUDIT item 8: at 375 the 2x3 ticker grid plus the banner pushed the
+  // first car to ~1075px. This single-row strip replaces BOTH at mobile (CSS
+  // swaps them); each count is the same tappable filter, and the banner's
+  // shown/hidden message folds into a one-line note. 1440 is untouched.
+  const sk = (label, n, href, on, urgent) =>
+    `<a class="msk${on ? " on" : ""}${urgent && n ? " urgent" : ""}" href="${href}">${label}<b>${n}</b></a>`;
+  const strip = `<div class="mstrip">
+    <div class="ms-row">
+      ${sk("Awaiting", pending.length, linkTo({ f: "all", soon: false }), st.f === "all" && !st.soon)}
+      ${sk("Strong", strong, linkTo({ f: "strong" }), st.f === "strong")}
+      ${sk("Good", good, linkTo({ f: "good" }), st.f === "good")}
+      ${sk("Possible", poss, linkTo({ f: "poss" }), st.f === "poss")}
+      ${sk("48h", soon, linkTo({ soon: !st.soon }), st.soon, true)}
+    </div>
+    ${st.f === "sg" && poss > 0 ? `<div class="ms-note">${filtered.length} shown, ${poss} hidden <a href="${linkTo({ f: "all" })}">Show all</a></div>` : ""}
   </div>`;
 
   const pause = sendOff
@@ -3473,6 +3723,7 @@ function matchesView(pending, opts = {}) {
     ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:var(--good-fg)"></span>`)}
     ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:var(--pos-fg)"></span>`)}
     ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
+    ${(snoozedRows.length || st.f === "snoozed") ? chip(`Snoozed (${snoozedRows.length})`, { f: "snoozed" }, st.f === "snoozed") : ""}
     <span class="bsp" style="flex:1"></span>
     ${chip("Grouped by client", { group: "client" }, st.group === "client")}
     ${chip("Flat list", { group: "none" }, st.group === "none")}
@@ -3529,6 +3780,10 @@ function matchesView(pending, opts = {}) {
       const minDays = rows[0]._days;
       const closes = minDays <= 0 ? "closes today" : minDays === 1 ? "closes tomorrow" : `closes in ${minDays} days`;
       const strengthBits = [gs ? `${gs} Strong` : "", gg ? `${gg} Good` : "", gp ? `${gp} Possible` : ""].filter(Boolean).join(", ");
+      // Send-pacing read (IA-AUDIT item 13): sent volume this week, whether it
+      // landed, and how fresh - "nothing sent this week" is the green light.
+      const sr = (opts.sentRecency || {})[cid];
+      const pacing = sr ? `sent ${sr.n} this week (${sr.v || 0} opened), last ${relTime(sr.t)}` : "nothing sent this week";
       const ids = rows.map((r) => r.id).join(",");
       const loaded = rows.filter((r) => shownSet.has(r.id));
       return `<section class="mgroup" data-cid="${cid}">
@@ -3537,7 +3792,7 @@ function matchesView(pending, opts = {}) {
           ${avatar(name)}
           <div class="gh-id">
             <div class="gh-name"><a class="clink" href="/admin?view=client&id=${cid}" data-drawer="/admin/drawer?id=${cid}">${esc(name)}</a> <span class="gh-count" data-n="${rows.length}">${rows.length} match${rows.length === 1 ? "" : "es"}</span></div>
-            <div class="gh-sub">${[esc(labels), strengthBits, closes].filter(Boolean).join(" · ")}</div>
+            <div class="gh-sub">${[esc(labels), strengthBits, closes, pacing].filter(Boolean).join(" · ")}</div>
           </div>
           <button type="button" class="bap gh-send" data-ids="${ids}" data-name="${esc(first)}">Send all ${rows.length} to ${esc(first)}</button>
         </div>
@@ -3583,14 +3838,31 @@ function matchesView(pending, opts = {}) {
     .gh-send{white-space:nowrap}
     .scards.gh-cards{margin-top:var(--sp-2)}
     .mmore{display:flex;justify-content:center;margin:var(--sp-5) 0 var(--sp-2)}
+    .mstrip{display:none}
+    @media(max-width:759px){
+      .mticker{display:none}
+      .mbanner{display:none}
+      .mstrip{display:block;margin:0 0 var(--sp-3)}
+      .ms-row{display:flex;gap:var(--sp-2);overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+      .msk{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;min-height:40px;padding:6px 12px;border:1px solid var(--hair);border-radius:9999px;background:var(--card);color:var(--t2);font-size:var(--fs-sec);text-decoration:none}
+      .msk b{font-weight:700;color:var(--ink);letter-spacing:var(--ls-num)}
+      .msk.on{border-color:var(--gold);background:var(--gold-tint);color:var(--gold-txt)}
+      .msk.on b{color:var(--gold-txt)}
+      .msk.urgent b{color:var(--bad)}
+      .ms-note{margin-top:var(--sp-2);font-size:var(--fs-sec);color:var(--t3)}
+      .ms-note a{color:var(--gold-txt);font-weight:600;text-decoration:none;margin-left:4px}
+    }
     @media(max-width:640px){
       .gh-fold{width:44px;height:44px}
       .mtriage summary{min-height:44px;align-items:center}
       .mtriage .quick button{min-height:44px}
+      /* Selection bars live at the thumb (same rule as the Auctions send bar).
+         Overrides the top-sticky default from the shared admin CSS. */
+      .bulkbar2{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:30;margin:0;border-radius:var(--r-card) var(--r-card) 0 0;padding:12px 16px;box-shadow:0 -8px 24px rgba(0,0,0,.35)}
     }
   </style>`;
 
-  return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
+  return css + ticker + strip + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
 }
 
 // One-off toast after the "Fix photos with AI" button kicks off a background
@@ -4135,6 +4407,21 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   ].join("");
 
   const landed = q._landed ? `<div class="ld-landed"><div class="ld-landed-k">Est. landed ${esc(q._landed.state || "")}</div><div class="ld-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : "";
+  // IA-AUDIT item 11: the budget delta is the number staff quote on the phone.
+  // The gap is computed in JPY (budget cap vs the lot's market price) and
+  // expressed in AUD via the landed estimate's own implied rate
+  // (purchaseAUD / lot JPY), so it never disagrees with the landed figure.
+  const budgetLine = (() => {
+    const budget = Number(q.w_price) || 0;
+    if (!budget) return "";
+    const jpy = lotJpy(lot);
+    if (!jpy) return `<div class="ld-cl-b">Budget ¥${budget.toLocaleString()}</div>`;
+    const diff = budget - jpy;
+    const audPerJpy = q._landed && Number(q._landed.purchaseAUD) > 0 ? Number(q._landed.purchaseAUD) / jpy : 0;
+    const amount = audPerJpy ? `about A$${Math.round(Math.abs(diff) * audPerJpy).toLocaleString("en-AU")}` : `¥${Math.abs(diff).toLocaleString()}`;
+    const lead = q._landed && Number(q._landed.grandTotal) > 0 ? `A$${Number(q._landed.grandTotal).toLocaleString("en-AU")} landed vs ` : "";
+    return `<div class="ld-cl-b${diff < 0 ? " over" : ""}">${lead}¥${budget.toLocaleString()} budget &middot; ${amount} ${diff < 0 ? "over" : "under"}</div>`;
+  })();
   const days = daysUntil(lot.auction_date);
   const when = (days === 0) ? `<span class="ld-when urgent">Auction today</span>`
     : (days === 1) ? `<span class="ld-when urgent">Auction in 1 day</span>`
@@ -4219,11 +4506,11 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <div class="card ld-card">
             <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
+            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
-            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div></div></div>
             ${chips.length ? `<div class="why" style="padding:16px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
           </div>
         </aside>
@@ -4283,8 +4570,20 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
             w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
        FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.client_id = ? AND q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
+      WHERE q.client_id = ? AND q.status = 'pending' AND ${SNOOZE_LIVE} ORDER BY q.created_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
+  const snoozedN = (await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue WHERE client_id = ? AND status = 'pending' AND snoozed_until > datetime('now')"
+  ).bind(cid).first())?.n || 0;
+  // IA-AUDIT item 13: send pacing for THIS client - the decision to send more
+  // is made on this page, so the week's volume and its reception sit above the
+  // grid.
+  const sentWk = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n, MAX(sent_at) AS t,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS v,
+            SUM(CASE WHEN response = 'interested' THEN 1 ELSE 0 END) AS i
+       FROM queue WHERE client_id = ? AND sent_at >= datetime('now','-7 days')`
+  ).bind(cid).first()) || {};
 
   // Cars this client has asked us to action/translate from their portal.
   const requested = (await env.DB.prepare(
@@ -4452,9 +4751,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     </form>${presetScript()}
   </details>`;
 
+  // IA-AUDIT item 5: searches render as one-line summary rows (label, digest,
+  // On/Off) with the edit form behind its disclosure at EVERY width - the
+  // ~1100px expanded form was burying the daily surface (matches) below it.
   const wlSection = `<div class="card">
     <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
-    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
+    ${searchWls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
   // Manual auction search for this client (same access as managing them). Hits the
@@ -4498,11 +4800,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const prefilledFromWl = !findHasQuery && !!(primaryWl.marka_name || primaryWl.model_name);
   const fv = (k) => esc(findPrefill[k] ?? "");
   const foundFlash = opts.found === "added"
-    ? `<div class="flash" style="margin-top:16px">Added to ${esc(c.name)}'s review queue, scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
+    ? `<div class="flash" style="margin-top:16px">Added to ${esc(c.name)}'s review queue, it's waiting in <strong>Live matches</strong> above, Approve &amp; send when ready.</div>`
     : opts.found === "dup" ? `<div class="dupnote" style="margin-top:16px">That car is already in ${esc(c.name)}'s queue.</div>`
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:16px">Sorry, we couldn't add that lot, please try again.</div>` : "";
-  const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
-    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+  // IA-AUDIT item 5: the 800-900px find form folds away; the header CTA is the
+  // one prominent affordance and expands it. It springs open whenever there is
+  // something to show inside (results, or an add-to-queue flash).
+  const findOpen = findHasQuery || !!opts.found;
+  const findCard = canManage ? `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
+    <summary>Find a car for ${esc(firstName)}</summary>
     <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
@@ -4518,10 +4824,13 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
-  </div>` : "";
+    <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
+  </details>` : "";
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
+    ${Number(sentWk.n) ? `<p class="help sentpace" style="margin:0 0 var(--sp-3)">${sentWk.n} sent this week &middot; ${sentWk.v || 0} opened &middot; ${sentWk.i ? `${sentWk.i} interested` : "none interested"} &middot; last ${esc(relTime(sentWk.t))}</p>` : ""}
+    ${snoozedN ? `<p class="help" style="margin:0 0 var(--sp-3)">${snoozedN} snoozed match${snoozedN === 1 ? " is" : "es are"} hidden until due, <a href="/admin?view=matches&f=snoozed" style="color:var(--gold-txt);font-weight:600">see snoozed</a>.</p>` : ""}
     ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
@@ -4547,7 +4856,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}</div><aside class="cd-rail">${feedCard}${portalCard}${editCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${matchSection}${reqSection}${historyCard}${wlSection}${newWl}${findCard}</div><aside class="cd-rail">${feed.length ? feedCard + portalCard + editCard : portalCard + editCard + feedCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
@@ -6633,6 +6942,9 @@ export async function adminAuctionsPage(env, session, opts = {}) {
 
   const page = Math.max(1, parseInt(sp.page, 10) || 1);
   const { lots, hasMore } = await searchLots(env, { ...sp, page });
+  // IA-AUDIT item 15: the live feed reads closing soonest first, mirroring
+  // Matches (within the fetched page; dateless lots sink to the end).
+  lots.sort((a, b) => (tsMs(a.auction_date) || Infinity) - (tsMs(b.auction_date) || Infinity));
   const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
 
   // Which of these lots are already queued for one of this session's clients?
@@ -6669,7 +6981,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
   })();</script>`;
 
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }), label: "Live auction feed, closing soonest first" });
   let grid;
   if (lots.length) {
     // Cards are selectable (checkbox + tap outside the links) so a run of cars
@@ -6692,7 +7004,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const sendBar = clients.length
     ? staffSendBar({ mode: "picker", clients: clients.map((c) => ({ id: c.id, name: c.name, hasContact: !!(c.email || c.whatsapp) })) })
     : "";
-  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
+  return `${flash}${watchAlertBlock(buildUrl({ tab: "watch" }))}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).

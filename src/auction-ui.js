@@ -90,7 +90,7 @@ export function auctionCardV2(lot, opts = {}) {
   const sheet = splitImages(lot).sheet;
   const sheetUrl = sheet ? `${sheet}&w=1400` : "";
 
-  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}"` : "";
+  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}"` : "";
   const heart = fav ? `<button type="button" class="ac-fav"${favData} aria-pressed="false" aria-label="Save to watchlist">${HEART}</button>` : "";
   // When a detail route is supplied, the card opens a full lot page (gallery,
   // inspection report, specs, actions). The link is a stretched overlay UNDER
@@ -140,9 +140,18 @@ export function auctionSearchHeader(o = {}) {
     `<option value="${esc(x)}"${String(x) === String(sel) ? " selected" : ""}>${esc(tc ? displayMaker(x) : x)}</option>`).join("");
   const advOpen = ["yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
   const counts = `<span class="asrch-counts">Watchlist <b data-watch-count>0</b>${o.showBid ? ` <span class="sep">&middot;</span> Bid requests <b>${Number(o.bidCount) || 0}</b>` : ""}</span>`;
-  return `<div class="asrch">
-    <div class="asrch-top"><span class="asrch-label">${esc(o.label || "Search live Japanese auctions")}</span>${counts}</div>
-    <form class="asrch-form" method="GET" action="${esc(o.action || "")}" role="search">
+  // IA-AUDIT item 15: once a search has run, the form folds to a one-line
+  // criteria summary (the flight-search pattern) so the first result card
+  // starts inside the fold. Before any search, the form IS the page.
+  const hasQuery = ["q", "make", "model", "house", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
+  const digest = [
+    p.q, displayMaker(p.make), displayMaker(p.model), p.house,
+    (p.yearMin || p.yearMax) ? `${p.yearMin || "any"} to ${p.yearMax || "any"}` : "",
+    p.priceMax ? `to ${yen(Number(p.priceMax))}` : "",
+    p.gradeMin ? `grade ${p.gradeMin}+` : "",
+    p.kuzov,
+  ].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
+  const formHtml = `<form class="asrch-form" method="GET" action="${esc(o.action || "")}" role="search">
       ${o.hidden || ""}
       <div class="asrch-bar">
         <span class="asrch-ic" aria-hidden="true">${SEARCH_IC}</span>
@@ -167,8 +176,34 @@ export function auctionSearchHeader(o = {}) {
           </div>
         </details>
       </div>
-    </form>
+    </form>`;
+  return `<div class="asrch">
+    <div class="asrch-top"><span class="asrch-label">${esc(o.label || "Search live Japanese auctions")}</span>${counts}</div>
+    ${hasQuery
+      ? `<details class="asrch-fold"><summary><span class="asrch-sum">${esc(digest || "Current search")}</span><span class="asrch-edit">Edit search</span></summary>${formHtml}</details>`
+      : formHtml}
   </div>`;
+}
+
+// IA-AUDIT item 15: watched lots entering their final 24h page the staff.
+// The watchlist lives in localStorage, so the alert is client-side: a slot
+// plus a script that counts saved lots whose close timestamp is within 24h
+// and fills the slot with an urgent strip. Old snapshots without a ts are
+// skipped rather than guessed at.
+export function watchAlertBlock(href) {
+  return `<div id="watchAlert"></div><style>
+    .watch-alert{display:block;background:var(--bad-bg,rgba(177,18,38,.06));border:1px solid var(--bad-line,rgba(177,18,38,.3));color:var(--bad,#B11226);font-weight:600;font-size:var(--fs-sec,13px);border-radius:var(--r-card,10px);padding:12px 16px;margin:0 0 16px;text-decoration:none}
+    .watch-alert:hover{filter:brightness(.97)}
+  </style><script>(function(){
+  try{
+    var m=JSON.parse(localStorage.getItem('jdmWatch')||'{}')||{},now=Date.now(),n=0;
+    for(var k in m){if(!m[k]||!m[k].ts)continue;var ts=Date.parse(String(m[k].ts).replace(' ','T'));
+      if(isFinite(ts)&&ts>now-3600000&&ts-now<=86400000)n++;}
+    if(!n)return;
+    var el=document.getElementById('watchAlert');if(!el)return;
+    el.innerHTML='<a class="watch-alert" href="${esc(href)}">'+n+' watched lot'+(n===1?'':'s')+' close'+(n===1?'s':'')+' within 24 hours, open the watchlist</a>';
+  }catch(e){}
+})();</script>`;
 }
 
 // Live / Watchlist (and, for staff, Sold prices) pill tabs. `href` builds a URL
@@ -210,8 +245,8 @@ export function auctionWatchScript(opts = {}) {
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
   function paint(){var n=Object.keys(load()).length,e=document.querySelectorAll('[data-watch-count]');for(var i=0;i<e.length;i++){e[i].textContent=n;}}
   function mark(){var m=load(),b=document.querySelectorAll('.ac-fav[data-id]');for(var i=0;i<b.length;i++){var on=!!m[b[i].getAttribute('data-id')];b[i].classList.toggle('on',on);b[i].setAttribute('aria-pressed',on?'true':'false');b[i].setAttribute('aria-label',on?'Remove from watchlist':'Save to watchlist');}}
-  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet};}
-  function attrs(v){var k=['id','name','code','img','grade','house','date','pk','price','aud','mileage','elig','eligcls','sheet'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
+  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet};}
+  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
   var HEART='${HEART}';
   function card(v){
     var h='<div class="acard"><div class="ac-photo" data-bg="'+esc(v.img)+'">';
@@ -244,6 +279,12 @@ export function auctionWatchScript(opts = {}) {
 export const AUCTION_CSS = `<style>
   .asrch{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:20px;margin-bottom:20px}
   .asrch-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  /* Post-search fold: one-line criteria summary, the form behind it. */
+  .asrch-fold>summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;min-height:44px;padding:10px 14px;border:1px solid var(--hair,rgba(0,0,0,.08));border-radius:var(--r-ctl,8px);background:var(--off,#F8F9FA)}
+  .asrch-fold>summary::-webkit-details-marker{display:none}
+  .asrch-sum{flex:1;min-width:0;font-size:var(--fs-sec,13px);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .asrch-edit{font-size:var(--fs-label,12px);font-weight:600;color:var(--gold-txt,#7A5E1C);white-space:nowrap}
+  .asrch-fold[open]>summary{margin-bottom:12px}
   .asrch-label{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
   .asrch-counts{font-size:var(--fs-label,12px);color:var(--t3)}
   .asrch-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
@@ -270,6 +311,9 @@ export const AUCTION_CSS = `<style>
   .asrch-adv-act{display:flex;justify-content:flex-end;margin-top:16px}
 
   .atabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:4px;margin-bottom:16px}
+  /* Four pill tabs run 388px wide at a 375 viewport; scroll the strip instead
+     of overflowing the page. */
+  @media(max-width:480px){.atabs{display:flex;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}.atabs::-webkit-scrollbar{display:none}.atab{flex:0 0 auto;white-space:nowrap}}
   .atab{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);font-weight:600;color:var(--t2)}
   .atab:hover{color:var(--ink)}
   .atab.on{background:var(--ink);color:var(--bg-2)}
