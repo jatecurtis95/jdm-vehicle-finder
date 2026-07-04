@@ -1275,7 +1275,17 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
         ORDER BY q.snoozed_until ASC LIMIT 100`
     );
     const snoozedRows = ((await (acc2.binds.length ? snzStmt.bind(...acc2.binds) : snzStmt).all()).results) || [];
-    body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {}, snoozedRows });
+    // IA-AUDIT item 13: send recency per client for the group headers, so
+    // over-sending in the same week is visible at the moment of approval.
+    const srStmt = env.DB.prepare(
+      `SELECT q.client_id, COUNT(*) AS n, MAX(q.sent_at) AS t,
+              SUM(CASE WHEN q.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS v
+         FROM queue q JOIN clients c ON c.id = q.client_id
+        WHERE q.sent_at >= datetime('now','-7 days') AND ${acc2.sql} GROUP BY q.client_id`
+    );
+    const sentRecency = {};
+    for (const r of ((await (acc2.binds.length ? srStmt.bind(...acc2.binds) : srStmt).all()).results) || []) sentRecency[r.client_id] = r;
+    body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {}, snoozedRows, sentRecency });
   }
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
@@ -3685,6 +3695,10 @@ function matchesView(pending, opts = {}) {
       const minDays = rows[0]._days;
       const closes = minDays <= 0 ? "closes today" : minDays === 1 ? "closes tomorrow" : `closes in ${minDays} days`;
       const strengthBits = [gs ? `${gs} Strong` : "", gg ? `${gg} Good` : "", gp ? `${gp} Possible` : ""].filter(Boolean).join(", ");
+      // Send-pacing read (IA-AUDIT item 13): sent volume this week, whether it
+      // landed, and how fresh - "nothing sent this week" is the green light.
+      const sr = (opts.sentRecency || {})[cid];
+      const pacing = sr ? `sent ${sr.n} this week (${sr.v || 0} opened), last ${relTime(sr.t)}` : "nothing sent this week";
       const ids = rows.map((r) => r.id).join(",");
       const loaded = rows.filter((r) => shownSet.has(r.id));
       return `<section class="mgroup" data-cid="${cid}">
@@ -3693,7 +3707,7 @@ function matchesView(pending, opts = {}) {
           ${avatar(name)}
           <div class="gh-id">
             <div class="gh-name"><a class="clink" href="/admin?view=client&id=${cid}" data-drawer="/admin/drawer?id=${cid}">${esc(name)}</a> <span class="gh-count" data-n="${rows.length}">${rows.length} match${rows.length === 1 ? "" : "es"}</span></div>
-            <div class="gh-sub">${[esc(labels), strengthBits, closes].filter(Boolean).join(" · ")}</div>
+            <div class="gh-sub">${[esc(labels), strengthBits, closes, pacing].filter(Boolean).join(" · ")}</div>
           </div>
           <button type="button" class="bap gh-send" data-ids="${ids}" data-name="${esc(first)}">Send all ${rows.length} to ${esc(first)}</button>
         </div>
@@ -4476,6 +4490,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const snoozedN = (await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM queue WHERE client_id = ? AND status = 'pending' AND snoozed_until > datetime('now')"
   ).bind(cid).first())?.n || 0;
+  // IA-AUDIT item 13: send pacing for THIS client - the decision to send more
+  // is made on this page, so the week's volume and its reception sit above the
+  // grid.
+  const sentWk = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n, MAX(sent_at) AS t,
+            SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS v,
+            SUM(CASE WHEN response = 'interested' THEN 1 ELSE 0 END) AS i
+       FROM queue WHERE client_id = ? AND sent_at >= datetime('now','-7 days')`
+  ).bind(cid).first()) || {};
 
   // Cars this client has asked us to action/translate from their portal.
   const requested = (await env.DB.prepare(
@@ -4721,6 +4744,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
+    ${Number(sentWk.n) ? `<p class="help sentpace" style="margin:0 0 var(--sp-3)">${sentWk.n} sent this week &middot; ${sentWk.v || 0} opened &middot; ${sentWk.i ? `${sentWk.i} interested` : "none interested"} &middot; last ${esc(relTime(sentWk.t))}</p>` : ""}
     ${snoozedN ? `<p class="help" style="margin:0 0 var(--sp-3)">${snoozedN} snoozed match${snoozedN === 1 ? " is" : "es are"} hidden until due, <a href="/admin?view=matches&f=snoozed" style="color:var(--gold-txt);font-weight:600">see snoozed</a>.</p>` : ""}
     ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
