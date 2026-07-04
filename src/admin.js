@@ -1687,6 +1687,28 @@ async function dashboardData(env, session) {
   ).all()).results || [];
   const stalled = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0 AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))`).first())?.n || 0;
 
+  // Gone quiet (IA-AUDIT item 7): clients who ENGAGED (opened a sent car or
+  // said interested), still have an active request, and have had no touch
+  // (sent vehicle, note or logged contact tap) in 14+ days. This is the warm
+  // re-contact list for the long deliberation cycle, distinct from Stalled,
+  // which is request-activity based and blind to engagement.
+  const gqCore = `
+     FROM clients c
+     JOIN (SELECT client_id, sent_at AS ts FROM queue WHERE sent_at IS NOT NULL
+           UNION ALL SELECT client_id, created_at FROM activity WHERE type IN ('note','contact')) t ON t.client_id = c.id
+    WHERE ${acc.sql} AND c.archived = 0
+      AND EXISTS (SELECT 1 FROM queue qe WHERE qe.client_id = c.id AND (qe.viewed_at IS NOT NULL OR qe.response = 'interested'))
+      AND EXISTS (SELECT 1 FROM wishlists we WHERE we.client_id = c.id AND COALESCE(we.status, 'new') NOT IN ('lost','delivered'))
+    GROUP BY c.id, c.name
+   HAVING MAX(t.ts) < datetime('now','-14 days')`;
+  const goneQuietList = (await run(
+    `SELECT c.id AS client_id, c.name AS client_name, MAX(t.ts) AS last_touch,
+            (SELECT COUNT(*) FROM queue q3 WHERE q3.client_id = c.id AND q3.viewed_at IS NOT NULL) AS opened,
+            (SELECT COUNT(*) FROM queue q4 WHERE q4.client_id = c.id AND q4.response = 'interested') AS interested
+     ${gqCore} ORDER BY MAX(t.ts) ASC LIMIT 6`
+  ).all()).results || [];
+  const goneQuiet = (await run(`SELECT COUNT(*) AS n FROM (SELECT c.id ${gqCore})`).first())?.n || 0;
+
   // Tasks: overdue + due-today counts and the actual list (scoped to me/my clients).
   const tsc = taskScope(session);
   const tbind = (sql) => { const s = env.DB.prepare(sql); return tsc.binds.length ? s.bind(...tsc.binds) : s; };
@@ -1728,7 +1750,7 @@ async function dashboardData(env, session) {
 
   return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList,
     stageCounts, openRequests, depositsOut, newUntouched, newHot, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
-    nextActionList, nextActionDue, depositsList, closestList };
+    nextActionList, nextActionDue, depositsList, closestList, goneQuiet, goneQuietList };
 }
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
@@ -1916,6 +1938,16 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
   const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2>${secBtn((data.closestList || []).length, "/admin?view=requests", "Open")}</div>`, `<div class="list">${closeRows}</div>`);
 
+  // Who's gone quiet: engaged buyers with no touch in 14+ days (IA-AUDIT
+  // item 7). The deliberation cycle means these are warm, not dead; oldest
+  // silence first because it is closest to going cold for good.
+  const gqRows = (data.goneQuietList || []).map((g) => `<a class="lrow" href="/admin?view=client&id=${g.client_id}">
+      ${avatar(g.client_name)}
+      <div class="who"><div class="nm">${esc(g.client_name)}</div><div class="sub">${[g.opened ? `${g.opened} opened` : "", g.interested ? `${g.interested} interested` : ""].filter(Boolean).join(" · ") || "engaged"}</div></div>
+      <div class="meta"><span class="b b-warn">Quiet ${esc(relTime(g.last_touch))}</span></div>
+    </a>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No engaged buyers have gone quiet. All warm leads are being worked.</div></div></div>`;
+  const goneQuietSection = dsec(`<div class="sec-h"><h2>Who's gone quiet? <span class="ct">(${data.goneQuiet || 0})</span></h2>${secBtn(data.goneQuiet, "/admin?view=clients", "Open")}</div>`, `<div class="list">${gqRows}</div>`);
+
   // Hierarchy (top → bottom): what needs action today → pipeline → business
   // snapshot → detail lists → trend charts. The attention band leads because
   // it is the operational read (hot leads, deadlines, the send queue); the
@@ -1929,9 +1961,10 @@ function dashboardView(session, data) {
       ${attention}
       ${pipelineStrip}
       ${overview}
-      <div class="dcols">${attentionSection}${tasksSection}</div>
+      <div class="dcols">${attentionSection}${closingQ}</div>
+      <div class="dcols">${goneQuietSection}${stalledSection}</div>
       <div class="dcols">${owesSection}${closestSection}</div>
-      <div class="dcols">${stalledSection}${closingQ}</div>
+      <div class="dcols">${tasksSection}</div>
       ${charts}
     </div>${DASH2_CSS}${dashScript()}`;
 }
@@ -2353,6 +2386,30 @@ export async function logContactTap(env, clientId, channel, session) {
   const actor = await actorName(env, session);
   await logActivity(env, { client_id: cid, type: "contact", detail: `${label} opened from the app`, actor });
   return { ok: true };
+}
+
+// Newest touch for ONE client: a sent vehicle, a note or a logged contact tap,
+// the same union the Customers "Last contact" column aggregates. Returns
+// { t, how } for the header line ("WhatsApp by Ben"), or null when never
+// contacted. Best-effort: a failed read renders as never, it never throws.
+async function lastContacted(env, clientId) {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT ts, src, actor FROM (
+          SELECT sent_at AS ts, 'sent' AS src, NULL AS actor FROM queue WHERE client_id = ?1 AND sent_at IS NOT NULL
+          UNION ALL
+          SELECT created_at, COALESCE(detail, type), actor FROM activity WHERE client_id = ?1 AND type IN ('note','contact')
+        ) ORDER BY ts DESC LIMIT 1`
+    ).bind(Number(clientId)).first();
+    if (!r || !r.ts) return null;
+    const src = String(r.src || "");
+    const channel = src === "sent" ? "vehicles sent"
+      : /^whatsapp/i.test(src) ? "WhatsApp"
+      : /^call/i.test(src) ? "Call"
+      : /^email/i.test(src) ? "Email"
+      : "note";
+    return { t: r.ts, how: channel + (r.actor ? " by " + r.actor : "") };
+  } catch (e) { console.error("lastContacted failed:", e.message); return null; }
 }
 
 // Deposit state on a request (Priority 6): none -> requested -> paid.
@@ -2787,6 +2844,9 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   const first = firstNameOf(w.client_name);
   const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Any vehicle";
   const waNum = String(w.client_whatsapp || "").replace(/[^\d]/g, "");
+  // Last contacted is client-level and distinct from the request's last
+  // activity: a portal view is activity, a phone call is contact.
+  const lastc = await lastContacted(env, w.client_id);
 
   // -- Left column: customer + contact + deposit -----------------------------
   const contactRows = [
@@ -2803,7 +2863,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   ].filter(Boolean).join("");
   const customerCol = `<div class="rdcol">
     <div class="rdcard rd-c-client">
-      <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))}</div></div></div>
+      <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))} &middot; last contacted ${lastc ? esc(relTime(lastc.t)) : "never"}</div></div></div>
       ${contactRows ? `<div class="rd-rows">${contactRows}</div>` : ""}
       ${contactBtns ? `<div class="rd-ctas">${contactBtns}</div>` : ""}
       <a class="rd-open" href="/admin?view=client&id=${w.client_id}">Open full customer profile &rarr;</a>
@@ -4187,6 +4247,11 @@ const CRM_CSS = `<style>
   /* Long unbroken contact strings (55 char emails) must wrap, not push the
      record header past a 375px viewport. */
   .cd-head .help{overflow-wrap:anywhere}
+  /* Last contacted: the quiet register carries the quiet-buyer signal; the
+     health dot supplies the urgency tone (green fresh, amber cooling, red
+     stale or never). */
+  .cd-lastc{margin-top:8px;font-size:var(--fs-sec);color:var(--t2)}
+  .cd-lastc b{color:var(--ink);font-weight:600}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
   /* cd-cta and btn-line alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
@@ -4212,6 +4277,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   if (!c) return notFound();
 
   const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  const lastc = await lastContacted(env, cid);
   await expirePast(env);
   const matches = (await env.DB.prepare(
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
@@ -4295,6 +4361,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
         <div class="cd-chips">${statusChips}</div>
         <div class="help" style="margin-top:8px">${contact}</div>
+        <div class="cd-lastc">${healthDot(lastc && lastc.t)}${lastc ? `Last contacted <b>${esc(relTime(lastc.t))}</b> &middot; ${esc(lastc.how)}` : "Never contacted"}</div>
       </div>
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
@@ -5266,6 +5333,9 @@ function uxGuardScript() {
       var fd=new FormData(); fd.append('id',v[0]||''); fd.append('channel',v[1]||'other');
       if(navigator.sendBeacon)navigator.sendBeacon('/client/contact-log',fd);
       else fetch('/client/contact-log',{method:'POST',body:fd,keepalive:true});
+      // Confirm the touch was recorded, so last-contacted is trusted data.
+      var ch=(v[1]||'contact'); ch=ch==='whatsapp'?'WhatsApp':ch.charAt(0).toUpperCase()+ch.slice(1);
+      if(window.jdmToast)jdmToast(ch+' touch logged to the timeline');
     }catch(err){}
   });
 })();</script>`;

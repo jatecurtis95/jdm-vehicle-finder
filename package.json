@@ -16,6 +16,7 @@
     "tail": "wrangler tail"
   },
   "devDependencies": {
+    "puppeteer-core": "^25.3.0",
     "wrangler": "^4.101.0"
   }
 }

@@ -69,11 +69,11 @@ test("each dashboard Q&A section wraps its heading and list in one grid item", a
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
   const cols = html.match(/<div class="dcols">/g) || [];
-  assert.equal(cols.length, 3, "three two-column bands");
+  assert.equal(cols.length, 4, "four bands (gone-quiet joined the board, tasks closes it)");
   // Every .dcols band opens with a .dsec wrapper (heading + list inside it).
   assert.match(html, /<div class="dcols"><div class="dsec"><div class="sec-h">/);
   const secs = html.match(/<div class="dsec">/g) || [];
-  assert.equal(secs.length, 6, "six wrapped sections");
+  assert.equal(secs.length, 7, "seven wrapped sections");
   // No section heading is ever a loose grid child of .dcols any more.
   assert.ok(!html.includes('<div class="dcols"><div class="sec-h">'), "headings are not loose grid children");
 });
