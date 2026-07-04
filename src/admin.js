@@ -4452,9 +4452,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     </form>${presetScript()}
   </details>`;
 
+  // IA-AUDIT item 5: searches render as one-line summary rows (label, digest,
+  // On/Off) with the edit form behind its disclosure at EVERY width - the
+  // ~1100px expanded form was burying the daily surface (matches) below it.
   const wlSection = `<div class="card">
     <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
-    ${searchWls.map((w) => wishlistEditor(w, { open: searchWls.length === 1 })).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
+    ${searchWls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
   // Manual auction search for this client (same access as managing them). Hits the
@@ -4498,11 +4501,15 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const prefilledFromWl = !findHasQuery && !!(primaryWl.marka_name || primaryWl.model_name);
   const fv = (k) => esc(findPrefill[k] ?? "");
   const foundFlash = opts.found === "added"
-    ? `<div class="flash" style="margin-top:16px">Added to ${esc(c.name)}'s review queue, scroll to <strong>Live matches</strong> below, then Approve &amp; send.</div>`
+    ? `<div class="flash" style="margin-top:16px">Added to ${esc(c.name)}'s review queue, it's waiting in <strong>Live matches</strong> above, Approve &amp; send when ready.</div>`
     : opts.found === "dup" ? `<div class="dupnote" style="margin-top:16px">That car is already in ${esc(c.name)}'s queue.</div>`
     : opts.found === "err" ? `<div class="dupnote" style="margin-top:16px">Sorry, we couldn't add that lot, please try again.</div>` : "";
-  const findCard = canManage ? `<div class="card" id="find" style="scroll-margin-top:80px">
-    <h2><span class="num" aria-hidden="true">${ICONS.search || "&#9906;"}</span> Find a car for ${esc(firstName)}</h2>
+  // IA-AUDIT item 5: the 800-900px find form folds away; the header CTA is the
+  // one prominent affordance and expands it. It springs open whenever there is
+  // something to show inside (results, or an add-to-queue flash).
+  const findOpen = findHasQuery || !!opts.found;
+  const findCard = canManage ? `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
+    <summary>Find a car for ${esc(firstName)}</summary>
     <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
       <input type="hidden" name="view" value="client"><input type="hidden" name="id" value="${c.id}">
@@ -4518,7 +4525,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
-  </div>` : "";
+    <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
+  </details>` : "";
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
@@ -4547,7 +4555,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${wlSection}${newWl}${findCard}${matchSection}${historyCard}${reqSection}</div><aside class="cd-rail">${feedCard}${portalCard}${editCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${matchSection}${reqSection}${historyCard}${wlSection}${newWl}${findCard}</div><aside class="cd-rail">${feed.length ? feedCard + portalCard + editCard : portalCard + editCard + feedCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 
