@@ -17,7 +17,9 @@ function seededEnv() {
 
 test("client header shows Never contacted when there is no touch history", async () => {
   const env = seededEnv();
-  const html = await clientDetailPage(env, 9001, ADMIN);
+  // Ben (9002) only has a pending match: no send, no note, no logged tap.
+  // (Aiko now seeds with 20-day-old touches as the gone-quiet fixture.)
+  const html = await clientDetailPage(env, 9002, ADMIN);
   assert.match(html, /class="cd-lastc"/, "the last-contacted line renders in the header");
   assert.match(html, /Never contacted/, "no history reads as never contacted");
 });
@@ -52,7 +54,7 @@ test("the request identity card shows last contacted distinct from last activity
 
 test("the request identity card reads never contacted without history", async () => {
   const env = seededEnv();
-  const html = await requestDetailPage(env, 9001, ADMIN);
+  const html = await requestDetailPage(env, 9002, ADMIN);
   assert.match(html, /last contacted never/, "no history reads as never");
 });
 

@@ -38,17 +38,19 @@ INSERT OR REPLACE INTO wishlists (id, client_id, label, marka_name, model_name, 
 -- Queue (matches) ----------------------------------------------------------
 -- Two 'sent' cars for the portal-enabled buyer (one already requested), and one
 -- 'pending' match for the staff Matches view. Auction dates are in the future so
--- the expiry sweep keeps them visible.
-INSERT OR REPLACE INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, client_request, decided_at, created_at) VALUES
+-- the expiry sweep keeps them visible. Aiko's sends are 20 days old with one
+-- opened and marked interested, so she exercises the dashboard's gone-quiet
+-- list (engaged buyer, no touch in 14+ days).
+INSERT OR REPLACE INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, client_request, decided_at, created_at, sent_at, viewed_at, response) VALUES
   (9001, 9001, 9001, 'SEED-LOT-1',
    '{"id":"SEED-LOT-1","lot":"40123","marka_name":"NISSAN","model_name":"SKYLINE","year":2000,"rate":"4.5","start":8500000,"avg_price":9200000,"mileage":62000,"kuzov":"BNR34","color":"SILVER","eng_v":2600,"auction":"USS Tokyo","auction_date":"2027-12-20 10:00:00","images":"","_landed":{"grandTotal":118500,"state":"VIC"}}',
-   'sent', 'seedtoken0001', 1, datetime('now'), datetime('now')),
+   'sent', 'seedtoken0001', 1, datetime('now','-20 days'), datetime('now','-21 days'), datetime('now','-20 days'), datetime('now','-20 days'), 'interested'),
   (9002, 9001, 9001, 'SEED-LOT-2',
    '{"id":"SEED-LOT-2","lot":"40688","marka_name":"NISSAN","model_name":"SKYLINE","year":1999,"rate":"4","start":7800000,"avg_price":8100000,"mileage":88000,"kuzov":"BNR34","color":"WHITE","eng_v":2600,"auction":"TAA Kinki","auction_date":"2027-12-22 10:00:00","images":"","_landed":{"grandTotal":109900,"state":"VIC"}}',
-   'sent', 'seedtoken0002', 0, datetime('now'), datetime('now')),
+   'sent', 'seedtoken0002', 0, NULL, datetime('now','-21 days'), datetime('now','-20 days'), NULL, NULL),
   (9003, 9002, 9002, 'SEED-LOT-3',
    '{"id":"SEED-LOT-3","lot":"51220","marka_name":"TOYOTA","model_name":"SUPRA","year":1997,"rate":"4.5","start":6900000,"avg_price":7300000,"mileage":74000,"kuzov":"JZA80","color":"BLACK","eng_v":3000,"auction":"USS Nagoya","auction_date":"2027-12-28 10:00:00","images":"","_landed":{"grandTotal":98750,"state":"NSW"}}',
-   'pending', 'seedtoken0003', 0, NULL, datetime('now'));
+   'pending', 'seedtoken0003', 0, NULL, datetime('now'), NULL, NULL, NULL);
 
 -- Settings: keep dev safe by default. MAIL_DRY_RUN is an env var, not a setting,
 -- but make sure deposits are off in any seeded local database.

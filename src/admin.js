@@ -1687,6 +1687,28 @@ async function dashboardData(env, session) {
   ).all()).results || [];
   const stalled = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0 AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))`).first())?.n || 0;
 
+  // Gone quiet (IA-AUDIT item 7): clients who ENGAGED (opened a sent car or
+  // said interested), still have an active request, and have had no touch
+  // (sent vehicle, note or logged contact tap) in 14+ days. This is the warm
+  // re-contact list for the long deliberation cycle, distinct from Stalled,
+  // which is request-activity based and blind to engagement.
+  const gqCore = `
+     FROM clients c
+     JOIN (SELECT client_id, sent_at AS ts FROM queue WHERE sent_at IS NOT NULL
+           UNION ALL SELECT client_id, created_at FROM activity WHERE type IN ('note','contact')) t ON t.client_id = c.id
+    WHERE ${acc.sql} AND c.archived = 0
+      AND EXISTS (SELECT 1 FROM queue qe WHERE qe.client_id = c.id AND (qe.viewed_at IS NOT NULL OR qe.response = 'interested'))
+      AND EXISTS (SELECT 1 FROM wishlists we WHERE we.client_id = c.id AND COALESCE(we.status, 'new') NOT IN ('lost','delivered'))
+    GROUP BY c.id, c.name
+   HAVING MAX(t.ts) < datetime('now','-14 days')`;
+  const goneQuietList = (await run(
+    `SELECT c.id AS client_id, c.name AS client_name, MAX(t.ts) AS last_touch,
+            (SELECT COUNT(*) FROM queue q3 WHERE q3.client_id = c.id AND q3.viewed_at IS NOT NULL) AS opened,
+            (SELECT COUNT(*) FROM queue q4 WHERE q4.client_id = c.id AND q4.response = 'interested') AS interested
+     ${gqCore} ORDER BY MAX(t.ts) ASC LIMIT 6`
+  ).all()).results || [];
+  const goneQuiet = (await run(`SELECT COUNT(*) AS n FROM (SELECT c.id ${gqCore})`).first())?.n || 0;
+
   // Tasks: overdue + due-today counts and the actual list (scoped to me/my clients).
   const tsc = taskScope(session);
   const tbind = (sql) => { const s = env.DB.prepare(sql); return tsc.binds.length ? s.bind(...tsc.binds) : s; };
@@ -1728,7 +1750,7 @@ async function dashboardData(env, session) {
 
   return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList,
     stageCounts, openRequests, depositsOut, newUntouched, newHot, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
-    nextActionList, nextActionDue, depositsList, closestList };
+    nextActionList, nextActionDue, depositsList, closestList, goneQuiet, goneQuietList };
 }
 
 // Dashboard home: time-aware greeting, animated overview, action cards, list.
@@ -1916,6 +1938,16 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
   const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2>${secBtn((data.closestList || []).length, "/admin?view=requests", "Open")}</div>`, `<div class="list">${closeRows}</div>`);
 
+  // Who's gone quiet: engaged buyers with no touch in 14+ days (IA-AUDIT
+  // item 7). The deliberation cycle means these are warm, not dead; oldest
+  // silence first because it is closest to going cold for good.
+  const gqRows = (data.goneQuietList || []).map((g) => `<a class="lrow" href="/admin?view=client&id=${g.client_id}">
+      ${avatar(g.client_name)}
+      <div class="who"><div class="nm">${esc(g.client_name)}</div><div class="sub">${[g.opened ? `${g.opened} opened` : "", g.interested ? `${g.interested} interested` : ""].filter(Boolean).join(" · ") || "engaged"}</div></div>
+      <div class="meta"><span class="b b-warn">Quiet ${esc(relTime(g.last_touch))}</span></div>
+    </a>`).join("") || `<div class="lrow"><div class="who"><div class="sub">No engaged buyers have gone quiet. All warm leads are being worked.</div></div></div>`;
+  const goneQuietSection = dsec(`<div class="sec-h"><h2>Who's gone quiet? <span class="ct">(${data.goneQuiet || 0})</span></h2>${secBtn(data.goneQuiet, "/admin?view=clients", "Open")}</div>`, `<div class="list">${gqRows}</div>`);
+
   // Hierarchy (top → bottom): what needs action today → pipeline → business
   // snapshot → detail lists → trend charts. The attention band leads because
   // it is the operational read (hot leads, deadlines, the send queue); the
@@ -1929,9 +1961,10 @@ function dashboardView(session, data) {
       ${attention}
       ${pipelineStrip}
       ${overview}
-      <div class="dcols">${attentionSection}${tasksSection}</div>
+      <div class="dcols">${attentionSection}${closingQ}</div>
+      <div class="dcols">${goneQuietSection}${stalledSection}</div>
       <div class="dcols">${owesSection}${closestSection}</div>
-      <div class="dcols">${stalledSection}${closingQ}</div>
+      <div class="dcols">${tasksSection}</div>
       ${charts}
     </div>${DASH2_CSS}${dashScript()}`;
 }
