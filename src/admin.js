@@ -374,7 +374,12 @@ const CSS = `
   .banner{display:flex;align-items:center;gap:12px;margin-bottom:var(--sp-5);padding:16px 20px;background:var(--card);border:1px solid var(--hair);border-left:3px solid var(--gold);border-radius:var(--r-ctl)}
   .banner .reddot{width:6px;height:6px;border-radius:9999px;background:var(--bad);display:inline-block}
   .banner .txt{font-size:var(--fs-sec);color:var(--t2)}
-  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:var(--gap-grid)}
+  /* min(330px,100%) lets columns shrink inside a padded mobile card; a hard
+     330px minimum overflowed the 375px viewport and clipped the card CTAs.
+     min-width:0 on the items stops nowrap spec lines re-inflating the track
+     past the viewport (grid items default to min-width:auto). */
+  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr));gap:var(--gap-grid)}
+  .mgrid>*{min-width:0}
   .mcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);overflow:hidden;display:flex;flex-direction:column;content-visibility:auto;contain-intrinsic-size:auto 430px}
   .mphoto{position:relative;height:188px;flex:0 0 auto;background:var(--media);background-size:cover;background-position:center}
   .mphoto .grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0) 55%)}
@@ -482,6 +487,9 @@ const CSS = `
     /* M2: comfortable tap targets, full-width primary CTA */
     input,select,textarea{min-height:48px}
     .btn-gold,.btn-dark,.btn-notify,.btn-skip,.btn-line,.btn-del,.btn-toggle,.bap,.bsk,.bdel,.rd-cta{min-height:44px}
+    /* Action bars stack their buttons full width on phones (same rule the
+       .bulkbar2 variant already has), so a pair of CTAs never clips. */
+    .actionbar .bap,.actionbar .bsk{flex:1 1 auto}
     .cd-cta,.dw-cta-b,.mt-btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
     .actions{flex-wrap:wrap}
     .actions .btn-gold{width:100%;min-height:48px;padding:12px 24px}
@@ -758,7 +766,10 @@ const CSS = `
   .mgrid .scard .sc-body{flex-direction:column;align-items:stretch;gap:var(--sp-3);padding:var(--sp-4)}
   .mgrid .scard .sc-actions a{flex:1}
   @media(max-width:700px){
-    .scard{gap:var(--sp-3);flex-wrap:wrap}
+    /* Queue rows only: on a stacked .mgrid card (flex COLUMN) a wrapping
+       container lays lines out horizontally, each line as wide as its
+       content, which blew the card out past the viewport. */
+    .scards .scard{gap:var(--sp-3);flex-wrap:wrap}
     .sc-img{width:104px;height:72px}
     /* Queue rows only: flatten the body so the thumb and text share the first
        line and the actions drop to a full-width 44px line below (the two
@@ -3836,10 +3847,10 @@ function clientBulkBar(cid, qs = "") {
   // so a native bulk action never wipes the search results off the page.
   const back = `/admin?view=client&id=${cid}${qs ? "&" + qs : ""}`;
   return `<form id="bulkForm" method="POST" action="/matches/bulk"><input type="hidden" name="action" id="bulkAction"><input type="hidden" name="back" value="${esc(back)}"></form>
-    <div style="display:flex;align-items:center;gap:16px;margin:0 0 16px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:var(--fs-sec)"><input type="checkbox" id="cdAll" style="width:auto"> Select all</label>
-      <span style="color:var(--t3);font-size:var(--fs-sec)"><span id="cdCount">0</span> selected</span>
-      <span style="flex:1"></span>
+    <div class="actionbar actionbar-inline">
+      <label class="ab-check"><input type="checkbox" id="cdAll"> Select all</label>
+      <span class="ab-count"><span id="cdCount">0</span> selected</span>
+      <span class="ab-spring"></span>
       <button type="submit" form="bulkForm" class="bap" id="cdApprove" onclick="document.getElementById('bulkAction').value='approve'">Approve &amp; send</button>
       <button type="submit" form="bulkForm" class="bsk" id="cdSkip" onclick="document.getElementById('bulkAction').value='reject'">Skip</button>
     </div>
@@ -4108,6 +4119,9 @@ const CRM_CSS = `<style>
   @media(min-width:1100px){.cd-grid{grid-template-columns:minmax(0,1fr) 340px;column-gap:var(--gap-grid)}}
   .cd-rail .card h2{font-size:var(--fs-body)}
   .cd-head .avatar{width:44px;height:44px;font-size:var(--fs-body);margin-right:0}
+  /* Long unbroken contact strings (55 char emails) must wrap, not push the
+     record header past a 375px viewport. */
+  .cd-head .help{overflow-wrap:anywhere}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
   /* cd-cta and btn-line alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}

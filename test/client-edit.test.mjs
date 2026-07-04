@@ -125,3 +125,29 @@ test("the client detail page shows an Edit details form prefilled with current v
   assert.match(html, /value="edit@example.com"/, "email is prefilled");
   assert.match(html, /name="whatsapp"/, "whatsapp field present");
 });
+
+// Mobile overflow guard. A wrapping column flex once blew the stacked match
+// cards out past a 375px viewport, and the client bulk bar rendered as
+// unstyled inline-flex with clipped buttons. Layout cannot be measured in
+// node:test, so this pins the CSS contract those fixes rely on; the full
+// visual check is the worst-case seed procedure in ADMIN-REDESIGN.md.
+test("client detail keeps the mobile overflow guards and the one action bar family", async () => {
+  const env = makeEnv();
+  const id = await seed(env, { name: "Guard Client", email: "guard@example.com" });
+  await env.DB.prepare(
+    "INSERT INTO wishlists (id, client_id, label, marka_name, active) VALUES (77, ?, 'Guard search', 'TOYOTA', 1)"
+  ).bind(id).run();
+  await env.DB.prepare(
+    `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token)
+     VALUES (77, ?, 'G1', '{"id":"G1","year":"1999","marka_name":"TOYOTA","model_name":"LAND CRUISER PRADO","rate":"4.5","start":"2450000"}', 'pending', 'guard-tok-1')`
+  ).bind(id).run();
+  const html = await clientDetailPage(env, id, ADMIN);
+  // The bulk bar is the shared action bar component, not an ad hoc inline row.
+  assert.match(html, /class="actionbar actionbar-inline"/, "bulk bar uses the one action bar family");
+  assert.match(html, /class="ab-check"/, "select-all uses the family's check style");
+  assert.doesNotMatch(html, /<div style="display:flex[^"]*"[^>]*>\s*<label style=/, "no ad hoc inline-styled bar");
+  // The grid rules that keep stacked cards inside a 375px viewport.
+  assert.match(html, /\.mgrid\{display:grid;grid-template-columns:repeat\(auto-fill,minmax\(min\(330px,100%\)/, "mgrid tracks can shrink below 330px");
+  assert.match(html, /\.mgrid>\*\{min-width:0\}/, "grid items may shrink under nowrap content");
+  assert.match(html, /\.scards \.scard\{gap:var\(--sp-3\);flex-wrap:wrap\}/, "flex-wrap stays scoped to queue rows, never the stacked mgrid cards");
+});
