@@ -935,7 +935,7 @@ const HEADERS = {
   requests: { kicker: "Vehicle Finder", title: "Requests", sub: "Every active vehicle search and where it sits in the pipeline.", btn: "" },
   tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
-  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "Search again" },
+  matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "New auction search" },
   auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
   payments: { kicker: "Vehicle Finder", title: "Payments", sub: "Deposits taken through the buyer portal via Stripe.", btn: "" },
@@ -3406,7 +3406,7 @@ export async function matchesChunk(env, session, sp = {}) {
 function matchesView(pending, opts = {}) {
   if (pending.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>Search again</strong> to score the latest lots against every search.</div></div>` + ranToast();
+      No matches awaiting review. Press <strong>New auction search</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
   decorateMatches(pending);
   const st = matchQueryState(opts.query || {});
@@ -3453,6 +3453,23 @@ function matchesView(pending, opts = {}) {
     ${tk("Good", good, "", "var(--good-fg)", false, linkTo({ f: "good" }), st.f === "good")}
     ${tk("Possible", poss, "", "var(--pos-fg)", false, linkTo({ f: "poss" }), st.f === "poss")}
     ${tk("Closing in 48h", soon, "bad", "var(--bad)", true, linkTo({ soon: !st.soon }), st.soon)}
+  </div>`;
+
+  // IA-AUDIT item 8: at 375 the 2x3 ticker grid plus the banner pushed the
+  // first car to ~1075px. This single-row strip replaces BOTH at mobile (CSS
+  // swaps them); each count is the same tappable filter, and the banner's
+  // shown/hidden message folds into a one-line note. 1440 is untouched.
+  const sk = (label, n, href, on, urgent) =>
+    `<a class="msk${on ? " on" : ""}${urgent && n ? " urgent" : ""}" href="${href}">${label}<b>${n}</b></a>`;
+  const strip = `<div class="mstrip">
+    <div class="ms-row">
+      ${sk("Awaiting", pending.length, linkTo({ f: "all", soon: false }), st.f === "all" && !st.soon)}
+      ${sk("Strong", strong, linkTo({ f: "strong" }), st.f === "strong")}
+      ${sk("Good", good, linkTo({ f: "good" }), st.f === "good")}
+      ${sk("Possible", poss, linkTo({ f: "poss" }), st.f === "poss")}
+      ${sk("48h", soon, linkTo({ soon: !st.soon }), st.soon, true)}
+    </div>
+    ${st.f === "sg" && poss > 0 ? `<div class="ms-note">${filtered.length} shown, ${poss} hidden <a href="${linkTo({ f: "all" })}">Show all</a></div>` : ""}
   </div>`;
 
   const pause = sendOff
@@ -3583,14 +3600,31 @@ function matchesView(pending, opts = {}) {
     .gh-send{white-space:nowrap}
     .scards.gh-cards{margin-top:var(--sp-2)}
     .mmore{display:flex;justify-content:center;margin:var(--sp-5) 0 var(--sp-2)}
+    .mstrip{display:none}
+    @media(max-width:759px){
+      .mticker{display:none}
+      .mbanner{display:none}
+      .mstrip{display:block;margin:0 0 var(--sp-3)}
+      .ms-row{display:flex;gap:var(--sp-2);overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+      .msk{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;min-height:40px;padding:6px 12px;border:1px solid var(--hair);border-radius:9999px;background:var(--card);color:var(--t2);font-size:var(--fs-sec);text-decoration:none}
+      .msk b{font-weight:700;color:var(--ink);letter-spacing:var(--ls-num)}
+      .msk.on{border-color:var(--gold);background:var(--gold-tint);color:var(--gold-txt)}
+      .msk.on b{color:var(--gold-txt)}
+      .msk.urgent b{color:var(--bad)}
+      .ms-note{margin-top:var(--sp-2);font-size:var(--fs-sec);color:var(--t3)}
+      .ms-note a{color:var(--gold-txt);font-weight:600;text-decoration:none;margin-left:4px}
+    }
     @media(max-width:640px){
       .gh-fold{width:44px;height:44px}
       .mtriage summary{min-height:44px;align-items:center}
       .mtriage .quick button{min-height:44px}
+      /* Selection bars live at the thumb (same rule as the Auctions send bar).
+         Overrides the top-sticky default from the shared admin CSS. */
+      .bulkbar2{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:30;margin:0;border-radius:var(--r-card) var(--r-card) 0 0;padding:12px 16px;box-shadow:0 -8px 24px rgba(0,0,0,.35)}
     }
   </style>`;
 
-  return css + ticker + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
+  return css + ticker + strip + pause + banner + controls + bulk + grid + more + matchesScript() + ranToast() + fixToast();
 }
 
 // One-off toast after the "Fix photos with AI" button kicks off a background
