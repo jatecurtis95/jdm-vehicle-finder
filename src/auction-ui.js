@@ -311,6 +311,9 @@ export const AUCTION_CSS = `<style>
   .asrch-adv-act{display:flex;justify-content:flex-end;margin-top:16px}
 
   .atabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:4px;margin-bottom:16px}
+  /* Four pill tabs run 388px wide at a 375 viewport; scroll the strip instead
+     of overflowing the page. */
+  @media(max-width:480px){.atabs{display:flex;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}.atabs::-webkit-scrollbar{display:none}.atab{flex:0 0 auto;white-space:nowrap}}
   .atab{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);font-weight:600;color:var(--t2)}
   .atab:hover{color:var(--ink)}
   .atab.on{background:var(--ink);color:var(--bg-2)}
