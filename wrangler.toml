@@ -6,15 +6,18 @@ account_id = "78a4648f57e3da163587fff349bf8b19"
 # Keep the *.workers.dev URL alive as a fallback alongside the custom domain.
 workers_dev = true
 
-# Custom domain. The jdmconnect.com.au zone is now in this same Cloudflare account,
-# so Cloudflare auto-creates the DNS record + cert and routes it to this Worker.
-[[routes]]
-pattern = "finder.jdmconnect.com.au"
-custom_domain = true
-
 # Public consumer domain (jdmfinder.com.au), served by the same Worker.
+# Listed FIRST: wrangler dev emulates the first route's hostname, and the
+# legacy hosts below are in REDIRECT_HOSTS, so putting one of them first
+# makes every local dev GET 301 to production. Order has no effect in prod.
 [[routes]]
 pattern = "jdmfinder.com.au"
+custom_domain = true
+
+# Legacy custom domain. The jdmconnect.com.au zone is in this same Cloudflare
+# account, so Cloudflare auto-creates the DNS record + cert and routes it here.
+[[routes]]
+pattern = "finder.jdmconnect.com.au"
 custom_domain = true
 
 [[routes]]

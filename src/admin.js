@@ -339,6 +339,9 @@ const CSS = `
   .share-pick{font-size:var(--fs-label);padding:4px 8px;border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--t2);cursor:pointer;font-family:${FONT}}
   .share-pick:hover,.share-pick:focus{border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;margin-bottom:16px}
+  /* In the bulk FORM the selects are the controls, not row metadata, so they
+     keep the field affordance the quiet row treatment removes. */
+  .bulkbar select.share-pick{width:auto;border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulk-label{font-size:var(--fs-sec);font-weight:600;color:var(--t2)}
   .toggles{margin-top:var(--sp-5);display:flex;flex-direction:column;gap:8px}
   .toggle{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid var(--hair);border-radius:var(--r-ctl);cursor:pointer}
@@ -516,9 +519,12 @@ const CSS = `
   @media(max-width:640px){
     .crow{gap:8px}
     select.mctl{flex:1 1 calc(50% - 4px);min-width:0;width:auto}
-    .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
-    .fchips::-webkit-scrollbar{display:none}
-    .fchips .fchip,.fchips .quick{flex:0 0 auto}
+    /* Scoped to .mtools so this outranks the later base .fchips{flex-wrap:wrap}
+       (equal specificity let the base win and the chips stacked three rows
+       deep on phones instead of scrolling on one). */
+    .mtools .fchips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none;min-width:0;flex-basis:100%}
+    .mtools .fchips::-webkit-scrollbar{display:none}
+    .mtools .fchips .fchip,.mtools .fchips .quick{flex:0 0 auto}
     .mtools{padding-bottom:8px}
   }
   /* Mobile QA pass: wide data tables scroll (not clip) on phones; match cards'
@@ -2180,7 +2186,7 @@ function requestsView(requests, opts = {}) {
     const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
     const dest = String(r.destination_country || "").trim();
     return `<tr data-st="${r.status || "new"}">
-      <td>${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
+      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
       <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
       <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
       <td>${statusSelect(r.id, r.status)}</td>
