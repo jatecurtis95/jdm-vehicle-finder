@@ -287,6 +287,9 @@ Every rendered money figure and the input that must feed it:
 - Landed figures `sc-landed-v` / `mland .ml-v` / `ld-landed-v`: snapshotted
   `lot._landed.grandTotal`, which must be computed from expected/average
   price, never `lot.start` or a placeholder.
+  RESOLVED 4 July: calc.js lotJpy preferred the start bid; it now prefers
+  the market average with start as the only fallback (fix commit, separate
+  from styling). Scoring's lotPrice is untouched.
 - Card "Bid" (matchCard 3097) uses `lot.start` falling back to `avg_price`;
   staffFindCard "Auction est." (6322) the same. These are bid displays, not
   landed inputs, but the landed pipeline input is verified in calc.js.
