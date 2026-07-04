@@ -2191,9 +2191,9 @@ function requestsView(requests, opts = {}) {
     const dest = String(r.destination_country || "").trim();
     return `<tr data-st="${r.status || "new"}">
       <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
-      <td><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
+      <td class="req-veh"><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
       <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
-      <td>${statusSelect(r.id, r.status)}</td>
+      <td class="req-status">${statusSelect(r.id, r.status)}</td>
       <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
       <td>${esc(r.owner_name || "JDM Connect")}</td>
@@ -2238,7 +2238,7 @@ function requestsView(requests, opts = {}) {
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th>Vehicle</th><th style="text-align:right">Budget</th><th>Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Request</th><th class="req-veh">Vehicle</th><th style="text-align:right">Budget</th><th class="req-status">Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
@@ -2257,6 +2257,13 @@ const REQ_CSS = `<style>
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
   .rstat-sel{padding:8px 24px 8px 8px;font-size:var(--fs-sec);border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:inherit;cursor:pointer}
   .rstat-sel:hover,.rstat-sel:focus{border-color:var(--field-line);background:var(--field)}
+  /* Keep the Status column wide enough for the full label and select on every
+     row (a long vehicle name used to squeeze it to "Ne"), and cap the Vehicle
+     column so a long car name wraps instead of stealing that width. */
+  .req-status{white-space:nowrap}
+  .req-status .rstat-sel{min-width:156px}
+  .req-veh{max-width:240px}
+  .req-veh .clink{overflow-wrap:anywhere}
   .req-legend{margin:var(--sp-4) 0 0;font-size:var(--fs-label);color:var(--t2)}
   .req-legend summary{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;padding:var(--sp-1) 0}
   .req-legend summary::-webkit-details-marker{display:none}
