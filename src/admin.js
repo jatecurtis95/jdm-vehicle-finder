@@ -3,7 +3,7 @@
 
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
-import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
@@ -2054,6 +2054,7 @@ function dashboardView(session, data) {
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
+      ${watchAlertBlock("/admin?view=auctions&tab=watch")}
       ${attention}
       ${pipelineStrip}
       ${overview}
@@ -6873,6 +6874,9 @@ export async function adminAuctionsPage(env, session, opts = {}) {
 
   const page = Math.max(1, parseInt(sp.page, 10) || 1);
   const { lots, hasMore } = await searchLots(env, { ...sp, page });
+  // IA-AUDIT item 15: the live feed reads closing soonest first, mirroring
+  // Matches (within the fetched page; dateless lots sink to the end).
+  lots.sort((a, b) => (tsMs(a.auction_date) || Infinity) - (tsMs(b.auction_date) || Infinity));
   const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
 
   // Which of these lots are already queued for one of this session's clients?
@@ -6909,7 +6913,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
   })();</script>`;
 
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }) });
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }), label: "Live auction feed, closing soonest first" });
   let grid;
   if (lots.length) {
     // Cards are selectable (checkbox + tap outside the links) so a run of cars
@@ -6932,7 +6936,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const sendBar = clients.length
     ? staffSendBar({ mode: "picker", clients: clients.map((c) => ({ id: c.id, name: c.name, hasContact: !!(c.email || c.whatsapp) })) })
     : "";
-  return `${flash}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
+  return `${flash}${watchAlertBlock(buildUrl({ tab: "watch" }))}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).
