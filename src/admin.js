@@ -708,7 +708,9 @@ const CSS = `
   .kebab{width:32px;height:32px;border-radius:var(--r-ctl);border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
   .kebab svg{width:18px;height:18px}
   .kebab:hover{background:var(--hover);color:var(--ink)}
-  @media(max-width:640px){.greet{font-size:30px}.overview{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 0}.ov{padding:0 12px 0 0;border-left:0}.ov .num{font-size:20px}.ov .cap{margin-top:4px}}
+  /* One-line greeting on phones: the two-line 30px greet spent ~90px of the
+     first screen on a pleasantry before any operational data. */
+  @media(max-width:640px){.greet{font-size:24px;margin-bottom:16px}.greet br{display:none}.greet .nm::before{content:" "}.overview{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 0}.ov{padding:0 12px 0 0;border-left:0}.ov .num{font-size:20px}.ov .cap{margin-top:4px}}
   /* Motion: hover lift + button press, compositor-friendly transforms only. */
   .acard,.chart-card{transition:transform .16s ease,border-color .15s}
   .acard:hover,.chart-card:hover{transform:translateY(-2px)}
@@ -1664,6 +1666,16 @@ async function dashboardData(env, session) {
   // Deposits requested but not paid.
   const depositsOut = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.deposit_status = 'requested' AND ${acc.sql}`).first())?.n || 0;
 
+  // Hot leads: New requests nobody has touched yet. hot counts the ones past
+  // the one-hour contact window, which flips the dashboard tile red.
+  const newLeadsRow = (await run(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN w.created_at <= datetime('now','-1 hour') THEN 1 ELSE 0 END), 0) AS hot
+       FROM wishlists w JOIN clients c ON c.id = w.client_id
+      WHERE ${acc.sql} AND c.archived = 0 AND COALESCE(w.status, 'new') = 'new' AND w.last_activity IS NULL`
+  ).first()) || {};
+  const newUntouched = newLeadsRow.n || 0;
+  const newHot = newLeadsRow.hot || 0;
+
   // Stalled: active-pipeline requests with no activity in 14 days.
   const inTerminal = TERMINAL.map((s) => `'${s}'`).join(",");
   const stalledList = (await run(
@@ -1715,7 +1727,7 @@ async function dashboardData(env, session) {
   ).all()).results || [];
 
   return { clients, agents, pending, closing, strength, people, reviewed, found, spend, sentWeek, requests, members, topMakes, closingList,
-    stageCounts, openRequests, depositsOut, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
+    stageCounts, openRequests, depositsOut, newUntouched, newHot, stalled, stalledList, tasksOverdue, tasksToday, tasksDueList,
     nextActionList, nextActionDue, depositsList, closestList };
 }
 
@@ -1815,16 +1827,20 @@ function dashboardView(session, data) {
     const tone = (Number(n) || 0) > 0 ? alert : "calm";
     return `<a class="acard acard-${tone}" href="${href}"><div class="ac-n" data-count="${Number(n) || 0}">0</div><div class="ac-l">${label}</div></a>`;
   };
+  // Decision order, not category order: who to call this hour, what closes,
+  // what to send, who to chase, then money and tasks. The hot-lead tile goes
+  // red the moment an untouched New request passes the one-hour window.
   const attention = `<div class="attn">
     <div class="attn-h">Needs attention today</div>
     <div class="acards">
-      ${ac(data.nextActionDue, "Follow-ups due", "/admin?view=requests", "warn")}
-      ${ac(data.tasksOverdue, "Overdue tasks", "/admin?view=tasks", "bad")}
-      ${ac(data.tasksToday, "Tasks due today", "/admin?view=tasks", "warn")}
-      ${ac(data.depositsOut, "Deposits outstanding", isAdmin ? "/admin?view=payments" : "/admin?view=requests", "warn")}
-      ${ac(data.stalled, "Stalled requests", "/admin?view=requests", "bad")}
+      ${ac(data.newUntouched, "New leads to contact", "/admin?view=requests", data.newHot > 0 ? "bad" : "warn")}
       ${ac(data.closing, "Closing in 48h", "/admin?view=matches", "warn")}
       ${ac(data.pending, "Matches to review", "/admin?view=matches", "gold")}
+      ${ac(data.nextActionDue, "Follow-ups due", "/admin?view=requests", "warn")}
+      ${ac(data.stalled, "Stalled requests", "/admin?view=requests", "bad")}
+      ${ac(data.depositsOut, "Deposits outstanding", isAdmin ? "/admin?view=payments" : "/admin?view=requests", "warn")}
+      ${ac(data.tasksOverdue, "Overdue tasks", "/admin?view=tasks", "bad")}
+      ${ac(data.tasksToday, "Tasks due today", "/admin?view=tasks", "warn")}
     </div>
   </div>`;
 
@@ -1846,7 +1862,10 @@ function dashboardView(session, data) {
   // two loose siblings, the .dcols two-column grid auto-placed every heading
   // into column 1 and every list into column 2, which shattered the layout.
   const dsec = (head, list) => `<div class="dsec">${head}${list}</div>`;
-  const tasksSection = dsec(`<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2><a class="btn-gold" href="/admin?view=tasks">Open ${ICONS.arrow}</a></div>`, `<div class="list">${taskRows}</div>`);
+  // Gold marks a primary action; a zero-count section has nothing to act on,
+  // so its button drops to the quiet outline until the count returns.
+  const secBtn = (n, href, label) => `<a class="${Number(n) > 0 ? "btn-gold" : "btn-line"}" href="${href}">${label} ${ICONS.arrow}</a>`;
+  const tasksSection = dsec(`<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2>${secBtn((data.tasksOverdue || 0) + (data.tasksToday || 0), "/admin?view=tasks", "Open")}</div>`, `<div class="list">${taskRows}</div>`);
 
   // Stalled requests, no movement in 14 days.
   const stalledRows = (data.stalledList || []).map((w) => {
@@ -1857,10 +1876,10 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">${esc((RSTATUS[w.status] || {}).label || w.status)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No stalled requests. Everything's moving.</div></div></div>`;
-  const stalledSection = dsec(`<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Review ${ICONS.arrow}</a></div>`, `<div class="list">${stalledRows}</div>`);
+  const stalledSection = dsec(`<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2>${secBtn(data.stalled, "/admin?view=requests", "Review")}</div>`, `<div class="list">${stalledRows}</div>`);
 
   // Reframe the closing-soon list as a question to match the rest of the board.
-  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2><a class="btn-gold" href="/admin?view=matches">Review ${ICONS.arrow}</a></div>`, `<div class="list">${closingRows}</div>`);
+  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2>${secBtn(data.closing, "/admin?view=matches", "Review")}</div>`, `<div class="list">${closingRows}</div>`);
 
   // Who needs attention today, scheduled follow-ups due (or overdue).
   const naRows = (data.nextActionList || []).map((w) => {
@@ -1872,7 +1891,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${d.tone === "over" ? "b-warn" : "b-neu"}">${esc(d.label)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing scheduled for today. You're clear.</div></div></div>`;
-  const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${naRows}</div>`);
+  const attentionSection = dsec(`<div class="sec-h"><h2>Who needs attention today? <span class="ct">(${data.nextActionDue || 0})</span></h2>${secBtn(data.nextActionDue, "/admin?view=requests", "Open")}</div>`, `<div class="list">${naRows}</div>`);
 
   // Who owes money, deposits requested, not yet paid.
   const owesRows = (data.depositsList || []).map((w) => {
@@ -1883,7 +1902,7 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b b-warn">Deposit requested</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No deposits outstanding.</div></div></div>`;
-  const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2><a class="btn-gold" href="/admin?view=${isAdmin ? "payments" : "requests"}">Open ${ICONS.arrow}</a></div>`, `<div class="list">${owesRows}</div>`);
+  const owesSection = dsec(`<div class="sec-h"><h2>Who owes money? <span class="ct">(${data.depositsOut || 0})</span></h2>${secBtn(data.depositsOut, `/admin?view=${isAdmin ? "payments" : "requests"}`, "Open")}</div>`, `<div class="list">${owesRows}</div>`);
 
   // Who's closest to buying, interested / deposit stages, most-committed first.
   const closeRows = (data.closestList || []).map((w) => {
@@ -1895,20 +1914,21 @@ function dashboardView(session, data) {
         <div class="meta"><span class="b ${w.status === "deposit_paid" ? "b-ok" : "b-warn"}">${esc(lbl)}</span></div>
       </a>`;
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">No one at the deposit stage yet.</div></div></div>`;
-  const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2><a class="btn-gold" href="/admin?view=requests">Open ${ICONS.arrow}</a></div>`, `<div class="list">${closeRows}</div>`);
+  const closestSection = dsec(`<div class="sec-h"><h2>Who's closest to buying? <span class="ct">(${(data.closestList || []).length})</span></h2>${secBtn((data.closestList || []).length, "/admin?view=requests", "Open")}</div>`, `<div class="list">${closeRows}</div>`);
 
-  // Hierarchy (top → bottom): business snapshot → what needs action today →
-  // pipeline → detail lists → trend charts. The roll-up used to sit BELOW the
-  // pipeline strip, which read as a stray second row of KPI boxes; it now leads
-  // as a compact snapshot strip so the two stat bands are grouped and ordered
-  // small-context → big-actionable.
+  // Hierarchy (top → bottom): what needs action today → pipeline → business
+  // snapshot → detail lists → trend charts. The attention band leads because
+  // it is the operational read (hot leads, deadlines, the send queue); the
+  // team roll-up is a weekly-changing vanity register, so it sits below the
+  // actionable bands rather than spending the first phone screen (IA-AUDIT
+  // item 6, approved 4 July).
   return `<div class="dash">
       ${topbar}
       <div class="dkick"><span class="live"></span> JDM Connect, vehicle finder</div>
       <h1 class="greet"><span id="greetTime">Good morning</span>,<br><span class="nm">${who}</span></h1>
-      ${overview}
       ${attention}
       ${pipelineStrip}
+      ${overview}
       <div class="dcols">${attentionSection}${tasksSection}</div>
       <div class="dcols">${owesSection}${closestSection}</div>
       <div class="dcols">${stalledSection}${closingQ}</div>
@@ -1919,6 +1939,11 @@ function dashboardView(session, data) {
 const DASH2_CSS = `<style>
   /* One grid item per Q&A section: heading sits above its own list. */
   .dsec{min-width:0}
+  /* Quiet outline for a zero-count section button (gold is earned by a count;
+     six identical gold Opens meant no primary at all). Same alias as the
+     record pages' btn-line. */
+  .sec-h a.btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
+  .sec-h a.btn-line:hover{border-color:var(--field-line);color:var(--ink)}
   /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:var(--sp-5)}
@@ -2188,15 +2213,36 @@ function requestsView(requests, opts = {}) {
   const counts = {};
   REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
   requests.forEach((r) => { const st = r.status || "new"; counts[st] = (counts[st] || 0) + 1; });
+  // Zero-count stages hide at phone widths (a five-person pipeline is mostly
+  // zeros, and twelve stacked cards pushed the list a full screen down); the
+  // All-stages toggle brings them back. Desktop always shows the full band.
   const cards = REQUEST_STATUSES.filter((s) => s.tone !== "bad").map((s) =>
-    `<button type="button" class="pipe-card" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
-  ).join("");
+    `<button type="button" class="pipe-card${counts[s.id] ? "" : " pipe-zero"}" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
+  ).join("") + `<button type="button" class="pipe-more" aria-expanded="false" onclick="var p=this.closest('.pipe');var on=p.classList.toggle('all');this.setAttribute('aria-expanded',on?'true':'false');this.textContent=on?'Fewer stages':'All stages'">All stages</button>`;
+
+  // Hot leads first: a never-touched New request is inside (or past) the
+  // one-hour contact window, so it outranks the activity-ordered rest no
+  // matter how stale its created_at sorts. Oldest untouched first: it has
+  // waited longest and is most at risk.
+  const isUntouchedNew = (r) => (r.status || "new") === "new" && !r.last_activity;
+  const ordered = [
+    ...requests.filter(isUntouchedNew).sort((a, b) => (tsMs(a.created_at) || 0) - (tsMs(b.created_at) || 0)),
+    ...requests.filter((r) => !isUntouchedNew(r)),
+  ];
+  // Age label for an untouched New row; hot once past the one-hour window.
+  const newAge = (r) => {
+    if (!isUntouchedNew(r)) return null;
+    const t = tsMs(r.created_at);
+    if (!Number.isFinite(t)) return null;
+    const hot = Date.now() - t >= 3600000;
+    return `<span class="req-age${hot ? " req-age-hot" : ""}">New ${esc(relTime(r.created_at))}</span>`;
+  };
 
   // Attio register: the customer IS the record, so the row leads with one
   // identity cell (health dot, name, muted REQ reference under it) instead of
   // separate Request / Customer columns. Destination folds into the vehicle
   // cell as a chip only when it is the unusual case (overseas).
-  const rows = requests.map((r) => {
+  const rows = ordered.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
     const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
     const dest = String(r.destination_country || "").trim();
@@ -2208,7 +2254,7 @@ function requestsView(requests, opts = {}) {
       <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
       <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
       <td>${esc(r.owner_name || "JDM Connect")}</td>
-      <td style="white-space:nowrap">${esc(lastActivityLabel(r.last_activity))}</td>
+      <td style="white-space:nowrap">${newAge(r) || esc(lastActivityLabel(r.last_activity))}</td>
       <td style="text-align:right">${rowMenu([
         { label: "Open request", href: `/admin?view=request&id=${r.id}` },
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
@@ -2230,8 +2276,9 @@ function requestsView(requests, opts = {}) {
   </div></details>`;
 
   // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
-  // dot + relative time. Same data, no horizontal scroll.
-  const mobile = `<div class="mcl">${requests.map((r) => {
+  // dot + relative time (or the hot-lead age on an untouched New request).
+  // Same data, no horizontal scroll.
+  const mobile = `<div class="mcl">${ordered.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
     return mobileCardRow({
       href: `/admin?view=request&id=${r.id}`,
@@ -2239,7 +2286,7 @@ function requestsView(requests, opts = {}) {
       title: `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>`,
       meta: esc(veh),
       right: statusBadge(r.status || "new"),
-      rightSub: `${healthDot(r.last_activity)}${esc(lastActivityLabel(r.last_activity))}`,
+      rightSub: `${healthDot(r.last_activity)}${newAge(r) || esc(lastActivityLabel(r.last_activity))}`,
       attrs: ` data-st="${esc(r.status || "new")}"`,
     });
   }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
@@ -2262,6 +2309,8 @@ const REQ_CSS = `<style>
   .pipe-card.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
   .pipe-card .pc-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .pipe-card .pc-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px;line-height:1.25}
+  .pipe-more{display:none;font-family:inherit;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--card);border:1px dashed var(--hair);border-radius:var(--r-card);padding:12px 16px;cursor:pointer;text-align:center;min-height:44px}
+  @media(max-width:700px){.pipe .pipe-zero{display:none}.pipe.all .pipe-zero{display:block}.pipe .pipe-zero.on{display:block}.pipe-more{display:block}}
   .reqid{font-size:var(--fs-label);font-weight:400;color:var(--t3);text-decoration:none}
   a.reqid:hover{color:var(--ink)}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
@@ -2424,8 +2473,11 @@ function statusPipeline(current) {
     return `<div class="rd-lost">This request is marked <strong>Lost</strong>. Change the status below to reopen it.</div>`;
   }
   const flow = REQUEST_STATUSES.filter((s) => s.id !== "lost");
-  const curIdx = flow.findIndex((s) => s.id === cur);
-  return `<ol class="rd-steps">${flow.map((s, i) => {
+  const curIdx = Math.max(0, flow.findIndex((s) => s.id === cur));
+  // On the stacked layout the twelve-step list costs ~312px, so it compresses
+  // to one stage-of-total line; the full stepper stays on wide screens.
+  return `<div class="rd-stage-line">Stage ${curIdx + 1} of ${flow.length}: <b>${esc(flow[curIdx].label)}</b></div>
+  <ol class="rd-steps">${flow.map((s, i) => {
     const state = i < curIdx ? "done" : i === curIdx ? "now" : "todo";
     return `<li class="rd-step rd-${state}"><span class="rd-sd"></span><span class="rd-sl">${esc(s.label)}</span></li>`;
   }).join("")}</ol>`;
@@ -2750,13 +2802,13 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     w.client_email ? `<a class="rd-cta" data-clog="${w.client_id}:email" href="mailto:${esc(w.client_email)}">Email</a>` : "",
   ].filter(Boolean).join("");
   const customerCol = `<div class="rdcol">
-    <div class="rdcard">
+    <div class="rdcard rd-c-client">
       <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))}</div></div></div>
       ${contactRows ? `<div class="rd-rows">${contactRows}</div>` : ""}
       ${contactBtns ? `<div class="rd-ctas">${contactBtns}</div>` : ""}
       <a class="rd-open" href="/admin?view=client&id=${w.client_id}">Open full customer profile &rarr;</a>
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-owner">
       <div class="rd-h">Owner</div>
       <div class="rd-ownerline">${ownerLabel}</div>
       ${session.role === "admin" ? `<form method="POST" action="/request/owner" class="rd-owner">
@@ -2766,7 +2818,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
           ${agents.map((a) => `<option value="${a.id}"${Number(w.owner_id) === Number(a.id) ? " selected" : ""}>${esc(a.name)}${a.company ? " · " + esc(a.company) : ""}</option>`).join("")}
         </select></form>` : ""}
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-deposit">
       <div class="rd-h">Deposit</div>
       <div class="rd-dep">${depositBadge(w.deposit_status)}</div>
       <div class="rd-depbtns">
@@ -2790,12 +2842,12 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     ? matches.map((m) => matchTrackRow(m, back)).join("")
     : `<div class="rd-empty">No vehicles matched or sent yet.</div>`;
   const requirementsCol = `<div class="rdcol">
-    <div class="rdcard">
+    <div class="rdcard rd-c-request">
       <div class="rd-toph"><div class="rd-h" style="margin:0">Request REQ-${wid}</div>${statusBadge(w.status)}</div>
       <div class="rd-specs">${reqRows}</div>
       <a class="rd-find" href="/admin?view=client&id=${w.client_id}#find">Find a vehicle for ${esc(first)} &rarr;</a>
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-vehicles">
       <div class="rd-h">Vehicles &amp; engagement <span class="rd-ct">${sentCount} sent</span></div>
       <div class="rd-matches">${matchList}</div>
     </div>
@@ -2804,7 +2856,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   // -- Right column: workflow (pipeline + quick actions + tasks + timeline) ---
   const openTasks = tasks.filter((t) => t.status !== "done");
   const workflowCol = `<div class="rdcol">
-    <div class="rdcard">
+    <div class="rdcard rd-c-status">
       <div class="rd-h">Status</div>
       ${statusSelect(wid, w.status, back)}
       <div class="rd-quick">
@@ -2813,7 +2865,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       </div>
       ${statusPipeline(w.status)}
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-next">
       <div class="rd-h">Next action</div>
       ${w.next_action_date
         ? `<div class="rd-na-cur"><span class="tk-due tk-${taskDue(w.next_action_date).tone}">${esc(taskDue(w.next_action_date).label)}</span>${w.next_action_note ? ` <span class="rd-na-note">${esc(w.next_action_note)}</span>` : ""}</div>`
@@ -2825,7 +2877,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         <div class="rd-naact"><button class="rd-cta rd-cta-gold" type="submit">Set follow-up</button>${w.next_action_date ? `<button class="rd-cta rd-cta-bad" type="submit" name="clear" value="1">Clear</button>` : ""}</div>
       </form>
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-note">
       <div class="rd-h">Add a note</div>
       <form method="POST" action="/request/note">
         <input type="hidden" name="id" value="${wid}"><input type="hidden" name="back" value="${esc(back)}">
@@ -2833,7 +2885,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         <div class="rd-noteact"><button class="rd-cta rd-cta-gold" type="submit">Log note</button></div>
       </form>
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-tasks">
       <div class="rd-h">Tasks <span class="rd-ct">${openTasks.length} open</span></div>
       <div class="rd-tasks">${tasks.length ? tasks.map((t) => taskRow(t, { back })).join("") : `<div class="rd-empty">No tasks. Add one below.</div>`}</div>
       <form method="POST" action="/task/create" class="rd-newtask">
@@ -2843,7 +2895,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         <button class="rd-cta rd-cta-gold" type="submit">Add</button>
       </form>
     </div>
-    <div class="rdcard">
+    <div class="rdcard rd-c-activity">
       <div class="rd-h">Activity</div>
       ${activityTimeline(acts)}
     </div>
@@ -2859,7 +2911,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
       </div>
       <a class="btn-dark" href="/admin?view=requests">Back to requests</a>
     </div>
-    <div class="content wide"><a class="backlink" href="/admin?view=requests">&larr; Back to requests</a>${flash}
+    <div class="content wide">${flash}
       ${RD_CSS}
       <div class="rd">${customerCol}${requirementsCol}${workflowCol}</div>
     </div>`;
@@ -2868,8 +2920,21 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
 
 const RD_CSS = `<style>
   .rd{display:grid;grid-template-columns:288px minmax(0,1fr) 340px;gap:16px;align-items:start;margin-top:8px}
-  @media(max-width:1180px){.rd{grid-template-columns:1fr}}
   .rdcol{display:flex;flex-direction:column;gap:16px}
+  .rd-stage-line{display:none;font-size:var(--fs-sec);color:var(--t2);margin-top:12px}
+  .rd-stage-line b{color:var(--ink)}
+  /* Stacked layout: the columns dissolve (display:contents) so the cards
+     re-order for the after-call flow, status and next action directly under
+     the client card instead of four screens down (IA-AUDIT item 9). Must sit
+     AFTER the base .rdcol / .rd-stage-line rules: same specificity, so source
+     order decides inside the media query. */
+  @media(max-width:1180px){
+    .rd{grid-template-columns:1fr}
+    .rdcol{display:contents}
+    .rd-c-client{order:1}.rd-c-status{order:2}.rd-c-next{order:3}.rd-c-request{order:4}.rd-c-vehicles{order:5}.rd-c-deposit{order:6}.rd-c-owner{order:7}.rd-c-note{order:8}.rd-c-tasks{order:9}.rd-c-activity{order:10}
+    .rd-steps{display:none}
+    .rd-stage-line{display:block}
+  }
   .rdcard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:var(--pad-card)}
   .rd-h{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:0 0 12px}
   .rd-ct{background:var(--soft);color:var(--t2);border-radius:9999px;padding:1px 8px;font-size:var(--fs-label);margin-left:8px;letter-spacing:0}
