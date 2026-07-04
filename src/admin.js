@@ -457,6 +457,7 @@ const CSS = `
      the drawer. Green under 7 days, amber 7 to 14, red 14+ or never. */
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:#1F7A4D}.health-amber{background:#C98A00}.health-red{background:#B11226}
+  .health-neutral{background:transparent;border:1.5px solid var(--faint)}
   /* Mobile card lists: below 640px the wide tables (Requests, Customers,
      Agents, Payments) swap for these server-rendered card rows. Both are in
      the HTML; CSS decides which shows, so desktop keeps the tables. */
@@ -1100,7 +1101,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 
   // For the Clients view: active agents (for the Share picker) and existing
   // shares (chips), so owners can share/unshare.
-  let shareAgents = [], sharesByClient = {}, lastContact = {};
+  let shareAgents = [], sharesByClient = {}, lastContact = {}, pendingCounts = {}, engagedClients = new Set();
   if (view === "clients") {
     shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
@@ -1118,6 +1119,15 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
       ).all()).results || [];
       for (const r of lc) lastContact[r.client_id] = r.t;
     } catch (e) { console.error("last-contact rollup failed:", e.message); }
+    // IA-AUDIT item 10: live match count per client ("who has cars sitting
+    // unsent?") and who has engaged (opened or said interested) - engagement
+    // decides whether a long silence reads as alarm red or cooling amber.
+    try {
+      const pc = (await env.DB.prepare("SELECT client_id, COUNT(*) AS n FROM queue WHERE status = 'pending' GROUP BY client_id").all()).results || [];
+      for (const r of pc) pendingCounts[r.client_id] = r.n;
+      const en = (await env.DB.prepare("SELECT DISTINCT client_id FROM queue WHERE viewed_at IS NOT NULL OR response = 'interested'").all()).results || [];
+      for (const r of en) engagedClients.add(r.client_id);
+    } catch (e) { console.error("clients queue rollup failed:", e.message); }
   }
 
   // Landed cost per pending match (Matches tab only). Reuse the estimate
@@ -1204,7 +1214,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact, pendingCounts, engagedClients });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
@@ -2060,9 +2070,43 @@ function clientsView(clients, wishlists, opts = {}) {
   // is already loaded, and the tabs need every category's count regardless.
   const cat = opts.cat || "";
   const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
-  const list = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
+  const filteredList = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
+  // IA-AUDIT item 10: the working set floats up - most recent contact first,
+  // never-contacted prospects last (Attio's last-touched default, not A-Z).
+  const lastContact = opts.lastContact || {};
+  const list = [...filteredList].sort((a, b) => {
+    const ta = tsMs(lastContact[a.id]) || 0, tb = tsMs(lastContact[b.id]) || 0;
+    return (tb - ta) || String(a.name || "").localeCompare(String(b.name || ""));
+  });
   const countFor = (id) => wishlists.filter((w) => w.client_id === id).length;
   const canManage = (c) => session.role === "admin" || Number(c.agent_id) === Number(session.id);
+  const pendingCounts = opts.pendingCounts || {};
+  const engagedClients = opts.engagedClients || new Set();
+  // Furthest-along pipeline stage across the client's requests (lost only when
+  // everything is lost), so "who is close to money" reads without opening rows.
+  const stageIdx = Object.fromEntries(REQUEST_STATUSES.map((s, i) => [s.id, i]));
+  const stageFor = (id) => {
+    const sts = wishlists.filter((w) => w.client_id === id).map((w) => w.status || "new");
+    if (!sts.length) return "";
+    const live = sts.filter((s) => s !== "lost");
+    if (!live.length) return "lost";
+    return live.reduce((best, s) => ((stageIdx[s] ?? 0) > (stageIdx[best] ?? 0) ? s : best), live[0]);
+  };
+  const mwCell = (id) => {
+    const n = pendingCounts[id] || 0;
+    return n ? `<a class="mw-link" href="/admin?view=client&id=${id}" title="${n} live match${n === 1 ? "" : "es"} awaiting review">${n}</a>` : `<span class="mw-zero">0</span>`;
+  };
+  // State-aware contact dot (replaces ambient alarm): neutral when never
+  // contacted, green fresh, amber cooling, red only past 14d with prior
+  // engagement - red then MEANS a warm buyer going cold.
+  const contactDot = (c) => {
+    const t = tsMs(lastContact[c.id]);
+    if (!Number.isFinite(t)) return `<span class="health health-neutral" title="Never contacted" aria-label="Never contacted"></span>`;
+    const days = (Date.now() - t) / 86400000;
+    const tone = days <= 7 ? "green" : (days > 14 && engagedClients.has(c.id)) ? "red" : "amber";
+    const title = `Last contacted ${Math.floor(days)} day${Math.floor(days) === 1 ? "" : "s"} ago${tone === "red" ? ", engaged buyer going quiet" : ""}`;
+    return `<span class="health health-${tone}" title="${title}" aria-label="${title}"></span>`;
+  };
 
   const shareCell = (c) => {
     const shared = shares[c.id] || [];
@@ -2094,10 +2138,9 @@ function clientsView(clients, wishlists, opts = {}) {
   };
 
   // Derived last-contacted (sent vehicles + notes + logged contact taps).
-  const lastContact = opts.lastContact || {};
   const contactCell = (c) => {
     const t = lastContact[c.id];
-    return `${healthDot(t)}${esc(lastActivityLabel(t))}`;
+    return `${contactDot(c)}${esc(t ? lastActivityLabel(t) : "never")}`;
   };
   // Attio register: one identity cell (name over a muted email/state line,
   // Dealer marked with the neutral chip) instead of Type / Email / State
@@ -2107,6 +2150,8 @@ function clientsView(clients, wishlists, opts = {}) {
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
       <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
       <td style="text-align:right">${countFor(c.id)}</td>
+      <td style="text-align:right">${mwCell(c.id)}</td>
+      <td>${stageFor(c.id) ? statusBadge(stageFor(c.id)) : `<span class="chip muted">&mdash;</span>`}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
@@ -2122,21 +2167,24 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 7 : 5}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
   // Each button checks something is ticked; delete also confirms with the count.
+  // IA-AUDIT item 10: the bar appears only when something is ticked (the
+  // Matches rule), so a destructive Delete and a no-op gold Apply are not the
+  // page's most prominent chrome at rest.
   const bulkBar = isAdmin
     ? `<form id="bulkform" method="POST" action="/clients/bulk" class="bulkbar">
-        <span class="bulk-label">With selected clients:</span>
+        <span class="bulk-label"><span id="bulkSel">0</span> selected:</span>
         <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
         ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
         <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
         <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
-        <span class="help" style="margin-left:4px">Tick clients on the left, then choose an action.</span>
       </form>
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
+      document.addEventListener('change',function(e){var t=e.target;if(!t||t.type!=='checkbox')return;setTimeout(function(){var f=document.getElementById('bulkform');if(!f)return;var n=jdmBulkTicked(f);f.classList.toggle('show',n>0);var s=document.getElementById('bulkSel');if(s)s.textContent=n;},0);});
       function jdmBulkApply(btn){var f=btn.form;if(!jdmBulkTicked(f)){jdmToast('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(btn){var f=btn.form;if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return true;}var n=jdmBulkTicked(f);if(!n){jdmToast('Tick the clients you want to delete first.');return false;}
         jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,okLabel:'Delete '+n+' client'+(n===1?'':'s')}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
@@ -2160,12 +2208,19 @@ function clientsView(clients, wishlists, opts = {}) {
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
-    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: `${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, pendingCounts[c.id] ? `<b>${pendingCounts[c.id]} match${pendingCounts[c.id] === 1 ? "" : "es"} waiting</b>` : "", isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
+    right: `${stageFor(c.id) ? statusBadge(stageFor(c.id)) : ""}${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
   return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}`;
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th style="text-align:right">Matches waiting</th><th>Stage</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}<style>
+    .bulkbar{display:none}
+    .bulkbar.show{display:flex}
+    .mw-link{font-weight:700;color:var(--gold-txt);text-decoration:none;letter-spacing:var(--ls-num)}
+    .mw-link:hover{text-decoration:underline}
+    .mw-zero{color:var(--faint)}
+    .mcl-m b{color:var(--gold-txt);font-weight:600}
+  </style>`;
 }
 
 // ===== Phase 2: Requests pipeline (a "request" is a wishlist row) =====
@@ -2348,6 +2403,7 @@ const REQ_CSS = `<style>
   a.reqid:hover{color:var(--ink)}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
+  .health-neutral{background:transparent;border:1.5px solid var(--faint)}
   .rstat-sel{padding:8px 24px 8px 8px;font-size:var(--fs-sec);border:1px solid transparent;border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:inherit;cursor:pointer}
   .rstat-sel:hover,.rstat-sel:focus{border-color:var(--field-line);background:var(--field)}
   /* Keep the Status column wide enough for the full label and select on every
