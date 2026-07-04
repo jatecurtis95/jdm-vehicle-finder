@@ -86,12 +86,12 @@ test("the buyer portal shows an at-a-glance summary with real per-client counts"
   assert.ok(!ALL_CAPS_LABEL.test(html), "no shouty <label> text");
 });
 
-test("the Matches page renders the spec-sheet layout and keeps the bulk-select contract", async () => {
+test("the Matches page renders the queue rows and keeps the bulk-select contract", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "matches", ADMIN);
   assert.match(html, /class="mticker"/, "divided stat ticker");
-  assert.match(html, /class="mcard scard"/, "spec-sheet card keeps the mcard hook for the JS");
-  assert.match(html, /Match for:/, "client strip");
+  assert.match(html, /class="mcard scard"/, "queue row keeps the mcard hook for the JS");
+  assert.match(html, /class="sc-for"/, "client attribution line on the row");
   // The filter/sort/bulk JS depends on these, so the redesign must preserve them.
   assert.match(html, /class="msel"/, "per-card select checkbox");
   assert.match(html, /class="btn-notify"/, "approve link the JS binds to");
