@@ -279,6 +279,29 @@ session transcript; values below are the design-driving subset.
 6. Accent (gold) frequency in any list body: at most one accent element per
    row, and only when it is the primary action or money.
 
+## Standing mobile verification (added 4 July after the client-page bar bug)
+
+Every prior 375px pass ran on short demo data, which is why a wrapping
+column flex that blew the stacked match cards past the viewport (and an
+unstyled, clipping client bulk bar) reached production. The rule now:
+
+1. NEVER sign off a mobile pass on seed-dev.sql alone. Apply
+   seed/seed-worstcase.sql on top (local dev D1 only): a long client name,
+   a long wishlist label, and 12 pending matches with long titles and full
+   spec lines. Remove it after (deletes are in the seed file header).
+2. Surfaces to check at 375px with that seed, in order: client detail
+   (id 9010: header, bulk bar, stacked match cards, per-card CTAs),
+   Matches, Requests, Customers, Payments.
+3. The acceptance is measured, not eyeballed: document scrollWidth must
+   equal 375 and no element may exceed the viewport. Any horizontal
+   scrollbar is a fail.
+4. A CSS-contract test pins the specific rules that keep this true
+   (client-edit.test.mjs, "mobile overflow guards"): mgrid tracks
+   minmax(min(330px,100%),1fr), .mgrid>*{min-width:0}, flex-wrap scoped to
+   .scards .scard only, and the bulk bar on the actionbar family. True
+   layout measurement needs a browser; the test catches the known failure
+   modes, the seed procedure catches new ones.
+
 ## Money integrity checklist (verified alongside the Stripe treatment)
 
 Every rendered money figure and the input that must feed it:
