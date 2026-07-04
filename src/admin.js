@@ -762,6 +762,17 @@ const CSS = `
   .sc-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
   .sc-actions .btn-notify{color:var(--gold-on);background:var(--gold);border:1px solid transparent}
   .sc-actions .btn-notify:hover{background:var(--gold-hover)}
+  /* Snooze: the quiet third action. The summary reads like a text button; the
+     open state reveals the two deferral options inline. */
+  .sc-snz{display:inline-flex;align-items:center}
+  .sc-snz summary{list-style:none;cursor:pointer;color:var(--t3);font-size:var(--fs-sec);font-weight:600;padding:var(--sp-2) var(--sp-2);border-radius:var(--r-ctl)}
+  .sc-snz summary::-webkit-details-marker{display:none}
+  .sc-snz summary:hover{color:var(--ink);background:var(--hover)}
+  .sc-snz[open] summary{color:var(--ink)}
+  .sc-snz-menu{display:inline-flex;gap:var(--sp-1);flex-wrap:wrap}
+  .sc-snz-opt{font-family:inherit;font-size:var(--fs-label);font-weight:600;color:var(--t2);background:var(--off);border:1px solid var(--hair);border-radius:9999px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+  .sc-snz-opt:hover{background:var(--hover);color:var(--ink)}
+  .sc-snz-until{font-size:var(--fs-label);color:var(--t3);align-self:center;white-space:nowrap}
   /* Client-page 3-up grid (.mgrid) keeps the stacked card shape. */
   .mgrid .scard{flex-direction:column;align-items:stretch;gap:0;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:0;contain-intrinsic-size:auto 300px}
   .mgrid .scard .msel{position:absolute;top:12px;right:12px;width:20px;height:20px}
@@ -1079,9 +1090,42 @@ async function queryPendingMatches(env, session) {
        FROM queue q
        JOIN clients c ON c.id = q.client_id
        LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.status = 'pending' AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
+      WHERE q.status = 'pending' AND ${SNOOZE_LIVE} AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
   );
   return ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
+}
+
+// IA-AUDIT item 12: a snoozed match is invisible to every pending surface
+// until due. NULL or a past timestamp = live. The fragment assumes the queue
+// table is aliased q.
+const SNOOZE_LIVE = "(q.snoozed_until IS NULL OR q.snoozed_until <= datetime('now'))";
+
+// Defer a pending match: "1d" = revisit tomorrow, "close" = wake 24h before
+// the auction, "clear" = wake now. Throws on bad input or no access, so the
+// router's act() helper surfaces the standard failure notice.
+export async function snoozeMatch(env, queueId, until, session = {}) {
+  const qid = Number(queueId);
+  if (!Number.isInteger(qid) || qid <= 0) throw new Error("bad id");
+  const q = await env.DB.prepare("SELECT id, client_id, status, lot_json FROM queue WHERE id = ?").bind(qid).first();
+  if (!q) throw new Error("not found");
+  if (!(await clientAccessibleBy(env, q.client_id, session))) throw new Error("no access");
+  if (until === "clear") {
+    await env.DB.prepare("UPDATE queue SET snoozed_until = NULL WHERE id = ?").bind(qid).run();
+    return { ok: true };
+  }
+  if (q.status !== "pending") throw new Error("not pending");
+  if (until === "close") {
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const t = tsMs(lot.auction_date);
+    if (!Number.isFinite(t)) throw new Error("no auction date");
+    const wake = t - 24 * 3600 * 1000;
+    if (wake <= Date.now()) throw new Error("closes too soon");
+    const iso = new Date(wake).toISOString().replace("T", " ").slice(0, 19);
+    await env.DB.prepare("UPDATE queue SET snoozed_until = ? WHERE id = ?").bind(iso, qid).run();
+    return { ok: true };
+  }
+  await env.DB.prepare("UPDATE queue SET snoozed_until = datetime('now','+1 day') WHERE id = ?").bind(qid).run();
+  return { ok: true };
 }
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
@@ -1125,7 +1169,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     // unsent?") and who has engaged (opened or said interested) - engagement
     // decides whether a long silence reads as alarm red or cooling amber.
     try {
-      const pc = (await env.DB.prepare("SELECT client_id, COUNT(*) AS n FROM queue WHERE status = 'pending' GROUP BY client_id").all()).results || [];
+      const pc = (await env.DB.prepare("SELECT client_id, COUNT(*) AS n FROM queue WHERE status = 'pending' AND (snoozed_until IS NULL OR snoozed_until <= datetime('now')) GROUP BY client_id").all()).results || [];
       for (const r of pc) pendingCounts[r.client_id] = r.n;
       const en = (await env.DB.prepare("SELECT DISTINCT client_id FROM queue WHERE viewed_at IS NOT NULL OR response = 'interested'").all()).results || [];
       for (const r of en) engagedClients.add(r.client_id);
@@ -1218,7 +1262,21 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact, pendingCounts, engagedClients });
   else if (view === "wishlists") body = wishlistsView(wishlists);
-  else if (view === "matches") body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {} });
+  else if (view === "matches") {
+    // Parked matches for the Snoozed chip/filter - same joins as the live
+    // queue, waking soonest first. Nothing snoozed can vanish irrecoverably.
+    const acc2 = accessScope(session);
+    const snzStmt = env.DB.prepare(
+      `SELECT q.*, c.name AS client_name, c.state AS client_state,
+              c.email AS client_email, c.whatsapp AS client_whatsapp,
+              w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
+         FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+        WHERE q.status = 'pending' AND q.snoozed_until > datetime('now') AND ${acc2.sql}
+        ORDER BY q.snoozed_until ASC LIMIT 100`
+    );
+    const snoozedRows = ((await (acc2.binds.length ? snzStmt.bind(...acc2.binds) : snzStmt).all()).results) || [];
+    body = matchesView(pending, { settings: matchSettings, aiEnabled: !!env.ANTHROPIC_API_KEY, isAdmin: session.role === "admin", query: opts.matchQuery || {}, snoozedRows });
+  }
   else if (view === "agents") body = agentsView(agents, { vals: opts.vals });
   else if (view === "auctions") body = await adminAuctionsPage(env, session, opts);
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
@@ -1634,9 +1692,9 @@ async function dashboardData(env, session) {
   const agents = session.role === "admin"
     ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
     : 0;
-  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql}`).first())?.n || 0;
-  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
-  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY s`).all()).results || [];
+  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
+  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
+  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY s`).all()).results || [];
   const strength = { Strong: 0, Good: 0, Possible: 0 };
   for (const r of strRows) if (r.s in strength) strength[r.s] = r.n;
   const days14 = lastNDays(14);
@@ -1651,13 +1709,13 @@ async function dashboardData(env, session) {
   }
   // Throughput + demand signals (all role-scoped via run()).
   const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
-  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${acc.sql}`).first())?.n || 0;
+  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
   const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
   // Most-wanted makes in the live review queue, a quick read on demand.
-  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
+  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
   const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
   // Pending lots whose auction closes within 48h, the work that can't wait.
-  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
+  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
 
   let people;
   if (session.role === "admin") {
@@ -3377,11 +3435,26 @@ function matchCard(q, cardOpts = {}) {
         ${(!hasContact && !lot._watch) ? `<div class="nocontact">No email or WhatsApp on file. Approving won't reach this client.</div>` : ""}
       </div>
       <div class="sc-actions">
+        ${snoozeCtl(q, lot, ret)}
         <a class="btn-skip" href="${skip}">Skip</a>
         <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
       </div>
     </div>
   </div>`;
+}
+
+// IA-AUDIT item 12: the quiet third action between Skip (terminal) and
+// Approve (sends now). A snoozed card - visible only under the Snoozed
+// filter - swaps the menu for a Wake now button.
+function snoozeCtl(q, lot, ret) {
+  const back = ret || "/admin?view=matches";
+  const form = (until, label) => `<form method="POST" action="/matches/snooze" style="display:inline"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="until" value="${until}"><input type="hidden" name="back" value="${esc(back)}"><button class="sc-snz-opt" type="submit">${label}</button></form>`;
+  const snoozed = q.snoozed_until && (tsMs(q.snoozed_until) || 0) > Date.now();
+  if (snoozed) {
+    return `<span class="sc-snz-until">Snoozed until ${esc(String(q.snoozed_until).slice(0, 10))}</span>${form("clear", "Wake now")}`;
+  }
+  const canClose = Number.isFinite(tsMs(lot.auction_date)) && tsMs(lot.auction_date) - 24 * 3600 * 1000 > Date.now();
+  return `<details class="sc-snz"><summary>Snooze</summary><span class="sc-snz-menu">${form("1d", "Tomorrow")}${canClose ? form("close", "24h before close") : ""}</span></details>`;
 }
 
 // ---- Matches triage helpers (server-side filter, group, page) ---------------
@@ -3393,7 +3466,7 @@ const MATCH_PAGE = 30;
 
 // Canonical filter state from the ?f/&soon/&group/&shown params.
 function matchQueryState(sp = {}) {
-  const f = ["all", "strong", "good", "poss", "sg"].includes(sp.f) ? sp.f : "sg";
+  const f = ["all", "strong", "good", "poss", "sg", "snoozed"].includes(sp.f) ? sp.f : "sg";
   return {
     f, // sg = Strong + Good (the triage default)
     soon: sp.soon === "1",
@@ -3421,6 +3494,9 @@ function decorateMatches(pending) {
 
 function filterMatches(pending, st) {
   return pending.filter((q) => {
+    // Snoozed mode receives the snoozed rows as its source; strength filters
+    // don't apply, only the closing-soon toggle.
+    if (st.f === "snoozed") return !(st.soon && q._days > 2);
     if (st.f === "sg" && q._str === "poss") return false;
     if ((st.f === "strong" || st.f === "good" || st.f === "poss") && q._str !== st.f) return false;
     if (st.soon && q._days > 2) return false;
@@ -3462,11 +3538,13 @@ export async function matchesChunk(env, session, sp = {}) {
 }
 
 function matchesView(pending, opts = {}) {
-  if (pending.length === 0) {
+  const snoozedRows = opts.snoozedRows || [];
+  if (pending.length === 0 && snoozedRows.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
       No matches awaiting review. Press <strong>New auction search</strong> to score the latest lots against every search.</div></div>` + ranToast();
   }
   decorateMatches(pending);
+  decorateMatches(snoozedRows);
   const st = matchQueryState(opts.query || {});
   const sendOff = opts.settings && !settingOn(opts.settings, "send_to_client");
 
@@ -3495,7 +3573,9 @@ function matchesView(pending, opts = {}) {
   const linkTo = (over) => "/admin?" + params(over);
   const retPath = "/admin?" + params({}) + (st.shown !== MATCH_PAGE ? "&shown=" + st.shown : "");
 
-  const filtered = filterMatches(pending, st);
+  // Snoozed mode renders the parked rows; every count above still reads from
+  // the live queue, so the ticker never lies about workload.
+  const filtered = filterMatches(st.f === "snoozed" ? snoozedRows : pending, st);
   const { groups, flat } = orderMatches(filtered, st);
   const shownRows = flat.slice(0, st.shown);
   const shownSet = new Set(shownRows.map((q) => q.id));
@@ -3548,6 +3628,7 @@ function matchesView(pending, opts = {}) {
     ${chip("Good", { f: "good" }, st.f === "good", "", `<span class="sd" style="background:var(--good-fg)"></span>`)}
     ${chip("Possible", { f: "poss" }, st.f === "poss", "", `<span class="sd" style="background:var(--pos-fg)"></span>`)}
     ${chip("Closing in 48h", { soon: !st.soon }, st.soon, " urgent")}
+    ${(snoozedRows.length || st.f === "snoozed") ? chip(`Snoozed (${snoozedRows.length})`, { f: "snoozed" }, st.f === "snoozed") : ""}
     <span class="bsp" style="flex:1"></span>
     ${chip("Grouped by client", { group: "client" }, st.group === "client")}
     ${chip("Flat list", { group: "none" }, st.group === "none")}
@@ -4390,8 +4471,11 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
             w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
        FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
-      WHERE q.client_id = ? AND q.status = 'pending' ORDER BY q.created_at DESC LIMIT 60`
+      WHERE q.client_id = ? AND q.status = 'pending' AND ${SNOOZE_LIVE} ORDER BY q.created_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
+  const snoozedN = (await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue WHERE client_id = ? AND status = 'pending' AND snoozed_until > datetime('now')"
+  ).bind(cid).first())?.n || 0;
 
   // Cars this client has asked us to action/translate from their portal.
   const requested = (await env.DB.prepare(
@@ -4637,6 +4721,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
+    ${snoozedN ? `<p class="help" style="margin:0 0 var(--sp-3)">${snoozedN} snoozed match${snoozedN === 1 ? " is" : "es are"} hidden until due, <a href="/admin?view=matches&f=snoozed" style="color:var(--gold-txt);font-weight:600">see snoozed</a>.</p>` : ""}
     ${matches.length ? strengthLegend() + clientBulkBar(cid, findQs) + `<div class="mgrid">${matches.map((q) => matchCard(q, { ret: `/admin?view=client&id=${cid}` })).join("")}</div>` : `<div class="empty">No live matches right now.</div>`}
   </div>`;
 
