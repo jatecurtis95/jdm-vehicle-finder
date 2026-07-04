@@ -12,6 +12,7 @@ import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updat
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
+import { sendWhatsApp } from "./whatsapp.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
 import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
 import { marketSnapshot } from "./market.js";
@@ -1010,6 +1011,36 @@ export default {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
       return act(() => saveSettings(env, f), "/admin?view=settings", "Settings saved");
+    }
+
+    // Channel test-sends (IA-AUDIT item 18): verify email / WhatsApp config by
+    // messaging yourself instead of a real client. Admin only.
+    if (path === "/settings/test-email" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const settings = await getSettings(env).catch(() => ({}));
+      const to = digestRecipient(env, settings);
+      return act(async () => {
+        if (!to) throw new Error("no alert email configured");
+        await sendEmail(env, {
+          to,
+          subject: "JDMFinder test email",
+          html: "<p>This is a test from JDMFinder Settings. If you are reading it, email alerts are wired up.</p>",
+        });
+      }, "/admin?view=settings", `Test email sent${to ? ` to ${to}` : ""}`);
+    }
+    if (path === "/settings/test-whatsapp" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      const to = String(f.get("to") || "").trim();
+      const settings = await getSettings(env).catch(() => ({}));
+      return act(async () => {
+        if (!to) throw new Error("no test number");
+        await sendWhatsApp(env, to, {
+          name: "there",
+          summary: "This is a test from JDMFinder Settings. Your WhatsApp channel is wired up.",
+          url: env.PUBLIC_URL || "",
+        }, settings);
+      }, "/admin?view=settings", "Test WhatsApp sent");
     }
 
     // Client sharing - owner or admin (enforced in the handlers).

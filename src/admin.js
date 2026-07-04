@@ -1208,7 +1208,10 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // Admin-only: agent list (for the Agents view) and the logged-in agent's name.
   const agents = (!isAgent && view === "agents")
     ? (await env.DB.prepare(
-        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.name`
+        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count,
+                (SELECT COUNT(*) FROM wishlists w JOIN clients c2 ON c2.id = w.client_id
+                  WHERE c2.agent_id = a.id AND COALESCE(w.status, 'new') NOT IN ('delivered','lost')) AS open_requests
+           FROM agents a ORDER BY a.name`
       ).all()).results || []
     : [];
   const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
@@ -1324,6 +1327,7 @@ function agentsView(agents, opts = {}) {
       <td>${esc(a.email)}</td>
       <td>${esc(a.company || "-")}</td>
       <td style="text-align:right">${a.client_count}</td>
+      <td style="text-align:right">${a.open_requests || 0}</td>
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
@@ -1334,10 +1338,13 @@ function agentsView(agents, opts = {}) {
         ])}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" class="empty">No agents yet</td></tr>`;
-  return `
-    <div class="card">
-      <h2><span class="num">+</span> New agent</h2>
+  }).join("") || `<tr><td colspan="8" class="empty">No agents yet</td></tr>`;
+  // IA-AUDIT item 17: the team list is the daily read, the invite form the
+  // occasional tool - list first, form folded. A validation bounce (vals
+  // carries what was typed) or an empty team springs it open.
+  const formOpen = Object.values(vals).some(Boolean) || !agents.length;
+  const newAgent = `<details class="card foldcard" id="newAgent"${formOpen ? " open" : ""}>
+      <summary>Invite a new agent</summary>
       <form method="POST" action="/agent">
         <div class="grid">
           <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" value="${vv("name")}" required></div>
@@ -1347,17 +1354,19 @@ function agentsView(agents, opts = {}) {
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
-    </div>
+    </details>`;
+  return `
     ${tableToolbar("agentsTbl", "Search agents by name, email or company…", "jdm-agents")}
     <div class="mcl">${agents.map((a) => mobileCardRow({
       name: a.name,
       title: `${esc(a.name)}${a.pass_hash ? "" : ` <span class="chip muted">invited</span>`}`,
-      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
+      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`, `${a.open_requests || 0} open request${(a.open_requests || 0) === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
       right: `<span class="chip${a.active ? "" : " muted"}">${a.active ? "Active" : "Paused"}</span>`,
       rightSub: a.alerts ? "Alerts on" : "Alerts off",
     })).join("") || `<div class="empty">No agents yet</div>`}</div>
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th style="text-align:right">Open requests</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>
+    ${newAgent}`;
 }
 
 // Admin-only: editable alert email + notification toggles.
@@ -1391,6 +1400,8 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "Email the car to the client when you approve a match.", settingOn(s, "send_to_client"))}
           </div>
+          <div class="actions" style="margin-top:12px"><button class="btn-dark" type="submit" form="tsEmail">Send me a test email</button>
+            <span class="help">Verifies the channel end to end, to the alert email above (save first if you changed it).</span></div>
         </div>
       </div>
 
@@ -1407,6 +1418,12 @@ function settingsView(settings, opts = {}) {
                 <option value="twilio"${(s.whatsapp_provider || "twilio") === "twilio" ? " selected" : ""}>Twilio</option>
                 <option value="meta"${s.whatsapp_provider === "meta" ? " selected" : ""}>Meta (Cloud API)</option>
               </select>
+            </div>
+            <div><label for="set-wa-test">Test number <span class="opt">(yours, +61…)</span></label>
+              <div style="display:flex;gap:8px">
+                <input id="set-wa-test" name="to" form="tsWa" type="tel" inputmode="tel" placeholder="+61 4XX XXX XXX" style="flex:1"${waConfigured ? "" : " disabled"}>
+                <button class="btn-dark" type="submit" form="tsWa" style="white-space:nowrap"${waConfigured ? "" : " disabled"}>Send a test WhatsApp</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1467,6 +1484,8 @@ function settingsView(settings, opts = {}) {
 
       <div class="actionbar actionbar-end"><button class="btn-gold" type="submit">Save settings</button></div>
     </form>
+    <form id="tsEmail" method="POST" action="/settings/test-email"></form>
+    <form id="tsWa" method="POST" action="/settings/test-whatsapp"></form>
     <script>(function(){
       // Unsaved-changes warning: leaving the page with edited, unsaved settings
       // asks first. Cleared on submit so saving never triggers it.
