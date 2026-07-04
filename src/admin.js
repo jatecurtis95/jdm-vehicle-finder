@@ -2355,6 +2355,30 @@ export async function logContactTap(env, clientId, channel, session) {
   return { ok: true };
 }
 
+// Newest touch for ONE client: a sent vehicle, a note or a logged contact tap,
+// the same union the Customers "Last contact" column aggregates. Returns
+// { t, how } for the header line ("WhatsApp by Ben"), or null when never
+// contacted. Best-effort: a failed read renders as never, it never throws.
+async function lastContacted(env, clientId) {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT ts, src, actor FROM (
+          SELECT sent_at AS ts, 'sent' AS src, NULL AS actor FROM queue WHERE client_id = ?1 AND sent_at IS NOT NULL
+          UNION ALL
+          SELECT created_at, COALESCE(detail, type), actor FROM activity WHERE client_id = ?1 AND type IN ('note','contact')
+        ) ORDER BY ts DESC LIMIT 1`
+    ).bind(Number(clientId)).first();
+    if (!r || !r.ts) return null;
+    const src = String(r.src || "");
+    const channel = src === "sent" ? "vehicles sent"
+      : /^whatsapp/i.test(src) ? "WhatsApp"
+      : /^call/i.test(src) ? "Call"
+      : /^email/i.test(src) ? "Email"
+      : "note";
+    return { t: r.ts, how: channel + (r.actor ? " by " + r.actor : "") };
+  } catch (e) { console.error("lastContacted failed:", e.message); return null; }
+}
+
 // Deposit state on a request (Priority 6): none -> requested -> paid.
 const DEPOSIT_LABELS = { none: "No deposit", requested: "Deposit requested", paid: "Deposit paid" };
 const validDeposit = (s) => s === "none" || s === "requested" || s === "paid";
@@ -2787,6 +2811,9 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   const first = firstNameOf(w.client_name);
   const veh = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Any vehicle";
   const waNum = String(w.client_whatsapp || "").replace(/[^\d]/g, "");
+  // Last contacted is client-level and distinct from the request's last
+  // activity: a portal view is activity, a phone call is contact.
+  const lastc = await lastContacted(env, w.client_id);
 
   // -- Left column: customer + contact + deposit -----------------------------
   const contactRows = [
@@ -2803,7 +2830,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   ].filter(Boolean).join("");
   const customerCol = `<div class="rdcol">
     <div class="rdcard rd-c-client">
-      <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))}</div></div></div>
+      <div class="rd-cust">${avatar(w.client_name)}<div><div class="rd-name">${esc(w.client_name)} ${healthDot(w.last_activity)}</div><div class="rd-sub">Customer #${w.client_id} &middot; last activity ${esc(lastActivityLabel(w.last_activity))} &middot; last contacted ${lastc ? esc(relTime(lastc.t)) : "never"}</div></div></div>
       ${contactRows ? `<div class="rd-rows">${contactRows}</div>` : ""}
       ${contactBtns ? `<div class="rd-ctas">${contactBtns}</div>` : ""}
       <a class="rd-open" href="/admin?view=client&id=${w.client_id}">Open full customer profile &rarr;</a>
@@ -4187,6 +4214,11 @@ const CRM_CSS = `<style>
   /* Long unbroken contact strings (55 char emails) must wrap, not push the
      record header past a 375px viewport. */
   .cd-head .help{overflow-wrap:anywhere}
+  /* Last contacted: the quiet register carries the quiet-buyer signal; the
+     health dot supplies the urgency tone (green fresh, amber cooling, red
+     stale or never). */
+  .cd-lastc{margin-top:8px;font-size:var(--fs-sec);color:var(--t2)}
+  .cd-lastc b{color:var(--ink);font-weight:600}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
   /* cd-cta and btn-line alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
@@ -4212,6 +4244,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   if (!c) return notFound();
 
   const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  const lastc = await lastContacted(env, cid);
   await expirePast(env);
   const matches = (await env.DB.prepare(
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
@@ -4295,6 +4328,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <h2 style="border:0;padding:0;margin:0 0 4px">${esc(c.name)}</h2>
         <div class="cd-chips">${statusChips}</div>
         <div class="help" style="margin-top:8px">${contact}</div>
+        <div class="cd-lastc">${healthDot(lastc && lastc.t)}${lastc ? `Last contacted <b>${esc(relTime(lastc.t))}</b> &middot; ${esc(lastc.how)}` : "Never contacted"}</div>
       </div>
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
@@ -5266,6 +5300,9 @@ function uxGuardScript() {
       var fd=new FormData(); fd.append('id',v[0]||''); fd.append('channel',v[1]||'other');
       if(navigator.sendBeacon)navigator.sendBeacon('/client/contact-log',fd);
       else fetch('/client/contact-log',{method:'POST',body:fd,keepalive:true});
+      // Confirm the touch was recorded, so last-contacted is trusted data.
+      var ch=(v[1]||'contact'); ch=ch==='whatsapp'?'WhatsApp':ch.charAt(0).toUpperCase()+ch.slice(1);
+      if(window.jdmToast)jdmToast(ch+' touch logged to the timeline');
     }catch(err){}
   });
 })();</script>`;
