@@ -549,6 +549,7 @@ export default {
         };
       }
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
+      if (view === "tasks") adminOpts.taskMine = url.searchParams.get("mine") === "1";
       if (view === "clients") {
         adminOpts.showArchived = url.searchParams.get("archived") === "1";
         const cat = url.searchParams.get("cat") || "";

@@ -1293,7 +1293,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
   else if (view === "search") body = searchView(await adminSearch(env, session, opts.q || ""));
   else if (view === "requests") body = requestsView(requests);
-  else if (view === "tasks") body = tasksView(tasks);
+  else if (view === "tasks") body = tasksView(tasks, { clients, session, mine: !!opts.taskMine });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
   const wide = view === "matches" || view === "auctions";
@@ -2850,6 +2850,17 @@ export async function createTask(env, form, session) {
     if (!cid) { const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first(); cid = w ? w.client_id : null; }
   } else if (cid) {
     if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
+  } else if (form.get("client_name")) {
+    // Quick-add types a name (IA-AUDIT item 16). Link only on an unambiguous,
+    // access-scoped, case-insensitive exact match; otherwise the task is
+    // created unlinked rather than guessed onto the wrong buyer.
+    const nm = String(form.get("client_name")).trim();
+    if (nm) {
+      const acc = accessScope(session);
+      const st = env.DB.prepare(`SELECT c.id FROM clients c WHERE ${acc.sql} AND c.archived = 0 AND LOWER(c.name) = LOWER(?) LIMIT 2`);
+      const hits = (await (acc.binds.length ? st.bind(...acc.binds, nm) : st.bind(nm)).all()).results || [];
+      if (hits.length === 1) cid = hits[0].id;
+    }
   }
   const due = form.get("due_date") ? String(form.get("due_date")).slice(0, 10) : null;
   const priority = ["low", "normal", "high"].includes(form.get("priority")) ? form.get("priority") : "normal";
@@ -3250,6 +3261,12 @@ async function tasksData(env, session) {
   return rows;
 }
 function tasksView(rows, opts = {}) {
+  // IA-AUDIT item 16: an assigned-to-me filter. Agents already only see their
+  // scope; Mine narrows to explicit assignments so five people sharing the
+  // board stop reading one undifferentiated list.
+  const mine = !!opts.mine;
+  const sid = Number(opts.session && opts.session.id);
+  if (mine) rows = rows.filter((t) => Number(t.assigned_to) === sid);
   const open = rows.filter((t) => t.status !== "done");
   const done = rows.filter((t) => t.status === "done");
   const buckets = { over: [], today: [], soon: [], later: [], none: [] };
@@ -3267,9 +3284,11 @@ function tasksView(rows, opts = {}) {
     ? sec("Overdue", buckets.over, "tks-over") + sec("Due today", buckets.today, "tks-today") + sec("This week", buckets.soon) + sec("Later", buckets.later) + sec("No due date", buckets.none)
     : `<div class="card"><div class="empty">Nothing on your list. Tasks appear here as you move requests through the pipeline, or add them from a request.</div></div>`;
   const doneSec = done.length ? `<details class="tks-done"><summary>Recently completed (${done.length})</summary><div class="tks-l">${done.map((t) => taskRow(t, { back: "/admin?view=tasks" })).join("")}</div></details>` : "";
-  // What is this page?, the client asked for instructions. Collapsible so it
-  // stays out of the way once staff know it, open by default the first time.
-  const help = `<details class="tks-help" open>
+  // What is this page?, the client asked for instructions. IA-AUDIT item 16:
+  // closed on the server; a script opens it for first-time browsers only and
+  // remembers the dismissal in localStorage, so onboarding copy never again
+  // outranks the work.
+  const help = `<details class="tks-help" id="tksHelp">
     <summary><span class="tks-help-t">What is the Tasks board?</span><span class="tks-help-x">Hide</span></summary>
     <div class="tks-help-b">
       <p>Your shared to-do list for moving deals forward. A task is a single next
@@ -3288,18 +3307,48 @@ function tasksView(rows, opts = {}) {
       </ul>
     </div>
   </details>`;
+  // Quick-add (IA-AUDIT item 16): follow-up capture at the moment of thought.
+  // The client field autocompletes from the visible directory; the server
+  // links only an unambiguous name match, never a guess.
+  const quickAdd = `<form class="card tk-add" method="POST" action="/task/create">
+    <input type="hidden" name="back" value="/admin?view=tasks${mine ? "&mine=1" : ""}">
+    <input class="tk-add-t" name="title" placeholder="Add a task, e.g. call Sam re finance" required maxlength="160" aria-label="Task title">
+    <input class="tk-add-c" name="client_name" list="tkClients" placeholder="Client (optional)" aria-label="Client" autocomplete="off">
+    <datalist id="tkClients">${(opts.clients || []).map((c) => `<option value="${esc(c.name)}">`).join("")}</datalist>
+    <input class="tk-add-d" type="date" name="due_date" aria-label="Due date">
+    <button class="btn-gold" type="submit">Add task</button>
+  </form>`;
+  const chips = `<div class="fchips" style="margin:0 0 var(--sp-4)">
+    <a class="fchip${mine ? "" : " on"}" href="/admin?view=tasks"${mine ? "" : ' aria-current="true"'}>${(opts.session && opts.session.role) === "admin" ? "Everyone" : "All my tasks"}</a>
+    <a class="fchip${mine ? " on" : ""}" href="/admin?view=tasks&mine=1"${mine ? ' aria-current="true"' : ""}>Assigned to me</a>
+  </div>`;
+  const helpScript = `<script>(function(){var d=document.getElementById('tksHelp');if(!d)return;var KEY='jdmTasksHelpHidden';
+    try{if(!localStorage.getItem(KEY))d.open=true;}catch(e){d.open=true;}
+    d.addEventListener('toggle',function(){try{if(d.open){localStorage.removeItem(KEY);}else{localStorage.setItem(KEY,'1');}}catch(e){}});
+  })();</script>`;
   return `${TASKS_CSS}
-    ${help}
     <div class="tk-strip">
       <div class="tk-stat${buckets.over.length ? " bad" : ""}"><div class="n">${buckets.over.length}</div><div class="l">Overdue</div></div>
       <div class="tk-stat${buckets.today.length ? " warn" : ""}"><div class="n">${buckets.today.length}</div><div class="l">Due today</div></div>
       <div class="tk-stat"><div class="n">${buckets.soon.length}</div><div class="l">This week</div></div>
       <div class="tk-stat"><div class="n">${open.length}</div><div class="l">Open total</div></div>
     </div>
-    ${body}${doneSec}`;
+    ${quickAdd}
+    ${chips}
+    ${body}${doneSec}
+    ${help}${helpScript}`;
 }
 const TASKS_CSS = `<style>
   .tk-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:var(--sp-5)}
+  .tk-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;margin-bottom:var(--sp-4)}
+  .tk-add input{width:auto}
+  .tk-add .tk-add-t{flex:2 1 240px}
+  .tk-add .tk-add-c{flex:1 1 160px}
+  .tk-add .tk-add-d{flex:0 1 150px}
+  @media(max-width:640px){
+    .tk-add .tk-add-t,.tk-add .tk-add-c,.tk-add .tk-add-d{flex:1 1 100%}
+    .tk-add button{width:100%;min-height:44px}
+  }
   .tk-stat{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px}
   .tk-stat.bad{border-color:var(--bad-line)}.tk-stat.warn{border-color:var(--warn-c)}
   .tk-stat .n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
