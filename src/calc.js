@@ -107,7 +107,7 @@ export function carAudToLanded(carAud) {
 // systematically understate what the car will hammer for. Fall back to the
 // starting bid only when no market average exists. Scoring's lotPrice keeps
 // its own start-first rule; that one asks affordability, this one asks cost.
-function lotJpy(lot) {
+export function lotJpy(lot) {
   const a = Number(lot?.avg_price);
   const s = Number(lot?.start);
   if (a > 0) return a;

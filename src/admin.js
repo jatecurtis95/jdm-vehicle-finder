@@ -4,7 +4,7 @@
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
@@ -813,8 +813,10 @@ const CSS = `
   .ld-k{color:var(--t3)}
   .ld-v{color:var(--ink);font-weight:600;text-align:right}
   .ld-sec{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint);margin:16px 0 4px}
-  .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0 0;margin-top:8px;border-top:1px solid var(--hair)}
+  .ld-client{display:flex;align-items:center;gap:12px;padding:16px 0;margin-top:8px;border-top:1px solid var(--hair)}
   .ld-cl-n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .ld-cl-b{font-size:var(--fs-label);color:var(--t2);margin-top:4px}
+  .ld-cl-b.over{color:var(--bad);font-weight:600}
   .ld-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px}
   .ld-actions{display:flex;gap:8px;margin:16px 0 var(--sp-4)}
   .ld-actions .btn-skip{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:var(--r-ctl);color:var(--t2);font-weight:600;padding:12px}
@@ -4225,6 +4227,21 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   ].join("");
 
   const landed = q._landed ? `<div class="ld-landed"><div class="ld-landed-k">Est. landed ${esc(q._landed.state || "")}</div><div class="ld-landed-v">A$${Number(q._landed.grandTotal).toLocaleString("en-AU")}</div></div>` : "";
+  // IA-AUDIT item 11: the budget delta is the number staff quote on the phone.
+  // The gap is computed in JPY (budget cap vs the lot's market price) and
+  // expressed in AUD via the landed estimate's own implied rate
+  // (purchaseAUD / lot JPY), so it never disagrees with the landed figure.
+  const budgetLine = (() => {
+    const budget = Number(q.w_price) || 0;
+    if (!budget) return "";
+    const jpy = lotJpy(lot);
+    if (!jpy) return `<div class="ld-cl-b">Budget ¥${budget.toLocaleString()}</div>`;
+    const diff = budget - jpy;
+    const audPerJpy = q._landed && Number(q._landed.purchaseAUD) > 0 ? Number(q._landed.purchaseAUD) / jpy : 0;
+    const amount = audPerJpy ? `about A$${Math.round(Math.abs(diff) * audPerJpy).toLocaleString("en-AU")}` : `¥${Math.abs(diff).toLocaleString()}`;
+    const lead = q._landed && Number(q._landed.grandTotal) > 0 ? `A$${Number(q._landed.grandTotal).toLocaleString("en-AU")} landed vs ` : "";
+    return `<div class="ld-cl-b${diff < 0 ? " over" : ""}">${lead}¥${budget.toLocaleString()} budget &middot; ${amount} ${diff < 0 ? "over" : "under"}</div>`;
+  })();
   const days = daysUntil(lot.auction_date);
   const when = (days === 0) ? `<span class="ld-when urgent">Auction today</span>`
     : (days === 1) ? `<span class="ld-when urgent">Auction in 1 day</span>`
@@ -4309,11 +4326,11 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <div class="card ld-card">
             <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
+            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
-            <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div></div></div>
             ${chips.length ? `<div class="why" style="padding:16px 0 0">${chips.map((c) => `<span class="wc">${c}</span>`).join("")}</div>` : ""}
           </div>
         </aside>
