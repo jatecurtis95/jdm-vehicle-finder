@@ -1609,10 +1609,30 @@ export function loginPage(opts = {}) {
       <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/forgot-password" style="color:var(--gold-txt);font-weight:600">Forgot your password?</a></p>
+      <p class="login-sub" style="margin:8px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
+}
+
+// Self-serve "Forgot password?" screen. The confirmation is intentionally the
+// same whether or not the email matched an account (no enumeration signal).
+export function forgotPasswordPage(opts = {}) {
+  const card = opts.sent
+    ? `<div class="login-card"><div class="login-logo">${LOGO}</div><h1>Check your email</h1>
+      <p class="login-sub">If <strong>${esc(opts.email || "that address")}</strong> has an account with us, we've sent it a link to choose a new password. The link works for 1 hour — check your spam folder if it doesn't arrive.</p>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p></div>`
+    : `<form class="login-card" method="POST" action="/forgot-password">
+      <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
+      <h1>Reset your password</h1>
+      <p class="login-sub">Enter your account email and we'll send you a link to choose a new one.</p>
+      <label for="fp-email">Email</label>
+      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" autofocus required maxlength="160" value="${esc(opts.email || "")}">
+      <button class="btn-gold" type="submit">Email me a reset link</button>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p>
+    </form>`;
+  return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Reset password - JDM Connect");
 }
 
 // Agent set-password screen (reached from the emailed invite link).
@@ -4897,9 +4917,11 @@ export async function requestPage(env, opts = {}) {
       .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
     const acct = req.portal
       ? `<strong>Your account is ready.</strong> Sign in any time with your email and password to track your search.`
-      : req.existing
-        ? `You've enquired before, so we added this to your existing details. Sign in to track it, or check your email for a link to set your password.`
-        : `We'll be in touch the moment a match appears.`;
+      : opts.inviteSent
+        ? `<strong>One more step to finish your login:</strong> you've enquired with us before, so for security we've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} a link to set your password (a password typed on this form isn't used for an existing account). Open that email to choose your password, then sign in.`
+        : req.existing
+          ? `You've enquired before, so we added this to your existing details. Sign in to track it, or <a href="/forgot-password" style="color:var(--gold-txt);font-weight:600">reset your password</a> if you can't get in.`
+          : `We'll be in touch the moment a match appears.`;
     // Conversion tracking: fire a Meta Pixel "Lead" only on a genuine, server-
     // validated sign-up (a real req with a name) - never on the honeypot / rate-
     // limited generic success, so bots and spam never inflate the conversion.
@@ -6266,9 +6288,11 @@ export async function createRequest(env, form, session) {
     } else {
       // Existing passwordless record -> email a set-password link (only the
       // inbox owner can claim it). A Google-linked client already has a way in,
-      // so we never nag them for a password.
-      const exi = await env.DB.prepare("SELECT pass_hash, google_sub FROM clients WHERE id = ?").bind(clientId).first();
-      if (exi && !exi.pass_hash && !exi.google_sub) inviteNeeded = true;
+      // so we never nag them for a password. A staff-revoked client never gets
+      // one either: the resulting inviteClientPortal call would clear the
+      // portal_revoked veto, letting them self-invite straight back in.
+      const exi = await env.DB.prepare("SELECT pass_hash, google_sub, COALESCE(portal_revoked, 0) AS portal_revoked FROM clients WHERE id = ?").bind(clientId).first();
+      if (exi && !exi.pass_hash && !exi.google_sub && !exi.portal_revoked) inviteNeeded = true;
     }
   }
 

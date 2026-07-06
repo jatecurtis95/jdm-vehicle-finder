@@ -9,12 +9,15 @@
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
-// OWASP (2023) recommends >=600k PBKDF2-SHA256 iterations; the Workers CPU
-// budget caps what a login request can afford, so 210k is the practical
-// balance (audit Low #18, set 2026-07-02). New hashes embed their iteration
-// count as an "<iter>." prefix on the stored hash; bare legacy hashes (no
-// prefix) verify at the old 100k count until that user next sets a password.
-const PBKDF2_ITER = 210000;
+// HARD PLATFORM CAP: deployed Cloudflare Workers reject PBKDF2 above 100,000
+// iterations ("Pbkdf2 failed: iteration counts above 100000 are not
+// supported"). Local workerd does NOT enforce this, so a higher count passes
+// `wrangler dev` and then breaks every set-password/signup in production
+// (audit Low #18's 210k bump did exactly that on 2026-07-02). Do not raise
+// this until Cloudflare lifts the cap. New hashes embed their iteration count
+// as an "<iter>." prefix on the stored hash; bare legacy hashes (no prefix)
+// verify at the same 100k count.
+const PBKDF2_ITER = 100000;
 const PBKDF2_ITER_LEGACY = 100000;
 const enc = new TextEncoder();
 
@@ -257,13 +260,19 @@ export async function authenticate(env, email, password) {
     return { role: "agent", id: agent.id };
   }
 
-  // Buyer portal: a client who has been given access and set a password. If an
-  // email somehow maps to several clients, the most recent portal account wins.
-  const client = await env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1"
-  ).bind(e).first();
-  if (client && await verifyPassword(password, client.pass_salt, client.pass_hash)) {
-    return { role: "client", id: client.id };
+  // Buyer portal: a client who has been given access and set a password. An
+  // email can map to several client rows (e.g. a staff-created record plus a
+  // later self-signup), and the password may live on any of them — an invite
+  // link sets it on the specific row it was issued for. Verify against each
+  // candidate (newest first) rather than only the newest, so a valid password
+  // on an older duplicate still signs in.
+  const clients = (await env.DB.prepare(
+    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
+  ).bind(e).all()).results || [];
+  for (const client of clients) {
+    if (await verifyPassword(password, client.pass_salt, client.pass_hash)) {
+      return { role: "client", id: client.id };
+    }
   }
   return null;
 }
@@ -322,6 +331,38 @@ export async function clientByInviteToken(env, token) {
   ).bind(String(token)).first();
   if (!c || !c.invite_exp || Number(c.invite_exp) < Date.now()) return null;
   return c;
+}
+
+// --- Self-serve password reset ("Forgot password?") ---------------------------
+// Given a login email, arm a fresh single-use set-password token for the
+// account that would sign in with it: an active agent first, then the newest
+// portal-enabled client (mirroring authenticate()'s order). Returns
+// {kind, token, email, name} | null. Deliberately narrower than a staff
+// invite: it never grants portal access to a client who doesn't have it and
+// never clears the portal_revoked staff veto — it can only re-key a login
+// that already exists, not create one.
+export async function armPasswordReset(env, emailRaw, ttlMs) {
+  const e = String(emailRaw || "").trim().toLowerCase();
+  if (!e) return null;
+  const token = randomToken();
+  const exp = Date.now() + Number(ttlMs);
+  const agent = await env.DB.prepare(
+    "SELECT id, name, email FROM agents WHERE lower(email) = ? AND active = 1 ORDER BY id DESC LIMIT 1"
+  ).bind(e).first();
+  if (agent) {
+    await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?")
+      .bind(token, exp, agent.id).run();
+    return { kind: "agent", token, email: agent.email, name: agent.name };
+  }
+  const client = await env.DB.prepare(
+    "SELECT id, name, email FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND COALESCE(portal_revoked, 0) = 0 ORDER BY id DESC LIMIT 1"
+  ).bind(e).first();
+  if (client) {
+    await env.DB.prepare("UPDATE clients SET invite_token = ?, invite_exp = ? WHERE id = ?")
+      .bind(token, exp, client.id).run();
+    return { kind: "client", token, email: client.email, name: client.name };
+  }
+  return null;
 }
 
 // Set a client's portal password from a valid invite token. Returns {ok,id,email}.
