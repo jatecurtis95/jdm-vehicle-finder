@@ -989,7 +989,7 @@ async function adminSearch(env, session, q) {
       WHERE ${acc.sql} AND (w.marka_name LIKE ? OR w.model_name LIKE ? OR w.kuzov LIKE ? OR w.label LIKE ?) ORDER BY c.name LIMIT 25`
   ).bind(...acc.binds, like, like, like, like).all()).results || [];
   out.matches = (await env.DB.prepare(
-    `SELECT q.id, q.lot_id, q.status, c.id AS client_id, c.name AS client_name
+    `SELECT q.id, q.lot_id, q.status, q.lot_json, c.id AS client_id, c.name AS client_name
        FROM queue q JOIN clients c ON c.id = q.client_id
       WHERE ${acc.sql} AND (q.lot_id LIKE ? OR q.lot_json LIKE ?) ORDER BY q.created_at DESC LIMIT 25`
   ).bind(...acc.binds, like, like).all()).results || [];
@@ -1014,7 +1014,12 @@ function searchView(res) {
   const reqRows = res.requests.map((w) => `<tr><td><a class="clink" href="/admin?view=client&id=${w.client_id}">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</a>${w.kuzov ? ` <span class="chip muted">${esc(w.kuzov)}</span>` : ""}</td><td>${esc(w.client_name)}</td></tr>`).join("");
   const chip = (s) => `<span class="chip muted">${esc(s || "-")}</span>`;
   const aud = (cents, cur) => `${String(cur || "aud").toUpperCase()} $${(Number(cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`;
-  const matchRows = res.matches.map((m) => `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`).join("");
+  const matchRows = res.matches.map((m) => {
+    // Lead with the car (year make model); the raw internal id is never shown.
+    let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
+    const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
+    return `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`;
+  }).join("");
   const payRows = res.payments.map((p) => `<tr><td>${esc(p.client_name || "-")}</td><td>${aud(p.amount_cents, p.currency)}</td><td>${esc(p.description || "-")}</td><td>${chip(p.status)}</td></tr>`).join("");
   return `${grp("Customers", res.clients.length, clientRows)}${grp("Requests", res.requests.length, reqRows)}${grp("Matches", res.matches.length, matchRows)}${grp("Payments", res.payments.length, payRows)}`;
 }
@@ -1074,7 +1079,10 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
           : m.viewed_at ? `<span class="chip chip-info">Viewed</span>`
           : m.sent_at ? `<span class="chip chip-warn">Sent</span>`
           : `<span class="chip muted">${esc(m.status)}</span>`;
-        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s">${stage}${strength} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
+        // V1.2 Phase 5: the row leads with the car, never a raw internal id.
+        const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
+        const landed = m._landed || (lot._landed && lot._landed.grandTotal) || null;
+        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></div><div class="dw-item-s">${stage}${strength}${landed ? ` &middot; <b>A$${Number(landed).toLocaleString("en-AU")}</b>` : ""} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
       }).join("")
     : `<div class="dw-empty-sm">No matches yet.</div>`;
   const pList = pays.length
