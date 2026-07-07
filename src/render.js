@@ -55,6 +55,18 @@ export function displayGrade(rate) {
   if (Number.isFinite(n) && (n < 1 || n > 6)) return "ungraded";
   return s;
 }
+
+// Full condition score as listed (V1.3 Phase B): the feed's rate plus the
+// exterior/interior letters when the AI sheet reader has extracted them, e.g.
+// "3.5/B" or "3.5/B/C". Never truncates a rate that already carries letters.
+export function fullGrade(lot) {
+  const base = displayGrade(lot && lot.rate);
+  const sheet = lot && lot._sheet;
+  if (base === "ungraded" || !sheet || String(base).includes("/")) return base;
+  const letters = [sheet.exterior, sheet.interior]
+    .map((x) => String(x || "").trim().toUpperCase()).filter((x) => /^[A-E]$/.test(x));
+  return letters.length ? `${base}/${letters.join("/")}` : base;
+}
 function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
@@ -302,7 +314,7 @@ export function requestConfirmationHtml(req, ref, publicUrl) {
   <tr><td style="padding:26px 36px 0;">
     <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Request received</div>
     <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:24px;font-weight:600;line-height:1.2;color:${INK};">Thanks, ${esc(first)} - we're on it.</h1>
-    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">Your request is in and we're now watching the Japanese auctions for it. We'll email you the moment a matching car comes up - that can take days or weeks depending on what's listed, so quiet for a little while is completely normal.</p>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">Your request is in and your search is running against the Japanese auctions. When a good match comes up we review it and email you. That can take days or weeks depending on what's listed, so a quiet start is normal.</p>
   </td></tr>
   <tr><td style="padding:18px 36px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${GOLD_TINT};border:1px solid ${GOLD_BORDER};border-radius:10px;"><tr><td style="padding:14px 16px;">
@@ -358,6 +370,45 @@ export function clientPortalInviteHtml(name, link) {
     <p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
   </td></tr>`;
   return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), "Set up your JDM Connect portal login");
+}
+
+// ---------------------------------------------------------------------------
+// PASSWORD RESET: self-serve "Forgot password?" and the admin-sent variant.
+// Works for every role - the link lands on the shared /set-password flow.
+// ---------------------------------------------------------------------------
+export function passwordResetHtml(name, link) {
+  const first = String(name || "").trim().split(/\s+/)[0];
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Password reset</div>
+    <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:24px;font-weight:600;line-height:1.2;color:${INK};">Reset your password${first ? ", " + esc(first) : ""}</h1>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">We received a request to reset the password for your JDM Connect login. Choose a new password with the button below - it signs you straight in.</p>
+  </td></tr>
+  <tr><td style="padding:22px 36px 0;">
+    ${btn(link, "Choose a new password", { bg: GOLD, color: INK, w: 230 })}
+    <p style="margin:18px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">Or paste this link into your browser:<br><span style="color:${GOLDTXT};word-break:break-all;">${esc(link)}</span></p>
+    <p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">This link expires in 1 hour. If you didn't ask for a reset, you can safely ignore this email - your password has not changed.</p>
+  </td></tr>`;
+  return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), "Reset your JDM Connect password");
+}
+
+// ---------------------------------------------------------------------------
+// DEALER invite: "set your password" welcome email for vehicle suppliers
+// ---------------------------------------------------------------------------
+export function dealerInviteHtml(name, link) {
+  const first = String(name || "").trim().split(/\s+/)[0];
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Dealer Portal</div>
+    <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:24px;font-weight:600;line-height:1.2;color:${INK};">Welcome${first ? ", " + esc(first) : ""}</h1>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">You've been set up as a dealer on JDM Vehicle Finder. Set your password to sign in and start submitting your inventory for approval.</p>
+  </td></tr>
+  <tr><td style="padding:22px 36px 0;">
+    ${btn(link, "Set your password", { bg: GOLD, color: INK, w: 210 })}
+    <p style="margin:18px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">Or paste this link into your browser:<br><span style="color:${GOLDTXT};word-break:break-all;">${esc(link)}</span></p>
+    <p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+  </td></tr>`;
+  return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), "Set up your dealer portal login");
 }
 
 // ---------------------------------------------------------------------------
@@ -425,7 +476,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
       <tr><td style="padding:18px 20px;">
         <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.1em;text-transform:uppercase;color:${GOLDTXT};">Want the full picture?</div>
         <div style="font-family:${FONT};font-size:17px;font-weight:600;line-height:1.25;color:${INK};margin-top:7px;">Unlock unlimited searches - A$${Number(upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
-        <p style="margin:8px 0 14px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears, no waiting.</p>
+        <p style="margin:8px 0 14px;font-family:${FONT};font-size:13px;line-height:1.5;color:${BODY};">Free accounts get a taste. Full access lets you search every live Japanese auction yourself and get every match we find.</p>
         ${btn(`${publicUrl}/login`, "Get full access", { bg: GOLD, color: INK, w: 190 })}
       </td></tr>
     </table>
@@ -435,7 +486,7 @@ export function clientHtml(lot, client, wishlist, publicUrl, landed, showLanded 
   <tr><td style="padding:26px 36px 0;">
     <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">A match for your search</div>
     <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:25px;font-weight:600;line-height:1.2;color:${INK};">Hi ${esc(first)}, we think this one's for you.</h1>
-    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:${BODY};">A ${esc(want)} just came up at a Japanese auction that lines up with what you're after.</p>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:${BODY};">${want === "your search" ? "A car matching your search" : "A " + esc(want)} just came up at auction in Japan. Here it is.</p>
   </td></tr>
 
   <tr><td style="padding:20px 36px 0;">

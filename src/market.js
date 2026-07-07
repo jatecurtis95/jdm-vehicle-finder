@@ -7,7 +7,7 @@
 // tag0/tag1/…  Results are cached per isolate so a detail view doesn't re-run
 // ~15 feed queries each time.
 
-import { query, sqlString, sqlInt } from "./avtonet.js";
+import { query, sqlString, sqlLike, sqlInt } from "./avtonet.js";
 import { esc, yen } from "./render.js";
 import { getLiveFx, carAudToLanded } from "./calc.js";
 
@@ -34,7 +34,7 @@ function gradeMix(rows) {
     .slice(0, 8);
 }
 
-const RECENT_COLS = "marka_name,model_name,year,grade,rate,auction_date,finish";
+const RECENT_COLS = "marka_name,model_name,year,grade,rate,auction_date,finish,mileage,kuzov";
 
 function mapRecent(r) {
   return {
@@ -45,23 +45,41 @@ function mapRecent(r) {
     rate: r.rate || "",
     date: r.auction_date || "",
     finish: sqlInt(r.finish) || 0,
+    mileage: sqlInt(r.mileage) || 0,
+    kuzov: r.kuzov || "",
   };
 }
 
 // Compute the market panel data. Returns null when make/model is missing or the
 // feed is unreachable (caller just hides the panel). `nowMs` is injectable for
 // deterministic tests.
-export async function marketIntel(env, make, model, nowMs = Date.now()) {
+export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {}) {
   const mk = String(make || "").trim().toUpperCase();
   const md = String(model || "").trim().toUpperCase();
   if (!mk || !md) return null;
 
-  const key = `${mk}|${md}`;
+  // V1.3 Phase B: comparables must be genuinely similar. When the caller knows
+  // the lot's model code (kuzov) the whole panel narrows to it; failing that a
+  // grade (trim) keyword narrows instead; only then the bare model line. The
+  // similarity level used is reported so the panel can say what it compared.
+  const kz = String(opts.kuzov || "").trim().toUpperCase();
+  const gr = String(opts.grade || "").trim().toUpperCase();
+
+  const key = `${mk}|${md}|${kz}|${gr}`;
   const hit = _cache.get(key);
   if (hit && nowMs < hit.exp) return hit.data;
 
   try {
-    const base = `MARKA_NAME='${sqlString(mk)}' and MODEL_NAME='${sqlString(md)}' and FINISH>0`;
+    const bare = `MARKA_NAME='${sqlString(mk)}' and MODEL_NAME='${sqlString(md)}' and FINISH>0`;
+    const tries = [];
+    if (kz) tries.push({ similarity: "model code " + kz, where: `${bare} and UPPER(KUZOV) LIKE '%${sqlLike(kz)}%'` });
+    if (gr) tries.push({ similarity: "grade " + gr, where: `${bare} and UPPER(GRADE) LIKE '%${sqlLike(gr)}%'` });
+    tries.push({ similarity: "", where: bare });
+    let base = bare, similarity = "";
+    for (const t of tries) {
+      const probe = (await query(env, `select count(*) from stats where ${t.where}`))[0] || {};
+      if (sqlInt(probe.tag0) > 0) { base = t.where; similarity = t.similarity; break; }
+    }
     const aggSql = (w) => `select avg(FINISH),count(*),min(FINISH),max(FINISH) from stats where ${w}`;
     const cutoff = new Date(nowMs - 84 * 86400000).toISOString().slice(0, 10);
 
@@ -101,7 +119,7 @@ export async function marketIntel(env, make, model, nowMs = Date.now()) {
 
     const prices = raw.map((r) => sqlInt(r.finish)).filter((n) => n && n > 0);
     const data = {
-      make: mk, model: md, windowed, count,
+      make: mk, model: md, windowed, count, similarity,
       avg: Math.round(parseFloat(a.tag0) || 0),
       median: median(prices),
       low: sqlInt(a.tag2) || 0,
@@ -225,13 +243,21 @@ export function marketPanel(m, fx = 0) {
   const trendHigh = barAvgs.length ? Math.max(...barAvgs) : 0;
   const trendLabel = `Price trend over the last ${m.bars.length} weeks, low ${yen(trendLow)} to high ${yen(trendHigh)}`;
   const mix = (m.gradeMix || []).map((g) => `<span class="mktp-chip"><b>${esc(g.grade)}</b> ${g.count}</span>`).join("");
+  // V1.3 Phase B: each comparable row carries make, model, the auction score
+  // (rate, full string), the variant grade (trim), mileage and auction date.
   const comps = (m.recent || []).map((r) => `<div class="mktp-comp">
-      <div class="mktp-comp-l"><span class="mktp-comp-t">${esc(displayName(r.model) || displayName(r.make))} &middot; ${esc(r.year)}</span><span class="mktp-comp-s">${[r.grade ? "Grade " + esc(r.grade) : "", shortDate(r.date)].filter(Boolean).join(" &middot; ")}</span></div>
+      <div class="mktp-comp-l"><span class="mktp-comp-t">${esc(displayName(r.make))} ${esc(displayName(r.model))} &middot; ${esc(r.year)}</span><span class="mktp-comp-s">${[
+        r.rate ? "Score " + esc(r.rate) : "",
+        r.grade ? esc(r.grade) : "",
+        r.kuzov ? esc(r.kuzov) : "",
+        r.mileage ? Number(r.mileage).toLocaleString("en-US") + " km" : "",
+        shortDate(r.date),
+      ].filter(Boolean).join(" &middot; ")}</span></div>
       <div class="mktp-comp-r"><span class="mktp-comp-k">SOLD</span><span class="mktp-comp-v">${yen(r.finish)}</span></div>
     </div>`).join("");
   const audAvg = aud(m.avg, fx);
   return `<div class="card mktp">
-    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
+    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}${m.similarity ? " &middot; " + esc(m.similarity) : ""}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
     <div class="mktp-top">
       <div class="mktp-stat lead"><div class="mktp-k">Avg sold</div><div class="mktp-v">${yen(m.avg)}</div>${audAvg ? `<div class="mktp-sub">≈ ${esc(audAvg)}</div>` : ""}</div>
       <div class="mktp-stat"><div class="mktp-k">Median</div><div class="mktp-v">${yen(m.median)}</div></div>
@@ -239,7 +265,7 @@ export function marketPanel(m, fx = 0) {
       ${m.bars.some((b) => b.avg > 0) ? `<div class="mktp-trend"><div class="mktp-k">Price trend</div><div class="mktp-bars" role="img" aria-label="${esc(trendLabel)}">${trend}</div></div>` : ""}
     </div>
     ${mix ? `<div class="mktp-mix"><span class="mktp-k">Grade mix</span>${mix}</div>` : ""}
-    ${comps ? `<div class="mktp-comps"><div class="mktp-k" style="margin-bottom:6px">Recent comparable sales</div>${comps}</div>` : ""}
+    ${comps ? `<div class="mktp-comps"><div class="mktp-k" style="margin-bottom:6px">Recent comparable sales${m.similarity ? " (" + esc(m.similarity) + ")" : ""}</div>${comps}</div>` : ""}
     ${MKT_CSS}
   </div>`;
 }

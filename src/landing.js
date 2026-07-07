@@ -30,8 +30,10 @@ import { LOGO, brandDoc } from "./theme.js";
 import { getSettings, settingNum } from "./settings.js";
 import { landingCss } from "./landing-css.js";
 import { landingMotionScript } from "./landing-motion.js";
+import { searchLots, imageUrls } from "./avtonet.js";
+import { esc, displayGrade } from "./render.js";
 import {
-  TICKER, FEATURES, NUMBERS, STEPS, LINEUP, COST_LINES, COST_TOTAL, REVIEWS, FAQS,
+  TICKER, FEATURES, NUMBERS, STEPS, COST_LINES, COST_TOTAL, REVIEWS, FAQS,
 } from "./landing-data.js";
 
 // --- small render helpers --------------------------------------------------
@@ -64,6 +66,74 @@ const stepEl = (s) => `
     <h3>${s.title}</h3>
     <p>${s.body}</p>
   </div>`;
+
+// V1.3 Phase A: the lineup strip shows GENUINELY UPCOMING lots pulled live
+// from the auction feed (searchLots only returns auction_date >= NOW()),
+// cached 30 minutes per isolate. When the feed yields nothing usable the
+// whole strip is dropped rather than showing stale or invented cars.
+let _lineupCache = { cards: null, exp: 0 };
+const LINEUP_TTL = 30 * 60 * 1000;
+function lineupTier(lot) {
+  const jpy = Number(lot.start) > 0 ? Number(lot.start) : Number(lot.avg_price) || 0;
+  if (jpy > 0 && jpy <= 1500000) return "Attainable";
+  if (jpy > 0 && jpy <= 3500000) return "Sweet spot";
+  return "The dream";
+}
+async function liveLineup(env) {
+  const now = Date.now();
+  if (_lineupCache.cards && now < _lineupCache.exp) return _lineupCache.cards;
+  try {
+    // High-grade upcoming lots with photos, soonest auctions first.
+    const { lots } = await searchLots(env, { gradeMin: 4 });
+    const cards = (lots || [])
+      .filter((l) => imageUrls(l).medium && l.marka_name && l.year)
+      .slice(0, 3)
+      .map((l) => liveCard(l));
+    _lineupCache = { cards, exp: now + LINEUP_TTL };
+    return cards;
+  } catch (e) {
+    console.error("liveLineup failed:", e.message);
+    return _lineupCache.cards || [];
+  }
+}
+// A lineup card built from a real feed lot. Reuses the vcard styling; only
+// fields the feed actually provides are rendered (no invented sheet marks).
+function liveCard(lot) {
+  const img = imageUrls(lot).medium;
+  const name = `${esc(lot.year)} ${esc(String(lot.marka_name || "").trim())} ${esc(String(lot.model_name || "").trim())}`.replace(/\s+/g, " ").trim();
+  const sub = [lot.kuzov, lot.grade].map((x) => esc(String(x || "").trim())).filter(Boolean).join(" &middot; ");
+  const odo = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";
+  const closes = String(lot.auction_date || "").slice(0, 10);
+  return `
+  <a class="vcard rv" href="/request">
+    <div class="vc-photo">
+      <img src="/assets/lot-img?u=${encodeURIComponent(img)}" alt="${name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div class="scrim"></div>
+      <span class="vc-lot">Lot ${esc(lot.lot || "-")}</span>
+      <span class="vc-tier">${lineupTier(lot)}</span>
+    </div>
+    <div class="vc-sheet">
+      <div class="vc-chassis"><span>${esc(String(lot.kuzov || "").trim()) || "&nbsp;"}</span></div>
+      <div class="vc-grade-row">
+        <div class="vc-oval">
+          <div class="o"><span class="g">${esc(displayGrade(lot.rate))}</span><span class="gl">GRADE</span></div>
+        </div>
+        <div class="vc-meta">
+          <div class="nm">${name}</div>
+          <div class="sb">${sub || esc(String(lot.auction || "").trim())}</div>
+        </div>
+      </div>
+    </div>
+    <div class="vc-foot">
+      <div class="vc-data">
+        <div class="c"><div class="k">Year</div><div class="v">${esc(lot.year)}</div></div>
+        <div class="c"><div class="k">Odo</div><div class="v">${odo}</div></div>
+        <div class="c"><div class="k">House</div><div class="v">${esc(String(lot.auction || "").trim()) || "-"}</div></div>
+        <div class="c"><div class="k">Closes</div><div class="v">${esc(closes) || "-"}</div></div>
+      </div>
+      <div class="vc-watch"><span class="wk">Start a search</span><span class="card-cta">&rarr;</span></div>
+    </div>
+  </a>`;
+}
 
 // Auction-sheet card. Photo is a placeholder until licensed auction imagery is
 // wired in; the whole card links to /request so any tap starts a search.
@@ -136,8 +206,12 @@ export async function landingPage(env) {
   const priceNum = settingNum(settings, "membership_monthly_aud", 49);
   const price = `A$${priceNum}`;
 
-  const navLinks = NAV_LINKS.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
-  const menuLinks = NAV_LINKS.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
+  // Live lineup: genuinely upcoming lots only; the strip (and its nav link)
+  // disappears entirely when the feed has nothing usable.
+  const lineupCards = await liveLineup(env);
+  const links = lineupCards.length ? NAV_LINKS : NAV_LINKS.filter(([href]) => href !== "#lineup");
+  const navLinks = links.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
+  const menuLinks = links.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
 
   const body = `
   <style>${landingCss}</style>
@@ -218,7 +292,8 @@ export async function landingPage(env) {
       </div>
     </section>
 
-    <!-- LINEUP -->
+    <!-- LINEUP (live upcoming lots; hidden when the feed has none) -->
+    ${lineupCards.length ? `
     <section class="sec" id="lineup">
       <div class="sec-in">
         <div class="list-head">
@@ -232,9 +307,9 @@ export async function landingPage(env) {
           <span>Sheet marks</span><span class="ln"></span>
           <span><b>A</b> scratch</span><span><b>U</b> dent</span><span><b>1-3</b> severity</span>
         </div>
-        <div class="cards">${LINEUP.map(lineupCard).join("")}</div>
+        <div class="cards">${lineupCards.join("")}</div>
       </div>
-    </section>
+    </section>` : ""}
 
     <!-- PINNED LANDED COST -->
     <section class="cost" id="cost" aria-label="Real landed cost">
@@ -302,11 +377,6 @@ export async function landingPage(env) {
     <section class="sec lp-cream" id="trust">
       <div class="sec-in">
         ${eyebrow("Why trust us")}
-        <div class="trust-stats">
-          <div class="rv"><div class="v"><span data-count-to="20" data-post="+">20+</span></div><div class="l">cars imported every month</div></div>
-          <div class="rv rv-d1"><div class="v"><span data-count-to="15">15</span></div><div class="l">years importing from Japan</div></div>
-          <div class="rv rv-d2"><div class="v">100s</div><div class="l">of Aussies already in their dream cars</div></div>
-        </div>
         <div class="reviews">${REVIEWS.map(reviewEl).join("")}</div>
       </div>
     </section>

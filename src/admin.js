@@ -1,18 +1,19 @@
 // JDM Connect - Vehicle Finder staff app (hi-fi redesign) + public request page.
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
-import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
-import { onboardingCss, wizardScript, popularCards, recentExamplesShell, socialProofStrip, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
+import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
 
 // "Continue with Google" button (social login). The official four-colour G mark,
 // a neutral white button, and an "or" divider - shared by the login screen and
@@ -54,89 +55,103 @@ function modelField(listId, current) {
 }
 
 // Inline JS: when the maker <select> changes, (re)load that maker's models into
-// the model <select> via /api/models, clearing any previous selection. Exposes
-// window.jdmLoadModels(want) so presets can load + select a model. No-op if the
-// maker fell back to a text input.
+// the model <select> via /api/models, clearing any previous selection AND the
+// chassis-code field (a code belongs to the old make; leaving it made stale
+// preset codes stick, V1.2 Phase 2). Exposes window.jdmLoadModels(want) so
+// presets can load + select a model. If the models feed is unreachable the
+// select degrades to a free-text input so the form is never bricked; when the
+// feed answers, the model stays strictly select-only.
 function modelScript(makerId, listId, emptyLabel = "Any model") {
   return `<script>(function(){
     var mk=document.getElementById(${JSON.stringify(makerId)}),sel=document.getElementById(${JSON.stringify(listId)});
     if(!mk||!sel)return;
     var EMPTY=${JSON.stringify(emptyLabel)};
+    function degrade(){
+      if(sel.tagName!=="SELECT")return;
+      var inp=document.createElement("input");
+      inp.name=sel.name;inp.id=sel.id;inp.placeholder="e.g. SUPRA";
+      if(sel.getAttribute("aria-describedby"))inp.setAttribute("aria-describedby",sel.getAttribute("aria-describedby"));
+      sel.parentNode.replaceChild(inp,sel);sel=inp;
+    }
     function fill(want){
+      if(sel.tagName!=="SELECT"){if(want)sel.value=want;return;}
       if(mk.tagName!=="SELECT"||!mk.value){sel.innerHTML='<option value="">Select a make to see models</option>';sel.disabled=true;return;}
       sel.disabled=false;sel.innerHTML='<option value="">Loading models…</option>';
       fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){
+        if(!l||!l.length){degrade();if(want)sel.value=want;return;}
         sel.innerHTML='<option value="">'+EMPTY+'</option>';
-        (l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
+        l.forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
         if(want){var f=false;for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===want){f=true;break;}}if(!f){var o=document.createElement("option");o.value=want;o.textContent=want;sel.appendChild(o);}sel.value=want;}
-      }).catch(function(){sel.innerHTML='<option value="">Any model</option>';});
+      }).catch(function(){degrade();if(want)sel.value=want;});
     }
-    mk.addEventListener("change",function(){fill("");});
+    mk.addEventListener("change",function(){
+      fill("");
+      // Chassis code depends on the make/model that was just discarded.
+      var form=mk.closest("form"),kz=form&&form.querySelector('[name="kuzov"]');
+      if(kz)kz.value="";
+    });
     window.jdmLoadModels=function(want){fill(want||"");};
     if(mk.tagName==="SELECT"&&mk.value){fill(sel.getAttribute("data-want")||"");}
+    else if(mk.tagName!=="SELECT"){degrade();}
   })();</script>`;
 }
 
-// Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
-// known model. EDIT THIS LIST to add or refine presets - especially tricky ones
-// like the E55 (listed under "Mercedes AMG", not Mercedes-Benz). Make uses
-// best-match, so the brand word alone is enough. Verify values against the feed.
-// Curated one-tap presets, grouped for scannability. Every make/model below is a
-// real value from the live auction feed (verified via /api/models) and the model
-// is matched as "contains", so a tap always returns results. Years/chassis narrow
-// the common variant; leave them off to keep a preset broad.
-const WL_PRESETS = [
-  // Sports & performance
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R34)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR34", year_min: 1999, year_max: 2002, label: "R34 GT-R" },
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R33)", make: "NISSAN", model: "SKYLINE", kuzov: "BCNR33", year_min: 1995, year_max: 1998, label: "R33 GT-R" },
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R32)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR32", year_min: 1989, year_max: 1994, label: "R32 GT-R" },
-  { group: "Sports & performance", name: "Nissan GT-R (R35)", make: "NISSAN", model: "GT-R", year_min: 2007, year_max: 2024, label: "R35 GT-R" },
-  { group: "Sports & performance", name: "Nissan Silvia (S15)", make: "NISSAN", model: "SILVIA", year_min: 1999, year_max: 2002, label: "S15 Silvia" },
-  { group: "Sports & performance", name: "Nissan 180SX", make: "NISSAN", model: "180 SX", year_min: 1989, year_max: 1998, label: "180SX" },
-  { group: "Sports & performance", name: "Nissan Fairlady Z (350Z)", make: "NISSAN", model: "FAIRLADYZ", year_min: 2002, year_max: 2008, label: "350Z" },
-  { group: "Sports & performance", name: "Toyota Supra (A80)", make: "TOYOTA", model: "SUPRA", kuzov: "JZA80", year_min: 1993, year_max: 2002, label: "A80 Supra" },
-  { group: "Sports & performance", name: "Toyota GR Supra (A90)", make: "TOYOTA", model: "SUPRA", year_min: 2019, year_max: 2024, label: "A90 Supra" },
-  { group: "Sports & performance", name: "Toyota GR Yaris", make: "TOYOTA", model: "GR YARIS", year_min: 2020, year_max: 2024, label: "GR Yaris" },
-  { group: "Sports & performance", name: "Toyota 86 / GR86", make: "TOYOTA", model: "86", year_min: 2012, year_max: 2024, label: "86" },
-  { group: "Sports & performance", name: "Toyota Chaser (JZX100)", make: "TOYOTA", model: "CHASER", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Chaser" },
-  { group: "Sports & performance", name: "Toyota Mark II (JZX100)", make: "TOYOTA", model: "MARK II", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Mark II" },
-  { group: "Sports & performance", name: "Toyota MR2 (SW20)", make: "TOYOTA", model: "MR2", year_min: 1989, year_max: 1999, label: "SW20 MR2" },
-  { group: "Sports & performance", name: "Honda NSX", make: "HONDA", model: "NSX", year_min: 1990, year_max: 2005, label: "NSX" },
-  { group: "Sports & performance", name: "Honda S2000", make: "HONDA", model: "S2000", year_min: 1999, year_max: 2009, label: "S2000" },
-  { group: "Sports & performance", name: "Honda Integra Type R", make: "HONDA", model: "INTEGRA", year_min: 1995, year_max: 2006, label: "Integra Type R" },
-  { group: "Sports & performance", name: "Honda Civic Type R", make: "HONDA", model: "CIVIC", year_min: 2007, year_max: 2023, label: "Civic Type R" },
-  { group: "Sports & performance", name: "Mazda RX-7 (FD3S)", make: "MAZDA", model: "RX-7", kuzov: "FD3S", year_min: 1991, year_max: 2002, label: "FD RX-7" },
-  { group: "Sports & performance", name: "Mazda RX-8", make: "MAZDA", model: "RX-8", year_min: 2003, year_max: 2012, label: "RX-8" },
-  { group: "Sports & performance", name: "Subaru WRX STI (GDB)", make: "SUBARU", model: "IMPREZA", kuzov: "GDB", year_min: 2000, year_max: 2007, label: "GDB STI" },
-  { group: "Sports & performance", name: "Subaru WRX STI (VAB)", make: "SUBARU", model: "WRX STI", year_min: 2014, year_max: 2021, label: "VAB STI" },
-  { group: "Sports & performance", name: "Mitsubishi Lancer Evo (CT9A)", make: "MITSUBISHI", model: "LANCER", kuzov: "CT9A", year_min: 2001, year_max: 2007, label: "Evo 7-9" },
-  { group: "Sports & performance", name: "Mitsubishi GTO", make: "MITSUBISHI", model: "GTO", year_min: 1990, year_max: 2000, label: "GTO" },
-  { group: "Sports & performance", name: "Mercedes E55 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2003, year_max: 2006, label: "E55 AMG" },
-  { group: "Sports & performance", name: "Mercedes E63 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2006, year_max: 2009, label: "E63 AMG" },
-  // SUV, 4x4 & people movers
-  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser", make: "TOYOTA", model: "LAND CRUISER", label: "Land Cruiser" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser Prado", make: "TOYOTA", model: "LAND CRUISER PRADO", label: "Prado" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux", make: "TOYOTA", model: "HILUX", label: "Hilux" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux Surf", make: "TOYOTA", model: "HILUX SURF", label: "Hilux Surf" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Harrier", make: "TOYOTA", model: "HARRIER", label: "Harrier" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Alphard", make: "TOYOTA", model: "ALPHARD", label: "Alphard" },
-  { group: "SUV, 4x4 & people movers", name: "Nissan Elgrand", make: "NISSAN", model: "ELGRAND", label: "Elgrand" },
-  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Delica D5", make: "MITSUBISHI", model: "DELICA D5", label: "Delica D5" },
-  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Pajero", make: "MITSUBISHI", model: "PAJERO", label: "Pajero" },
-  { group: "SUV, 4x4 & people movers", name: "Subaru Forester", make: "SUBARU", model: "FORESTER", label: "Forester" },
-  // Daily, kei & convertible
-  { group: "Daily, kei & convertible", name: "Toyota Aqua", make: "TOYOTA", model: "AQUA", label: "Aqua" },
-  { group: "Daily, kei & convertible", name: "Toyota Prius", make: "TOYOTA", model: "PRIUS", label: "Prius" },
-  { group: "Daily, kei & convertible", name: "Mazda Roadster (MX-5)", make: "MAZDA", model: "ROADSTER", label: "MX-5 Roadster" },
-  { group: "Daily, kei & convertible", name: "Honda Beat", make: "HONDA", model: "BEAT", label: "Beat" },
-  { group: "Daily, kei & convertible", name: "Suzuki Jimny", make: "SUZUKI", model: "JIMNY", label: "Jimny" },
-  { group: "Daily, kei & convertible", name: "Suzuki Cappuccino", make: "SUZUKI", model: "CAPPUCCINO", label: "Cappuccino" },
-  { group: "Daily, kei & convertible", name: "Suzuki Swift Sport", make: "SUZUKI", model: "SWIFT SPORTS", label: "Swift Sport" },
-];
+// Model code + Grade refinement selects (V1.2 Phase 4). Watches the make and
+// model controls, fills the Model code select from /api/codes (labelled with
+// the reviewed association) and the Grade multi-select from /api/grades (the
+// pre-search over current and recent listings, spelling variants included).
+// Degrades quietly: if the feed is down the selects keep only their current
+// value and the fields stay optional.
+function codeGradeScript(makerId, modelId, codeId, gradesId) {
+  return `<script>(function(){
+    var mk=document.getElementById(${JSON.stringify(makerId)}),md=document.getElementById(${JSON.stringify(modelId)});
+    var cd=document.getElementById(${JSON.stringify(codeId)}),gr=document.getElementById(${JSON.stringify(gradesId)});
+    if(!mk||!cd)return;
+    function opt(sel,val,txt,selected){var o=document.createElement("option");o.value=val;o.textContent=txt;if(selected)o.selected=true;sel.appendChild(o);}
+    function fillGrades(){
+      if(!gr||gr.tagName!=="SELECT")return;
+      var want=(gr.getAttribute("data-want")||"").split(",").map(function(s){return s.trim();}).filter(Boolean);
+      if(!mk.value){gr.innerHTML="";return;}
+      fetch("/api/grades?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||"")+"&code="+encodeURIComponent(cd.value||""))
+        .then(function(r){return r.json();}).then(function(l){
+          gr.innerHTML="";
+          (l||[]).forEach(function(g){opt(gr,g,g,want.indexOf(g)>-1);});
+          want.forEach(function(w){for(var i=0;i<gr.options.length;i++){if(gr.options[i].value===w)return;}opt(gr,w,w,true);});
+        }).catch(function(){});
+    }
+    function fillCodes(){
+      if(cd.tagName!=="SELECT")return;
+      var want=cd.getAttribute("data-want")||cd.value||"";
+      if(!mk.value){cd.innerHTML='<option value="">Any model code</option>';fillGrades();return;}
+      fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||""))
+        .then(function(r){return r.json();}).then(function(l){
+          cd.innerHTML='<option value="">Any model code</option>';
+          (l||[]).forEach(function(c){opt(cd,c.code,c.label,c.code===want);});
+          if(want&&cd.value!==want){opt(cd,want,want,true);}
+          fillGrades();
+        }).catch(function(){fillGrades();});
+    }
+    mk.addEventListener("change",function(){cd.setAttribute("data-want","");if(gr)gr.setAttribute("data-want","");fillCodes();});
+    if(md)md.addEventListener("change",function(){fillCodes();});
+    cd.addEventListener("change",fillGrades);
+    fillCodes();
+  })();</script>`;
+}
+
+// Curated wishlist presets: pick one and it auto-fills make/model/code/year for
+// a known model. INTENTIONALLY EMPTY (V1.2 Phase 2 preset data pass): every
+// preset shipped here must be SEVS-eligible with correct year ranges, and the
+// vetted list is to be supplied by Jate/Ben. "Ship empty rather than wrong."
+// The dropdown hides itself while this list is empty; add entries of the shape
+//   { group, name, make, model, kuzov?, year_min?, year_max?, label }
+// (make/model must be real feed values; model matches as "contains").
+const WL_PRESETS = [];
 
 // Dropdown that fills a wishlist form from a preset. Works on any wishlist form
-// (matches inputs by name, relative to the form).
+// (matches inputs by name, relative to the form). Renders nothing while the
+// preset list is empty (see WL_PRESETS above).
 function presetSelect() {
+  if (!WL_PRESETS.length) return "";
   // Group the presets into <optgroup>s while keeping each option's value as its
   // original index into WL_PRESETS (jdmPreset reads that index).
   const groups = [];
@@ -152,6 +167,7 @@ function presetSelect() {
     <select onchange="jdmPreset(this)"><option value="">No preset</option>${opts}</select></div>`;
 }
 function presetScript() {
+  if (!WL_PRESETS.length) return "";
   return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){
     var form=sel.closest("form")||document;
     function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el)el.value=(v==null?"":v);}
@@ -465,8 +481,10 @@ const CSS = `
   .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;text-decoration:none;color:var(--ink);min-height:44px}
   a.mcl-row:active{background:var(--hover)}
   .mcl-b{flex:1;min-width:0}
-  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
-  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list)}
+  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3;overflow-wrap:anywhere}
+  /* overflow-wrap:anywhere: a worst-case unbroken token (long email, VIN-ish
+     label) must wrap inside the card, never widen the page (375px rule). */
+  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list);overflow-wrap:anywhere}
   .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
   .mcl-rs{font-size:var(--fs-label);color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
@@ -935,7 +953,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
-      <a class="btn-search" href="/run"><span class="dot"></span>Search auctions</a>
+      <a class="btn-search" href="/run"><span class="dot"></span>Run Searches</a>
       <div class="whoami"><span class="who-name">${whoLabel}</span><span class="who-role">${whoSub}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
@@ -974,7 +992,7 @@ async function adminSearch(env, session, q) {
       WHERE ${acc.sql} AND (w.marka_name LIKE ? OR w.model_name LIKE ? OR w.kuzov LIKE ? OR w.label LIKE ?) ORDER BY c.name LIMIT 25`
   ).bind(...acc.binds, like, like, like, like).all()).results || [];
   out.matches = (await env.DB.prepare(
-    `SELECT q.id, q.lot_id, q.status, c.id AS client_id, c.name AS client_name
+    `SELECT q.id, q.lot_id, q.status, q.lot_json, c.id AS client_id, c.name AS client_name
        FROM queue q JOIN clients c ON c.id = q.client_id
       WHERE ${acc.sql} AND (q.lot_id LIKE ? OR q.lot_json LIKE ?) ORDER BY q.created_at DESC LIMIT 25`
   ).bind(...acc.binds, like, like).all()).results || [];
@@ -999,7 +1017,12 @@ function searchView(res) {
   const reqRows = res.requests.map((w) => `<tr><td><a class="clink" href="/admin?view=client&id=${w.client_id}">${esc(displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || w.label || "Search")}</a>${w.kuzov ? ` <span class="chip muted">${esc(w.kuzov)}</span>` : ""}</td><td>${esc(w.client_name)}</td></tr>`).join("");
   const chip = (s) => `<span class="chip muted">${esc(s || "-")}</span>`;
   const aud = (cents, cur) => `${String(cur || "aud").toUpperCase()} $${(Number(cents || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`;
-  const matchRows = res.matches.map((m) => `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`).join("");
+  const matchRows = res.matches.map((m) => {
+    // Lead with the car (year make model); the raw internal id is never shown.
+    let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
+    const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
+    return `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`;
+  }).join("");
   const payRows = res.payments.map((p) => `<tr><td>${esc(p.client_name || "-")}</td><td>${aud(p.amount_cents, p.currency)}</td><td>${esc(p.description || "-")}</td><td>${chip(p.status)}</td></tr>`).join("");
   return `${grp("Customers", res.clients.length, clientRows)}${grp("Requests", res.requests.length, reqRows)}${grp("Matches", res.matches.length, matchRows)}${grp("Payments", res.payments.length, payRows)}`;
 }
@@ -1059,7 +1082,10 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
           : m.viewed_at ? `<span class="chip chip-info">Viewed</span>`
           : m.sent_at ? `<span class="chip chip-warn">Sent</span>`
           : `<span class="chip muted">${esc(m.status)}</span>`;
-        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">Lot ${esc(m.lot_id)}</a></div><div class="dw-item-s">${stage}${strength} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
+        // V1.2 Phase 5: the row leads with the car, never a raw internal id.
+        const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
+        const landed = m._landed || (lot._landed && lot._landed.grandTotal) || null;
+        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></div><div class="dw-item-s">${stage}${strength}${landed ? ` &middot; <b>A$${Number(landed).toLocaleString("en-AU")}</b>` : ""} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
       }).join("")
     : `<div class="dw-empty-sm">No matches yet.</div>`;
   const pList = pays.length
@@ -1234,7 +1260,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const requests = (view === "requests") ? ((await run(
     `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name,
             (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.sent_at IS NOT NULL) AS sent_count,
-            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count,
+            (SELECT q.lot_id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_id,
+            (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
@@ -1333,7 +1361,9 @@ function agentsView(agents, opts = {}) {
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
         ${rowMenu([
-          { label: invited ? "Resend invite" : "Reset password", action: "/agent/invite", id: a.id },
+          invited
+            ? { label: "Resend invite", action: "/agent/invite", id: a.id }
+            : { label: "Send password reset", action: "/send-reset", id: a.id, extra: { kind: "agent" } },
           { sep: true },
           { label: "Delete", action: "/agent/delete", id: a.id, confirm: "Delete this agent and ALL their clients, searches and matches? This cannot be undone.", icon: ICONS.trash, danger: true },
         ])}
@@ -1388,6 +1418,8 @@ function settingsView(settings, opts = {}) {
         <a href="#set-client">Client-facing</a>
         <a href="#set-payments">Payments</a>
         <a href="#set-pricing">Pricing</a>
+        <a href="#set-freetier">Free tier</a>
+        <a href="#set-landed">Landed cost</a>
         <a href="#set-ai">AI reader</a>
       </nav>
 
@@ -1466,6 +1498,33 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="any" value="${esc(s.membership_monthly_aud || "49")}"></div>
             <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="any" value="${esc(s.free_result_limit || "1")}"></div>
           </div>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-freetier">
+        <h2><span class="num">5c</span> Free tier &amp; search runs</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 16px">How free accounts behave, and whose searches "Run Searches" covers. Change these any time, no deploy needed.</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("free_auto_send", "Auto-send the first match to free signups", "On: a free account gets an example match emailed the instant they sign up. Off (recommended): staff review matches before they are sent.", settingOn(s, "free_auto_send"))}
+            ${toggleRow("run_includes_free", "Run Searches includes free accounts", "On (recommended): the matcher runs every active search, free or paid. Off: it runs paid members' searches only.", settingOn(s, "run_includes_free"))}
+          </div>
+          <div class="grid2" style="margin-top:16px">
+            <div><label for="set-freesearch">Active searches per free account</label><input id="set-freesearch" name="free_search_limit" type="number" min="1" step="1" value="${esc(s.free_search_limit || "1")}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-landed">
+        <h2><span class="num">5b</span> Landed cost assumptions</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 16px">The figures behind every landed-price estimate on listings and emails. Change them here and new estimates use them straight away, no deploy needed. Leave a field blank to use the built-in default.</p>
+          <div class="grid2">
+            <div><label for="set-compliance">Compliance <span class="opt">(A$, SEVS/RAWS)</span></label><input id="set-compliance" name="calc_compliance_aud" type="number" min="0" step="any" value="${esc(s.calc_compliance_aud || "")}" placeholder="4,000"></div>
+            <div><label for="set-agency">Agency fee <span class="opt">(A$, per import)</span></label><input id="set-agency" name="calc_agency_aud" type="number" min="0" step="any" value="${esc(s.calc_agency_aud || "")}" placeholder="0"></div>
+            <div><label for="set-fx">FX override <span class="opt">(JPY per A$1, blank = live rate)</span></label><input id="set-fx" name="calc_fx_jpy_aud" type="number" min="0" step="any" value="${esc(s.calc_fx_jpy_aud || "")}" placeholder="live"></div>
+          </div>
+          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed.</p>
         </div>
       </div>
 
@@ -1606,12 +1665,12 @@ export function loginPage(opts = {}) {
       ${err}
       ${googleBlock}
       <label for="lg-email">Email</label>
-      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" value="${esc(opts.email || "")}">
       <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
+      <p class="login-sub" style="margin:8px 0 0;text-align:right"><a href="/forgot-password" style="color:var(--gold-txt)">Forgot password?</a></p>
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:16px 0 0"><a href="/forgot-password" style="color:var(--gold-txt);font-weight:600">Forgot your password?</a></p>
-      <p class="login-sub" style="margin:8px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
+      <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:700;text-decoration:underline;text-underline-offset:3px">Sign up to start searching</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -1619,23 +1678,6 @@ export function loginPage(opts = {}) {
 
 // Self-serve "Forgot password?" screen. The confirmation is intentionally the
 // same whether or not the email matched an account (no enumeration signal).
-export function forgotPasswordPage(opts = {}) {
-  const card = opts.sent
-    ? `<div class="login-card"><div class="login-logo">${LOGO}</div><h1>Check your email</h1>
-      <p class="login-sub">If <strong>${esc(opts.email || "that address")}</strong> has an account with us, we've sent it a link to choose a new password. The link works for 1 hour — check your spam folder if it doesn't arrive.</p>
-      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p></div>`
-    : `<form class="login-card" method="POST" action="/forgot-password">
-      <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
-      <h1>Reset your password</h1>
-      <p class="login-sub">Enter your account email and we'll send you a link to choose a new one.</p>
-      <label for="fp-email">Email</label>
-      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" autofocus required maxlength="160" value="${esc(opts.email || "")}">
-      <button class="btn-gold" type="submit">Email me a reset link</button>
-      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p>
-    </form>`;
-  return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Reset password - JDM Connect");
-}
-
 // Agent set-password screen (reached from the emailed invite link).
 export function setPasswordPage(opts = {}) {
   const { token, name, error, invalid } = opts;
@@ -1652,14 +1694,33 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
-      <p id="sp-help" class="login-sub" style="margin:8px 0 0;font-size:var(--fs-label)">At least ${PW_MIN} characters.</p>
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}">
       <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
-      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
+}
+
+// "Forgot password?" screen. The sent state is the SAME whether or not the
+// email has an account (no enumeration): we only ever say a link is on its way
+// if the address is registered.
+export function forgotPasswordPage(opts = {}) {
+  const card = opts.sent
+    ? `<div class="login-card"><div class="login-logo">${LOGO}</div><h1>Check your email</h1>
+      <p class="login-sub">If <strong>${esc(opts.email || "that address")}</strong> has a JDM Connect login, a password reset link is on its way. The link works for 1 hour - check your spam folder if it doesn't arrive.</p>
+      <p class="login-sub" style="margin-top:16px"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p></div>`
+    : `<form class="login-card" method="POST" action="/forgot-password">
+      <div class="login-logo">${LOGO}</div>
+      <h1>Reset your password</h1>
+      <p class="login-sub">Enter the email you sign in with and we'll send you a link to choose a new password.</p>
+      <label for="fp-email">Email</label>
+      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" autofocus required>
+      <button class="btn-gold" type="submit">Email me a reset link</button>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
+    </form>`;
+  return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Reset password - JDM Connect");
 }
 
 // Time-aware greeting (client local time) + count-up on the dashboard numbers.
@@ -2147,6 +2208,10 @@ function intakeView(clients, makers, opts = {}) {
     ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
     : opts.err === "name"
     ? `<div class="reqerr">Please enter the client's name.</div>`
+    : opts.err === "email"
+    ? `<div class="reqerr">That email address doesn't look right. Please check it and try again.</div>`
+    : opts.err === "whatsapp"
+    ? `<div class="reqerr">That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.</div>`
     : "";
   return `
     <div class="card">
@@ -2172,7 +2237,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Client<select name="client_id" required>${clientOptions}</select></label></div>
           <div><label>Label<input name="label" placeholder="e.g. under 1.5M daily"></label></div>
           <div><label for="wl-maker">Make</label>${makerField(makers, "wl-maker")}</div>
-          <div><label>Model <span class="opt">(pick or type)</span>${modelField("wl-models")}</label></div>
+          <div><label>Model${modelField("wl-models")}</label></div>
           <div><label>Year min<input name="year_min" type="number" placeholder="1990"></label></div>
           <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
           <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
@@ -2180,13 +2245,15 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
+          <div><label for="wl-code">Model code <span class="opt">(exact variant)</span></label><select id="wl-code" name="model_code"><option value="">Any model code</option></select></div>
+          <div><label for="wl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="wl-grades" name="grades" multiple size="4"></select></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
     </div>
-    ${modelScript("wl-maker", "wl-models")}${presetScript()}`;
+    ${modelScript("wl-maker", "wl-models")}${codeGradeScript("wl-maker", "wl-models", "wl-code", "wl-grades")}${presetScript()}`;
 }
 
 function clientsView(clients, wishlists, opts = {}) {
@@ -2442,15 +2509,11 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card${counts[s.id] ? "" : " pipe-zero"}" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("") + `<button type="button" class="pipe-more" aria-expanded="false" onclick="var p=this.closest('.pipe');var on=p.classList.toggle('all');this.setAttribute('aria-expanded',on?'true':'false');this.textContent=on?'Fewer stages':'All stages'">All stages</button>`;
 
-  // Hot leads first: a never-touched New request is inside (or past) the
-  // one-hour contact window, so it outranks the activity-ordered rest no
-  // matter how stale its created_at sorts. Oldest untouched first: it has
-  // waited longest and is most at risk.
+  // V1.3 Phase C: stupid simple. The most recent requests sit at the top,
+  // full stop (the hot-lead reshuffle confused the read); a fresh untouched
+  // request still gets its age chip so it reads as new.
+  const ordered = [...requests].sort((a, b) => (tsMs(b.created_at) || 0) - (tsMs(a.created_at) || 0));
   const isUntouchedNew = (r) => (r.status || "new") === "new" && !r.last_activity;
-  const ordered = [
-    ...requests.filter(isUntouchedNew).sort((a, b) => (tsMs(a.created_at) || 0) - (tsMs(b.created_at) || 0)),
-    ...requests.filter((r) => !isUntouchedNew(r)),
-  ];
   // Age label for an untouched New row; hot once past the one-hour window.
   const newAge = (r) => {
     if (!isUntouchedNew(r)) return null;
@@ -2466,23 +2529,24 @@ function requestsView(requests, opts = {}) {
   // cell as a chip only when it is the unusual case (overseas).
   const rows = ordered.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
-    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
     const dest = String(r.destination_country || "").trim();
+    // The latest car queued for this request, linked to its listing detail.
+    let lastLot = null; try { lastLot = r.last_lot_json ? JSON.parse(r.last_lot_json) : null; } catch (e) {}
+    const lastCar = lastLot
+      ? `<a class="clink" href="/admin?view=lot&id=${esc(r.last_lot_id)}">${esc(displayName([lastLot.year, lastLot.marka_name, lastLot.model_name].filter(Boolean).join(" ")) || `Lot ${lastLot.lot || r.last_lot_id}`)}</a>`
+      : `<span class="chip muted">none yet</span>`;
     return `<tr data-st="${r.status || "new"}">
-      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
-      <td class="req-veh"><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
-      <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
+      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span></td>
+      <td class="req-veh"><a class="clink" href="/admin?view=client&id=${r.client_id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
+      <td class="req-veh">${lastCar}</td>
       <td class="req-status">${statusSelect(r.id, r.status)}</td>
-      <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
-      <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
-      <td>${esc(r.owner_name || "JDM Connect")}</td>
       <td style="white-space:nowrap">${newAge(r) || esc(lastActivityLabel(r.last_activity))}</td>
       <td style="text-align:right">${rowMenu([
         { label: "Open request", href: `/admin?view=request&id=${r.id}` },
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
   // Plain-English key so staff aren't guessing what the dots / REQ / Examples
   // column mean (client asked "what do the green and red dots mean?"). Lives
@@ -2518,7 +2582,7 @@ function requestsView(requests, opts = {}) {
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th class="req-veh">Vehicle</th><th style="text-align:right">Budget</th><th class="req-status">Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Customer</th><th class="req-veh">Request</th><th class="req-veh">Latest car</th><th class="req-status">Status</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
@@ -2789,7 +2853,7 @@ function matchTrackRow(q, back) {
     lot.grade ? esc(String(lot.grade)) : "",
     lot.kuzov ? `Chassis ${esc(String(lot.kuzov))}` : "",
     Number(lot.mileage) > 0 ? `${Number(lot.mileage).toLocaleString("en-US")} km` : "",
-    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(String(lot.rate))}` : "",
+    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(fullGrade(lot))}` : "",
     lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "",
     lot._landed && Number(lot._landed.grandTotal) > 0 ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")} landed` : "",
   ].filter(Boolean).join(" &middot; ");
@@ -3527,7 +3591,7 @@ function matchCard(q, cardOpts = {}) {
   // One muted spec line replaces the four-cell grid, the condition chips and
   // the why chips (all still on lot detail): Linear register, one line only.
   const cond = conditionScores(lot);
-  const grade = displayGrade(lot.rate);
+  const grade = fullGrade(lot);
   const spec = [
     (grade && grade !== "-") ? "Grade " + esc(grade) : "",
     lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k km" : "",
@@ -4189,13 +4253,16 @@ export async function editWishlist(env, form, session) {
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
   if (!(await wishlistOwnedBy(env, id, session))) return;
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ?,
+       model_code = ?, grades = ? WHERE id = ?`
   ).bind(
-    str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
-    num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0, id
+    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"),
+    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
+    clampRange(num(form, "rate_min"), 1, 6), sstr(form, "kuzov"), sstr(form, "grade_kw"), form.get("watch_only") ? 1 : 0,
+    sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), id
   ).run();
 }
 
@@ -4211,7 +4278,9 @@ function wishlistEditor(w, opts = {}) {
   const summary = `${esc(displayName(w.marka_name)) || "Any maker"} ${esc(displayName(w.model_name))}`.trim()
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
-    + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
+    + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "")
+    + (w.model_code ? ` · ${esc(w.model_code)}` : "")
+    + (gradesText(w.grades) ? ` · ${esc(gradesText(w.grades))}` : "");
   // Staff-only: "Search" runs the live auction search for THIS exact vehicle,
   // pre-filling the Find-a-car form from this search's criteria and jumping to it.
   const searchBtn = (!opts.portal && w.client_id && (w.marka_name || w.model_name || w.kuzov))
@@ -4256,6 +4325,8 @@ function wishlistEditor(w, opts = {}) {
           ${field("Min grade", "rate_min", "number")}
           ${field("Chassis or model code", "kuzov", null, "(contains, best match)")}
           ${field("Grade keyword", "grade_kw", null, "(contains)")}
+          ${field("Model code", "model_code", null, "(exact variant)")}
+          <div><label>Grades <span class="opt">(comma separated, any spelling matches)</span><input name="grades" value="${esc(gradesText(w.grades))}" placeholder="e.g. S450, S450 EXCLUSIVE"></label></div>
         </div>
         ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
@@ -4385,7 +4456,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   // Market intelligence (sold comparables) + live FX, in parallel. Both are
   // cached and degrade to null/fallback, so the page never blocks on them.
   const [market, fx] = await Promise.all([
-    marketIntel(env, lot.marka_name, lot.model_name).catch(() => null),
+    marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null),
     getLiveFx(env).catch(() => 0),
   ]);
   const marketBox = marketPanel(market, fx);
@@ -4532,7 +4603,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
         </div>
         <aside class="ld-right">
           <div class="card ld-card">
-            <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
+            <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(fullGrade(lot))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
@@ -4735,6 +4806,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.email
           ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
+        ${session.role === "admin" && c.portal_enabled && c.pass_hash
+          ? `<form method="POST" action="/send-reset" style="display:inline"><input type="hidden" name="kind" value="client"><input type="hidden" name="id" value="${c.id}"><button class="btn-toggle" type="submit">Send password reset</button></form>`
+          : ""}
         ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
@@ -4757,6 +4831,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
+  // Maker list shared by the add-search form and (for managers) the find card.
+  const findMakers = await distinctMakers(env);
   const newWl = `<details class="card foldcard"${searchWls.length ? "" : " open"}>
     <summary>${searchWls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
     <form method="POST" action="/wishlist">
@@ -4764,19 +4840,21 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       ${presetSelect()}
       <div class="grid">
         <div><label for="as-label">Label</label><input id="as-label" name="label" placeholder="e.g. weekend project"></div>
-        <div><label for="as-make">Make</label><input id="as-make" name="marka_name" placeholder="e.g. TOYOTA"></div>
-        <div><label for="as-model">Model <span class="opt">(contains)</span></label><input id="as-model" name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label for="as-make">Make</label>${makerField(findMakers, "as-make")}</div>
+        <div><label for="as-model">Model</label>${modelField("as-model")}</div>
         <div><label for="as-yearmin">Year min</label><input id="as-yearmin" name="year_min" type="number" placeholder="1990"></div>
         <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
         <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
         <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+        <div><label for="as-code">Model code <span class="opt">(exact variant)</span></label><select id="as-code" name="model_code"><option value="">Any model code</option></select></div>
+        <div><label for="as-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="as-grades" name="grades" multiple size="4"></select></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
-    </form>${presetScript()}
+    </form>${modelScript("as-make", "as-model")}${codeGradeScript("as-make", "as-model", "as-code", "as-grades")}${presetScript()}
   </details>`;
 
   // IA-AUDIT item 5: searches render as one-line summary rows (label, digest,
@@ -4818,7 +4896,6 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
   }
-  const findMakers = await distinctMakers(env);
   // Pre-fill the search with what this client is already chasing (their first
   // saved search), so staff don't re-type it. Once they actually run a search,
   // show that query instead.
@@ -4905,8 +4982,12 @@ export async function requestPage(env, opts = {}) {
   // Keep the form short for cold ad traffic: only Make/Model show by default,
   // the rest fold away. Re-open the extra fields if any came back filled (e.g.
   // a preset, or a re-render after a contact error) so nothing looks lost.
-  const moreOpen = ["mileage_max", "rate_min", "kuzov", "label"].some((k) => vals[k]);
+  const moreOpen = ["mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
+  // Current FX rate for the live yen-equivalent under the budget field; falls
+  // back to the configured CALC_FX inside getLiveFx, and 0 only if that throws
+  // (the wizard script then uses its own baked-in default).
+  const fx = await getLiveFx(env).catch(() => 0);
   // Social login: the button shows only when Google is configured. `signedIn`
   // ({name,email}) means the visitor arrived already authenticated, so the
   // account step collapses to a one-tap confirm (no email/password re-entry).
@@ -4923,7 +5004,7 @@ export async function requestPage(env, opts = {}) {
   if (ok) {
     const car = [esc(req.marka_name || ""), esc(req.model_name || "")].filter(Boolean).join(" ") || "Your vehicle";
     const yr = req.year_min && req.year_max ? `${esc(req.year_min)} to ${esc(req.year_max)}` : "";
-    const bud = req.budget_aud ? `Budget up to A$${Number(req.budget_aud).toLocaleString("en-AU")} all-in` : "";
+    const bud = req.budget_aud ? `Budget up to A$${Number(req.budget_aud).toLocaleString("en-AU")} on-road` : "";
     const st = req.state ? `Registered in ${esc(req.state)}` : "";
     const summaryRows = [`<b>${car}</b>`, yr, bud, st].filter(Boolean)
       .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
@@ -4954,14 +5035,14 @@ export async function requestPage(env, opts = {}) {
           <p class="ob-note-sm" style="margin-top:12px">${opts.welcome.emailed ? `We've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} the full details${opts.welcome.count > 1 ? " for each" : ""}.` : "Our team is preparing the full details for you now."}</p>
         </div>`
       : (opts.welcome
-        ? `<div class="ob-card"><p class="ob-note-sm" style="margin:0">We're scanning every live Japanese auction for your exact car right now - we'll email you the instant one lists.</p></div>`
+        ? `<div class="ob-card"><p class="ob-note-sm" style="margin:0">Your search is running against every live Japanese auction. We review what comes up and email you the strongest matches.</p></div>`
         : "");
     const upsellCard = opts.upsell
       ? `<div class="ob-card" style="border:1px solid var(--gold);background:linear-gradient(180deg,#FFFBEF,#fff)">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
           <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
-          <a class="btn-gold" href="/login">Get full access <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-gold" href="/request">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
     const successInner = `<div class="ob">
@@ -4969,7 +5050,7 @@ export async function requestPage(env, opts = {}) {
       <main class="ob-main" id="main"><div class="ob-success">
         <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
         <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
-        <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
+        <p class="ob-sub">Your search now runs against the Japanese auctions. When a good match comes up, we review it and ${req.email ? `email <strong>${esc(req.email)}</strong>` : "contact you"}. New cars list constantly, so a quiet start is normal.</p>
         ${welcomeCard}
         <div class="ob-card">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:14px">Searching for</div>
@@ -4984,7 +5065,7 @@ export async function requestPage(env, opts = {}) {
         ${successTimeline()}
         <p class="ob-note-sm">${acct}</p>
         <div class="ob-cta">
-          <a class="btn-gold" href="/login">View my dashboard <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-gold" href="/request">Start another search <span aria-hidden="true">&rarr;</span></a>
           <a class="btn-ghost" href="/">Browse recent imports</a>
         </div>
         ${supportBlock()}
@@ -4999,14 +5080,14 @@ export async function requestPage(env, opts = {}) {
   // re-render never lands the visitor on the wrong screen.
   const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
     : opts.error === "budget" ? "2"
-      : (opts.error === "email" || opts.error === "password" || opts.error === "exists" || opts.error === "phone") ? "4"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "phone") ? "4"
         : "";
   const bannerMsg = opts.error === "phone"
     ? "Please enter a valid mobile number so we can reach you the moment a match appears."
+    : opts.error === "limited"
+    ? "We've received a lot of requests from your connection just now. Please wait a few minutes and submit again - nothing was saved this time."
     : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
-    : opts.error === "exists"
-    ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
     : opts.error === "password"
       ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
       : opts.error === "vehicle"
@@ -5014,7 +5095,7 @@ export async function requestPage(env, opts = {}) {
         : opts.error === "year"
           ? "Please enter the year range you're after (and make sure 'from' isn't later than 'to')."
           : opts.error === "budget"
-            ? "Please enter your maximum all-in budget in AUD (at least A$5,000)."
+            ? "Please enter your maximum on-road budget in AUD (at least A$5,000)."
             : opts.error === "email"
               ? "Please enter your email so we can set up your account and reach you when a match comes up."
               : "";
@@ -5038,12 +5119,12 @@ export async function requestPage(env, opts = {}) {
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
 
           <section class="ob-step is-active" data-step="1" aria-label="Find your car">
-            ${socialProofStrip()}
             <div class="ob-eyebrow">Start your search</div>
             <h1>What vehicle are you looking for?</h1>
             <p class="ob-lead">Tell us what you're chasing and we'll search every major Japanese auction house for matching vehicles.</p>
             <div class="ob-sub-h">Popular searches</div>
             ${popularCards()}
+            <div style="margin-bottom:18px"><label for="rf-label">Nickname <span class="opt">(optional, for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
             <div class="ob-fields">
               <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name).replace('id="rq-maker"', 'id="rq-maker" aria-describedby="rq-vehicle-error"')}</div>
               <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name).replace('id="rq-models"', 'id="rq-models" aria-describedby="rq-vehicle-error"')}</div>
@@ -5052,6 +5133,16 @@ export async function requestPage(env, opts = {}) {
             </div>
             <p id="rq-vehicle-error" class="field-err" role="alert">Please choose a make and model so we know what to look for.</p>
             <p id="rq-year-error" class="field-err" role="alert">Please enter the year range you're after ("from" can't be later than "to").</p>
+            <details class="ob-refine"${moreOpen ? " open" : ""}>
+              <summary>Refine my search (optional)</summary>
+              <div class="ob-fields">
+                <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
+                <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+                <div><label for="rf-code">Model code <span class="opt">(exact variant)</span></label><select id="rf-code" name="model_code" data-want="${v("model_code")}"><option value="">Any model code</option>${vals.model_code ? `<option value="${v("model_code")}" selected>${v("model_code")}</option>` : ""}</select></div>
+                <div><label for="rf-grades">Grade <span class="opt">(pick every spelling you'd take)</span></label><select id="rf-grades" name="grades" multiple size="4" data-want="${esc(gradesText(vals.grades || ""))}"></select></div>
+              </div>
+            </details>
             ${recentExamplesShell()}
             <div class="ob-nav-btns ob-only">
               <button type="button" class="btn-gold ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
@@ -5067,23 +5158,15 @@ export async function requestPage(env, opts = {}) {
                 <div class="ob-sub-h">Quick pick</div>
                 ${budgetChips()}
                 <div class="ob-budget">
-                  <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
-                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
+                  <label for="rq-budget">Max budget <span class="opt">(AUD, on-road)</span></label>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error rq-yen"></div>
+                  <p class="ob-yen" id="rq-yen" aria-live="polite"></p>
                 </div>
-                <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
+                <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum on-road budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:16px">
                   <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-                  <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
+                  <div><label for="rq-dest">Country</label><input id="rq-dest" name="destination_country" value="${esc(vals.destination_country || "Australia")}" maxlength="60"></div>
                 </div>
-                <details class="ob-refine"${moreOpen ? " open" : ""}>
-                  <summary>Refine my search (optional)</summary>
-                  <div class="ob-fields">
-                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-                    <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
-                    <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
-                  </div>
-                </details>
               </div>
               ${testimonialPanel()}
             </div>
@@ -5172,7 +5255,7 @@ export async function requestPage(env, opts = {}) {
       </main>
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
-    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn })}`;
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${codeGradeScript("rq-maker", "rq-models", "rf-code", "rf-grades")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn, fx, overheadAud: IMPORT_OVERHEAD_AUD, onValueTax: ON_VALUE_TAX, minCarAud: MIN_CAR_VALUE_AUD })}`;
   return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
 }
 
@@ -5201,7 +5284,7 @@ export async function publicLotPage(env, queueId) {
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const [market, fx] = settingOn(settings, "market_for_clients")
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
@@ -5217,7 +5300,7 @@ export async function publicLotPage(env, queueId) {
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
@@ -5288,7 +5371,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const settings = await getSettings(env).catch(() => ({}));
   const showMarket = member ? settingOn(settings, "market_for_clients") : true;
   const [market, fx] = showMarket
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
@@ -5304,7 +5387,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
@@ -5319,7 +5402,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   let actions;
   if (member) {
     const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
-    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(displayGrade(lot.rate))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
+    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(fullGrade(lot))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
     actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
       <button type="button" class="ac-fav plv-watch" ${heartData} aria-pressed="false">Save to watchlist</button>
       <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
@@ -5466,7 +5549,8 @@ function rowMenu(items) {
     const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
     if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
     const conf = it.confirm ? ` data-confirm="${esc(it.confirm)}"${it.danger ? " data-danger" : ""}` : "";
-    return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
+    const extras = Object.entries(it.extra || {}).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+    return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}">${extras}<button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
   }).join("");
   return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
 }
@@ -5844,13 +5928,17 @@ function clientDedupeScope(agentId) {
 }
 
 export async function createClient(env, form, session) {
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim();
-  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email);
+  const whatsappRaw = String(form.get("whatsapp") || "").trim();
   // A client must be reachable, or any match we find can never be sent. Require
   // a name plus at least one contact channel (email or WhatsApp).
   if (!name) return { ok: false, error: "name" };
-  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  if (!email && !whatsappRaw) return { ok: false, error: "contact" };
+  if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
+  // Store phones in canonical E.164 so matching and wa.me links always work.
+  const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
+  if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
   const state = normalizeState(form.get("state"));
   // Unknown category values fall back to 'private' rather than erroring; the
   // select only offers valid ids, so anything else is a stale/hand-built form.
@@ -5893,9 +5981,12 @@ export async function updateClient(env, form, session) {
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
   if (!canManage) return { ok: false, error: "forbidden" };
 
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim();
-  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email);
+  const whatsappRaw = String(form.get("whatsapp") || "").trim();
+  const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
+  if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
+  if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
   const state = normalizeState(form.get("state"));
   // Absent field = a caller that doesn't know about categories (keep what's
   // stored); an unknown value = a mangled form (fall back to private).
@@ -5924,6 +6015,8 @@ export function clientEditErrorMessage(code) {
   return ({
     name: "Please enter the client's name.",
     contact: "Add an email or a WhatsApp number so we can still reach them.",
+    email: "That email address doesn't look right. Please check it and try again.",
+    whatsapp: "That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.",
     portal_email: "This client has buyer-portal access, which needs an email. Revoke portal access first if you really need to remove the email.",
     duplicate: "Another client already uses that email or phone number, so the change was not saved.",
     forbidden: "Only the client's owner (or an admin) can edit their details.",
@@ -5934,21 +6027,96 @@ export function clientEditErrorMessage(code) {
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
 const str = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : v; };
 
+// --- V1.2 Phase 3: shared server-side sanitisers ------------------------------
+// Every mutation handler funnels user input through these, so a hand-built
+// POST can't store oversized junk or out-of-range numbers regardless of which
+// form it claims to come from. Client-side maxlength is advisory only.
+const FIELD_MAX = {
+  name: 120, email: 254, whatsapp: 40, label: 120, marka_name: 60,
+  model_name: 60, kuzov: 40, grade_kw: 60, company: 120, note: 2000, state: 40,
+};
+// Active searches per client, staff and portal alike. Stops one record fanning
+// out into dozens of match-all searches that hammer the matcher.
+export const WISHLIST_ACTIVE_CAP = 10;
+const PRICE_MAX_CAP = 100000000;   // JPY auction ceiling
+const MILEAGE_MAX_CAP = 2000000;   // km
+const sstr = (form, k, max) => {
+  const v = String(form.get(k) ?? "").trim().slice(0, max || FIELD_MAX[k] || 200);
+  return v || null;
+};
+// Years must be a real 4-digit year in the range the feed can contain.
+const syear = (form, k) => {
+  const v = String(form.get(k) ?? "").trim();
+  return /^\d{4}$/.test(v) && Number(v) >= 1970 && Number(v) <= 2050 ? Number(v) : null;
+};
+// Positive integer capped at a sane ceiling; anything else stores as null.
+const sint = (form, k, cap) => {
+  const v = String(form.get(k) ?? "").trim().replace(/[,\s]/g, "");
+  if (!/^\d{1,12}$/.test(v)) return null;
+  const n = Math.min(Number(v), cap);
+  return n > 0 ? n : null;
+};
+// E.164-ish phone: optional +, 8 to 15 digits once spacing is stripped. AU
+// local 04xx / 0x formats rewrite to +61. Returns the canonical +digits form,
+// or null when the input can't be a reachable number.
+export function phoneE164(raw) {
+  let s = String(raw || "").replace(/[\s().-]/g, "");
+  if (!s) return null;
+  if (/^0\d{8,9}$/.test(s)) s = "+61" + s.slice(1);
+  else if (/^61\d{9}$/.test(s)) s = "+" + s;
+  if (!/^\+?\d{8,15}$/.test(s)) return null;
+  return s.startsWith("+") ? s : "+" + s;
+}
+// Grade values from either a multi-select (repeated "grades" keys) or a plain
+// comma-separated text input: each clipped, up to 8, stored as a JSON array
+// string, or null when none chosen (V1.2 Phase 4).
+function sgrades(form) {
+  const list = (form.getAll ? form.getAll("grades") : [])
+    .flatMap((v) => String(v || "").split(","))
+    .map((g) => g.trim().slice(0, FIELD_MAX.grade_kw))
+    .filter(Boolean).slice(0, 8);
+  return list.length ? JSON.stringify(list) : null;
+}
+// Render a stored grades JSON list back to editable comma-separated text.
+export function gradesText(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  try { const l = JSON.parse(s); return Array.isArray(l) ? l.join(", ") : ""; } catch (e) { return s; }
+}
+async function activeWishlistCount(env, clientId) {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE client_id = ? AND active = 1").bind(Number(clientId)).first();
+  return Number(r?.n) || 0;
+}
+// Shared year pair: both valid 4-digit years, swapped into order.
+function yearPair(form) {
+  let yMin = syear(form, "year_min"), yMax = syear(form, "year_max");
+  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  return { yMin, yMax };
+}
+
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
   if (!clientId) return { ok: false, error: "client" };
   // An agent can add a wishlist to any client they own or that's shared to them.
   if (!(await clientAccessibleBy(env, clientId, session))) return { ok: false, error: "forbidden" };
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
   // Don't save a whole-feed wishlist: require at least one narrowing term.
-  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return { ok: false, error: "term" };
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" };
+  // Guardrail: cap active searches per client so one record can't fan out into
+  // dozens of match-all searches.
+  if ((await activeWishlistCount(env, clientId)) >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, model_code, grades)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    clientId, str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
-    num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0
+    clientId, sstr(form, "label"), marka, model,
+    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
+    clampRange(num(form, "rate_min"), 1, 6), kuzov, gradeKw, form.get("watch_only") ? 1 : 0,
+    modelCode, sgrades(form)
   ).run();
   return { ok: true };
 }
@@ -6004,10 +6172,11 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Create an agent with no password - they set their own via the emailed invite.
 // Returns { ok, token, email, name } so the route can send the welcome email.
 export async function createAgent(env, form) {
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim().toLowerCase();
-  const company = String(form.get("company") || "").trim() || null;
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().toLowerCase().slice(0, FIELD_MAX.email);
+  const company = sstr(form, "company");
   if (!name || !email) return { ok: false, error: "missing fields" };
+  if (!REQ_EMAIL_RE.test(email)) return { ok: false, error: "invalid email" };
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
   try {
@@ -6227,14 +6396,12 @@ export async function createRequest(env, form, session) {
     // Accounts are mandatory: email is the login identity, so it is required.
     if (!email) return { ok: false, error: "email", vals };
 
-    // Email-uniqueness: an email that already has a login can't open a second
-    // account from the public form - send them to sign in. We reveal only that
-    // the email is registered (the minimum needed to prevent duplicate
-    // accounts), and never any other detail.
-    const acct = await env.DB.prepare(
-      "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
-    ).bind(email).first();
-    if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
+    // Email-uniqueness (V1.2 Phase 3): an email that already has a login never
+    // opens a second account, but the response must not reveal the account
+    // exists either. The enquiry folds into the existing record (the upsert
+    // below matches by email/phone), the typed password is ignored (it can
+    // never overwrite an existing login), and the route emails the existing
+    // account a sign-in link. The confirmation page is the same either way.
 
     // A brand-new enquiry (no record by email or phone) must choose a
     // policy-compliant password. A returning record is still captured without
@@ -6253,18 +6420,21 @@ export async function createRequest(env, form, session) {
   // A year range is required and must be sane, JDM generations and SEVS
   // eligibility are year-bound, so an open-ended request isn't searchable.
   const yMinReq = Number(g("year_min")), yMaxReq = Number(g("year_max"));
-  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1960 || yMaxReq > 2100 || yMinReq > yMaxReq) {
+  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1970 || yMaxReq > 2050 || yMinReq > yMaxReq) {
     return { ok: false, error: "year", vals };
   }
 
   // Budget is mandatory: a realistic all-in AUD figure qualifies the lead and
-  // weeds out time-wasters. Convert it to an approximate JPY auction-price ceiling
-  // so it feeds the matcher's price_max (the form no longer collects yen directly).
+  // weeds out time-wasters. V1.3 Phase C: the budget is stored on the lead
+  // record (wishlists.budget_aud) but NO LONGER converted into the matcher's
+  // price_max filter. A rough FX conversion was silently excluding cars the
+  // buyer could afford; staff see the stated budget and judge fit until
+  // filtering can be done properly (landed-cost aware).
   const audBudget = Number(g("budget_aud"));
   if (!Number.isFinite(audBudget) || audBudget < BUDGET_MIN_AUD) {
     return { ok: false, error: "budget", vals };
   }
-  form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
+  form.delete("price_max");
 
   // A mobile number is mandatory: matches move fast at auction and we need a
   // direct way to reach the buyer. Accept the number typed on the form, or fall
@@ -6281,7 +6451,7 @@ export async function createRequest(env, form, session) {
 
   // Attach the wishlist to the right client. Signed-in -> their own record;
   // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
-  let clientId, portal, existing, wishlistId, inviteNeeded = false;
+  let clientId, portal, existing, wishlistId, inviteNeeded = false, signinNeeded = false;
   if (sessionClient) {
     clientId = sessionClient.id;
     // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged).
@@ -6305,6 +6475,9 @@ export async function createRequest(env, form, session) {
       // portal_revoked veto, letting them self-invite straight back in.
       const exi = await env.DB.prepare("SELECT pass_hash, google_sub, COALESCE(portal_revoked, 0) AS portal_revoked FROM clients WHERE id = ?").bind(clientId).first();
       if (exi && !exi.pass_hash && !exi.google_sub && !exi.portal_revoked) inviteNeeded = true;
+      // Existing record WITH a login: the typed password was ignored, so email
+      // a sign-in link instead (neutral "check your email to continue" flow).
+      else if (exi && (exi.pass_hash || exi.google_sub)) signinNeeded = true;
     }
   }
 
@@ -6319,7 +6492,7 @@ export async function createRequest(env, form, session) {
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
-  return { ok: true, req, ref, clientId, wishlistId, inviteNeeded };
+  return { ok: true, req, ref, clientId, wishlistId, inviteNeeded, signinNeeded };
 }
 
 // Find or create the (public) client behind a verified Google identity. Matches
@@ -6408,7 +6581,9 @@ async function createRequestWishlist(env, clientId, form) {
   const model = str(form, "model_name");
   const kuzov = str(form, "kuzov");
   const gradeKw = str(form, "grade_kw");
-  const needsDetail = !(marka || model || kuzov || gradeKw) ? 1 : 0;
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  const gradesJson = sgrades(form);
+  const needsDetail = !(marka || model || kuzov || gradeKw || modelCode) ? 1 : 0;
 
   const dupe = await env.DB.prepare(
     `SELECT id FROM wishlists
@@ -6424,6 +6599,7 @@ async function createRequestWishlist(env, clientId, form) {
   let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
   if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
   const priceMax = clampRange(num(form, "price_max"), 0, 100000000);
+  const budgetAud = clampRange(num(form, "budget_aud"), 0, 10000000);
   const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
 
@@ -6432,15 +6608,29 @@ async function createRequestWishlist(env, clientId, form) {
   let dest = str(form, "destination_country");
   if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
-  const ins = await env.DB.prepare(
-    `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-  ).bind(
-    clientId, str(form, "label"), marka, model,
-    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
-  ).run();
-  return ins?.meta?.last_row_id ?? null;
+  // Schema-drift-tolerant insert: budget_aud (migration 0014) and
+  // model_code/grades (migration 0015) ride along when their columns exist. A
+  // production DB that hasn't applied a migration yet still stores the search
+  // (without that column) rather than failing the signup - the catch strips
+  // whichever column the error names and retries.
+  const optional = { budget_aud: budgetAud, model_code: modelCode, grades: gradesJson };
+  let extraCols = Object.keys(optional);
+  for (;;) {
+    const cols = ["client_id", "label", "marka_name", "model_name", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov", "grade_kw", "watch_only", "needs_detail", "destination_country", ...extraCols];
+    const vals = [clientId, str(form, "label"), marka, model, yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, 0, needsDetail, dest, ...extraCols.map((c) => optional[c])];
+    try {
+      const ins = await env.DB.prepare(
+        `INSERT INTO wishlists (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
+      ).bind(...vals).run();
+      return ins?.meta?.last_row_id ?? null;
+    } catch (e) {
+      const m = String(e && e.message).match(/budget_aud|model_code|grades/i);
+      if (!m || !extraCols.length) throw e;
+      const missing = m[0].toLowerCase();
+      console.error(`createRequestWishlist: ${missing} column missing (apply the matching migration); storing without it`);
+      extraCols = extraCols.filter((c) => c !== missing);
+    }
+  }
 }
 
 const clampMin = (v, min) => (v === null ? null : Math.max(min, v));
@@ -6517,6 +6707,9 @@ export async function portalAuctionsPage(env, session, params = {}) {
     distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
   ]);
   const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+  const codes = String(params.make || "").trim()
+    ? (await distinctModelCodes(env, params.make, params.model)).map((code) => ({ code, label: labelForCode(code) }))
+    : [];
   const bidCount = (await env.DB.prepare(
     "SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1"
   ).bind(cid).first())?.n || 0;
@@ -6531,7 +6724,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
 
   const header = auctionSearchHeader({
     action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
-    p: params, makers, models, houses, showBid: true, bidCount,
+    p: params, makers, models, codes, houses, showBid: true, bidCount,
   });
   const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), { sold: false });
 
@@ -6767,7 +6960,9 @@ function staffSendBar(opts = {}) {
   <style>
     .selcard{cursor:pointer;position:relative}
     .selcard .fsel{position:absolute;top:12px;right:12px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
-    .acard.selcard .fsel{top:auto;bottom:12px;right:12px}
+    /* V1.3 Phase B: the tick lives under the grade chip on the photo, clear of
+       the heart (top right) and the Add controls in the card foot. */
+    .acard.selcard .fsel{top:52px;left:12px;right:auto;bottom:auto}
     .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-card)}
     /* The floating variant of the ONE action bar family (.actionbar /
        .bulkbar2 / .sendbar): dark card surface on the shared tokens. */
@@ -6800,11 +6995,16 @@ function staffSendBar(opts = {}) {
     document.addEventListener('click',function(e){
       var card=e.target&&e.target.closest?e.target.closest('.selcard'):null;
       if(!card)return;
-      if(e.target.closest('a,button,form,select')&&!e.target.classList.contains('fsel'))return;
-      var cb=card.querySelector('.fsel'); if(!cb||cb.disabled)return;
-      if(e.target!==cb)cb.checked=!cb.checked;
-      card.classList.toggle('picked',cb.checked);
-      upd();
+      // V1.3 Phase B: the tick toggles ONLY when the tick itself is clicked.
+      if(e.target.classList&&e.target.classList.contains('fsel')){
+        card.classList.toggle('picked',e.target.checked);
+        upd();
+        return;
+      }
+      if(e.target.closest('a,button,form,select,input,label'))return;
+      // Anywhere else on the card that is not a control opens the listing.
+      var link=card.querySelector('.ac-name-link,.ac-link');
+      if(link&&link.href)window.location.href=link.href;
     });
     function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
     function go(send){
@@ -6876,7 +7076,7 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
@@ -6918,7 +7118,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const make = String(sp.make || "").trim(), model = String(sp.model || "").trim();
     let intel = "";
     if (make && model) {
-      const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
+      const [m, fx] = await Promise.all([marketIntel(env, make, model, Date.now(), { kuzov: sp.kuzov }).catch(() => null), getLiveFx(env).catch(() => 0)]);
       intel = (m && m.count)
         ? `<div style="margin-top:16px">${marketPanel(m, fx)}</div>`
         : `<div class="empty" style="margin-top:16px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
@@ -6943,9 +7143,12 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
   ]);
   const models = String(sp.make || "").trim() ? await distinctModels(env, sp.make) : [];
+  const codes = String(sp.make || "").trim()
+    ? (await distinctModelCodes(env, sp.make, sp.model)).map((code) => ({ code, label: labelForCode(code) }))
+    : [];
   const headerTab = tab === "sold" ? "sold" : "live";
   const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="${headerTab}">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
-  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
+  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, codes, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
 
   if (tab === "watch") {
     return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
@@ -7076,13 +7279,14 @@ function clientCarCard(q, opts = {}) {
     : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-notify" type="submit">Ask us to get this</button></form>`;
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      ${q._href ? `<a href="${esc(q._href)}" aria-label="View this car's full listing" style="position:absolute;inset:0;z-index:1"></a>` : ""}
       <div class="grad"></div>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
+      <div class="ttl"><div class="t">${q._href ? `<a href="${esc(q._href)}" style="color:inherit;text-decoration:none">${title}</a>` : title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
@@ -7109,7 +7313,7 @@ function requestedCard(q) {
       <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}</div></div>
     </div>
     <div class="mstats">
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Auction est.</div><div class="v">${Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price)}</div></div>
       <div class="s"><div class="k">Chassis</div><div class="v">${esc(lot.kuzov || "-")}</div></div>
       <div class="s"><div class="k">Requested</div><div class="v">${when}</div></div>
@@ -7151,6 +7355,12 @@ export async function portalPage(env, session, opts = {}) {
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1;
 
+  // V1.3 Phase C: every match card links through to the read-only listing
+  // detail (the same signed view-only page the Share button produces), so a
+  // buyer can open the full gallery and specs from their garage.
+  for (const q of cars) {
+    try { q._href = `/v?t=${await makeShareToken(env, q.id)}`; } catch (e) { /* card still renders */ }
+  }
   const carsBody = cars.length
     ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>`
     : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
@@ -7166,17 +7376,19 @@ export async function portalPage(env, session, opts = {}) {
       <div class="grid">
         <div><label>Label <span class="opt">(your reference)</span><input name="label" placeholder="e.g. weekend project"></label></div>
         <div><label for="pl-maker">Make</label>${makerField(makers, "pl-maker")}</div>
-        <div><label>Model <span class="opt">(pick or type)</span>${modelField("pl-models")}</label></div>
+        <div><label>Model${modelField("pl-models")}</label></div>
         <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
         <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
         <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="any" placeholder="3,000,000"></label></div>
         <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="any" placeholder="100,000"></label></div>
         <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="any" placeholder="e.g. 4"></label></div>
         <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
+        <div><label for="pl-code">Model code <span class="opt">(exact variant)</span></label><select id="pl-code" name="model_code"><option value="">Any model code</option></select></div>
+        <div><label for="pl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="pl-grades" name="grades" multiple size="4"></select></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
-    </form>${modelScript("pl-maker", "pl-models")}${presetScript()}
+    </form>${modelScript("pl-maker", "pl-models")}${codeGradeScript("pl-maker", "pl-models", "pl-code", "pl-grades")}${presetScript()}
   </details>`;
 
   const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
@@ -7245,20 +7457,33 @@ async function portalClientActive(env, cid) {
 
 export async function portalAddWishlist(env, form, session) {
   const cid = Number(session.id);
-  if (!cid || !(await portalClientActive(env, cid))) return;
-  const marka = str(form, "marka_name"), model = str(form, "model_name");
-  const kuzov = str(form, "kuzov"), gradeKw = str(form, "grade_kw");
-  if (!(marka || model || kuzov || gradeKw)) return; // need something to search on
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
-  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  if (!cid || !(await portalClientActive(env, cid))) return { ok: false };
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" }; // need something to search on
+  // V1.3 Phase C: free accounts get a configurable number of ACTIVE saved
+  // searches (Settings -> free_search_limit, default 1). Members keep the
+  // general anti-fanout cap only. Enforced here, server side, so a hand-built
+  // POST can't bypass the portal UI.
+  const active = await activeWishlistCount(env, cid);
+  const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(cid).first();
+  if (!(me && me.member)) {
+    const settings = await getSettings(env);
+    const freeLimit = settingNum(settings, "free_search_limit", 1);
+    if (active >= freeLimit) return { ok: false, error: "free_limit" };
+  }
+  if (active >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
-    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
+    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, model_code, grades)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
   ).bind(
-    cid, str(form, "label"), marka, model, yMin, yMax,
-    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
-    kuzov, gradeKw
+    cid, sstr(form, "label"), marka, model, yMin, yMax,
+    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
+    kuzov, gradeKw, modelCode, sgrades(form)
   ).run();
+  return { ok: true };
 }
 
 export async function portalEditWishlist(env, form, session) {
@@ -7266,15 +7491,14 @@ export async function portalEditWishlist(env, form, session) {
   if (!(await portalClientActive(env, cid))) return;
   const w = await portalWishlistOwned(env, form.get("id"), cid);
   if (!w) return;
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
-  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ? AND client_id = ?`
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, model_code = ?, grades = ? WHERE id = ? AND client_id = ?`
   ).bind(
-    str(form, "label"), str(form, "marka_name"), str(form, "model_name"), yMin, yMax,
-    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
-    str(form, "kuzov"), str(form, "grade_kw"), w.id, cid
+    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"), yMin, yMax,
+    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
+    sstr(form, "kuzov"), sstr(form, "grade_kw"), sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), w.id, cid
   ).run();
 }
 
@@ -7308,7 +7532,25 @@ export async function portalApprove(env, queueId, session) {
   if (!item || item.status !== "sent") return { ok: false };
   const alreadyDone = !!item.client_request;
   if (!alreadyDone) {
-    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now') WHERE id = ? AND client_id = ?").bind(qid, cid).run();
+    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now'), response = 'interested' WHERE id = ? AND client_id = ?").bind(qid, cid).run();
+    // V1.3 Phase C: an interested tap must surface on the admin Requests page
+    // in real time, not just on the customer profile. Advance the parent
+    // request to 'interested' (never regress a request that's already further
+    // along) and bump last_activity so it sorts to the top; log the activity
+    // so the profile timeline shows it in both directions.
+    if (item.wishlist_id) {
+      await env.DB.prepare(
+        `UPDATE wishlists SET
+            status = CASE WHEN COALESCE(status,'new') IN ('new','qualified','searching','vehicles_sent') THEN 'interested' ELSE status END,
+            last_activity = datetime('now')
+          WHERE id = ? AND client_id = ?`
+      ).bind(item.wishlist_id, cid).run();
+    }
+    try {
+      let lotT = {}; try { lotT = JSON.parse(item.lot_json); } catch (e2) {}
+      const title = [lotT.year, lotT.marka_name, lotT.model_name].filter(Boolean).join(" ") || `lot ${item.lot_id}`;
+      await logActivity(env, { wishlist_id: item.wishlist_id, client_id: cid, type: "note", detail: `Client asked us to get: ${title}`, actor: "Portal" });
+    } catch (e2) { /* timeline is best effort */ }
   }
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
   let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
@@ -7345,5 +7587,525 @@ export async function revokeClientPortal(env, clientId, session) {
     "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?",
     "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
     [cid], "revokeClientPortal");
+}
+
+// ============================================================================
+// DEALER SYSTEM - separate login for vehicle suppliers (sellers).
+// Dealers submit vehicles → admin reviews → approved vehicles go live.
+// ============================================================================
+
+// Create a dealer account (admin only). Returns {ok, error?, token?, email?, name?}
+export async function createDealer(env, form) {
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim().toLowerCase();
+  const company = String(form.get("company") || "").trim() || null;
+  const state = String(form.get("state") || "").trim() || null;
+  if (!name || !email) return { ok: false, error: "missing fields" };
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO dealers (email, name, company, state, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, ?, '', '', ?, ?)"
+    ).bind(email, name, company, state, token, exp).run();
+    return { ok: true, token, email, name };
+  } catch (e) {
+    console.error("createDealer failed:", e.message);
+    return { ok: false, error: "email already in use" };
+  }
+}
+
+// Re-issue invite / set-password link for a dealer (admin only).
+export async function resendDealerInvite(env, id) {
+  const d = await env.DB.prepare("SELECT id, name, email FROM dealers WHERE id = ?").bind(Number(id)).first();
+  if (!d) return null;
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
+  await env.DB.prepare("UPDATE dealers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, d.id).run();
+  return { token, email: d.email, name: d.name };
+}
+
+// Toggle dealer active/inactive status (admin only).
+export async function toggleDealer(env, id) {
+  const did = Number(id);
+  if (!Number.isInteger(did) || did <= 0) return;
+  await env.DB.prepare("UPDATE dealers SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(did).run();
+}
+
+// Delete a dealer and all their vehicle submissions (admin only).
+export async function deleteDealer(env, id) {
+  const did = Number(id);
+  if (!Number.isInteger(did) || did <= 0) return;
+  const stmts = [
+    env.DB.prepare("DELETE FROM dealer_vehicles WHERE dealer_id = ?").bind(did),
+    env.DB.prepare("DELETE FROM dealers WHERE id = ?").bind(did),
+  ];
+  await env.DB.batch(stmts);
+}
+
+// Dealer submits a vehicle for admin review. Returns {ok, error?, id?, vehicle?}
+export async function submitDealerVehicle(env, form, session) {
+  if (!session || session.role !== "dealer") return { ok: false, error: "unauthorized" };
+  const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+  if (!dealer) return { ok: false, error: "dealer not found" };
+
+  const make = String(form.get("make") || "").trim();
+  const model = String(form.get("model") || "").trim();
+  const year = Number(form.get("year") || 0);
+  const price = Number(form.get("price_aud") || 0);
+
+  if (!make || !model || !price || price <= 0) {
+    return { ok: false, error: "missing required fields" };
+  }
+
+  try {
+    const grade = String(form.get("grade") || "").trim() || null;
+    const mileage = Number(form.get("mileage_km") || 0) || null;
+    const location = String(form.get("location") || "").trim() || null;
+    const description = String(form.get("description") || "").trim() || null;
+    const photos = form.get("photos") || "[]"; // JSON array
+
+    const result = await env.DB.prepare(
+      "INSERT INTO dealer_vehicles (dealer_id, make, model, year, grade, mileage_km, price_aud, location, description, photos, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
+    ).bind(session.id, make, model, year || null, grade, mileage, price, location, description, photos).run();
+
+    return {
+      ok: true,
+      id: result.meta.last_row_id,
+      vehicle: { make, model, year, price, status: "pending" },
+    };
+  } catch (e) {
+    console.error("submitDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Admin approves a dealer vehicle submission.
+export async function approveDealerVehicle(env, vehicleId, session) {
+  if (!session || session.role !== "admin") return { ok: false, error: "unauthorized" };
+  const vid = Number(vehicleId);
+  if (!Number.isInteger(vid) || vid <= 0) return { ok: false, error: "invalid id" };
+
+  try {
+    await env.DB.prepare(
+      "UPDATE dealer_vehicles SET status = 'approved', approved_at = datetime('now'), approved_by = ? WHERE id = ?"
+    ).bind(0, vid).run();
+    return { ok: true };
+  } catch (e) {
+    console.error("approveDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Admin rejects a dealer vehicle submission.
+export async function rejectDealerVehicle(env, vehicleId, notes, session) {
+  if (!session || session.role !== "admin") return { ok: false, error: "unauthorized" };
+  const vid = Number(vehicleId);
+  if (!Number.isInteger(vid) || vid <= 0) return { ok: false, error: "invalid id" };
+
+  try {
+    const adminNotes = String(notes || "").trim();
+    await env.DB.prepare(
+      "UPDATE dealer_vehicles SET status = 'rejected', admin_notes = ? WHERE id = ?"
+    ).bind(adminNotes, vid).run();
+    return { ok: true };
+  } catch (e) {
+    console.error("rejectDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Get dealer vehicle submissions for admin review, optionally filtered by status.
+export async function getDealerVehicleSubmissions(env, status = null, limit = 100, offset = 0) {
+  try {
+    let sql = "SELECT dv.*, d.name as dealer_name, d.company as dealer_company, d.email as dealer_email FROM dealer_vehicles dv JOIN dealers d ON dv.dealer_id = d.id";
+    const binds = [];
+    if (status && status !== "all") {
+      sql += " WHERE dv.status = ?";
+      binds.push(status);
+    }
+    sql += " ORDER BY dv.created_at DESC LIMIT ? OFFSET ?";
+    binds.push(limit, offset);
+    const result = await env.DB.prepare(sql).bind(...binds).all();
+    return result.results || [];
+  } catch (e) {
+    console.error("getDealerVehicleSubmissions failed:", e.message);
+    return [];
+  }
+}
+
+// Get a specific dealer's vehicle submissions.
+export async function getDealerVehicles(env, dealerId, status = "pending") {
+  try {
+    let sql = "SELECT * FROM dealer_vehicles WHERE dealer_id = ?";
+    const binds = [dealerId];
+    if (status && status !== "all") {
+      sql += " AND status = ?";
+      binds.push(status);
+    }
+    sql += " ORDER BY created_at DESC";
+    const result = await env.DB.prepare(sql).bind(...binds).all();
+    return result.results || [];
+  } catch (e) {
+    console.error("getDealerVehicles failed:", e.message);
+    return [];
+  }
+}
+
+// ============================================================================
+// DEALER UI PAGES - rendering functions for dealer portal and admin views
+// ============================================================================
+
+// Dealer portal page: vehicle submission form + list of dealer's submissions
+export async function dealerPortalPage(env, dealer, flash = "") {
+  const submissions = await getDealerVehicles(env, dealer.id, "all");
+  const first = (dealer.name || "").split(/\s+/)[0];
+
+  const statusBadge = (status) => {
+    const color = status === "approved" ? "#4CAF50" : status === "rejected" ? "#f44336" : "#FF9800";
+    return `<span style="display:inline-block;padding:4px 8px;border-radius:4px;background:${color};color:white;font-size:12px;font-weight:600;">${esc(status)}</span>`;
+  };
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Portal</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+    .header h1 { margin: 0 0 10px; font-size: 28px; }
+    .header p { margin: 0; color: #666; }
+    .flash { padding: 12px 16px; margin-bottom: 20px; border-radius: 6px; }
+    .flash.ok { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #4caf50; }
+    .flash.err { background: #ffebee; color: #c62828; border-left: 4px solid #f44336; }
+    .card { background: white; padding: 24px; border-radius: 8px; margin-bottom: 20px; }
+    .card h2 { margin: 0 0 16px; font-size: 18px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 14px;
+    }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn:hover { background: #b89340; }
+    .btn.secondary { background: #666; }
+    .btn.secondary:hover { background: #555; }
+    .submissions { margin-top: 20px; }
+    .vehicle-item { background: #f9f9f9; padding: 16px; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #CAA34C; }
+    .vehicle-item.approved { border-left-color: #4CAF50; }
+    .vehicle-item.rejected { border-left-color: #f44336; }
+    .vehicle-item h3 { margin: 0 0 8px; font-size: 16px; }
+    .vehicle-meta { display: flex; gap: 16px; font-size: 13px; color: #666; margin-bottom: 8px; }
+    .vehicle-meta span { display: flex; align-items: center; }
+    .vehicle-notes { margin-top: 8px; padding: 8px; background: white; border-radius: 4px; font-size: 13px; color: #d32f2f; }
+    .empty { color: #999; text-align: center; padding: 40px 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Portal</h1>
+      <p>Welcome${first ? ", " + esc(first) : ""}! Submit your inventory for admin review.</p>
+      ${dealer.company ? `<p style="margin-top: 8px; color: #999;">${esc(dealer.company)}</p>` : ""}
+    </div>
+
+    ${flash ? `<div class="flash ${flash.startsWith("error") ? "err" : "ok"}">${esc(flash)}</div>` : ""}
+
+    <div class="card">
+      <h2>Submit a Vehicle</h2>
+      <form method="POST" action="/dealer/vehicle/submit">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="make">Make *</label>
+            <input type="text" id="make" name="make" placeholder="e.g. NISSAN" required>
+          </div>
+          <div class="form-group">
+            <label for="model">Model *</label>
+            <input type="text" id="model" name="model" placeholder="e.g. SKYLINE" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="year">Year</label>
+            <input type="number" id="year" name="year" placeholder="e.g. 1995" min="1950" max="2030">
+          </div>
+          <div class="form-group">
+            <label for="grade">Grade</label>
+            <input type="text" id="grade" name="grade" placeholder="e.g. 5">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mileage_km">Mileage (km)</label>
+            <input type="number" id="mileage_km" name="mileage_km" placeholder="e.g. 45000" min="0">
+          </div>
+          <div class="form-group">
+            <label for="price_aud">Price (AUD) *</label>
+            <input type="number" id="price_aud" name="price_aud" placeholder="e.g. 25000" min="1" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="location">Location</label>
+          <input type="text" id="location" name="location" placeholder="e.g. Sydney NSW">
+        </div>
+
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea id="description" name="description" placeholder="Any additional details about the vehicle..."></textarea>
+        </div>
+
+        <button type="submit" class="btn">Submit for Review</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Your Submissions (${submissions.length})</h2>
+      <div class="submissions">
+        ${submissions.length === 0
+          ? `<div class="empty">No submissions yet. Submit your first vehicle above!</div>`
+          : submissions.map(v => `
+            <div class="vehicle-item ${v.status}">
+              <h3>${esc(v.make)} ${esc(v.model)}${v.year ? " (" + v.year + ")" : ""}</h3>
+              <div class="vehicle-meta">
+                <span>A$${Number(v.price_aud || 0).toLocaleString()}</span>
+                ${v.mileage_km ? `<span>${Number(v.mileage_km).toLocaleString()} km</span>` : ""}
+                ${v.location ? `<span>${esc(v.location)}</span>` : ""}
+                <span>${statusBadge(v.status)}</span>
+              </div>
+              ${v.admin_notes ? `<div class="vehicle-notes"><strong>Admin notes:</strong> ${esc(v.admin_notes)}</div>` : ""}
+              <div style="font-size: 12px; color: #999; margin-top: 8px;">Submitted ${new Date(v.created_at).toLocaleDateString()}</div>
+            </div>
+          `).join("")
+        }
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  return html;
+}
+
+// Admin dealer management page
+export async function dealersPage(env) {
+  const dealers = await env.DB.prepare("SELECT * FROM dealers ORDER BY created_at DESC").all();
+  const list = dealers.results || [];
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Management</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { margin: 0; font-size: 28px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn:hover { background: #b89340; }
+    .btn.secondary { background: #999; font-size: 12px; padding: 6px 12px; }
+    .btn.danger { background: #f44336; }
+    .btn.danger:hover { background: #d32f2f; }
+    table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; }
+    th { background: #f5f5f5; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; border-bottom: 1px solid #ddd; }
+    td { padding: 12px; border-bottom: 1px solid #eee; }
+    tr:hover { background: #fafafa; }
+    .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .status.active { background: #e8f5e9; color: #2e7d32; }
+    .status.inactive { background: #f5f5f5; color: #999; }
+    .actions { display: flex; gap: 8px; }
+    .email { font-size: 12px; color: #666; }
+    .empty { padding: 40px; text-align: center; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Management</h1>
+      <form method="POST" action="/dealer" style="display: flex; gap: 12px;">
+        <input type="text" name="name" placeholder="Name" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="email" name="email" placeholder="Email" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="text" name="company" placeholder="Company (optional)" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="text" name="state" placeholder="State" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <button type="submit" class="btn">Add Dealer</button>
+      </form>
+    </div>
+
+    ${list.length === 0
+      ? `<div style="background: white; padding: 40px; border-radius: 8px; text-align: center; color: #999;">No dealers yet. Create one using the form above.</div>`
+      : `<table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Company</th>
+          <th>Email</th>
+          <th>State</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map(d => `
+          <tr>
+            <td><strong>${esc(d.name)}</strong></td>
+            <td>${esc(d.company || "-")}</td>
+            <td><span class="email">${esc(d.email)}</span></td>
+            <td>${esc(d.state || "-")}</td>
+            <td><span class="status ${d.active ? "active" : "inactive"}">${d.active ? "Active" : "Inactive"}</span></td>
+            <td>${new Date(d.created_at).toLocaleDateString()}</td>
+            <td>
+              <div class="actions">
+                <form method="POST" action="/dealer/invite" style="display: inline;">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">Resend Invite</button>
+                </form>
+                <form method="POST" action="/send-reset" style="display: inline;">
+                  <input type="hidden" name="kind" value="dealer">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">Send password reset</button>
+                </form>
+                <form method="POST" action="/dealer/toggle" style="display: inline;">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">${d.active ? "Deactivate" : "Activate"}</button>
+                </form>
+                <form method="POST" action="/dealer/delete" style="display: inline;" onsubmit="return confirm('Really delete this dealer and all their submissions?');">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn danger">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>`
+    }
+  </div>
+</body>
+</html>`;
+  return html;
+}
+
+// Admin dealer submissions review page
+export async function dealerSubmissionsPage(env, status = "pending") {
+  const submissions = await getDealerVehicleSubmissions(env, status, 100, 0);
+
+  const statusBadge = (s) => {
+    const color = s === "approved" ? "#4CAF50" : s === "rejected" ? "#f44336" : "#FF9800";
+    return `<span style="display:inline-block;padding:4px 8px;border-radius:4px;background:${color};color:white;font-size:11px;font-weight:600;">${esc(s)}</span>`;
+  };
+
+  const tabs = ["pending", "approved", "rejected", "archived"];
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Submissions</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+    .header h1 { margin: 0 0 20px; font-size: 28px; }
+    .tabs { display: flex; gap: 0; border-bottom: 2px solid #eee; }
+    .tab { padding: 12px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 600; color: #999; }
+    .tab.active { color: #CAA34C; border-bottom: 2px solid #CAA34C; margin-bottom: -2px; }
+    .card { background: white; border-radius: 8px; margin-bottom: 16px; padding: 20px; border-left: 4px solid #FF9800; }
+    .card.approved { border-left-color: #4CAF50; }
+    .card.rejected { border-left-color: #f44336; }
+    .vehicle-title { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+    .vehicle-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; font-size: 13px; }
+    .meta-item { display: flex; flex-direction: column; }
+    .meta-label { color: #999; font-weight: 600; margin-bottom: 2px; }
+    .meta-value { color: #333; }
+    .dealer-info { background: #f9f9f9; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; }
+    .dealer-info strong { color: #333; }
+    .description { background: #f9f9f9; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; line-height: 1.5; }
+    .actions { display: flex; gap: 12px; margin-top: 16px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn.success { background: #4CAF50; }
+    .btn.danger { background: #f44336; }
+    .btn:hover { opacity: 0.9; }
+    .reject-form { display: flex; gap: 8px; align-items: flex-end; }
+    .reject-form textarea { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; min-height: 40px; }
+    .empty { padding: 60px 20px; text-align: center; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Vehicle Submissions</h1>
+      <div class="tabs">
+        ${tabs.map(t => `
+          <form method="GET" style="display: inline;">
+            <input type="hidden" name="view" value="dealer-submissions">
+            <input type="hidden" name="status" value="${t}">
+            <button type="submit" class="tab ${status === t ? "active" : ""}">${t.charAt(0).toUpperCase() + t.slice(1)} ${t === status && submissions.length ? `(${submissions.length})` : ""}</button>
+          </form>
+        `).join("")}
+      </div>
+    </div>
+
+    <div>
+      ${submissions.length === 0
+        ? `<div class="empty" style="background: white; border-radius: 8px;">No ${status} submissions.</div>`
+        : submissions.map(v => `
+          <div class="card ${v.status}">
+            <h2 class="vehicle-title">${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h2>
+
+            <div class="vehicle-meta">
+              <div class="meta-item">
+                <span class="meta-label">Price</span>
+                <span class="meta-value">A$${Number(v.price_aud || 0).toLocaleString()}</span>
+              </div>
+              ${v.mileage_km ? `<div class="meta-item"><span class="meta-label">Mileage</span><span class="meta-value">${Number(v.mileage_km).toLocaleString()} km</span></div>` : ""}
+              ${v.grade ? `<div class="meta-item"><span class="meta-label">Grade</span><span class="meta-value">${esc(v.grade)}</span></div>` : ""}
+              ${v.location ? `<div class="meta-item"><span class="meta-label">Location</span><span class="meta-value">${esc(v.location)}</span></div>` : ""}
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span>${statusBadge(v.status)}</span>
+              </div>
+            </div>
+
+            <div class="dealer-info">
+              <strong>Dealer:</strong> ${esc(v.dealer_name)}${v.dealer_company ? ` (${esc(v.dealer_company)})` : ""}<br>
+              <strong>Email:</strong> ${esc(v.dealer_email)}
+            </div>
+
+            ${v.description ? `<div class="description"><strong>Description:</strong><br>${esc(v.description)}</div>` : ""}
+
+            ${v.admin_notes ? `<div class="description" style="background: #ffe0e0; color: #d32f2f;"><strong>Rejection notes:</strong><br>${esc(v.admin_notes)}</div>` : ""}
+
+            ${v.status === "pending" ? `
+              <div class="actions">
+                <form method="POST" action="/dealer-vehicle/approve" style="display: inline;">
+                  <input type="hidden" name="id" value="${v.id}">
+                  <button type="submit" class="btn success">Approve</button>
+                </form>
+                <form method="POST" action="/dealer-vehicle/reject" class="reject-form">
+                  <input type="hidden" name="id" value="${v.id}">
+                  <textarea name="notes" placeholder="Optional rejection notes..."></textarea>
+                  <button type="submit" class="btn danger">Reject</button>
+                </form>
+              </div>
+            ` : ""}
+          </div>
+        `).join("")
+      }
+    </div>
+  </div>
+</body>
+</html>`;
+  return html;
 }
 // (Phase 5 design pass touched only presentation code above.)

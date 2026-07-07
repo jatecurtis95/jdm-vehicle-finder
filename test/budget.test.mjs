@@ -35,11 +35,12 @@ test("a below-floor budget is rejected", async () => {
   assert.equal(r.error, "budget");
 });
 
-test("the AUD budget is converted to a yen ceiling on the saved search", async () => {
+test("the AUD budget stores on the lead record and never filters matching (V1.3 Phase C)", async () => {
   const env = makeEnv();
   const r = await createRequest(env, fd({ name: "Buyer", email: "b@example.com", marka_name: "TOYOTA", portal_password: "Goodpass123", budget_aud: "35000" }));
   assert.equal(r.ok, true);
-  const wl = await env.DB.prepare("SELECT price_max FROM wishlists WHERE client_id = ?").bind(r.clientId).first();
-  assert.equal(wl.price_max, audBudgetToYen(35000, env.CALC_FX), "price_max is the converted yen ceiling");
+  const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM wishlists WHERE client_id = ?").bind(r.clientId).first();
+  assert.equal(wl.price_max, null, "no yen ceiling is stored, so the matcher never filters on a rough conversion");
+  assert.equal(wl.budget_aud, 35000, "the stated AUD budget lives on the lead record");
   assert.equal(r.req.budget_aud, 35000, "the raw AUD figure is preserved for staff");
 });

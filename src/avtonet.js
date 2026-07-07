@@ -338,8 +338,69 @@ export async function distinctModels(env, maker) {
   }
 }
 
+// Distinct chassis/model codes for a maker (+ optional model) in the live
+// feed, sorted. Powers the "Model code" refinement selects (V1.2 Phase 4).
+const _codesCache = new Map(); // makerUpper|modelUpper -> { list, exp }
+export async function distinctModelCodes(env, maker, model) {
+  const mk = String(maker || "").trim().toUpperCase();
+  if (!mk) return [];
+  const md = String(model || "").trim().toUpperCase();
+  const key = `${mk}|${md}`;
+  const now = Date.now();
+  const cached = _codesCache.get(key);
+  if (cached && now < cached.exp) return cached.list;
+  const where = [`UPPER(marka_name) = '${sqlString(mk)}'`, "kuzov <> ''"];
+  if (md) where.push(`UPPER(model_name) LIKE '%${sqlLike(md)}%'`);
+  try {
+    const rows = await query(env, `SELECT DISTINCT kuzov FROM main WHERE ${where.join(" AND ")} ORDER BY kuzov`);
+    const list = [...new Set(rows.map((r) => (r.kuzov || "").trim().toUpperCase()).filter(Boolean))];
+    _codesCache.set(key, { list, exp: now + LOOKUP_TTL });
+    return list;
+  } catch (e) {
+    console.error("distinctModelCodes failed:", e.message);
+    return (cached && cached.list) || [];
+  }
+}
+
+// Distinct grade (trim) strings on current and recent listings for a maker +
+// model (+ optional model code). This is the "pre-search of grades" behind the
+// Grade multi-select: duplicates and spelling variants surface as-is so the
+// user can tick every spelling of the real grade they want. Live feed first,
+// recent sold history merged in for coverage.
+const _gradesCache = new Map(); // makerUpper|modelUpper|codeUpper -> { list, exp }
+export async function distinctGrades(env, maker, model, code) {
+  const mk = String(maker || "").trim().toUpperCase();
+  if (!mk) return [];
+  const md = String(model || "").trim().toUpperCase();
+  const cd = String(code || "").trim().toUpperCase();
+  const key = `${mk}|${md}|${cd}`;
+  const now = Date.now();
+  const cached = _gradesCache.get(key);
+  if (cached && now < cached.exp) return cached.list;
+  const where = [`UPPER(marka_name) = '${sqlString(mk)}'`, "grade <> ''"];
+  if (md) where.push(`UPPER(model_name) LIKE '%${sqlLike(md)}%'`);
+  if (cd) where.push(`UPPER(kuzov) LIKE '%${sqlLike(cd)}%'`);
+  try {
+    const live = await query(env, `SELECT DISTINCT grade FROM main WHERE ${where.join(" AND ")} ORDER BY grade LIMIT 200`);
+    let sold = [];
+    try {
+      sold = await query(env, `SELECT DISTINCT grade FROM stats WHERE ${where.join(" AND ")} ORDER BY grade LIMIT 200`);
+    } catch (e) { /* sold history is best-effort coverage */ }
+    const list = [...new Set([...live, ...sold].map((r) => (r.grade || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    _gradesCache.set(key, { list, exp: now + LOOKUP_TTL });
+    return list;
+  } catch (e) {
+    console.error("distinctGrades failed:", e.message);
+    return (cached && cached.list) || [];
+  }
+}
+
 // Distinct auction houses in the live feed, sorted. Powers the "All houses"
-// filter on the auction search. Cached like the maker/model lookups.
+// filter on the auction search. Cached SHORTER than the other lookups (1h,
+// V1.3 Phase A): some houses (e.g. USS JAA) only enter the feed on auction
+// day, and a 12h cache was hiding them from the filter for most of it.
+const HOUSES_TTL = 60 * 60 * 1000;
 let _housesCache = { list: null, exp: 0 };
 export async function distinctHouses(env) {
   const now = Date.now();
@@ -348,7 +409,7 @@ export async function distinctHouses(env) {
     const rows = await query(env, "SELECT DISTINCT auction FROM main WHERE auction <> '' ORDER BY auction");
     const list = [...new Set(rows.map((r) => (r.auction || "").trim()).filter(Boolean))];
     if (list.length) {
-      _housesCache = { list, exp: now + LOOKUP_TTL };
+      _housesCache = { list, exp: now + HOUSES_TTL };
       return list;
     }
   } catch (e) {

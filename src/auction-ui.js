@@ -10,7 +10,7 @@
 //
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
-import { esc, yen, displayGrade } from "./render.js";
+import { esc, yen, fullGrade } from "./render.js";
 import { imageUrls, splitImages } from "./avtonet.js";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
@@ -52,17 +52,18 @@ function priceLine(lot, fx) {
 }
 
 const HEART = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.2C.6 9 1.7 5.5 5 4.6 7 4 9 4.9 12 8c3-3.1 5-4 7-3.4 3.3.9 4.4 4.4 3 7.2C19.5 16.4 12 21 12 21z"/></svg>`;
-const SEARCH_IC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>`;
 const GRID_IC = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`;
 const LIST_IC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>`;
 
-// A Sheet button: opens the inspection-sheet image if the auction house has
-// uploaded it, otherwise a disabled placeholder (upcoming lots often lack one).
+// A Sheet button: opens the inspection-sheet image when the auction house has
+// uploaded it. V1.3 Phase B: the greyed-out placeholder for sheetless lots is
+// gone; a control that does nothing reads as broken, and the sheet appearing
+// later is expected behaviour, not something the card needs to apologise for.
 function sheetBtn(lot) {
   const sheet = splitImages(lot).sheet;
   return sheet
     ? `<a class="ac-sheet" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>`
-    : `<span class="ac-sheet dis" title="Sheet not uploaded yet">Sheet</span>`;
+    : "";
 }
 
 // One rich auction card. opts:
@@ -79,7 +80,7 @@ export function auctionCardV2(lot, opts = {}) {
   const img = imageUrls(lot).medium || "";
   const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const code = String(lot.kuzov || "").trim();
-  const grade = displayGrade(lot.rate);
+  const grade = fullGrade(lot);
   const house = String(lot.auction || "").trim();
   const date = shortDate(lot.auction_date);
   const mileage = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";
@@ -151,17 +152,24 @@ export function auctionSearchHeader(o = {}) {
     p.gradeMin ? `grade ${p.gradeMin}+` : "",
     p.kuzov,
   ].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
+  // V1.3 Phase A: no free-text smart bar (parked, see FINDER-V13-FIXES.md),
+  // no auto-submit on select change (the panel stays open while refining;
+  // model and model-code option lists refill in the background instead), and
+  // one obvious explicit trigger: "Run Searches".
+  const codeOpt = (list, sel) => (list || []).map((c) => {
+    const code = typeof c === "string" ? c : c.code;
+    const label = typeof c === "string" ? c : (c.label || c.code);
+    return `<option value="${esc(code)}"${String(code).toUpperCase() === String(sel || "").toUpperCase() ? " selected" : ""}>${esc(label)}</option>`;
+  }).join("");
+  const kuzovSel = String(p.kuzov || "").trim();
   const formHtml = `<form class="asrch-form" method="GET" action="${esc(o.action || "")}" role="search">
       ${o.hidden || ""}
-      <div class="asrch-bar">
-        <span class="asrch-ic" aria-hidden="true">${SEARCH_IC}</span>
-        <input type="search" name="q" value="${v("q")}" placeholder="Search make, model, chassis code or lot number..." aria-label="Search auctions" autocomplete="off">
-        <button class="asrch-go" type="submit">Search</button>
-      </div>
       <div class="asrch-filters">
-        <select name="make" aria-label="Make" onchange="this.form.submit()"><option value="">All makes</option>${opt(o.makers, p.make, true)}</select>
-        <select name="model" aria-label="Model" onchange="this.form.submit()"><option value="">All models</option>${opt(o.models, p.model, true)}</select>
-        <select name="house" aria-label="Auction house" onchange="this.form.submit()"><option value="">All houses</option>${opt(o.houses, p.house)}</select>
+        <select name="make" aria-label="Make" data-asrch-make><option value="">All makes</option>${opt(o.makers, p.make, true)}</select>
+        <select name="model" aria-label="Model" data-asrch-model><option value="">All models</option>${opt(o.models, p.model, true)}</select>
+        <select name="kuzov" aria-label="Model code" data-asrch-code><option value="">All model codes</option>${codeOpt(o.codes, kuzovSel)}${kuzovSel && !(o.codes || []).some((c) => String(typeof c === "string" ? c : c.code).toUpperCase() === kuzovSel.toUpperCase()) ? `<option value="${v("kuzov")}" selected>${v("kuzov")}</option>` : ""}</select>
+        <select name="house" aria-label="Auction house"><option value="">All houses</option>${opt(o.houses, p.house)}</select>
+        <button class="asrch-go" type="submit">Search</button>
         <details class="asrch-more"${advOpen ? " open" : ""}>
           <summary>More filters</summary>
           <div class="asrch-adv">
@@ -170,12 +178,26 @@ export function auctionSearchHeader(o = {}) {
               <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
               <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
               <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
-              <label>Chassis code<input name="kuzov" value="${v("kuzov")}" placeholder="GDB"></label>
             </div>
-            <div class="asrch-adv-act"><button class="btn-gold" type="submit">Apply filters</button></div>
+            <div class="asrch-adv-act"><button class="btn-gold" type="submit">Search</button></div>
           </div>
         </details>
       </div>
+      <script>(function(){
+        var f=document.currentScript.closest("form");if(!f)return;
+        var mk=f.querySelector("[data-asrch-make]"),md=f.querySelector("[data-asrch-model]"),cd=f.querySelector("[data-asrch-code]");
+        function refill(sel,items,none,valKey,txtKey){
+          if(!sel)return;var cur=sel.value;sel.innerHTML='<option value="">'+none+'</option>';
+          (items||[]).forEach(function(x){var o=document.createElement("option");o.value=valKey?x[valKey]:x;o.textContent=txtKey?x[txtKey]:x;sel.appendChild(o);});
+          for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===cur){sel.value=cur;break;}}
+        }
+        function loadModels(){if(!mk||!mk.value){refill(md,[],"All models");loadCodes();return;}
+          fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){refill(md,l,"All models");loadCodes();}).catch(function(){});}
+        function loadCodes(){if(!cd)return;if(!mk||!mk.value){refill(cd,[],"All model codes");return;}
+          fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||"")).then(function(r){return r.json();}).then(function(l){refill(cd,l,"All model codes","code","label");}).catch(function(){});}
+        if(mk)mk.addEventListener("change",loadModels);
+        if(md)md.addEventListener("change",loadCodes);
+      })();</script>
     </form>`;
   return `<div class="asrch">
     <div class="asrch-top"><span class="asrch-label">${esc(o.label || "Search live Japanese auctions")}</span>${counts}</div>
@@ -289,12 +311,7 @@ export const AUCTION_CSS = `<style>
   .asrch-counts{font-size:var(--fs-label,12px);color:var(--t3)}
   .asrch-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
   .asrch-counts .sep{opacity:.5;margin:0 2px}
-  .asrch-bar{position:relative;display:flex;align-items:center;gap:8px}
-  .asrch-ic{position:absolute;left:16px;top:50%;transform:translateY(-50%);display:flex;color:var(--faint);pointer-events:none}
-  .asrch-ic svg{width:19px;height:19px}
-  .asrch-bar input[type=search]{flex:1;width:100%;padding:16px 16px 16px 44px;border:1px solid var(--field-line);border-radius:var(--r-ctl,8px);background:var(--field);color:var(--ink);font-size:var(--fs-body,15px);font-family:inherit}
-  .asrch-bar input[type=search]:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint)}
-  .asrch-go{flex:0 0 auto;background:var(--gold);color:var(--gold-on,#15120A);font-weight:700;border:0;padding:16px 24px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);cursor:pointer;font-family:inherit}
+  .asrch-go{flex:0 0 auto;background:var(--gold);color:var(--gold-on,#15120A);font-weight:700;border:0;padding:11px 24px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);cursor:pointer;font-family:inherit}
   .asrch-go:hover{background:var(--gold-hover)}
   .asrch-filters{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
   .asrch-filters select{flex:1 1 170px;min-width:0;padding:12px 32px 12px 12px;border-radius:var(--r-ctl,8px)}

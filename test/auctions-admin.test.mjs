@@ -15,14 +15,19 @@ test("the Auctions nav item shows in the sidebar", async () => {
   assert.match(html, /href="\/admin\?view=auctions"/);
 });
 
-test("Auctions live tab renders the tabs and the search bar", async () => {
+test("Auctions live tab renders the tabs and the filter panel", async () => {
   const env = makeEnv(); stub(lotXml());
   const html = await adminPage(env, "auctions", ADMIN, { tab: "live", search: {} });
   assert.match(html, /Live auctions/);
   assert.match(html, /Watchlist/);
   assert.match(html, /Sold prices/);
-  assert.match(html, /Search make, model, chassis code/);
+  // V1.3 Phase A: the free-text smart bar is parked; explicit filters only,
+  // including the labelled model-code select, and no auto-submit on change.
+  assert.ok(!/asrch-bar/.test(html), "smart search bar removed (sidebar global search is separate)");
+  assert.match(html, /All makes/);
+  assert.match(html, /All model codes/);
   assert.match(html, /All houses/);
+  assert.ok(!/onchange="this\.form\.submit\(\)"/.test(html), "filter selects never auto-submit");
 });
 
 test("Auctions live search lists lots with an Add-to-client picker", async () => {

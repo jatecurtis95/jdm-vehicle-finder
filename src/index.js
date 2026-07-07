@@ -6,15 +6,16 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll, sendWelcomeMatch } from "./matcher.js";
-import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, forgotPasswordPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken, armPasswordReset } from "./auth.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicleSubmissions, getDealerVehicles, dealerPortalPage, dealersPage, dealerSubmissionsPage } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
-import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
+import { distinctMakers, distinctModels, distinctModelCodes, distinctGrades, refreshLotImages } from "./avtonet.js";
+import { labelForCode } from "./model-codes.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
@@ -126,13 +127,21 @@ async function clearLoginFails(env, ip, email) {
   }
 }
 
-// --- Self-serve password-reset limiter (KV-backed) ---------------------------
-// Caps how many reset emails one IP or one target inbox can trigger, so the
-// public form can't be used to spam a mailbox or burn the mail quota. Fails
-// open like the other limiters; the endpoint's response is identical either
-// way, so a capped caller learns nothing.
-const RESET_RL_IP = 5;      // reset requests per IP per hour
-const RESET_RL_EMAIL = 3;   // reset emails per target address per hour
+// Oversized-body guard for the auth forms (V1.2 item 0.4): a real login,
+// set-password or reset body is well under 4KB, so anything bigger is rejected
+// before parsing. Missing Content-Length (rare for form posts) passes through -
+// the field-level length caps behind this still hold.
+const AUTH_BODY_MAX = 4096;
+function authBodyTooLarge(request) {
+  const len = Number(request.headers.get("Content-Length") || 0);
+  return Number.isFinite(len) && len > AUTH_BODY_MAX;
+}
+
+// "Forgot password?" limiter: same fail-open KV pattern as the login limiter.
+// Caps reset EMAILS, not page views - per IP and per target address - so the
+// form can't be used to bomb an inbox or probe addresses at volume.
+const RESET_RL_IP = 5;      // requests per IP per hour
+const RESET_RL_EMAIL = 3;   // requests per target email per hour
 async function resetRateLimited(env, ip, email) {
   if (!env.RL) return false;
   const keys = [];
@@ -154,10 +163,14 @@ async function resetRateLimited(env, ip, email) {
 }
 
 // Stamp an account's most recent successful login — drives the CRM "Last login".
-// Admin (id 0) has no DB row; only agents/clients do. Best-effort, never blocks.
+// Admin (id 0) has no DB row; only agents/clients/dealers do. Best-effort, never blocks.
 async function touchLastSeen(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return;
-  const table = role === "agent" ? "agents" : "clients";
+  if (!id) return;
+  let table;
+  if (role === "agent") table = "agents";
+  else if (role === "client") table = "clients";
+  else if (role === "dealer") table = "dealers";
+  else return;
   try { await env.DB.prepare(`UPDATE ${table} SET last_seen = datetime('now') WHERE id = ?`).bind(Number(id)).run(); } catch (_) { /* best effort */ }
 }
 
@@ -290,7 +303,14 @@ export default {
           email: form.get("email"),
           whatsapp: form.get("whatsapp"),
         });
-        if (!limited) {
+        // Rate-limited: tell the person honestly instead of faking success. A
+        // fake success here meant a real visitor believed they had an account
+        // when nothing was stored (V1.2 bug 0.1). Bots learn nothing new -
+        // rate-limit responses are standard; the honeypot below still plays dead.
+        if (limited) {
+          return doc(await requestPage(env, { error: "limited", signedIn }), 429);
+        }
+        {
           const result = await createRequest(env, form, session);
           if (result.ok) {
             // A returning, passwordless record gets a secure set-password link by
@@ -302,6 +322,23 @@ export default {
                 if (inv && inv.ok && inv.token) { await sendClientPortalInvite(env, inv); inviteSent = true; }
               } catch (e) { console.error("Signup set-password invite failed:", e.message); }
             }
+            // The email already has a login: the enquiry folded into that
+            // account and any typed password was ignored. Email a sign-in
+            // link so the owner can pick it up; the page itself looks exactly
+            // like every other confirmation (no account-existence signal).
+            if (result.signinNeeded) {
+              try {
+                const r = await beginPasswordReset(env, result.req.email);
+                if (r && r.token) {
+                  await sendEmail(env, {
+                    to: r.email,
+                    subject: "Your new vehicle search - sign in to view it",
+                    html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+                    from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+                  });
+                }
+              } catch (e) { console.error("Signup sign-in link failed:", e.message); }
+            }
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
             // Free-tier hook: for non-member buyers, run the search once now and
@@ -312,8 +349,11 @@ export default {
             try {
               const cm = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(result.clientId).first();
               if (!(cm && cm.member)) {
-                if (result.wishlistId) welcome = await sendWelcomeMatch(env, result.wishlistId);
                 const settings = await getSettings(env);
+                // V1.3 (decided): free accounts are manually reviewed, so the
+                // instant welcome match on signup is OFF by default. It only
+                // goes out when free_auto_send is switched on in Settings.
+                if (result.wishlistId && settingOn(settings, "free_auto_send")) welcome = await sendWelcomeMatch(env, result.wishlistId);
                 const priceAud = settingNum(settings, "membership_monthly_aud", 49);
                 // Only offer the upsell when membership is actually purchasable.
                 if (stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0) {
@@ -323,12 +363,17 @@ export default {
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell, inviteSent }));
           }
-          if (result.error === "email" || result.error === "password" || result.error === "exists" || result.error === "phone") {
-            // Re-render with the specific error and their input preserved.
+          // EVERY validation failure re-renders the wizard with the error and
+          // the visitor's input preserved. The old code re-rendered only the
+          // account-step errors and let vehicle/year/budget failures fall
+          // through to the generic "success" page - a real person saw their
+          // request confirmed while nothing was stored and no account existed
+          // (V1.2 bug 0.1). Only the honeypot still plays dead below.
+          if (result.error && result.error !== "spam") {
             return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals, signedIn }));
           }
-          // Honeypot/spam falls through to a generic success so bots get no signal.
         }
+        // Honeypot/spam: a generic success so bots get no signal.
         return doc(await requestPage(env, { submitted: true }));
       }
       const reqErr = url.searchParams.get("error") === "google" ? "google" : undefined;
@@ -341,7 +386,7 @@ export default {
     // (up to ~16 upstream SQL calls per /api/market hit), so an anonymous loop
     // could burn the relay quota (audit Medium #12). Generous cap - real users
     // browsing the wizard make a handful of calls, not 60 in 5 minutes.
-    if (path === "/api/makers" || path === "/api/models" || path === "/api/market") {
+    if (path === "/api/makers" || path === "/api/models" || path === "/api/codes" || path === "/api/grades" || path === "/api/market") {
       const ip = request.headers.get("CF-Connecting-IP") || "";
       if (await apiRateLimited(env, ip)) {
         return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
@@ -360,6 +405,22 @@ export default {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
       });
     }
+    // Model codes for a maker (+ optional model), labelled with the reviewed
+    // association where one exists: [{ code, label }] (V1.2 Phase 4).
+    if (path === "/api/codes") {
+      const codes = await distinctModelCodes(env, url.searchParams.get("maker") || "", url.searchParams.get("model") || "");
+      return new Response(JSON.stringify(codes.map((code) => ({ code, label: labelForCode(code) }))), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+    // Grade (trim) spellings on current and recent listings for a selection.
+    // Powers the Grade multi-select; spelling variants surface as-is.
+    if (path === "/api/grades") {
+      const grades = await distinctGrades(env, url.searchParams.get("maker") || "", url.searchParams.get("model") || "", url.searchParams.get("code") || "");
+      return new Response(JSON.stringify(grades), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
+      });
+    }
     // Onboarding "Market Snapshot": typical auction price, estimated landed cost
     // and rough monthly availability for a make/model, from real sold history.
     if (path === "/api/market") {
@@ -374,15 +435,22 @@ export default {
     const here = (p) => new URL(p, url).toString();
 
     // Where each role lands after signing in.
-    const homeFor = (role) => (role === "client" ? "/portal" : "/admin");
+    const homeFor = (role) => {
+      if (role === "client") return "/portal";
+      if (role === "dealer") return "/dealer/portal";
+      return "/admin";
+    };
 
     // Login / logout.
     if (path === "/login") {
       const googleEnabled = googleConfigured(env);
       if (request.method === "POST") {
+        if (authBodyTooLarge(request)) return doc(loginPage({ error: true, googleEnabled }), 413);
         const form = await request.formData();
         const ip = request.headers.get("CF-Connecting-IP") || "";
-        const email = form.get("email");
+        // Clip the email to its RFC maximum before it reaches KV keys or logs;
+        // authenticate() enforces the same cap (plus the password cap) itself.
+        const email = String(form.get("email") || "").slice(0, EMAIL_MAX);
         // Lockout: too many recent failures for this IP/email -> refuse without
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
@@ -410,29 +478,35 @@ export default {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
     }
 
-    // Self-serve password reset ("Forgot password?" on the login screen).
-    // Emails a fresh single-use set-password link to a matching agent or
-    // portal-enabled client. The confirmation page is the same whether or not
-    // the email matched (or was rate-capped), so the endpoint reveals nothing
-    // about which addresses have accounts.
+    // Self-serve password reset (V1.2 item 0.3). The response is IDENTICAL
+    // whether or not the email has an account, so the form can't be used to
+    // probe which addresses are registered. Eligible accounts get a 1-hour
+    // single-use link into the same /set-password flow as invites.
     if (path === "/forgot-password") {
       if (request.method === "POST") {
+        if (authBodyTooLarge(request)) return doc(forgotPasswordPage({ sent: true }), 413);
         const form = await request.formData();
-        const email = String(form.get("email") || "").trim().toLowerCase();
+        const email = String(form.get("email") || "").trim().slice(0, EMAIL_MAX);
         const ip = request.headers.get("CF-Connecting-IP") || "";
         if (email && !(await resetRateLimited(env, ip, email))) {
           try {
-            const r = await armPasswordReset(env, email, RESET_LINK_TTL_MS);
-            if (r) await sendPasswordReset(env, r);
-          } catch (err) {
-            // Still show the neutral confirmation: the user can retry, and the
-            // failure is ours to chase in the logs, not theirs to decode.
-            console.error("/forgot-password failed:", err.message);
+            const r = await beginPasswordReset(env, email);
+            if (r && r.token) {
+              await sendEmail(env, {
+                to: r.email,
+                subject: "Reset your JDM Connect password",
+                html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+              });
+            }
+          } catch (e) {
+            // Log loudly but still show the neutral page: an internal failure
+            // must not reveal anything about the address either.
+            console.error("Password reset failed:", e.message);
           }
         }
         return doc(forgotPasswordPage({ sent: true, email }));
       }
-      return doc(forgotPasswordPage({}));
+      return doc(forgotPasswordPage());
     }
 
     // --- Social login (Google). Inert until GOOGLE_CLIENT_ID/SECRET are set. ---
@@ -465,16 +539,28 @@ export default {
     }
 
     // Set-password (from an emailed invite link). Public - the single-use token
-    // authorises it. Works for both agent and client invites; the token is
-    // looked up against agents first, then clients. On success the user is
-    // signed straight in and sent to their home.
+    // authorises it. Works for agent, dealer and client invites; the token is
+    // looked up against each in order. On success the user is signed straight in
+    // and sent to their home.
     if (path === "/set-password") {
       // Resolve which kind of invite this token is. {kind, person} | null.
+      // Each lookup is isolated so a broken table/column in one role's branch
+      // (e.g. a deploy that outran its migration) can only disable that role -
+      // it must never 500 the set-password flow for everyone (V1.2 bug 0.2).
       const resolveInvite = async (token) => {
-        const a = await agentByInviteToken(env, token);
-        if (a) return { kind: "agent", person: a };
-        const c = await clientByInviteToken(env, token);
-        if (c) return { kind: "client", person: c };
+        const lookups = [
+          { kind: "agent", fn: agentByInviteToken },
+          { kind: "dealer", fn: dealerByInviteToken },
+          { kind: "client", fn: clientByInviteToken },
+        ];
+        for (const { kind, fn } of lookups) {
+          try {
+            const person = await fn(env, token);
+            if (person) return { kind, person };
+          } catch (e) {
+            console.error(`/set-password ${kind} token lookup failed:`, e.message);
+          }
+        }
         return null;
       };
       if (request.method === "POST") {
@@ -483,6 +569,7 @@ export default {
         // customer holding their very first link from us.
         let token = null, name = "";
         try {
+          if (authBodyTooLarge(request)) return doc(setPasswordPage({ invalid: true }), 413);
           const form = await request.formData();
           token = form.get("token");
           const pw = String(form.get("password") || "");
@@ -494,9 +581,11 @@ export default {
           }
           const r = found.kind === "agent"
             ? await setAgentPassword(env, token, pw)
+            : found.kind === "dealer"
+            ? await setDealerPassword(env, token, pw)
             : await setClientPassword(env, token, pw);
           if (r.ok) {
-            const role = found.kind === "agent" ? "agent" : "client";
+            const role = found.kind === "agent" ? "agent" : found.kind === "dealer" ? "dealer" : "client";
             return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
           }
           return doc(setPasswordPage({ token, name, error: r.error }));
@@ -553,6 +642,12 @@ export default {
     if (session.role === "client") {
       return handleClientPortal(request, env, url, path, session, here);
     }
+
+    // Dealer sessions are isolated: they only reach /dealer/* routes.
+    if (session.role === "dealer") {
+      return handleDealerPortal(request, env, url, path, session, here);
+    }
+
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     // Append a one-shot outcome message to a redirect destination. The admin
@@ -572,6 +667,51 @@ export default {
         ? withNotice(d, "Sorry, that did not save. Please try again.", true)
         : withNotice(d, okMsg)), 303);
     };
+
+    // Admin dealer management routes (admin only).
+    if (path === "/dealer" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      const r = await createDealer(env, f);
+      if (r.ok) {
+        if (r.token) await sendDealerInvite(env, r);
+        return Response.redirect(here(withNotice("/admin?view=dealers", "Dealer added and invited")), 303);
+      }
+      const msg = r.error === "email already in use"
+        ? "That email is already a dealer account. Use a different address."
+        : "Could not create the dealer. Check the name and email.";
+      return Response.redirect(here(withNotice("/admin?view=dealers", msg, true)), 303);
+    }
+    if (path === "/dealer/invite" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(async () => {
+        const r = await resendDealerInvite(env, id);
+        if (r) await sendDealerInvite(env, r);
+      }, "/admin?view=dealers", "Invite re-sent");
+    }
+    if (path === "/dealer/toggle" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => toggleDealer(env, id), "/admin?view=dealers", "Dealer updated");
+    }
+    if (path === "/dealer/delete" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => deleteDealer(env, id), "/admin?view=dealers", "Dealer deleted");
+    }
+
+    // Dealer vehicle submissions: approve/reject
+    if (path === "/dealer-vehicle/approve" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => approveDealerVehicle(env, id, session), "/admin?view=dealer-submissions", "Vehicle approved");
+    }
+    if (path === "/dealer-vehicle/reject" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      return act(() => rejectDealerVehicle(env, f.get("id"), f.get("notes"), session), "/admin?view=dealer-submissions", "Vehicle rejected");
+    }
 
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
@@ -646,6 +786,15 @@ export default {
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
           kuzov: sp.get("kuzov") || "", layout: sp.get("layout") || "", page: sp.get("page") || "",
         };
+      }
+      if (view === "dealers") {
+        const html = await dealersPage(env);
+        return doc(html, 200);
+      }
+      if (view === "dealer-submissions") {
+        const status = url.searchParams.get("status") || "pending";
+        const html = await dealerSubmissionsPage(env, status);
+        return doc(html, 200);
       }
       return doc(await adminPage(env, view, session, adminOpts));
     }
@@ -948,6 +1097,33 @@ export default {
       const id = (await request.formData()).get("id");
       return act(() => revokeClientPortal(env, id, session), `/admin?view=client&id=${Number(id) || ""}`, "Portal access revoked");
     }
+    // Admin-side "Send password reset" (V1.2 item 0.3): emails a 1-hour reset
+    // link to an account that can already sign in. Distinct from the invite
+    // buttons (which onboard accounts that have no password yet). Admin only.
+    if (path === "/send-reset" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      const kind = String(f.get("kind") || "");
+      const id = Number(f.get("id")) || 0;
+      const dest = kind === "client" ? `/admin?view=client&id=${id}`
+        : kind === "dealer" ? "/admin?view=dealers"
+        : "/admin?view=agents";
+      try {
+        const r = await beginPasswordResetFor(env, kind, id);
+        if (r && r.token) {
+          await sendEmail(env, {
+            to: r.email,
+            subject: "Reset your JDM Connect password",
+            html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+          });
+          return Response.redirect(here(withNotice(dest, `Password reset link emailed to ${r.email}`)), 303);
+        }
+        return Response.redirect(here(withNotice(dest, "This account has no active login to reset - send an invite instead.", true)), 303);
+      } catch (e) {
+        console.error("/send-reset failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not send the reset link. Please try again.", true)), 303);
+      }
+    }
     // Flip a client's paid-member flag (gates the auction page in their portal).
     // Admin only — membership is a paid feature; agents must never grant it.
     if (path === "/client/member" && request.method === "POST") {
@@ -990,7 +1166,9 @@ export default {
         if (r && r.ok) return Response.redirect(here(withNotice(dest, "Search added")), 303);
         const msg = r && r.error === "term"
           ? "Add at least a make, model, chassis code or grade keyword so the search has something to match on."
-          : "Could not add that search. Please try again.";
+          : r && r.error === "limit"
+            ? "This client already has the maximum number of active searches. Pause or delete one first."
+            : "Could not add that search. Please try again.";
         return Response.redirect(here(withNotice(dest, msg, true)), 303);
       } catch (e) {
         console.error("/wishlist failed:", e.message);
@@ -1143,7 +1321,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
       code === "member" ? "You're in - Full access is now active on your account." :
       code === "saved" ? "Saved." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
-      err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." : "";
+      err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." :
+      err === "freelimit" ? "Free accounts run one active search at a time. Pause or delete your current search to swap it, or upgrade to Full access for unlimited searches." :
+      err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." : "";
     return doc(await portalPage(env, session, { flash }));
   }
 
@@ -1187,7 +1367,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
   }
 
   if (path === "/portal/wishlist" && request.method === "POST") {
-    await portalAddWishlist(env, await request.formData(), session);
+    const r = await portalAddWishlist(env, await request.formData(), session);
+    if (r && r.error === "free_limit") return back("?err=freelimit");
+    if (r && r.error === "limit") return back("?err=searchcap");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/edit" && request.method === "POST") {
@@ -1220,6 +1402,24 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/pay/cancel") return back();
 
   // Start (or manage) the Full access monthly membership.
+  // A GET (typed URL, shared link, prefetch) lands on a real page: the plan
+  // and a subscribe button when purchasable, an honest note when not
+  // (V1.3 Phase C: the old behaviour was a bare 303 back to /portal).
+  if (path === "/portal/subscribe" && request.method === "GET") {
+    const settings = await getSettings(env);
+    const priceAud = settingNum(settings, "membership_monthly_aud", 49);
+    const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(session.id).first();
+    if (me && me.member) return back("?ok=member");
+    const purchasable = stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0;
+    if (!purchasable) {
+      return doc(infoPage("Full access", "Full access isn't available to buy online just yet. Message us and we'll set you up directly.", { cta: { href: "/portal", label: "Back to your garage" } }));
+    }
+    return doc(infoPage("Full access",
+      `Unlimited saved searches, the live auction floor and landed pricing on every lot. A$${priceAud} a month, cancel anytime.<br><br>
+       <form method="POST" action="/portal/subscribe" style="display:inline"><button class="btn-gold" type="submit">Subscribe now</button></form><br><br>
+       <a href="/portal" style="color:var(--gold-txt);font-weight:600">Back to your garage</a>`,
+      { html: true, cta: { href: "/portal", label: "Your garage" } }));
+  }
   if (path === "/portal/subscribe" && request.method === "POST") {
     return startSubscriptionCheckout(env, session, here);
   }
@@ -1310,23 +1510,6 @@ async function startDepositCheckout(env, session, queueId, here) {
   }
 }
 
-// Self-serve reset links are short-lived (1 hour) — unlike the 7-day staff
-// invites, the requester is at their inbox right now.
-const RESET_LINK_TTL_MS = 60 * 60 * 1000;
-
-// Email a self-requested password-reset link. `r` is { kind, token, email,
-// name } from armPasswordReset; reuses the invite templates since both end at
-// the same /set-password screen.
-async function sendPasswordReset(env, r) {
-  const link = `${env.PUBLIC_URL}/set-password?token=${r.token}`;
-  await sendEmail(env, {
-    to: r.email,
-    subject: "Reset your JDM Connect password",
-    html: r.kind === "agent" ? agentInviteHtml(r.name, link) : clientPortalInviteHtml(r.name, link),
-    from: r.kind === "agent" ? undefined : (env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM),
-  });
-}
-
 // Email a client their portal set-password link. `r` is { token, email, name }.
 async function sendClientPortalInvite(env, r) {
   try {
@@ -1366,6 +1549,18 @@ async function sendInvite(env, r) {
     });
   } catch (err) {
     console.error("Agent invite email failed:", err.message);
+  }
+}
+
+async function sendDealerInvite(env, r) {
+  try {
+    await sendEmail(env, {
+      to: r.email,
+      subject: "Set up your Dealer Portal login",
+      html: dealerInviteHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+    });
+  } catch (err) {
+    console.error("Dealer invite email failed:", err.message);
   }
 }
 
@@ -1458,6 +1653,41 @@ async function runMatcher(env, session) {
     }
   }
   return total;
+}
+
+// --------------------------------------------------------------------------
+// Dealer portal request handling. Reached only for a dealer session;
+// dealers submit vehicles for admin review.
+// --------------------------------------------------------------------------
+async function handleDealerPortal(request, env, url, path, session, here) {
+  const back = (q = "") => Response.redirect(here("/dealer/portal" + q), 303);
+
+  if (path === "/dealer/portal" && request.method === "GET") {
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ?").bind(session.id).first();
+    if (!dealer) return Response.redirect(here("/login"), 303);
+    let flash = "";
+    if (url.searchParams.get("ok") === "submitted") {
+      flash = "Thanks! Your vehicle has been submitted for review. We'll notify you once the admin approves it.";
+    }
+    const err = url.searchParams.get("err");
+    if (err) {
+      flash = `Error: ${err}`;
+    }
+    const html = await dealerPortalPage(env, dealer, flash);
+    return doc(html, 200);
+  }
+
+  if (path === "/dealer/vehicle/submit" && request.method === "POST") {
+    const f = await request.formData();
+    const result = await submitDealerVehicle(env, f, session);
+    if (result.ok) {
+      return Response.redirect(here("/dealer/portal?ok=submitted"), 303);
+    }
+    return Response.redirect(here(`/dealer/portal?err=${encodeURIComponent(result.error || "save")}`), 303);
+  }
+
+  // Anything else for a dealer → their portal.
+  return Response.redirect(here("/dealer/portal"), 303);
 }
 
 // Handle an approve/skip click from the digest or the in-app cards. When called

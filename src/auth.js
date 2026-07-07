@@ -1,5 +1,6 @@
-// Stateless signed-cookie sessions with two roles: "admin" (JDM Connect, sees
-// everything) and "agent" (sees only their own clients/wishlists/matches).
+// Stateless signed-cookie sessions with four roles: "admin" (JDM Connect, sees
+// everything), "agent" (sees only their own clients/wishlists/matches), "client"
+// (buyer portal), and "dealer" (vehicle submissions & review).
 //
 // The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
 // ADMIN_TOKEN — no server-side session store. Admin logs in with ADMIN_PASSWORD
@@ -12,11 +13,11 @@ const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
 // HARD PLATFORM CAP: deployed Cloudflare Workers reject PBKDF2 above 100,000
 // iterations ("Pbkdf2 failed: iteration counts above 100000 are not
 // supported"). Local workerd does NOT enforce this, so a higher count passes
-// `wrangler dev` and then breaks every set-password/signup in production
-// (audit Low #18's 210k bump did exactly that on 2026-07-02). Do not raise
-// this until Cloudflare lifts the cap. New hashes embed their iteration count
-// as an "<iter>." prefix on the stored hash; bare legacy hashes (no prefix)
-// verify at the same 100k count.
+// `wrangler dev` and then breaks every set-password/signup/reset in
+// production (audit Low #18's 210k bump did exactly that on 2026-07-02, fixed
+// on main in PR #55). Do not raise this until Cloudflare lifts the cap. New
+// hashes embed their iteration count as an "<iter>." prefix on the stored
+// hash; bare legacy hashes (no prefix) verify at the same 100k count.
 const PBKDF2_ITER = 100000;
 const PBKDF2_ITER_LEGACY = 100000;
 const enc = new TextEncoder();
@@ -145,6 +146,9 @@ export async function verifyPassword(password, saltB64, hashB64) {
 // affected - this only gates newly chosen passwords.
 export const PW_MIN = 10;
 export const PW_MAX = 32;
+// RFC 5321 upper bound for a deliverable address; anything longer is junk and
+// is rejected server-side before any DB or hashing work.
+export const EMAIL_MAX = 254;
 export const PW_SYMBOLS = "!@#$%^&*()-_=+?<>";
 const PW_ALLOWED_RE = /^[A-Za-z0-9!@#$%^&*()\-_=+?<>]+$/;
 // Returns a human-readable reason the password is rejected, or null if it passes.
@@ -175,9 +179,9 @@ export function passwordValid(env, password) {
 // (which would sign every user out). Admin (id 0) has no DB row, so it stays 0.
 // Fail-open: any DB error returns 0 rather than blocking a login.
 export async function currentSessionVer(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return 0;
+  if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return 0;
   try {
-    const table = role === "agent" ? "agents" : "clients";
+    const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
     const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
     return row ? (Number(row.session_ver) || 0) : 0;
   } catch (e) { return 0; }
@@ -185,8 +189,8 @@ export async function currentSessionVer(env, role, id) {
 
 // Bump an account's session version, immediately invalidating its live cookies.
 export async function bumpSessionVer(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return;
-  const table = role === "agent" ? "agents" : "clients";
+  if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return;
+  const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
   try { await env.DB.prepare(`UPDATE ${table} SET session_ver = session_ver + 1 WHERE id = ?`).bind(Number(id)).run(); } catch (e) { /* best effort */ }
 }
 
@@ -225,12 +229,12 @@ async function sessionFromCookie(request, env) {
   // session_ver so a single account can be revoked without an ADMIN_TOKEN rotate.
   if (parts.length < 3 || parts.length > 4) return null;
   const [role, idStr, expStr, verStr] = parts;
-  if (!["admin", "agent", "client"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
+  if (!["admin", "agent", "client", "dealer"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
   const id = Number(idStr) || 0;
-  if (parts.length === 4 && (role === "agent" || role === "client")) {
+  if (parts.length === 4 && (role === "agent" || role === "client" || role === "dealer")) {
     if (!/^\d+$/.test(verStr)) return null;
     try {
-      const table = role === "agent" ? "agents" : "clients";
+      const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
       const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(id).first();
       if (!row) return null;                                   // account deleted → invalid
       if ((Number(row.session_ver) || 0) !== Number(verStr)) return null; // revoked/bumped
@@ -247,17 +251,40 @@ export async function getSession(request, url, env) {
 }
 
 // Verify login credentials. Admin password wins; then an active agent (email +
-// password); then a portal-enabled client (email + password). {role,id}|null.
+// password); then an active dealer (email + password); then a portal-enabled
+// client (email + password). {role,id}|null.
 export async function authenticate(env, email, password) {
   if (passwordValid(env, password)) return { role: "admin", id: 0 };
   const e = String(email || "").trim().toLowerCase();
   if (!e || !password) return null;
+  // Server-side length caps (V1.2 item 0.4). Every stored user password fits
+  // the policy (max PW_MAX), so anything longer can only be junk or an attack;
+  // reject it before any DB read or PBKDF2 work. The admin comparison above is
+  // exempt: it is a constant-time equality check, not a hash.
+  if (e.length > EMAIL_MAX || String(password).length > PW_MAX) return null;
 
-  const agent = await env.DB.prepare(
+  // Each role lookup is isolated: a broken table/column in one branch (e.g. a
+  // deploy that outruns its migration) must degrade that role only, never 500
+  // every login on the site. That exact failure shipped once (dealers table).
+  const tryRole = async (fn) => {
+    try { return await fn(); } catch (err) {
+      console.error("authenticate role lookup failed:", err.message);
+      return null;
+    }
+  };
+
+  const agent = await tryRole(() => env.DB.prepare(
     "SELECT id, pass_salt, pass_hash, active FROM agents WHERE email = ?"
-  ).bind(e).first();
+  ).bind(e).first());
   if (agent && agent.active && agent.pass_hash && await verifyPassword(password, agent.pass_salt, agent.pass_hash)) {
     return { role: "agent", id: agent.id };
+  }
+
+  const dealer = await tryRole(() => env.DB.prepare(
+    "SELECT id, pass_salt, pass_hash, active FROM dealers WHERE email = ?"
+  ).bind(e).first());
+  if (dealer && dealer.active && dealer.pass_hash && await verifyPassword(password, dealer.pass_salt, dealer.pass_hash)) {
+    return { role: "dealer", id: dealer.id };
   }
 
   // Buyer portal: a client who has been given access and set a password. An
@@ -266,9 +293,9 @@ export async function authenticate(env, email, password) {
   // link sets it on the specific row it was issued for. Verify against each
   // candidate (newest first) rather than only the newest, so a valid password
   // on an older duplicate still signs in.
-  const clients = (await env.DB.prepare(
+  const clients = ((await tryRole(() => env.DB.prepare(
     "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
-  ).bind(e).all()).results || [];
+  ).bind(e).all())) || {}).results || [];
   for (const client of clients) {
     if (await verifyPassword(password, client.pass_salt, client.pass_hash)) {
       return { role: "client", id: client.id };
@@ -333,38 +360,6 @@ export async function clientByInviteToken(env, token) {
   return c;
 }
 
-// --- Self-serve password reset ("Forgot password?") ---------------------------
-// Given a login email, arm a fresh single-use set-password token for the
-// account that would sign in with it: an active agent first, then the newest
-// portal-enabled client (mirroring authenticate()'s order). Returns
-// {kind, token, email, name} | null. Deliberately narrower than a staff
-// invite: it never grants portal access to a client who doesn't have it and
-// never clears the portal_revoked staff veto — it can only re-key a login
-// that already exists, not create one.
-export async function armPasswordReset(env, emailRaw, ttlMs) {
-  const e = String(emailRaw || "").trim().toLowerCase();
-  if (!e) return null;
-  const token = randomToken();
-  const exp = Date.now() + Number(ttlMs);
-  const agent = await env.DB.prepare(
-    "SELECT id, name, email FROM agents WHERE lower(email) = ? AND active = 1 ORDER BY id DESC LIMIT 1"
-  ).bind(e).first();
-  if (agent) {
-    await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?")
-      .bind(token, exp, agent.id).run();
-    return { kind: "agent", token, email: agent.email, name: agent.name };
-  }
-  const client = await env.DB.prepare(
-    "SELECT id, name, email FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND COALESCE(portal_revoked, 0) = 0 ORDER BY id DESC LIMIT 1"
-  ).bind(e).first();
-  if (client) {
-    await env.DB.prepare("UPDATE clients SET invite_token = ?, invite_exp = ? WHERE id = ?")
-      .bind(token, exp, client.id).run();
-    return { kind: "client", token, email: client.email, name: client.name };
-  }
-  return null;
-}
-
 // Set a client's portal password from a valid invite token. Returns {ok,id,email}.
 export async function setClientPassword(env, token, password) {
   const pwErr = passwordPolicyError(password);
@@ -378,4 +373,84 @@ export async function setClientPassword(env, token, password) {
     "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?",
     [salt, hash, c.id], "setClientPassword");
   return { ok: true, id: c.id, email: c.email };
+}
+
+// --- Dealer invites (same pattern as agents and clients) ----------------------
+// Look up the dealer for a valid, unexpired invite token.
+export async function dealerByInviteToken(env, token) {
+  if (!token) return null;
+  const d = await env.DB.prepare(
+    "SELECT id, name, email, invite_exp FROM dealers WHERE invite_token = ?"
+  ).bind(String(token)).first();
+  if (!d || !d.invite_exp || Number(d.invite_exp) < Date.now()) return null;
+  return d;
+}
+
+// --- Self-serve password reset (V1.2 item 0.3) --------------------------------
+// Reuses the invite-token machinery: a reset stamps a fresh single-use token
+// (1 hour expiry, vs 7 days for onboarding invites) onto the account row, and
+// the emailed link lands on the same /set-password flow. Only accounts that can
+// ALREADY sign in are eligible - a reset must never grant access that staff have
+// not granted (revoked portals, deactivated agents/dealers, invite-pending rows).
+export const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+// Stamp a reset token onto a specific account. {kind,id,name,email,token}|null.
+// Used by the admin-side "Send password reset" actions; the email lookup below
+// wraps it for the public form.
+export async function beginPasswordResetFor(env, kind, id) {
+  const n = Number(id);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  const eligible = {
+    agent: "SELECT id, name, email FROM agents WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    dealer: "SELECT id, name, email FROM dealers WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    client: "SELECT id, name, email FROM clients WHERE id = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+  }[kind];
+  if (!eligible) return null;
+  const row = await env.DB.prepare(eligible).bind(n).first();
+  if (!row || !row.email) return null;
+  const token = randomToken();
+  const exp = Date.now() + RESET_TTL_MS;
+  const table = kind === "agent" ? "agents" : kind === "dealer" ? "dealers" : "clients";
+  await env.DB.prepare(`UPDATE ${table} SET invite_token = ?, invite_exp = ? WHERE id = ?`)
+    .bind(token, exp, row.id).run();
+  return { kind, id: row.id, name: row.name, email: row.email, token };
+}
+
+// Public "Forgot password?" lookup by email, across every role. Checks agents,
+// then dealers, then clients (mirroring authenticate's precedence). Returns the
+// reset payload for the first eligible account, or null - the ROUTE must render
+// the identical neutral response either way (no account enumeration).
+export async function beginPasswordReset(env, email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e || e.length > EMAIL_MAX) return null;
+  const lookups = [
+    { kind: "agent", sql: "SELECT id FROM agents WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "dealer", sql: "SELECT id FROM dealers WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "client", sql: "SELECT id FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1" },
+  ];
+  for (const { kind, sql } of lookups) {
+    try {
+      const row = await env.DB.prepare(sql).bind(e).first();
+      if (row) return beginPasswordResetFor(env, kind, row.id);
+    } catch (err) {
+      // Same isolation as authenticate: one broken role branch degrades that
+      // role only.
+      console.error("beginPasswordReset lookup failed:", err.message);
+    }
+  }
+  return null;
+}
+
+// Set a dealer's password from a valid invite token. Returns {ok,id,email}.
+export async function setDealerPassword(env, token, password) {
+  const pwErr = passwordPolicyError(password);
+  if (pwErr) return { ok: false, error: pwErr };
+  const d = await dealerByInviteToken(env, token);
+  if (!d) return { ok: false, error: "This link is invalid or has expired." };
+  const { salt, hash } = await hashPassword(password);
+  // Bump session_ver so any older sessions stop validating on password reset.
+  await env.DB.prepare(
+    "UPDATE dealers SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
+  ).bind(salt, hash, d.id).run();
+  return { ok: true, id: d.id, email: d.email };
 }

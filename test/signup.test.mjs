@@ -92,10 +92,18 @@ test("the request form now requires a sane year range", async () => {
   assert.equal(inverted.error, "year", "from must not be after to");
 });
 
-test("a second signup on an email that already has a login is refused", async () => {
+test("a second signup on an email that already has a login folds in neutrally (V1.2 Phase 3)", async () => {
   const env = makeEnv();
   await createRequest(env, fd({ name: "First", email: "dupe@example.com", marka_name: "TOYOTA", portal_password: "Goodpass123" }));
+  const before = env.DB.prepare("SELECT id, pass_hash FROM clients WHERE lower(email)='dupe@example.com'").first();
   const r = await createRequest(env, fd({ name: "Second", email: "dupe@example.com", marka_name: "HONDA", portal_password: "Another12345" }));
-  assert.equal(r.ok, false);
-  assert.equal(r.error, "exists");
+  // No error that reveals the account exists; the route shows the normal
+  // confirmation and emails a sign-in link instead.
+  assert.equal(r.ok, true);
+  assert.equal(r.signinNeeded, true, "route must email a sign-in link");
+  assert.equal(r.req.portal, false, "no new login is created");
+  // One record, original credentials untouched by the typed password.
+  const rows = (await env.DB.prepare("SELECT id, pass_hash FROM clients WHERE lower(email)='dupe@example.com'").all()).results;
+  assert.equal(rows.length, 1, "no duplicate account");
+  assert.equal(rows[0].pass_hash, before.pass_hash, "existing password hash untouched");
 });

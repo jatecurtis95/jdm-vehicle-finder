@@ -76,16 +76,22 @@ test("an agent's duplicate check is scoped to their own clients, not public ones
   assert.equal(rows[1].agent_id, 7);
 });
 
-test("a second account on a registered email is refused (anti-clobber)", async () => {
+test("a second account on a registered email never clobbers the real record (anti-clobber)", async () => {
   const env = makeEnv();
   // A real client signs up with an account.
   await createRequest(env, fd({ name: "Stephen Real", email: "s@example.com", marka_name: "TOYOTA", model_name: "AQUA", portal_password: "Stephen12345", whatsapp: "0400000082" }));
-  // A stranger who knows the email tries to open a second account with a bogus name.
-  const hack = await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA", portal_password: "Hacker123456" }));
-  assert.equal(hack.ok, false);
-  assert.equal(hack.error, "exists");
-  const row = await env.DB.prepare("SELECT name FROM clients WHERE lower(email)='s@example.com'").first();
+  const before = env.DB.prepare("SELECT pass_hash FROM clients WHERE lower(email)='s@example.com'").first();
+  // A stranger who knows the email submits with a bogus name and password.
+  // V1.2 Phase 3: the response is neutral (no account-existence leak); the
+  // enquiry folds into the existing record, credentials and name untouched,
+  // and a sign-in link is emailed to the real inbox owner.
+  const hack = await createRequest(env, fd({ name: "HACKED", email: "s@example.com", marka_name: "TOYOTA", model_name: "SUPRA", portal_password: "Hacker123456", whatsapp: "0499999999" }));
+  assert.equal(hack.ok, true);
+  assert.equal(hack.signinNeeded, true);
+  assert.equal(hack.req.portal, false, "the stranger gets no login");
+  const row = await env.DB.prepare("SELECT name, pass_hash FROM clients WHERE lower(email)='s@example.com'").first();
   assert.equal(row.name, "Stephen Real", "the real name is never overwritten");
+  assert.equal(row.pass_hash, before.pass_hash, "the real password is never overwritten");
 });
 
 test("public request fills in a name on an existing passwordless record", async () => {

@@ -29,11 +29,11 @@ test("auction page is gated to members", async () => {
   const e = env2();
   const free = await portalAuctionsPage(e, { role: "client", id: 2 }, {});
   assert.match(free, /members feature/i);
-  assert.ok(!/name="q"/.test(free), "non-member gets no search bar");
+  assert.ok(!/name="make"/.test(free), "non-member gets no search filters");
   const member = await portalAuctionsPage(e, { role: "client", id: 1 }, {});
   assert.match(member, /<h1>Auction search<\/h1>/);
   assert.match(member, /Search live Japanese auctions/);
-  assert.match(member, /name="q"/, "member gets the search bar");
+  assert.match(member, /name="make"/, "member gets the search filters");
 });
 
 test("a member search renders one card per live lot", async () => {
