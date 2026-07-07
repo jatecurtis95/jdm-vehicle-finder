@@ -6,10 +6,10 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll, sendWelcomeMatch } from "./matcher.js";
-import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml } from "./render.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicleSubmissions, getDealerVehicles, dealerPortalPage, dealersPage, dealerSubmissionsPage } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken } from "./auth.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicleSubmissions, getDealerVehicles, dealerPortalPage, dealersPage, dealerSubmissionsPage } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
@@ -124,6 +124,41 @@ async function clearLoginFails(env, ip, email) {
     if (k === LOGIN_GLOBAL_KEY) continue;
     try { await env.RL.delete(k); } catch (_) { /* best effort */ }
   }
+}
+
+// Oversized-body guard for the auth forms (V1.2 item 0.4): a real login,
+// set-password or reset body is well under 4KB, so anything bigger is rejected
+// before parsing. Missing Content-Length (rare for form posts) passes through -
+// the field-level length caps behind this still hold.
+const AUTH_BODY_MAX = 4096;
+function authBodyTooLarge(request) {
+  const len = Number(request.headers.get("Content-Length") || 0);
+  return Number.isFinite(len) && len > AUTH_BODY_MAX;
+}
+
+// "Forgot password?" limiter: same fail-open KV pattern as the login limiter.
+// Caps reset EMAILS, not page views - per IP and per target address - so the
+// form can't be used to bomb an inbox or probe addresses at volume.
+const RESET_RL_IP = 5;      // requests per IP per hour
+const RESET_RL_EMAIL = 3;   // requests per target email per hour
+async function resetRateLimited(env, ip, email) {
+  if (!env.RL) return false;
+  const keys = [];
+  if (ip) keys.push({ k: `resetrl:ip:${ip}`, cap: RESET_RL_IP });
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push({ k: `resetrl:e:${e}`, cap: RESET_RL_EMAIL });
+  const seen = [];
+  for (const { k, cap } of keys) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      if (n >= cap) return true;
+      seen.push({ k, n });
+    } catch (_) { /* fail open */ }
+  }
+  for (const { k, n } of seen) {
+    try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
+  }
+  return false;
 }
 
 // Stamp an account's most recent successful login — drives the CRM "Last login".
@@ -250,7 +285,14 @@ export default {
           email: form.get("email"),
           whatsapp: form.get("whatsapp"),
         });
-        if (!limited) {
+        // Rate-limited: tell the person honestly instead of faking success. A
+        // fake success here meant a real visitor believed they had an account
+        // when nothing was stored (V1.2 bug 0.1). Bots learn nothing new -
+        // rate-limit responses are standard; the honeypot below still plays dead.
+        if (limited) {
+          return doc(await requestPage(env, { error: "limited", signedIn }), 429);
+        }
+        {
           const result = await createRequest(env, form, session);
           if (result.ok) {
             // A returning, passwordless record gets a secure set-password link by
@@ -282,12 +324,17 @@ export default {
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
             return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
           }
-          if (result.error === "email" || result.error === "password" || result.error === "exists" || result.error === "phone") {
-            // Re-render with the specific error and their input preserved.
+          // EVERY validation failure re-renders the wizard with the error and
+          // the visitor's input preserved. The old code re-rendered only the
+          // account-step errors and let vehicle/year/budget failures fall
+          // through to the generic "success" page - a real person saw their
+          // request confirmed while nothing was stored and no account existed
+          // (V1.2 bug 0.1). Only the honeypot still plays dead below.
+          if (result.error && result.error !== "spam") {
             return doc(await requestPage(env, { error: result.error, pwError: result.pwError, vals: result.vals, signedIn }));
           }
-          // Honeypot/spam falls through to a generic success so bots get no signal.
         }
+        // Honeypot/spam: a generic success so bots get no signal.
         return doc(await requestPage(env, { submitted: true }));
       }
       const reqErr = url.searchParams.get("error") === "google" ? "google" : undefined;
@@ -343,9 +390,12 @@ export default {
     if (path === "/login") {
       const googleEnabled = googleConfigured(env);
       if (request.method === "POST") {
+        if (authBodyTooLarge(request)) return doc(loginPage({ error: true, googleEnabled }), 413);
         const form = await request.formData();
         const ip = request.headers.get("CF-Connecting-IP") || "";
-        const email = form.get("email");
+        // Clip the email to its RFC maximum before it reaches KV keys or logs;
+        // authenticate() enforces the same cap (plus the password cap) itself.
+        const email = String(form.get("email") || "").slice(0, EMAIL_MAX);
         // Lockout: too many recent failures for this IP/email -> refuse without
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
@@ -371,6 +421,37 @@ export default {
     }
     if (path === "/logout") {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
+    }
+
+    // Self-serve password reset (V1.2 item 0.3). The response is IDENTICAL
+    // whether or not the email has an account, so the form can't be used to
+    // probe which addresses are registered. Eligible accounts get a 1-hour
+    // single-use link into the same /set-password flow as invites.
+    if (path === "/forgot-password") {
+      if (request.method === "POST") {
+        if (authBodyTooLarge(request)) return doc(forgotPasswordPage({ sent: true }), 413);
+        const form = await request.formData();
+        const email = String(form.get("email") || "").trim().slice(0, EMAIL_MAX);
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        if (email && !(await resetRateLimited(env, ip, email))) {
+          try {
+            const r = await beginPasswordReset(env, email);
+            if (r && r.token) {
+              await sendEmail(env, {
+                to: r.email,
+                subject: "Reset your JDM Connect password",
+                html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+              });
+            }
+          } catch (e) {
+            // Log loudly but still show the neutral page: an internal failure
+            // must not reveal anything about the address either.
+            console.error("Password reset failed:", e.message);
+          }
+        }
+        return doc(forgotPasswordPage({ sent: true, email }));
+      }
+      return doc(forgotPasswordPage());
     }
 
     // --- Social login (Google). Inert until GOOGLE_CLIENT_ID/SECRET are set. ---
@@ -408,13 +489,23 @@ export default {
     // and sent to their home.
     if (path === "/set-password") {
       // Resolve which kind of invite this token is. {kind, person} | null.
+      // Each lookup is isolated so a broken table/column in one role's branch
+      // (e.g. a deploy that outran its migration) can only disable that role -
+      // it must never 500 the set-password flow for everyone (V1.2 bug 0.2).
       const resolveInvite = async (token) => {
-        const a = await agentByInviteToken(env, token);
-        if (a) return { kind: "agent", person: a };
-        const d = await dealerByInviteToken(env, token);
-        if (d) return { kind: "dealer", person: d };
-        const c = await clientByInviteToken(env, token);
-        if (c) return { kind: "client", person: c };
+        const lookups = [
+          { kind: "agent", fn: agentByInviteToken },
+          { kind: "dealer", fn: dealerByInviteToken },
+          { kind: "client", fn: clientByInviteToken },
+        ];
+        for (const { kind, fn } of lookups) {
+          try {
+            const person = await fn(env, token);
+            if (person) return { kind, person };
+          } catch (e) {
+            console.error(`/set-password ${kind} token lookup failed:`, e.message);
+          }
+        }
         return null;
       };
       if (request.method === "POST") {
@@ -423,6 +514,7 @@ export default {
         // customer holding their very first link from us.
         let token = null, name = "";
         try {
+          if (authBodyTooLarge(request)) return doc(setPasswordPage({ invalid: true }), 413);
           const form = await request.formData();
           token = form.get("token");
           const pw = String(form.get("password") || "");
@@ -949,6 +1041,33 @@ export default {
     if (path === "/client/portal-revoke" && request.method === "POST") {
       const id = (await request.formData()).get("id");
       return act(() => revokeClientPortal(env, id, session), `/admin?view=client&id=${Number(id) || ""}`, "Portal access revoked");
+    }
+    // Admin-side "Send password reset" (V1.2 item 0.3): emails a 1-hour reset
+    // link to an account that can already sign in. Distinct from the invite
+    // buttons (which onboard accounts that have no password yet). Admin only.
+    if (path === "/send-reset" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      const kind = String(f.get("kind") || "");
+      const id = Number(f.get("id")) || 0;
+      const dest = kind === "client" ? `/admin?view=client&id=${id}`
+        : kind === "dealer" ? "/admin?view=dealers"
+        : "/admin?view=agents";
+      try {
+        const r = await beginPasswordResetFor(env, kind, id);
+        if (r && r.token) {
+          await sendEmail(env, {
+            to: r.email,
+            subject: "Reset your JDM Connect password",
+            html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+          });
+          return Response.redirect(here(withNotice(dest, `Password reset link emailed to ${r.email}`)), 303);
+        }
+        return Response.redirect(here(withNotice(dest, "This account has no active login to reset - send an invite instead.", true)), 303);
+      } catch (e) {
+        console.error("/send-reset failed:", e.message);
+        return Response.redirect(here(withNotice(dest, "Could not send the reset link. Please try again.", true)), 303);
+      }
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
     // Admin only — membership is a paid feature; agents must never grant it.

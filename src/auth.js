@@ -143,6 +143,9 @@ export async function verifyPassword(password, saltB64, hashB64) {
 // affected - this only gates newly chosen passwords.
 export const PW_MIN = 10;
 export const PW_MAX = 32;
+// RFC 5321 upper bound for a deliverable address; anything longer is junk and
+// is rejected server-side before any DB or hashing work.
+export const EMAIL_MAX = 254;
 export const PW_SYMBOLS = "!@#$%^&*()-_=+?<>";
 const PW_ALLOWED_RE = /^[A-Za-z0-9!@#$%^&*()\-_=+?<>]+$/;
 // Returns a human-readable reason the password is rejected, or null if it passes.
@@ -251,26 +254,41 @@ export async function authenticate(env, email, password) {
   if (passwordValid(env, password)) return { role: "admin", id: 0 };
   const e = String(email || "").trim().toLowerCase();
   if (!e || !password) return null;
+  // Server-side length caps (V1.2 item 0.4). Every stored user password fits
+  // the policy (max PW_MAX), so anything longer can only be junk or an attack;
+  // reject it before any DB read or PBKDF2 work. The admin comparison above is
+  // exempt: it is a constant-time equality check, not a hash.
+  if (e.length > EMAIL_MAX || String(password).length > PW_MAX) return null;
 
-  const agent = await env.DB.prepare(
+  // Each role lookup is isolated: a broken table/column in one branch (e.g. a
+  // deploy that outruns its migration) must degrade that role only, never 500
+  // every login on the site. That exact failure shipped once (dealers table).
+  const tryRole = async (fn) => {
+    try { return await fn(); } catch (err) {
+      console.error("authenticate role lookup failed:", err.message);
+      return null;
+    }
+  };
+
+  const agent = await tryRole(() => env.DB.prepare(
     "SELECT id, pass_salt, pass_hash, active FROM agents WHERE email = ?"
-  ).bind(e).first();
+  ).bind(e).first());
   if (agent && agent.active && agent.pass_hash && await verifyPassword(password, agent.pass_salt, agent.pass_hash)) {
     return { role: "agent", id: agent.id };
   }
 
-  const dealer = await env.DB.prepare(
+  const dealer = await tryRole(() => env.DB.prepare(
     "SELECT id, pass_salt, pass_hash, active FROM dealers WHERE email = ?"
-  ).bind(e).first();
+  ).bind(e).first());
   if (dealer && dealer.active && dealer.pass_hash && await verifyPassword(password, dealer.pass_salt, dealer.pass_hash)) {
     return { role: "dealer", id: dealer.id };
   }
 
   // Buyer portal: a client who has been given access and set a password. If an
   // email somehow maps to several clients, the most recent portal account wins.
-  const client = await env.DB.prepare(
+  const client = await tryRole(() => env.DB.prepare(
     "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1"
-  ).bind(e).first();
+  ).bind(e).first());
   if (client && await verifyPassword(password, client.pass_salt, client.pass_hash)) {
     return { role: "client", id: client.id };
   }
@@ -357,6 +375,61 @@ export async function dealerByInviteToken(env, token) {
   ).bind(String(token)).first();
   if (!d || !d.invite_exp || Number(d.invite_exp) < Date.now()) return null;
   return d;
+}
+
+// --- Self-serve password reset (V1.2 item 0.3) --------------------------------
+// Reuses the invite-token machinery: a reset stamps a fresh single-use token
+// (1 hour expiry, vs 7 days for onboarding invites) onto the account row, and
+// the emailed link lands on the same /set-password flow. Only accounts that can
+// ALREADY sign in are eligible - a reset must never grant access that staff have
+// not granted (revoked portals, deactivated agents/dealers, invite-pending rows).
+export const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+// Stamp a reset token onto a specific account. {kind,id,name,email,token}|null.
+// Used by the admin-side "Send password reset" actions; the email lookup below
+// wraps it for the public form.
+export async function beginPasswordResetFor(env, kind, id) {
+  const n = Number(id);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  const eligible = {
+    agent: "SELECT id, name, email FROM agents WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    dealer: "SELECT id, name, email FROM dealers WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    client: "SELECT id, name, email FROM clients WHERE id = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+  }[kind];
+  if (!eligible) return null;
+  const row = await env.DB.prepare(eligible).bind(n).first();
+  if (!row || !row.email) return null;
+  const token = randomToken();
+  const exp = Date.now() + RESET_TTL_MS;
+  const table = kind === "agent" ? "agents" : kind === "dealer" ? "dealers" : "clients";
+  await env.DB.prepare(`UPDATE ${table} SET invite_token = ?, invite_exp = ? WHERE id = ?`)
+    .bind(token, exp, row.id).run();
+  return { kind, id: row.id, name: row.name, email: row.email, token };
+}
+
+// Public "Forgot password?" lookup by email, across every role. Checks agents,
+// then dealers, then clients (mirroring authenticate's precedence). Returns the
+// reset payload for the first eligible account, or null - the ROUTE must render
+// the identical neutral response either way (no account enumeration).
+export async function beginPasswordReset(env, email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e || e.length > EMAIL_MAX) return null;
+  const lookups = [
+    { kind: "agent", sql: "SELECT id FROM agents WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "dealer", sql: "SELECT id FROM dealers WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "client", sql: "SELECT id FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1" },
+  ];
+  for (const { kind, sql } of lookups) {
+    try {
+      const row = await env.DB.prepare(sql).bind(e).first();
+      if (row) return beginPasswordResetFor(env, kind, row.id);
+    } catch (err) {
+      // Same isolation as authenticate: one broken role branch degrades that
+      // role only.
+      console.error("beginPasswordReset lookup failed:", err.message);
+    }
+  }
+  return null;
 }
 
 // Set a dealer's password from a valid invite token. Returns {ok,id,email}.

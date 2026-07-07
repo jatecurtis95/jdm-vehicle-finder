@@ -361,6 +361,26 @@ export function clientPortalInviteHtml(name, link) {
 }
 
 // ---------------------------------------------------------------------------
+// PASSWORD RESET: self-serve "Forgot password?" and the admin-sent variant.
+// Works for every role - the link lands on the shared /set-password flow.
+// ---------------------------------------------------------------------------
+export function passwordResetHtml(name, link) {
+  const first = String(name || "").trim().split(/\s+/)[0];
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Password reset</div>
+    <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:24px;font-weight:600;line-height:1.2;color:${INK};">Reset your password${first ? ", " + esc(first) : ""}</h1>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">We received a request to reset the password for your JDM Connect login. Choose a new password with the button below - it signs you straight in.</p>
+  </td></tr>
+  <tr><td style="padding:22px 36px 0;">
+    ${btn(link, "Choose a new password", { bg: GOLD, color: INK, w: 230 })}
+    <p style="margin:18px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">Or paste this link into your browser:<br><span style="color:${GOLDTXT};word-break:break-all;">${esc(link)}</span></p>
+    <p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">This link expires in 1 hour. If you didn't ask for a reset, you can safely ignore this email - your password has not changed.</p>
+  </td></tr>`;
+  return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), "Reset your JDM Connect password");
+}
+
+// ---------------------------------------------------------------------------
 // DEALER invite: "set your password" welcome email for vehicle suppliers
 // ---------------------------------------------------------------------------
 export function dealerInviteHtml(name, link) {

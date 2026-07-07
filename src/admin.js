@@ -6,7 +6,7 @@ import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses,
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS } from "./auth.js";
+import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
@@ -1332,7 +1332,9 @@ function agentsView(agents, opts = {}) {
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
         ${rowMenu([
-          { label: invited ? "Resend invite" : "Reset password", action: "/agent/invite", id: a.id },
+          invited
+            ? { label: "Resend invite", action: "/agent/invite", id: a.id }
+            : { label: "Send password reset", action: "/send-reset", id: a.id, extra: { kind: "agent" } },
           { sep: true },
           { label: "Delete", action: "/agent/delete", id: a.id, confirm: "Delete this agent and ALL their clients, searches and matches? This cannot be undone.", icon: ICONS.trash, danger: true },
         ])}
@@ -1608,6 +1610,7 @@ export function loginPage(opts = {}) {
       <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
       <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
+      <p class="login-sub" style="margin:8px 0 0;text-align:right"><a href="/forgot-password" style="color:var(--gold-txt)">Forgot password?</a></p>
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
     </form>
@@ -1631,14 +1634,33 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" aria-describedby="sp-help">
-      <p id="sp-help" class="login-sub" style="margin:8px 0 0;font-size:var(--fs-label)">At least ${PW_MIN} characters.</p>
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}">
       <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
-      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}">
+      <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
     </form>`;
   }
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
+}
+
+// "Forgot password?" screen. The sent state is the SAME whether or not the
+// email has an account (no enumeration): we only ever say a link is on its way
+// if the address is registered.
+export function forgotPasswordPage(opts = {}) {
+  const card = opts.sent
+    ? `<div class="login-card"><div class="login-logo">${LOGO}</div><h1>Check your email</h1>
+      <p class="login-sub">If <strong>${esc(opts.email || "that address")}</strong> has a JDM Connect login, a password reset link is on its way. The link works for 1 hour - check your spam folder if it doesn't arrive.</p>
+      <p class="login-sub" style="margin-top:16px"><a href="/login" style="color:var(--gold-txt);font-weight:600">Back to sign in</a></p></div>`
+    : `<form class="login-card" method="POST" action="/forgot-password">
+      <div class="login-logo">${LOGO}</div>
+      <h1>Reset your password</h1>
+      <p class="login-sub">Enter the email you sign in with and we'll send you a link to choose a new password.</p>
+      <label for="fp-email">Email</label>
+      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" autofocus required>
+      <button class="btn-gold" type="submit">Email me a reset link</button>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
+    </form>`;
+  return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Reset password - JDM Connect");
 }
 
 // Time-aware greeting (client local time) + count-up on the dashboard numbers.
@@ -4707,6 +4729,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         ${c.email
           ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
+        ${session.role === "admin" && c.portal_enabled && c.pass_hash
+          ? `<form method="POST" action="/send-reset" style="display:inline"><input type="hidden" name="kind" value="client"><input type="hidden" name="id" value="${c.id}"><button class="btn-toggle" type="submit">Send password reset</button></form>`
+          : ""}
         ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
@@ -4969,6 +4994,8 @@ export async function requestPage(env, opts = {}) {
         : "";
   const bannerMsg = opts.error === "phone"
     ? "Please enter a valid mobile number so we can reach you the moment a match appears."
+    : opts.error === "limited"
+    ? "We've received a lot of requests from your connection just now. Please wait a few minutes and submit again - nothing was saved this time."
     : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
     : opts.error === "exists"
@@ -5432,7 +5459,8 @@ function rowMenu(items) {
     const cls = `rowmenu-item${it.danger ? " danger" : ""}`;
     if (it.href) return `<a class="${cls}" href="${it.href}">${ic}${esc(it.label)}</a>`;
     const conf = it.confirm ? ` data-confirm="${esc(it.confirm)}"${it.danger ? " data-danger" : ""}` : "";
-    return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}"><button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
+    const extras = Object.entries(it.extra || {}).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+    return `<form method="POST" action="${it.action}" class="rowmenu-form"${conf}><input type="hidden" name="id" value="${it.id}">${extras}<button type="submit" class="${cls}">${ic}${esc(it.label)}</button></form>`;
   }).join("");
   return `<details class="rowmenu"><summary class="rowmenu-btn" aria-label="Row actions" title="Actions">${ICONS.kebab}</summary><div class="rowmenu-pop">${body}</div></details>`;
 }
@@ -7689,6 +7717,11 @@ export async function dealersPage(env) {
                 <form method="POST" action="/dealer/invite" style="display: inline;">
                   <input type="hidden" name="id" value="${d.id}">
                   <button type="submit" class="btn secondary">Resend Invite</button>
+                </form>
+                <form method="POST" action="/send-reset" style="display: inline;">
+                  <input type="hidden" name="kind" value="dealer">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">Send password reset</button>
                 </form>
                 <form method="POST" action="/dealer/toggle" style="display: inline;">
                   <input type="hidden" name="id" value="${d.id}">
