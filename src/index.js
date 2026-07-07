@@ -154,7 +154,7 @@ async function resetRateLimited(env, ip, email) {
       const n = parseInt((await env.RL.get(k)) || "0", 10);
       if (n >= cap) return true;
       seen.push({ k, n });
-    } catch (_) { /* fail open */ }
+    } catch (_) { /* fail open for this key */ }
   }
   for (const { k, n } of seen) {
     try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
@@ -181,7 +181,24 @@ export default {
   },
 
   // -------- HTTP routes --------
+  // Last-resort catch: without it an uncaught exception surfaces to the
+  // visitor as Cloudflare's raw "Error 1101 - Worker threw exception" page
+  // (which is exactly what customers saw when set-password broke). Log enough
+  // to find the failing route, then show the branded error page instead.
   async fetch(request, env, ctx) {
+    try {
+      return await this.handleRoutes(request, env, ctx);
+    } catch (err) {
+      console.error(`Unhandled error on ${request.method} ${new URL(request.url).pathname}: ${(err && err.stack) || err}`);
+      try {
+        return doc(infoPage("Something went wrong", "Sorry - something went wrong on our side. Please try again in a moment, and contact us if it keeps happening."), 500);
+      } catch (_) {
+        return new Response("Sorry - something went wrong on our side. Please try again in a moment.", { status: 500 });
+      }
+    }
+  },
+
+  async handleRoutes(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -298,10 +315,11 @@ export default {
           if (result.ok) {
             // A returning, passwordless record gets a secure set-password link by
             // email, so only the inbox owner can claim the login.
+            let inviteSent = false;
             if (result.inviteNeeded) {
               try {
                 const inv = await inviteClientPortal(env, result.clientId, { role: "admin", id: 0 });
-                if (inv && inv.ok && inv.token) await sendClientPortalInvite(env, inv);
+                if (inv && inv.ok && inv.token) { await sendClientPortalInvite(env, inv); inviteSent = true; }
               } catch (e) { console.error("Signup set-password invite failed:", e.message); }
             }
             // The email already has a login: the enquiry folded into that
@@ -343,7 +361,7 @@ export default {
                 }
               }
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
-            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
+            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell, inviteSent }));
           }
           // EVERY validation failure re-renders the wizard with the error and
           // the visitor's input preserved. The old code re-rendered only the

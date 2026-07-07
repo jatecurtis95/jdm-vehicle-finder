@@ -287,13 +287,19 @@ export async function authenticate(env, email, password) {
     return { role: "dealer", id: dealer.id };
   }
 
-  // Buyer portal: a client who has been given access and set a password. If an
-  // email somehow maps to several clients, the most recent portal account wins.
-  const client = await tryRole(() => env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1"
-  ).bind(e).first());
-  if (client && await verifyPassword(password, client.pass_salt, client.pass_hash)) {
-    return { role: "client", id: client.id };
+  // Buyer portal: a client who has been given access and set a password. An
+  // email can map to several client rows (e.g. a staff-created record plus a
+  // later self-signup), and the password may live on any of them — an invite
+  // link sets it on the specific row it was issued for. Verify against each
+  // candidate (newest first) rather than only the newest, so a valid password
+  // on an older duplicate still signs in.
+  const clients = ((await tryRole(() => env.DB.prepare(
+    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
+  ).bind(e).all())) || {}).results || [];
+  for (const client of clients) {
+    if (await verifyPassword(password, client.pass_salt, client.pass_hash)) {
+      return { role: "client", id: client.id };
+    }
   }
   return null;
 }

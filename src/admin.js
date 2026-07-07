@@ -1356,6 +1356,7 @@ function agentsView(agents, opts = {}) {
       <td>${esc(a.company || "-")}</td>
       <td style="text-align:right">${a.client_count}</td>
       <td style="text-align:right">${a.open_requests || 0}</td>
+      <td style="white-space:nowrap">${a.last_seen ? esc(relTime(a.last_seen)) : `<span class="chip muted">never</span>`}</td>
       <td><form method="POST" action="/agent/alerts" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.alerts ? "on" : "off"}" type="submit">${a.alerts ? "Alerts on" : "Alerts off"}</button></form></td>
       <td><form method="POST" action="/agent/toggle" style="display:inline"><input type="hidden" name="id" value="${a.id}"><button class="btn-toggle ${a.active ? "on" : "off"}" type="submit">${a.active ? "Active" : "Paused"}</button></form></td>
       <td style="text-align:right;white-space:nowrap">
@@ -1368,7 +1369,7 @@ function agentsView(agents, opts = {}) {
         ])}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="8" class="empty">No agents yet</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">No agents yet</td></tr>`;
   // IA-AUDIT item 17: the team list is the daily read, the invite form the
   // occasional tool - list first, form folded. A validation bounce (vals
   // carries what was typed) or an empty team springs it open.
@@ -1390,12 +1391,12 @@ function agentsView(agents, opts = {}) {
     <div class="mcl">${agents.map((a) => mobileCardRow({
       name: a.name,
       title: `${esc(a.name)}${a.pass_hash ? "" : ` <span class="chip muted">invited</span>`}`,
-      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`, `${a.open_requests || 0} open request${(a.open_requests || 0) === 1 ? "" : "s"}`].filter(Boolean).join(" &middot; "),
+      meta: [esc(a.email), esc(a.company || ""), `${a.client_count} client${a.client_count === 1 ? "" : "s"}`, `${a.open_requests || 0} open request${(a.open_requests || 0) === 1 ? "" : "s"}`, a.last_seen ? `last login ${esc(relTime(a.last_seen))}` : "never logged in"].filter(Boolean).join(" &middot; "),
       right: `<span class="chip${a.active ? "" : " muted"}">${a.active ? "Active" : "Paused"}</span>`,
       rightSub: a.alerts ? "Alerts on" : "Alerts off",
     })).join("") || `<div class="empty">No agents yet</div>`}</div>
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th style="text-align:right">Open requests</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>
+      <table id="agentsTbl" class="sortable"><tr><th>Agent</th><th>Email</th><th>Company</th><th style="text-align:right">Clients</th><th style="text-align:right">Open requests</th><th>Last login</th><th>Alerts</th><th>Status</th><th></th></tr>${rows}</table></div>
     ${newAgent}`;
 }
 
@@ -1675,6 +1676,8 @@ export function loginPage(opts = {}) {
   return brandDoc(body, "Sign in - JDM Connect");
 }
 
+// Self-serve "Forgot password?" screen. The confirmation is intentionally the
+// same whether or not the email matched an account (no enumeration signal).
 // Agent set-password screen (reached from the emailed invite link).
 export function setPasswordPage(opts = {}) {
   const { token, name, error, invalid } = opts;
@@ -2333,6 +2336,12 @@ function clientsView(clients, wishlists, opts = {}) {
     const t = lastContact[c.id];
     return `${contactDot(c)}${esc(t ? lastActivityLabel(t) : "never")}`;
   };
+  // Portal sign-in recency (clients.last_seen, stamped on every login). A dash
+  // for clients with no portal access - "never" only means something when a
+  // login actually exists to use.
+  const lastLoginCell = (c) => c.last_seen
+    ? `<span style="white-space:nowrap">${esc(relTime(c.last_seen))}</span>`
+    : (c.portal_enabled ? `<span class="chip muted">never</span>` : `<span class="mw-zero">&mdash;</span>`);
   // Attio register: one identity cell (name over a muted email/state line,
   // Dealer marked with the neutral chip) instead of Type / Email / State
   // columns. Search still matches email and state; they live in the cell.
@@ -2344,6 +2353,7 @@ function clientsView(clients, wishlists, opts = {}) {
       <td style="text-align:right">${mwCell(c.id)}</td>
       <td>${stageFor(c.id) ? statusBadge(stageFor(c.id)) : `<span class="chip muted">&mdash;</span>`}</td>
       <td style="white-space:nowrap">${contactCell(c)}</td>
+      <td>${lastLoginCell(c)}</td>
       ${isAdmin ? `<td>${ownerCell(c)}</td>` : ""}
       <td>${shareCell(c)}</td>
       <td style="text-align:right">${canManage(c)
@@ -2358,7 +2368,7 @@ function clientsView(clients, wishlists, opts = {}) {
           ])
         : ""}</td>
     </tr>`
-  ).join("") || `<tr><td colspan="${isAdmin ? 9 : 7}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
+  ).join("") || `<tr><td colspan="${isAdmin ? 10 : 8}" class="empty">${cat ? `No ${cat === "dealer" ? "dealer" : "private"} clients${opts.showArchived ? " in the archive" : ""} yet.` : `No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.`}</td></tr>`;
 
   // Admin bulk bar. "Delete selected" is its own red button (not buried in a
   // dropdown) so it's obvious; assign/share only appear when there are agents.
@@ -2399,12 +2409,12 @@ function clientsView(clients, wishlists, opts = {}) {
     href: `/admin?view=client&id=${c.id}`,
     name: c.name,
     title: esc(c.name),
-    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, pendingCounts[c.id] ? `<b>${pendingCounts[c.id]} match${pendingCounts[c.id] === 1 ? "" : "es"} waiting</b>` : "", isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
+    meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, pendingCounts[c.id] ? `<b>${pendingCounts[c.id]} match${pendingCounts[c.id] === 1 ? "" : "es"} waiting</b>` : "", c.last_seen ? `last login ${esc(relTime(c.last_seen))}` : "", isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
     right: `${stageFor(c.id) ? statusBadge(stageFor(c.id)) : ""}${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
   return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th style="text-align:right">Matches waiting</th><th>Stage</th><th>Last contact</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}<style>
+    <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th style="text-align:right">Matches waiting</th><th>Stage</th><th>Last contact</th><th>Last login</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}<style>
     .bulkbar{display:none}
     .bulkbar.show{display:flex}
     .mw-link{font-weight:700;color:var(--gold-txt);text-decoration:none;letter-spacing:var(--ls-num)}
@@ -4738,7 +4748,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const contactBtns = [
     waDigits ? `<a class="cd-cta" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" data-clog="${c.id}:call" href="tel:${esc(telDigits)}">Call</a>` : "",
     c.email ? `<a class="cd-cta" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : "",
-    canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
+    `<a class="cd-cta" href="#find">Find a car</a>`,
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
@@ -4855,8 +4865,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ${searchWls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
-  // Manual auction search for this client (same access as managing them). Hits the
-  // live feed only when a query is present, so a normal page load stays cheap.
+  // Manual auction search for this client. Shown to EVERY staff viewer of this
+  // page (owner, admin, or an agent the client is shared with): shared access
+  // is for co-searching, and the add-to-queue endpoints behind this form
+  // already accept it (clientAccessibleBy). Only edit/portal stay owner-only.
+  // Hits the live feed only when a query is present, so a normal page load
+  // stays cheap.
   const firstName = String(c.name || "").trim().split(/\s+/)[0] || "this client";
   const sp = opts.search || {};
   const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
@@ -4869,7 +4883,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     return qs.toString();
   })();
   let findResults = "";
-  if (canManage && findHasQuery) {
+  if (findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
@@ -4902,7 +4916,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // one prominent affordance and expands it. It springs open whenever there is
   // something to show inside (results, or an add-to-queue flash).
   const findOpen = findHasQuery || !!opts.found;
-  const findCard = canManage ? `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
+  const findCard = `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
     <summary>Find a car for ${esc(firstName)}</summary>
     <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
@@ -4920,7 +4934,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
-  </details>` : "";
+  </details>`;
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
@@ -4996,9 +5010,11 @@ export async function requestPage(env, opts = {}) {
       .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
     const acct = req.portal
       ? `<strong>Your account is ready.</strong> Sign in any time with your email and password to track your search.`
-      : req.existing
-        ? `You've enquired before, so we added this to your existing details. Sign in to track it, or check your email for a link to set your password.`
-        : `We'll be in touch the moment a match appears.`;
+      : opts.inviteSent
+        ? `<strong>One more step to finish your login:</strong> you've enquired with us before, so for security we've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} a link to set your password (a password typed on this form isn't used for an existing account). Open that email to choose your password, then sign in.`
+        : req.existing
+          ? `You've enquired before, so we added this to your existing details. Sign in to track it, or <a href="/forgot-password" style="color:var(--gold-txt);font-weight:600">reset your password</a> if you can't get in.`
+          : `We'll be in touch the moment a match appears.`;
     // Conversion tracking: fire a Meta Pixel "Lead" only on a genuine, server-
     // validated sign-up (a real req with a name) - never on the honeypot / rate-
     // limited generic success, so bots and spam never inflate the conversion.
@@ -6454,9 +6470,11 @@ export async function createRequest(env, form, session) {
     } else {
       // Existing passwordless record -> email a set-password link (only the
       // inbox owner can claim it). A Google-linked client already has a way in,
-      // so we never nag them for a password.
-      const exi = await env.DB.prepare("SELECT pass_hash, google_sub FROM clients WHERE id = ?").bind(clientId).first();
-      if (exi && !exi.pass_hash && !exi.google_sub) inviteNeeded = true;
+      // so we never nag them for a password. A staff-revoked client never gets
+      // one either: the resulting inviteClientPortal call would clear the
+      // portal_revoked veto, letting them self-invite straight back in.
+      const exi = await env.DB.prepare("SELECT pass_hash, google_sub, COALESCE(portal_revoked, 0) AS portal_revoked FROM clients WHERE id = ?").bind(clientId).first();
+      if (exi && !exi.pass_hash && !exi.google_sub && !exi.portal_revoked) inviteNeeded = true;
       // Existing record WITH a login: the typed password was ignored, so email
       // a sign-in link instead (neutral "check your email to continue" flow).
       else if (exi && (exi.pass_hash || exi.google_sub)) signinNeeded = true;
