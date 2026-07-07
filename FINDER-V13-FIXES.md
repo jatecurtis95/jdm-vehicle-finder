@@ -119,10 +119,12 @@ ADMIN-REDESIGN.md and COLOUR-AUDIT.md.
 - Whether "Run Searches" should include free-tier customers' searches
   or paid only. Implement behind the same tier config.
 
-Build
+## PARKED (do not build yet, keep for planning)
 
 - Natural language smart search bar (parse year, make, model, grade
-  from plain text).
+  from plain text). Removed from the admin auction search in Phase A;
+  it broke when a year was typed before the car name and did nothing
+  useful. Rebuild only as a proper parser.
 - Proper marketing landing page on jdmfinder.com.au.
 - Feed timing gap: our feed surfaces some upcoming lots up to a day
   later than AUCRS (e.g. USS JAA lots appearing on auction day).

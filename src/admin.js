@@ -2,7 +2,8 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
@@ -950,7 +951,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
-      <a class="btn-search" href="/run"><span class="dot"></span>Search auctions</a>
+      <a class="btn-search" href="/run"><span class="dot"></span>Run Searches</a>
       <div class="whoami"><span class="who-name">${whoLabel}</span><span class="who-role">${whoSub}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
@@ -6654,6 +6655,9 @@ export async function portalAuctionsPage(env, session, params = {}) {
     distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
   ]);
   const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
+  const codes = String(params.make || "").trim()
+    ? (await distinctModelCodes(env, params.make, params.model)).map((code) => ({ code, label: labelForCode(code) }))
+    : [];
   const bidCount = (await env.DB.prepare(
     "SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1"
   ).bind(cid).first())?.n || 0;
@@ -6668,7 +6672,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
 
   const header = auctionSearchHeader({
     action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
-    p: params, makers, models, houses, showBid: true, bidCount,
+    p: params, makers, models, codes, houses, showBid: true, bidCount,
   });
   const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), { sold: false });
 
@@ -7080,9 +7084,12 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
   ]);
   const models = String(sp.make || "").trim() ? await distinctModels(env, sp.make) : [];
+  const codes = String(sp.make || "").trim()
+    ? (await distinctModelCodes(env, sp.make, sp.model)).map((code) => ({ code, label: labelForCode(code) }))
+    : [];
   const headerTab = tab === "sold" ? "sold" : "live";
   const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="${headerTab}">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
-  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
+  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, codes, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
 
   if (tab === "watch") {
     return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;

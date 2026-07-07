@@ -397,7 +397,10 @@ export async function distinctGrades(env, maker, model, code) {
 }
 
 // Distinct auction houses in the live feed, sorted. Powers the "All houses"
-// filter on the auction search. Cached like the maker/model lookups.
+// filter on the auction search. Cached SHORTER than the other lookups (1h,
+// V1.3 Phase A): some houses (e.g. USS JAA) only enter the feed on auction
+// day, and a 12h cache was hiding them from the filter for most of it.
+const HOUSES_TTL = 60 * 60 * 1000;
 let _housesCache = { list: null, exp: 0 };
 export async function distinctHouses(env) {
   const now = Date.now();
@@ -406,7 +409,7 @@ export async function distinctHouses(env) {
     const rows = await query(env, "SELECT DISTINCT auction FROM main WHERE auction <> '' ORDER BY auction");
     const list = [...new Set(rows.map((r) => (r.auction || "").trim()).filter(Boolean))];
     if (list.length) {
-      _housesCache = { list, exp: now + LOOKUP_TTL };
+      _housesCache = { list, exp: now + HOUSES_TTL };
       return list;
     }
   } catch (e) {
