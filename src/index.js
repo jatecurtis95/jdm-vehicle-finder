@@ -8,8 +8,8 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
+import { adminPage, requestPage, loginPage, forgotPasswordPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken, armPasswordReset } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
@@ -126,6 +126,33 @@ async function clearLoginFails(env, ip, email) {
   }
 }
 
+// --- Self-serve password-reset limiter (KV-backed) ---------------------------
+// Caps how many reset emails one IP or one target inbox can trigger, so the
+// public form can't be used to spam a mailbox or burn the mail quota. Fails
+// open like the other limiters; the endpoint's response is identical either
+// way, so a capped caller learns nothing.
+const RESET_RL_IP = 5;      // reset requests per IP per hour
+const RESET_RL_EMAIL = 3;   // reset emails per target address per hour
+async function resetRateLimited(env, ip, email) {
+  if (!env.RL) return false;
+  const keys = [];
+  if (ip) keys.push({ k: `resetrl:ip:${ip}`, cap: RESET_RL_IP });
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push({ k: `resetrl:e:${e}`, cap: RESET_RL_EMAIL });
+  const seen = [];
+  for (const { k, cap } of keys) {
+    try {
+      const n = parseInt((await env.RL.get(k)) || "0", 10);
+      if (n >= cap) return true;
+      seen.push({ k, n });
+    } catch (_) { /* fail open for this key */ }
+  }
+  for (const { k, n } of seen) {
+    try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
+  }
+  return false;
+}
+
 // Stamp an account's most recent successful login — drives the CRM "Last login".
 // Admin (id 0) has no DB row; only agents/clients do. Best-effort, never blocks.
 async function touchLastSeen(env, role, id) {
@@ -141,7 +168,24 @@ export default {
   },
 
   // -------- HTTP routes --------
+  // Last-resort catch: without it an uncaught exception surfaces to the
+  // visitor as Cloudflare's raw "Error 1101 - Worker threw exception" page
+  // (which is exactly what customers saw when set-password broke). Log enough
+  // to find the failing route, then show the branded error page instead.
   async fetch(request, env, ctx) {
+    try {
+      return await this.handleRoutes(request, env, ctx);
+    } catch (err) {
+      console.error(`Unhandled error on ${request.method} ${new URL(request.url).pathname}: ${(err && err.stack) || err}`);
+      try {
+        return doc(infoPage("Something went wrong", "Sorry - something went wrong on our side. Please try again in a moment, and contact us if it keeps happening."), 500);
+      } catch (_) {
+        return new Response("Sorry - something went wrong on our side. Please try again in a moment.", { status: 500 });
+      }
+    }
+  },
+
+  async handleRoutes(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -251,10 +295,11 @@ export default {
           if (result.ok) {
             // A returning, passwordless record gets a secure set-password link by
             // email, so only the inbox owner can claim the login.
+            let inviteSent = false;
             if (result.inviteNeeded) {
               try {
                 const inv = await inviteClientPortal(env, result.clientId, { role: "admin", id: 0 });
-                if (inv && inv.ok && inv.token) await sendClientPortalInvite(env, inv);
+                if (inv && inv.ok && inv.token) { await sendClientPortalInvite(env, inv); inviteSent = true; }
               } catch (e) { console.error("Signup set-password invite failed:", e.message); }
             }
             await alertNewRequest(env, result.req);     // notify staff
@@ -276,7 +321,7 @@ export default {
                 }
               }
             } catch (e) { console.error("Welcome match / upsell failed:", e.message); }
-            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell }));
+            return doc(await requestPage(env, { submitted: true, ref: result.ref, req: result.req, welcome, upsell, inviteSent }));
           }
           if (result.error === "email" || result.error === "password" || result.error === "exists" || result.error === "phone") {
             // Re-render with the specific error and their input preserved.
@@ -363,6 +408,31 @@ export default {
     }
     if (path === "/logout") {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
+    }
+
+    // Self-serve password reset ("Forgot password?" on the login screen).
+    // Emails a fresh single-use set-password link to a matching agent or
+    // portal-enabled client. The confirmation page is the same whether or not
+    // the email matched (or was rate-capped), so the endpoint reveals nothing
+    // about which addresses have accounts.
+    if (path === "/forgot-password") {
+      if (request.method === "POST") {
+        const form = await request.formData();
+        const email = String(form.get("email") || "").trim().toLowerCase();
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        if (email && !(await resetRateLimited(env, ip, email))) {
+          try {
+            const r = await armPasswordReset(env, email, RESET_LINK_TTL_MS);
+            if (r) await sendPasswordReset(env, r);
+          } catch (err) {
+            // Still show the neutral confirmation: the user can retry, and the
+            // failure is ours to chase in the logs, not theirs to decode.
+            console.error("/forgot-password failed:", err.message);
+          }
+        }
+        return doc(forgotPasswordPage({ sent: true, email }));
+      }
+      return doc(forgotPasswordPage({}));
     }
 
     // --- Social login (Google). Inert until GOOGLE_CLIENT_ID/SECRET are set. ---
@@ -1238,6 +1308,23 @@ async function startDepositCheckout(env, session, queueId, here) {
     console.error("Stripe checkout failed:", err.message);
     return Response.redirect(here("/portal?err=pay"), 303);
   }
+}
+
+// Self-serve reset links are short-lived (1 hour) — unlike the 7-day staff
+// invites, the requester is at their inbox right now.
+const RESET_LINK_TTL_MS = 60 * 60 * 1000;
+
+// Email a self-requested password-reset link. `r` is { kind, token, email,
+// name } from armPasswordReset; reuses the invite templates since both end at
+// the same /set-password screen.
+async function sendPasswordReset(env, r) {
+  const link = `${env.PUBLIC_URL}/set-password?token=${r.token}`;
+  await sendEmail(env, {
+    to: r.email,
+    subject: "Reset your JDM Connect password",
+    html: r.kind === "agent" ? agentInviteHtml(r.name, link) : clientPortalInviteHtml(r.name, link),
+    from: r.kind === "agent" ? undefined : (env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM),
+  });
 }
 
 // Email a client their portal set-password link. `r` is { token, email, name }.
