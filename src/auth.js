@@ -10,12 +10,15 @@
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
-// OWASP (2023) recommends >=600k PBKDF2-SHA256 iterations; the Workers CPU
-// budget caps what a login request can afford, so 210k is the practical
-// balance (audit Low #18, set 2026-07-02). New hashes embed their iteration
-// count as an "<iter>." prefix on the stored hash; bare legacy hashes (no
-// prefix) verify at the old 100k count until that user next sets a password.
-const PBKDF2_ITER = 210000;
+// HARD PLATFORM CAP: deployed Cloudflare Workers reject PBKDF2 above 100,000
+// iterations ("Pbkdf2 failed: iteration counts above 100000 are not
+// supported"). Local workerd does NOT enforce this, so a higher count passes
+// `wrangler dev` and then breaks every set-password/signup/reset in
+// production (audit Low #18's 210k bump did exactly that on 2026-07-02, fixed
+// on main in PR #55). Do not raise this until Cloudflare lifts the cap. New
+// hashes embed their iteration count as an "<iter>." prefix on the stored
+// hash; bare legacy hashes (no prefix) verify at the same 100k count.
+const PBKDF2_ITER = 100000;
 const PBKDF2_ITER_LEGACY = 100000;
 const enc = new TextEncoder();
 
