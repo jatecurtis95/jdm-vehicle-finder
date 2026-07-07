@@ -12,7 +12,7 @@ import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
-import { onboardingCss, wizardScript, popularCards, recentExamplesShell, socialProofStrip, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
+import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
 
 // "Continue with Google" button (social login). The official four-colour G mark,
 // a neutral white button, and an "or" divider - shared by the login screen and
@@ -1607,12 +1607,12 @@ export function loginPage(opts = {}) {
       ${err}
       ${googleBlock}
       <label for="lg-email">Email</label>
-      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com (admins can leave this blank)" maxlength="160" value="${esc(opts.email || "")}">
+      <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" value="${esc(opts.email || "")}">
       <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
       <p class="login-sub" style="margin:8px 0 0;text-align:right"><a href="/forgot-password" style="color:var(--gold-txt)">Forgot password?</a></p>
       <button class="btn-gold" type="submit">Sign in</button>
-      <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:600">Start a vehicle search</a></p>
+      <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:700;text-decoration:underline;text-underline-offset:3px">Sign up to start searching</a></p>
     </form>
   </div>`;
   return brandDoc(body, "Sign in - JDM Connect");
@@ -5031,7 +5031,6 @@ export async function requestPage(env, opts = {}) {
           <input type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
 
           <section class="ob-step is-active" data-step="1" aria-label="Find your car">
-            ${socialProofStrip()}
             <div class="ob-eyebrow">Start your search</div>
             <h1>What vehicle are you looking for?</h1>
             <p class="ob-lead">Tell us what you're chasing and we'll search every major Japanese auction house for matching vehicles.</p>
@@ -5066,7 +5065,7 @@ export async function requestPage(env, opts = {}) {
                 <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:16px">
                   <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
-                  <div><label for="rq-dest">Delivering to <span class="opt">(country, if outside Australia)</span></label><input id="rq-dest" name="destination_country" value="${v("destination_country")}" placeholder="Leave blank for Australia" maxlength="60"></div>
+                  <div><label for="rq-dest">Country</label><input id="rq-dest" name="destination_country" value="${esc(vals.destination_country || "Australia")}" maxlength="60"></div>
                 </div>
                 <details class="ob-refine"${moreOpen ? " open" : ""}>
                   <summary>Refine my search (optional)</summary>

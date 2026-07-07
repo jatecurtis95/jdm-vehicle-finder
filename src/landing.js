@@ -302,11 +302,6 @@ export async function landingPage(env) {
     <section class="sec lp-cream" id="trust">
       <div class="sec-in">
         ${eyebrow("Why trust us")}
-        <div class="trust-stats">
-          <div class="rv"><div class="v"><span data-count-to="20" data-post="+">20+</span></div><div class="l">cars imported every month</div></div>
-          <div class="rv rv-d1"><div class="v"><span data-count-to="15">15</span></div><div class="l">years importing from Japan</div></div>
-          <div class="rv rv-d2"><div class="v">100s</div><div class="l">of Aussies already in their dream cars</div></div>
-        </div>
         <div class="reviews">${REVIEWS.map(reviewEl).join("")}</div>
       </div>
     </section>

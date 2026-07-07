@@ -262,9 +262,6 @@ export const landingCss = `
   .num .l{font-size:15px;color:var(--jf-t3);margin-top:14px;max-width:250px;line-height:1.55}
 
   /* ===== TRUST (cream) ===== */
-  .trust-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;padding-bottom:58px;border-bottom:1px solid var(--cream-hair);margin-bottom:58px}
-  .trust-stats .v{font-size:clamp(48px,5.4vw,76px);font-weight:800;color:var(--cream-ink);line-height:1}
-  .trust-stats .l{font-size:15px;color:var(--cream-t2);margin-top:8px}
   .reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
   .review{background:var(--cream-card);border:1px solid rgba(27,28,30,0.1);border-radius:8px;padding:32px 30px;display:flex;flex-direction:column;height:100%;margin:0}
   .review .q{font-weight:600;font-size:40px;line-height:0.6;color:var(--gold);height:24px}
@@ -348,7 +345,7 @@ export const landingCss = `
     .jf-nav-links{display:none}
     .nav-burger{display:flex}
     .feat-callout h2{font-size:clamp(32px,8vw,52px)}
-    .steps,.cards,.num-grid,.trust-stats,.reviews,.tiers,.cost-grid{grid-template-columns:1fr}
+    .steps,.cards,.num-grid,.reviews,.tiers,.cost-grid{grid-template-columns:1fr}
     .cards{max-width:460px;margin:0 auto}
     .step{border-right:0;border-bottom:1px solid var(--cream-hair-2)}
     .divlab-bg{position:relative;inset:auto;height:62vw;left:0}

@@ -12,8 +12,6 @@
 // Direction: light, clean, premium (Stripe / Airbnb onboarding), focused top-nav
 // layout (no sidebar). Self-contained light theme scoped under `.ob`.
 
-const CAR_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 13.5l1.7-4.7A2.4 2.4 0 0 1 7 7.2h10a2.4 2.4 0 0 1 2.3 1.6l1.7 4.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M3 13.5h18v3.4a1 1 0 0 1-1 1h-1.4a1 1 0 0 1-1-1v-.9H6.4v.9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3.4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="7.2" cy="15.2" r="1" fill="currentColor"/><circle cx="16.8" cy="15.2" r="1" fill="currentColor"/></svg>`;
-
 // One-tap popular searches for Step 1. Values map to real feed makers/models; a
 // tap fills Make + Model (and loads the model list) so the visitor can refine.
 export const POPULAR = [
@@ -25,36 +23,27 @@ export const POPULAR = [
   { label: "Corolla Touring", make: "TOYOTA", model: "COROLLA TOURING", desc: "Hybrid wagon" },
 ];
 
-// Vehicle cards: image tile + name + descriptor, selectable. The image is a
-// branded placeholder tile until real per-model photography is dropped in.
+// Vehicle cards: name + descriptor, selectable. Text-only by design (V1.2
+// Phase 1): the old dark placeholder-image strip read as broken imagery, and
+// broken imagery ships nowhere. Real per-model photography can reintroduce an
+// image strip later.
 export function popularCards() {
   return `<div class="ob-pop">${POPULAR.map((p) =>
     `<button type="button" class="ob-pop-card" data-make="${p.make}" data-model="${p.model}">
-       <span class="ob-pop-img" aria-hidden="true">${CAR_ICON}</span>
        <span class="ob-pop-nm">${p.label}</span>
        <span class="ob-pop-desc">${p.desc}</span>
      </button>`
   ).join("")}</div>`;
 }
 
-// Step 1 "recent examples imported": populated by JS from /api/market once a
-// make/model is chosen (real sold history -> landed price), placeholder image.
+// Step 1 "recent sold at auction": populated by JS from /api/market once a
+// make/model is chosen. Real sold history only, text rows (no placeholder
+// imagery), hidden entirely when the feed has nothing for the selection.
 export function recentExamplesShell() {
   return `<div class="ob-recent" id="obRecent" data-state="idle">
-    <div class="ob-sub-h">Recent examples imported</div>
+    <div class="ob-sub-h">Recently sold at auction</div>
     <div class="ob-recent-grid" id="obRecentGrid"></div>
-    <p class="ob-recent-hint">Choose a make and model above to see recent landed prices.</p>
-  </div>`;
-}
-
-// Approved trust stats (figures confirmed by the client for this build).
-export function socialProofStrip() {
-  const stat = (v, l) => `<div class="ob-stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
-  return `<div class="ob-proof">
-    ${stat("500+", "Vehicles sourced")}
-    ${stat("15+", "Years importing")}
-    ${stat("100,000+", "Auction listings reviewed")}
-    ${stat("Australia-wide", "Delivery network")}
+    <p class="ob-recent-hint">Choose a make and model above to see recent auction sales.</p>
   </div>`;
 }
 
@@ -175,18 +164,22 @@ export const onboardingCss = `
     transition:border-color .18s,background .18s}
   .ob .btn-ghost:hover{border-color:rgba(23,24,28,0.28);background:var(--surface)}
 
-  /* Top nav */
-  .ob-nav{position:sticky;top:0;z-index:40;background:rgba(255,255,255,0.86);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--hair)}
+  /* Top nav. Near-opaque on purpose: at lower alphas the page text showed
+     through the sticky bars mid-scroll and read as two overlapping text layers
+     (V1.2 Phase 1, Ben's garbled-text report). */
+  .ob-nav{position:sticky;top:0;z-index:40;background:rgba(255,255,255,0.97);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--hair)}
   .ob-nav-in{max-width:1080px;margin:0 auto;padding:16px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}
   .ob-brand{display:flex;align-items:center;gap:11px}
   .ob-brand svg{height:17px;width:auto}
   .ob-brand svg path,.ob-brand svg polygon{fill:var(--ink)}
   .ob-brand .tag{font-size:10px;letter-spacing:0.26em;text-transform:uppercase;color:var(--faint);border-left:1px solid var(--hair);padding-left:11px}
-  .ob-signin{font-size:14px;font-weight:600;color:var(--t2);transition:color .15s}
+  .ob-signin{font-size:14px;font-weight:600;color:var(--t2);transition:color .15s;white-space:nowrap}
   .ob-signin:hover{color:var(--ink)}
 
-  /* Progress stepper */
-  .ob-stepper{position:sticky;top:50px;z-index:30;background:rgba(250,249,246,0.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-2)}
+  /* Progress stepper. Near-opaque for the same two-layer reason as .ob-nav;
+     .ob-signin is nowrap so the nav never wraps taller than the stepper's
+     top offset (which stacked the two bars over each other at 375). */
+  .ob-stepper{position:sticky;top:50px;z-index:30;background:rgba(250,249,246,0.97);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-2)}
   .ob-steps{max-width:680px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;list-style:none}
   .ob-steps li{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:9px;font-size:12.5px;font-weight:600;color:var(--faint);text-align:center}
   .ob-steps li:not(:last-child):after{content:"";position:absolute;top:15px;left:calc(50% + 18px);width:calc(100% - 36px);height:2px;background:var(--hair);z-index:0;transition:background .4s var(--ease)}
@@ -202,8 +195,9 @@ export const onboardingCss = `
   .ob-steps li.is-done:after{background:var(--gold-line)}
   @media(max-width:560px){.ob-steps{padding:14px 12px}.ob-steps li{font-size:11px}.ob-steps li:not(:last-child):after{left:calc(50% + 12px);width:calc(100% - 24px)}}
 
-  /* Content */
-  .ob-main{max-width:1080px;margin:0 auto;padding:40px 28px 80px}
+  /* Content. The 120px bottom clearance keeps the floating WhatsApp button
+     from sitting on the last row of text or the final CTA at rest. */
+  .ob-main{max-width:1080px;margin:0 auto;padding:40px 28px 120px}
   .ob-eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:12px}
   .ob-step h1{font-size:clamp(25px,3.2vw,36px);font-weight:800;letter-spacing:-0.02em;line-height:1.1;margin:0 0 12px;color:var(--ink);text-wrap:balance}
   .ob-lead{font-size:16px;line-height:1.6;color:var(--t2);margin:0 0 28px;max-width:60ch}
@@ -215,54 +209,35 @@ export const onboardingCss = `
   .ob-on .ob-step.is-active{display:block;animation:obIn .34s var(--ease)}
   .ob-on .ob-nojs{display:none}
   @keyframes obIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @media(prefers-reduced-motion:reduce){.ob-on .ob-step.is-active{animation:none}.ob-recent[data-state=loading] .ob-rec-img{animation:none}.ob *{transition:none!important}}
+  @media(prefers-reduced-motion:reduce){.ob-on .ob-step.is-active{animation:none}.ob *{transition:none!important}}
 
   .ob-cols{display:grid;grid-template-columns:1.25fr 0.75fr;gap:34px;align-items:start}
   @media(max-width:800px){.ob-cols{grid-template-columns:1fr;gap:24px}}
 
-  /* Social proof */
-  .ob-proof{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:34px}
-  .ob-stat{background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:15px 16px}
-  .ob-stat .v{font-size:20px;font-weight:800;letter-spacing:-0.01em;color:var(--gold-txt);line-height:1}
-  .ob-stat .l{font-size:12px;color:var(--t3);margin-top:6px;line-height:1.35}
-  @media(max-width:640px){.ob-proof{grid-template-columns:repeat(2,1fr)}}
-
   .ob-sub-h{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin:0 0 12px}
 
-  /* Popular vehicle cards */
+  /* Popular vehicle cards (text-only: no placeholder imagery) */
   .ob-pop{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:30px}
   .ob-pop-card{display:flex;flex-direction:column;align-items:stretch;padding:0;background:var(--card);border:1px solid var(--hair);border-radius:14px;
     cursor:pointer;text-align:left;font-family:inherit;overflow:hidden;transition:border-color .2s,box-shadow .2s,transform .2s var(--ease)}
   .ob-pop-card:hover{border-color:var(--gold-line);box-shadow:0 10px 26px rgba(23,24,28,0.08);transform:translateY(-3px)}
   .ob-pop-card.is-on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
-  .ob-pop-img{display:flex;align-items:center;justify-content:center;height:78px;color:rgba(202,163,76,0.85);
-    background:linear-gradient(135deg,#1b1f26 0%,#2a2f38 100%);position:relative}
-  .ob-pop-img:after{content:"";position:absolute;inset:0;background:radial-gradient(120% 90% at 80% 20%,rgba(202,163,76,0.18),transparent 60%)}
-  .ob-pop-img svg{width:40px;height:40px;position:relative;z-index:1}
-  .ob-pop-card.is-on .ob-pop-img{color:var(--gold)}
-  .ob-pop-nm{font-size:14.5px;font-weight:700;color:var(--ink);padding:12px 14px 2px}
+  .ob-pop-nm{font-size:14.5px;font-weight:700;color:var(--ink);padding:14px 14px 2px}
   .ob-pop-desc{font-size:12.5px;color:var(--t3);padding:0 14px 14px}
   @media(max-width:640px){
     .ob-pop{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;margin:0 -28px 30px;padding:0 28px 6px}
     .ob-pop-card{flex:0 0 62%;scroll-snap-align:start}
   }
 
-  /* Recent examples */
+  /* Recent auction sales (text rows, real data only) */
   .ob-recent{margin:6px 0 30px}
   .ob-recent[data-state=idle] .ob-recent-grid,.ob-recent[data-state=empty] .ob-recent-grid{display:none}
   .ob-recent[data-state=ready] .ob-recent-hint,.ob-recent[data-state=loading] .ob-recent-hint{display:none}
   .ob-recent-hint{font-size:13px;color:var(--t3);margin:0}
   .ob-recent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
   .ob-rec-card{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:12px;overflow:hidden}
-  .ob-rec-img{display:flex;align-items:center;justify-content:center;height:64px;color:rgba(202,163,76,0.8);background:linear-gradient(135deg,#1b1f26,#2a2f38)}
-  .ob-rec-img svg{width:34px;height:34px}
   .ob-rec-meta{padding:12px 14px}
   .ob-rec-meta .yr{font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.25}
-  .ob-rec-meta .pr{font-size:13px;font-weight:700;color:var(--gold-txt);margin-top:5px}
-  .ob-rec-card.sk .ob-rec-meta .yr,.ob-rec-card.sk .ob-rec-meta .pr{background:var(--hair);color:transparent;border-radius:5px}
-  .ob-rec-card.sk .ob-rec-meta .pr{width:60%}
-  .ob-recent[data-state=loading] .ob-rec-img{animation:obShim 1.1s ease-in-out infinite}
-  @keyframes obShim{0%,100%{opacity:.6}50%{opacity:1}}
   @media(max-width:640px){
     .ob-recent-grid{display:flex;gap:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory}
     .ob-rec-card{flex:0 0 66%;scroll-snap-align:start}
@@ -338,6 +313,9 @@ export const onboardingCss = `
       background:linear-gradient(180deg,rgba(250,249,246,0) 0%,var(--surface) 30%);border-top:1px solid var(--hair)}
     .ob-nav-btns .ob-next-btn{flex:1;min-height:52px}
     .ob-cta-row .btn-gold{width:100%}
+    /* Lift the WhatsApp FAB clear of the sticky step CTA, which it was
+       permanently covering at phone widths (the primary submit button). */
+    .ob~.wa-fab{bottom:calc(96px + env(safe-area-inset-bottom))}
   }
 
   /* Success page */
@@ -446,7 +424,6 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     // (no prices - we deliberately don't put a figure on them). ----
     var recKey='', recData=null;
     function setRecentState(s){var b=document.getElementById('obRecent');if(b)b.setAttribute('data-state',s);}
-    var CARSVG='${CAR_ICON.replace(/'/g, "\\'")}';
     function titleCase(s){return String(s||'').toLowerCase().replace(/\\b[a-z]/g,function(c){return c.toUpperCase();});}
     function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
     function fillRecent(d){
@@ -454,7 +431,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
       if(!d||!d.ok||!d.recent||!d.recent.length){ setRecentState('empty'); return; }
       grid.innerHTML=d.recent.map(function(r){
         var name=[r.year,titleCase(r.make),titleCase(r.model)].filter(Boolean).join(' ');
-        return '<div class="ob-rec-card"><span class="ob-rec-img">'+CARSVG+'</span><div class="ob-rec-meta"><div class="yr">'+esc(name)+'</div></div></div>';
+        return '<div class="ob-rec-card"><div class="ob-rec-meta"><div class="yr">'+esc(name)+'</div></div></div>';
       }).join('');
       setRecentState('ready');
     }
