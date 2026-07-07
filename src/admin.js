@@ -4669,7 +4669,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   const contactBtns = [
     waDigits ? `<a class="cd-cta" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" data-clog="${c.id}:call" href="tel:${esc(telDigits)}">Call</a>` : "",
     c.email ? `<a class="cd-cta" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : "",
-    canManage ? `<a class="cd-cta" href="#find">Find a car</a>` : "",
+    `<a class="cd-cta" href="#find">Find a car</a>`,
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
@@ -4779,8 +4779,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ${searchWls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
-  // Manual auction search for this client (same access as managing them). Hits the
-  // live feed only when a query is present, so a normal page load stays cheap.
+  // Manual auction search for this client. Shown to EVERY staff viewer of this
+  // page (owner, admin, or an agent the client is shared with): shared access
+  // is for co-searching, and the add-to-queue endpoints behind this form
+  // already accept it (clientAccessibleBy). Only edit/portal stay owner-only.
+  // Hits the live feed only when a query is present, so a normal page load
+  // stays cheap.
   const firstName = String(c.name || "").trim().split(/\s+/)[0] || "this client";
   const sp = opts.search || {};
   const findKeys = ["make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"];
@@ -4793,7 +4797,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     return qs.toString();
   })();
   let findResults = "";
-  if (canManage && findHasQuery) {
+  if (findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
       try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
@@ -4806,7 +4810,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
   }
-  const findMakers = canManage ? await distinctMakers(env) : [];
+  const findMakers = await distinctMakers(env);
   // Pre-fill the search with what this client is already chasing (their first
   // saved search), so staff don't re-type it. Once they actually run a search,
   // show that query instead.
@@ -4827,7 +4831,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // one prominent affordance and expands it. It springs open whenever there is
   // something to show inside (results, or an add-to-queue flash).
   const findOpen = findHasQuery || !!opts.found;
-  const findCard = canManage ? `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
+  const findCard = `<details class="card foldcard" id="find"${findOpen ? " open" : ""} style="scroll-margin-top:80px">
     <summary>Find a car for ${esc(firstName)}</summary>
     <p class="help" style="margin:0 0 var(--sp-4)">${prefilledFromWl ? `Pre-filled from ${esc(firstName)}'s saved search, tweak it or just hit Search. ` : ""}Search the live Japanese auctions and add any lot straight to ${esc(firstName)}'s review queue, then Approve &amp; send it like any match.</p>
     <form method="GET" action="/admin">
@@ -4845,7 +4849,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
-  </details>` : "";
+  </details>`;
 
   const matchSection = `<div class="card">
     <h2><span class="num">${matches.length}</span> Live matches</h2>
