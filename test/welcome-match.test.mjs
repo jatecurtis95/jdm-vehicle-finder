@@ -88,6 +88,6 @@ test("confirmation page shows a 'scanning' note when no match yet, and no upsell
   const req = { name: "Jane", email: "jane@x.com", marka_name: "NISSAN", model_name: "FIGARO" };
   // welcome present but not found, and NO upsell (e.g. a member, or membership off).
   const html = await requestPage(env, { submitted: true, ref: "JDM-2026-00301", req, welcome: { found: false, emailed: false, count: 0, lot: null }, upsell: null });
-  assert.match(html, /scanning every live/i);
+  assert.match(html, /search is running against every live Japanese auction/i);
   assert.doesNotMatch(html, /Get full access/);
 });

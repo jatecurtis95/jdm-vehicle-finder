@@ -5002,7 +5002,7 @@ export async function requestPage(env, opts = {}) {
           <p class="ob-note-sm" style="margin-top:12px">${opts.welcome.emailed ? `We've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} the full details${opts.welcome.count > 1 ? " for each" : ""}.` : "Our team is preparing the full details for you now."}</p>
         </div>`
       : (opts.welcome
-        ? `<div class="ob-card"><p class="ob-note-sm" style="margin:0">We're scanning every live Japanese auction for your exact car right now - we'll email you the instant one lists.</p></div>`
+        ? `<div class="ob-card"><p class="ob-note-sm" style="margin:0">Your search is running against every live Japanese auction. We review what comes up and email you the strongest matches.</p></div>`
         : "");
     const upsellCard = opts.upsell
       ? `<div class="ob-card" style="border:1px solid var(--gold);background:linear-gradient(180deg,#FFFBEF,#fff)">
@@ -5017,7 +5017,7 @@ export async function requestPage(env, opts = {}) {
       <main class="ob-main" id="main"><div class="ob-success">
         <div class="ob-badge"><span class="tk">&#10003;</span> Request received</div>
         <h1>Your search is live${firstName ? ", " + esc(firstName) : ""}.</h1>
-        <p class="ob-sub">We're now monitoring the Japanese auctions for your vehicle and ${req.email ? `will email <strong>${esc(req.email)}</strong>` : "will contact you"} the moment a suitable match appears. New cars list constantly, so a quiet spell at the start is completely normal.</p>
+        <p class="ob-sub">Your search now runs against the Japanese auctions. When a good match comes up, we review it and ${req.email ? `email <strong>${esc(req.email)}</strong>` : "contact you"}. New cars list constantly, so a quiet start is normal.</p>
         ${welcomeCard}
         <div class="ob-card">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:14px">Searching for</div>
