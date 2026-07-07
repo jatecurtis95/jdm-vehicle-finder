@@ -303,6 +303,23 @@ export default {
                 if (inv && inv.ok && inv.token) await sendClientPortalInvite(env, inv);
               } catch (e) { console.error("Signup set-password invite failed:", e.message); }
             }
+            // The email already has a login: the enquiry folded into that
+            // account and any typed password was ignored. Email a sign-in
+            // link so the owner can pick it up; the page itself looks exactly
+            // like every other confirmation (no account-existence signal).
+            if (result.signinNeeded) {
+              try {
+                const r = await beginPasswordReset(env, result.req.email);
+                if (r && r.token) {
+                  await sendEmail(env, {
+                    to: r.email,
+                    subject: "Your new vehicle search - sign in to view it",
+                    html: passwordResetHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+                    from: env.MAIL_FROM_CLIENT || env.MAIL_FROM_INTERNAL || env.MAIL_FROM,
+                  });
+                }
+              } catch (e) { console.error("Signup sign-in link failed:", e.message); }
+            }
             await alertNewRequest(env, result.req);     // notify staff
             await confirmRequest(env, result.req, result.ref); // receipt to the buyer
             // Free-tier hook: for non-member buyers, run the search once now and
@@ -1111,7 +1128,9 @@ export default {
         if (r && r.ok) return Response.redirect(here(withNotice(dest, "Search added")), 303);
         const msg = r && r.error === "term"
           ? "Add at least a make, model, chassis code or grade keyword so the search has something to match on."
-          : "Could not add that search. Please try again.";
+          : r && r.error === "limit"
+            ? "This client already has the maximum number of active searches. Pause or delete one first."
+            : "Could not add that search. Please try again.";
         return Response.redirect(here(withNotice(dest, msg, true)), 303);
       } catch (e) {
         console.error("/wishlist failed:", e.message);

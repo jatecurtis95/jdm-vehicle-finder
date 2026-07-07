@@ -27,7 +27,8 @@ test("updateClient edits name, email, whatsapp and state", async () => {
   const row = await env.DB.prepare("SELECT name,email,whatsapp,state FROM clients WHERE id=?").bind(id).first();
   assert.equal(row.name, "New Name");
   assert.equal(row.email, "new@example.com");
-  assert.equal(row.whatsapp, "0400111222");
+  // V1.2 Phase 3: phones store in canonical E.164 (AU local rewrites to +61).
+  assert.equal(row.whatsapp, "+61400111222");
   assert.equal(row.state, normalizeState("vic"));
 });
 

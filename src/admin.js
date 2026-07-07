@@ -2121,6 +2121,10 @@ function intakeView(clients, makers, opts = {}) {
     ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
     : opts.err === "name"
     ? `<div class="reqerr">Please enter the client's name.</div>`
+    : opts.err === "email"
+    ? `<div class="reqerr">That email address doesn't look right. Please check it and try again.</div>`
+    : opts.err === "whatsapp"
+    ? `<div class="reqerr">That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.</div>`
     : "";
   return `
     <div class="card">
@@ -4156,13 +4160,14 @@ export async function editWishlist(env, form, session) {
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
   if (!(await wishlistOwnedBy(env, id, session))) return;
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
        price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
   ).bind(
-    str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
-    num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0, id
+    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"),
+    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
+    clampRange(num(form, "rate_min"), 1, 6), sstr(form, "kuzov"), sstr(form, "grade_kw"), form.get("watch_only") ? 1 : 0, id
   ).run();
 }
 
@@ -4967,7 +4972,7 @@ export async function requestPage(env, opts = {}) {
   // re-render never lands the visitor on the wrong screen.
   const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
     : opts.error === "budget" ? "2"
-      : (opts.error === "email" || opts.error === "password" || opts.error === "exists" || opts.error === "phone") ? "4"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "phone") ? "4"
         : "";
   const bannerMsg = opts.error === "phone"
     ? "Please enter a valid mobile number so we can reach you the moment a match appears."
@@ -4975,8 +4980,6 @@ export async function requestPage(env, opts = {}) {
     ? "We've received a lot of requests from your connection just now. Please wait a few minutes and submit again - nothing was saved this time."
     : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
-    : opts.error === "exists"
-    ? 'That email already has an account. <a href="/login" style="color:var(--gold-txt);font-weight:700">Sign in</a> instead.'
     : opts.error === "password"
       ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
       : opts.error === "vehicle"
@@ -5815,13 +5818,17 @@ function clientDedupeScope(agentId) {
 }
 
 export async function createClient(env, form, session) {
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim();
-  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email);
+  const whatsappRaw = String(form.get("whatsapp") || "").trim();
   // A client must be reachable, or any match we find can never be sent. Require
   // a name plus at least one contact channel (email or WhatsApp).
   if (!name) return { ok: false, error: "name" };
-  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  if (!email && !whatsappRaw) return { ok: false, error: "contact" };
+  if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
+  // Store phones in canonical E.164 so matching and wa.me links always work.
+  const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
+  if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
   const state = normalizeState(form.get("state"));
   // Unknown category values fall back to 'private' rather than erroring; the
   // select only offers valid ids, so anything else is a stale/hand-built form.
@@ -5864,9 +5871,12 @@ export async function updateClient(env, form, session) {
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
   if (!canManage) return { ok: false, error: "forbidden" };
 
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim();
-  const whatsapp = String(form.get("whatsapp") || "").trim();
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email);
+  const whatsappRaw = String(form.get("whatsapp") || "").trim();
+  const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
+  if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
+  if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
   const state = normalizeState(form.get("state"));
   // Absent field = a caller that doesn't know about categories (keep what's
   // stored); an unknown value = a mangled form (fall back to private).
@@ -5895,6 +5905,8 @@ export function clientEditErrorMessage(code) {
   return ({
     name: "Please enter the client's name.",
     contact: "Add an email or a WhatsApp number so we can still reach them.",
+    email: "That email address doesn't look right. Please check it and try again.",
+    whatsapp: "That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.",
     portal_email: "This client has buyer-portal access, which needs an email. Revoke portal access first if you really need to remove the email.",
     duplicate: "Another client already uses that email or phone number, so the change was not saved.",
     forbidden: "Only the client's owner (or an admin) can edit their details.",
@@ -5905,21 +5917,78 @@ export function clientEditErrorMessage(code) {
 const num = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : Number(v); };
 const str = (form, k) => { const v = form.get(k); return v === null || v === "" ? null : v; };
 
+// --- V1.2 Phase 3: shared server-side sanitisers ------------------------------
+// Every mutation handler funnels user input through these, so a hand-built
+// POST can't store oversized junk or out-of-range numbers regardless of which
+// form it claims to come from. Client-side maxlength is advisory only.
+const FIELD_MAX = {
+  name: 120, email: 254, whatsapp: 40, label: 120, marka_name: 60,
+  model_name: 60, kuzov: 40, grade_kw: 60, company: 120, note: 2000, state: 40,
+};
+// Active searches per client, staff and portal alike. Stops one record fanning
+// out into dozens of match-all searches that hammer the matcher.
+export const WISHLIST_ACTIVE_CAP = 10;
+const PRICE_MAX_CAP = 100000000;   // JPY auction ceiling
+const MILEAGE_MAX_CAP = 2000000;   // km
+const sstr = (form, k, max) => {
+  const v = String(form.get(k) ?? "").trim().slice(0, max || FIELD_MAX[k] || 200);
+  return v || null;
+};
+// Years must be a real 4-digit year in the range the feed can contain.
+const syear = (form, k) => {
+  const v = String(form.get(k) ?? "").trim();
+  return /^\d{4}$/.test(v) && Number(v) >= 1970 && Number(v) <= 2050 ? Number(v) : null;
+};
+// Positive integer capped at a sane ceiling; anything else stores as null.
+const sint = (form, k, cap) => {
+  const v = String(form.get(k) ?? "").trim().replace(/[,\s]/g, "");
+  if (!/^\d{1,12}$/.test(v)) return null;
+  const n = Math.min(Number(v), cap);
+  return n > 0 ? n : null;
+};
+// E.164-ish phone: optional +, 8 to 15 digits once spacing is stripped. AU
+// local 04xx / 0x formats rewrite to +61. Returns the canonical +digits form,
+// or null when the input can't be a reachable number.
+export function phoneE164(raw) {
+  let s = String(raw || "").replace(/[\s().-]/g, "");
+  if (!s) return null;
+  if (/^0\d{8,9}$/.test(s)) s = "+61" + s.slice(1);
+  else if (/^61\d{9}$/.test(s)) s = "+" + s;
+  if (!/^\+?\d{8,15}$/.test(s)) return null;
+  return s.startsWith("+") ? s : "+" + s;
+}
+async function activeWishlistCount(env, clientId) {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE client_id = ? AND active = 1").bind(Number(clientId)).first();
+  return Number(r?.n) || 0;
+}
+// Shared year pair: both valid 4-digit years, swapped into order.
+function yearPair(form) {
+  let yMin = syear(form, "year_min"), yMax = syear(form, "year_max");
+  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  return { yMin, yMax };
+}
+
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
   if (!clientId) return { ok: false, error: "client" };
   // An agent can add a wishlist to any client they own or that's shared to them.
   if (!(await clientAccessibleBy(env, clientId, session))) return { ok: false, error: "forbidden" };
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
   // Don't save a whole-feed wishlist: require at least one narrowing term.
-  if (!(str(form, "marka_name") || str(form, "model_name") || str(form, "kuzov") || str(form, "grade_kw"))) return { ok: false, error: "term" };
+  if (!(marka || model || kuzov || gradeKw)) return { ok: false, error: "term" };
+  // Guardrail: cap active searches per client so one record can't fan out into
+  // dozens of match-all searches.
+  if ((await activeWishlistCount(env, clientId)) >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `INSERT INTO wishlists
       (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    clientId, str(form, "label"), str(form, "marka_name"), str(form, "model_name"),
-    num(form, "year_min"), num(form, "year_max"), num(form, "price_max"), num(form, "mileage_max"),
-    num(form, "rate_min"), str(form, "kuzov"), str(form, "grade_kw"), form.get("watch_only") ? 1 : 0
+    clientId, sstr(form, "label"), marka, model,
+    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
+    clampRange(num(form, "rate_min"), 1, 6), kuzov, gradeKw, form.get("watch_only") ? 1 : 0
   ).run();
   return { ok: true };
 }
@@ -5975,10 +6044,11 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Create an agent with no password - they set their own via the emailed invite.
 // Returns { ok, token, email, name } so the route can send the welcome email.
 export async function createAgent(env, form) {
-  const name = String(form.get("name") || "").trim();
-  const email = String(form.get("email") || "").trim().toLowerCase();
-  const company = String(form.get("company") || "").trim() || null;
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().toLowerCase().slice(0, FIELD_MAX.email);
+  const company = sstr(form, "company");
   if (!name || !email) return { ok: false, error: "missing fields" };
+  if (!REQ_EMAIL_RE.test(email)) return { ok: false, error: "invalid email" };
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
   try {
@@ -6198,14 +6268,12 @@ export async function createRequest(env, form, session) {
     // Accounts are mandatory: email is the login identity, so it is required.
     if (!email) return { ok: false, error: "email", vals };
 
-    // Email-uniqueness: an email that already has a login can't open a second
-    // account from the public form - send them to sign in. We reveal only that
-    // the email is registered (the minimum needed to prevent duplicate
-    // accounts), and never any other detail.
-    const acct = await env.DB.prepare(
-      "SELECT pass_hash FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? LIMIT 1"
-    ).bind(email).first();
-    if (acct && acct.pass_hash) return { ok: false, error: "exists", vals };
+    // Email-uniqueness (V1.2 Phase 3): an email that already has a login never
+    // opens a second account, but the response must not reveal the account
+    // exists either. The enquiry folds into the existing record (the upsert
+    // below matches by email/phone), the typed password is ignored (it can
+    // never overwrite an existing login), and the route emails the existing
+    // account a sign-in link. The confirmation page is the same either way.
 
     // A brand-new enquiry (no record by email or phone) must choose a
     // policy-compliant password. A returning record is still captured without
@@ -6224,7 +6292,7 @@ export async function createRequest(env, form, session) {
   // A year range is required and must be sane, JDM generations and SEVS
   // eligibility are year-bound, so an open-ended request isn't searchable.
   const yMinReq = Number(g("year_min")), yMaxReq = Number(g("year_max"));
-  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1960 || yMaxReq > 2100 || yMinReq > yMaxReq) {
+  if (!Number.isFinite(yMinReq) || !Number.isFinite(yMaxReq) || yMinReq < 1970 || yMaxReq > 2050 || yMinReq > yMaxReq) {
     return { ok: false, error: "year", vals };
   }
 
@@ -6252,7 +6320,7 @@ export async function createRequest(env, form, session) {
 
   // Attach the wishlist to the right client. Signed-in -> their own record;
   // anonymous -> reuse an existing staff-scoped client or create one (Fix 6).
-  let clientId, portal, existing, wishlistId, inviteNeeded = false;
+  let clientId, portal, existing, wishlistId, inviteNeeded = false, signinNeeded = false;
   if (sessionClient) {
     clientId = sessionClient.id;
     // Fix 2: ALWAYS create a searchable wishlist (broad ones are flagged).
@@ -6274,6 +6342,9 @@ export async function createRequest(env, form, session) {
       // so we never nag them for a password.
       const exi = await env.DB.prepare("SELECT pass_hash, google_sub FROM clients WHERE id = ?").bind(clientId).first();
       if (exi && !exi.pass_hash && !exi.google_sub) inviteNeeded = true;
+      // Existing record WITH a login: the typed password was ignored, so email
+      // a sign-in link instead (neutral "check your email to continue" flow).
+      else if (exi && (exi.pass_hash || exi.google_sub)) signinNeeded = true;
     }
   }
 
@@ -6288,7 +6359,7 @@ export async function createRequest(env, form, session) {
     budget_aud: Math.round(audBudget), // the buyer's stated all-in AUD budget (for staff)
     mileage_max: g("mileage_max"), rate_min: g("rate_min"), kuzov: g("kuzov"), grade_kw: g("grade_kw"),
   };
-  return { ok: true, req, ref, clientId, wishlistId, inviteNeeded };
+  return { ok: true, req, ref, clientId, wishlistId, inviteNeeded, signinNeeded };
 }
 
 // Find or create the (public) client behind a verified Google identity. Matches
@@ -7233,17 +7304,18 @@ async function portalClientActive(env, cid) {
 export async function portalAddWishlist(env, form, session) {
   const cid = Number(session.id);
   if (!cid || !(await portalClientActive(env, cid))) return;
-  const marka = str(form, "marka_name"), model = str(form, "model_name");
-  const kuzov = str(form, "kuzov"), gradeKw = str(form, "grade_kw");
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
   if (!(marka || model || kuzov || gradeKw)) return; // need something to search on
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
-  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  // Same active-search cap as staff: a buyer can't fan out unlimited searches.
+  if ((await activeWishlistCount(env, cid)) >= WISHLIST_ACTIVE_CAP) return;
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
   ).bind(
-    cid, str(form, "label"), marka, model, yMin, yMax,
-    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
+    cid, sstr(form, "label"), marka, model, yMin, yMax,
+    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
     kuzov, gradeKw
   ).run();
 }
@@ -7253,15 +7325,14 @@ export async function portalEditWishlist(env, form, session) {
   if (!(await portalClientActive(env, cid))) return;
   const w = await portalWishlistOwned(env, form.get("id"), cid);
   if (!w) return;
-  let yMin = num(form, "year_min"), yMax = num(form, "year_max");
-  if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
+  const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
        price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ? AND client_id = ?`
   ).bind(
-    str(form, "label"), str(form, "marka_name"), str(form, "model_name"), yMin, yMax,
-    clampMin(num(form, "price_max"), 0), clampMin(num(form, "mileage_max"), 0), clampRange(num(form, "rate_min"), 1, 6),
-    str(form, "kuzov"), str(form, "grade_kw"), w.id, cid
+    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"), yMin, yMax,
+    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
+    sstr(form, "kuzov"), sstr(form, "grade_kw"), w.id, cid
   ).run();
 }
 
