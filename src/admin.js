@@ -1417,6 +1417,7 @@ function settingsView(settings, opts = {}) {
         <a href="#set-client">Client-facing</a>
         <a href="#set-payments">Payments</a>
         <a href="#set-pricing">Pricing</a>
+        <a href="#set-freetier">Free tier</a>
         <a href="#set-landed">Landed cost</a>
         <a href="#set-ai">AI reader</a>
       </nav>
@@ -1495,6 +1496,20 @@ function settingsView(settings, opts = {}) {
           <div class="grid2" style="margin-top:16px">
             <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="any" value="${esc(s.membership_monthly_aud || "49")}"></div>
             <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="any" value="${esc(s.free_result_limit || "1")}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-freetier">
+        <h2><span class="num">5c</span> Free tier &amp; search runs</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 16px">How free accounts behave, and whose searches "Run Searches" covers. Change these any time, no deploy needed.</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("free_auto_send", "Auto-send the first match to free signups", "On: a free account gets an example match emailed the instant they sign up. Off (recommended): staff review matches before they are sent.", settingOn(s, "free_auto_send"))}
+            ${toggleRow("run_includes_free", "Run Searches includes free accounts", "On (recommended): the matcher runs every active search, free or paid. Off: it runs paid members' searches only.", settingOn(s, "run_includes_free"))}
+          </div>
+          <div class="grid2" style="margin-top:16px">
+            <div><label for="set-freesearch">Active searches per free account</label><input id="set-freesearch" name="free_search_limit" type="number" min="1" step="1" value="${esc(s.free_search_limit || "1")}"></div>
           </div>
         </div>
       </div>

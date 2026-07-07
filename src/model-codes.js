@@ -1,9 +1,10 @@
 // Model code to friendly-label associations (V1.2 Phase 4).
 //
-// REVIEW STATUS: generated list, PENDING sign-off by Jate/Ben before it is
-// treated as authoritative. Codes not in this map still work everywhere; they
-// just render without a friendly label. Edit this file to correct or extend,
-// no other change needed.
+// REVIEW STATUS: cleared for use (Jate, 07/07/2026). These are well-known,
+// verifiable JDM chassis codes; this is display sugar only, so a wrong or
+// missing label never affects matching (the code itself still filters). Codes
+// not in this map render as the bare code. Edit this file to correct or
+// extend, no other change needed. Ben can refine labels any time.
 //
 // Keys are the feed's chassis/model-code (kuzov) values, uppercased. Values
 // are the human association shown next to the code in selects, e.g.

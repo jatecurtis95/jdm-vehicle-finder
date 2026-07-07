@@ -24,13 +24,14 @@ const DEFAULTS = {
   membership_monthly_aud: "49", // Full access plan, A$ per month
   free_result_limit: "1",       // (reserved) free-tier result cap, not yet enforced
   free_search_limit: "1",       // active saved searches allowed on a free account (V1.3 Phase C)
-  // TODO(Jate) V1.3 decision: are free-account matches auto-sent or manually
-  // reviewed before sending? Defaults to manual review ("0") per the work
-  // order; flip to "1" to restore the instant welcome match on signup.
+  // DECIDED (V1.3, Jate 07/07/2026): free-account matches are MANUALLY REVIEWED
+  // before sending, not auto-sent. Quality control was the whole point of the
+  // V1.x feedback, so staff vet a match before it reaches a customer. No
+  // instant welcome match on signup. Editable in Settings; set "1" to auto-send.
   free_auto_send: "0",
-  // TODO(Jate) V1.3 decision: should "Run Searches" include free-tier
-  // customers' searches or paid only? Defaults to include ("1"), the current
-  // behaviour; set "0" to run members' searches only.
+  // DECIDED (V1.3, Jate 07/07/2026): "Run Searches" INCLUDES free-tier
+  // customers' searches. Free users are leads to convert, so we run their
+  // searches and show them value. Editable in Settings; set "0" for members only.
   run_includes_free: "1",
   // Landed-cost assumptions (V1.3 Phase B): editable without a deploy. Blank
   // falls back to the env defaults (CALC_COMPLIANCE / CALC_AGENCY) and the

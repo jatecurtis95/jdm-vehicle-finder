@@ -332,10 +332,9 @@ export default {
               const cm = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(result.clientId).first();
               if (!(cm && cm.member)) {
                 const settings = await getSettings(env);
-                // TODO(Jate) V1.3 decision pending: auto-send vs manual
-                // review for free accounts. Defaults to manual review, so the
-                // instant welcome match only goes out when free_auto_send is
-                // switched on in Settings.
+                // V1.3 (decided): free accounts are manually reviewed, so the
+                // instant welcome match on signup is OFF by default. It only
+                // goes out when free_auto_send is switched on in Settings.
                 if (result.wishlistId && settingOn(settings, "free_auto_send")) welcome = await sendWelcomeMatch(env, result.wishlistId);
                 const priceAud = settingNum(settings, "membership_monthly_aud", 49);
                 // Only offer the upsell when membership is actually purchasable.

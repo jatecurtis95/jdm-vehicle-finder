@@ -211,11 +211,10 @@ async function getSeen(env, wishlistId) {
 // Run every active wishlist. Returns a summary for logging/the digest.
 export async function runAll(env, session) {
   const isAgent = session && session.role === "agent";
-  // TODO(Jate) V1.3 decision pending: whether Run Searches covers free-tier
-  // customers' searches or paid members only. run_includes_free defaults to
-  // "1" (include everyone, the long-standing behaviour); set it to "0" in
-  // Settings to run members' searches only. Wishlist selection only, the
-  // matching logic below is untouched.
+  // V1.3 (decided): Run Searches covers free-tier customers' searches by
+  // default (run_includes_free = "1"). Set it to "0" in Settings to run
+  // members' searches only. Wishlist SELECTION only; the matching logic below
+  // is untouched either way.
   let membersOnly = false;
   try { membersOnly = (await getSettings(env)).run_includes_free === "0"; } catch (e) { /* default include */ }
   const stmt = env.DB.prepare(
