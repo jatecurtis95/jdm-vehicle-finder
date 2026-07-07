@@ -55,6 +55,18 @@ export function displayGrade(rate) {
   if (Number.isFinite(n) && (n < 1 || n > 6)) return "ungraded";
   return s;
 }
+
+// Full condition score as listed (V1.3 Phase B): the feed's rate plus the
+// exterior/interior letters when the AI sheet reader has extracted them, e.g.
+// "3.5/B" or "3.5/B/C". Never truncates a rate that already carries letters.
+export function fullGrade(lot) {
+  const base = displayGrade(lot && lot.rate);
+  const sheet = lot && lot._sheet;
+  if (base === "ungraded" || !sheet || String(base).includes("/")) return base;
+  const letters = [sheet.exterior, sheet.interior]
+    .map((x) => String(x || "").trim().toUpperCase()).filter((x) => /^[A-E]$/.test(x));
+  return letters.length ? `${base}/${letters.join("/")}` : base;
+}
 function initials(name) {
   return String(name || "?").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }

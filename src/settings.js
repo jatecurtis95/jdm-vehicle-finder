@@ -22,7 +22,13 @@ const DEFAULTS = {
   // Stripe key set) to show the Subscribe button in the buyer portal.
   membership_enabled: "0",      // show the "Full access" subscribe button in the portal
   membership_monthly_aud: "49", // Full access plan, A$ per month
-  free_result_limit: "1",       // (reserved) free-tier result cap — not yet enforced
+  free_result_limit: "1",       // (reserved) free-tier result cap, not yet enforced
+  // Landed-cost assumptions (V1.3 Phase B): editable without a deploy. Blank
+  // falls back to the env defaults (CALC_COMPLIANCE / CALC_AGENCY) and the
+  // live FX rate respectively.
+  calc_compliance_aud: "",  // typical SEVS/RAWS compliance cost, AUD
+  calc_agency_aud: "",      // agency/service fee baked into estimates, AUD
+  calc_fx_jpy_aud: "",      // JPY per A$1 override; blank = live rate
 };
 
 export async function getSettings(env) {
@@ -81,6 +87,9 @@ export async function saveSettings(env, form) {
     membership_enabled: form.get("membership_enabled") ? "1" : "0",
     membership_monthly_aud: posIntStr(form.get("membership_monthly_aud"), "49"),
     free_result_limit: posIntStr(form.get("free_result_limit"), "1"),
+    calc_compliance_aud: posIntStr(form.get("calc_compliance_aud"), ""),
+    calc_agency_aud: posIntStr(form.get("calc_agency_aud"), ""),
+    calc_fx_jpy_aud: (() => { const n = Number(String(form.get("calc_fx_jpy_aud") ?? "").trim()); return Number.isFinite(n) && n > 0 ? String(n) : ""; })(),
     ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,
     ai_sheet_auto: SHEET_AUTO_MODES[form.get("ai_sheet_auto")] ? String(form.get("ai_sheet_auto")) : "off",
   };

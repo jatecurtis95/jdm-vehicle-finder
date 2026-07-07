@@ -1,7 +1,7 @@
 // JDM Connect - Vehicle Finder staff app (hi-fi redesign) + public request page.
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
-import { esc, yen, km, displayGrade } from "./render.js";
+import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
@@ -1413,6 +1413,7 @@ function settingsView(settings, opts = {}) {
         <a href="#set-client">Client-facing</a>
         <a href="#set-payments">Payments</a>
         <a href="#set-pricing">Pricing</a>
+        <a href="#set-landed">Landed cost</a>
         <a href="#set-ai">AI reader</a>
       </nav>
 
@@ -1491,6 +1492,19 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-price">Full access <span class="opt">(A$/month)</span></label><input id="set-price" name="membership_monthly_aud" type="number" min="0" step="any" value="${esc(s.membership_monthly_aud || "49")}"></div>
             <div><label for="set-free">Free result limit <span class="opt">(reserved)</span></label><input id="set-free" name="free_result_limit" type="number" min="0" step="any" value="${esc(s.free_result_limit || "1")}"></div>
           </div>
+        </div>
+      </div>
+
+      <div class="card set-card" id="set-landed">
+        <h2><span class="num">5b</span> Landed cost assumptions</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 16px">The figures behind every landed-price estimate on listings and emails. Change them here and new estimates use them straight away, no deploy needed. Leave a field blank to use the built-in default.</p>
+          <div class="grid2">
+            <div><label for="set-compliance">Compliance <span class="opt">(A$, SEVS/RAWS)</span></label><input id="set-compliance" name="calc_compliance_aud" type="number" min="0" step="any" value="${esc(s.calc_compliance_aud || "")}" placeholder="4,000"></div>
+            <div><label for="set-agency">Agency fee <span class="opt">(A$, per import)</span></label><input id="set-agency" name="calc_agency_aud" type="number" min="0" step="any" value="${esc(s.calc_agency_aud || "")}" placeholder="0"></div>
+            <div><label for="set-fx">FX override <span class="opt">(JPY per A$1, blank = live rate)</span></label><input id="set-fx" name="calc_fx_jpy_aud" type="number" min="0" step="any" value="${esc(s.calc_fx_jpy_aud || "")}" placeholder="live"></div>
+          </div>
+          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed.</p>
         </div>
       </div>
 
@@ -2813,7 +2827,7 @@ function matchTrackRow(q, back) {
     lot.grade ? esc(String(lot.grade)) : "",
     lot.kuzov ? `Chassis ${esc(String(lot.kuzov))}` : "",
     Number(lot.mileage) > 0 ? `${Number(lot.mileage).toLocaleString("en-US")} km` : "",
-    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(String(lot.rate))}` : "",
+    displayGrade(lot.rate) !== "ungraded" ? `Grade ${esc(fullGrade(lot))}` : "",
     lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "",
     lot._landed && Number(lot._landed.grandTotal) > 0 ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")} landed` : "",
   ].filter(Boolean).join(" &middot; ");
@@ -3551,7 +3565,7 @@ function matchCard(q, cardOpts = {}) {
   // One muted spec line replaces the four-cell grid, the condition chips and
   // the why chips (all still on lot detail): Linear register, one line only.
   const cond = conditionScores(lot);
-  const grade = displayGrade(lot.rate);
+  const grade = fullGrade(lot);
   const spec = [
     (grade && grade !== "-") ? "Grade " + esc(grade) : "",
     lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k km" : "",
@@ -4416,7 +4430,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   // Market intelligence (sold comparables) + live FX, in parallel. Both are
   // cached and degrade to null/fallback, so the page never blocks on them.
   const [market, fx] = await Promise.all([
-    marketIntel(env, lot.marka_name, lot.model_name).catch(() => null),
+    marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null),
     getLiveFx(env).catch(() => 0),
   ]);
   const marketBox = marketPanel(market, fx);
@@ -4563,7 +4577,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
         </div>
         <aside class="ld-right">
           <div class="card ld-card">
-            <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(displayGrade(lot.rate))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
+            <div class="ld-top"><div class="ld-grade"><div class="ld-grade-n">${esc(fullGrade(lot))}</div><div class="ld-grade-k">Auction grade</div></div>${landed}</div>
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
@@ -4791,6 +4805,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <div class="mgrid">${requested.map((q) => requestedCard(q)).join("")}</div>
   </div>` : "";
 
+  // Maker list shared by the add-search form and (for managers) the find card.
+  const findMakers = await distinctMakers(env);
   const newWl = `<details class="card foldcard"${searchWls.length ? "" : " open"}>
     <summary>${searchWls.length ? "Add another search" : "Add a search"} for ${esc(c.name)}</summary>
     <form method="POST" action="/wishlist">
@@ -4798,8 +4814,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       ${presetSelect()}
       <div class="grid">
         <div><label for="as-label">Label</label><input id="as-label" name="label" placeholder="e.g. weekend project"></div>
-        <div><label for="as-make">Make</label><input id="as-make" name="marka_name" placeholder="e.g. TOYOTA"></div>
-        <div><label for="as-model">Model <span class="opt">(contains)</span></label><input id="as-model" name="model_name" placeholder="e.g. SUPRA"></div>
+        <div><label for="as-make">Make</label>${makerField(findMakers, "as-make")}</div>
+        <div><label for="as-model">Model</label>${modelField("as-model")}</div>
         <div><label for="as-yearmin">Year min</label><input id="as-yearmin" name="year_min" type="number" placeholder="1990"></div>
         <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
         <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
@@ -4812,7 +4828,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
-    </form>${codeGradeScript("as-make", "as-model", "as-code", "as-grades")}${presetScript()}
+    </form>${modelScript("as-make", "as-model")}${codeGradeScript("as-make", "as-model", "as-code", "as-grades")}${presetScript()}
   </details>`;
 
   // IA-AUDIT item 5: searches render as one-line summary rows (label, digest,
@@ -4850,7 +4866,6 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
   }
-  const findMakers = canManage ? await distinctMakers(env) : [];
   // Pre-fill the search with what this client is already chasing (their first
   // saved search), so staff don't re-type it. Once they actually run a search,
   // show that query instead.
@@ -5237,7 +5252,7 @@ export async function publicLotPage(env, queueId) {
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const [market, fx] = settingOn(settings, "market_for_clients")
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
@@ -5253,7 +5268,7 @@ export async function publicLotPage(env, queueId) {
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
@@ -5324,7 +5339,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const settings = await getSettings(env).catch(() => ({}));
   const showMarket = member ? settingOn(settings, "market_for_clients") : true;
   const [market, fx] = showMarket
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
@@ -5340,7 +5355,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(displayGrade(lot.rate))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
@@ -5355,7 +5370,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   let actions;
   if (member) {
     const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
-    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(displayGrade(lot.rate))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
+    const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(fullGrade(lot))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
     actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
       <button type="button" class="ac-fav plv-watch" ${heartData} aria-pressed="false">Save to watchlist</button>
       <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
@@ -6908,7 +6923,9 @@ function staffSendBar(opts = {}) {
   <style>
     .selcard{cursor:pointer;position:relative}
     .selcard .fsel{position:absolute;top:12px;right:12px;z-index:3;width:24px;height:24px;margin:0;accent-color:var(--gold);cursor:pointer}
-    .acard.selcard .fsel{top:auto;bottom:12px;right:12px}
+    /* V1.3 Phase B: the tick lives under the grade chip on the photo, clear of
+       the heart (top right) and the Add controls in the card foot. */
+    .acard.selcard .fsel{top:52px;left:12px;right:auto;bottom:auto}
     .selcard.picked{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-card)}
     /* The floating variant of the ONE action bar family (.actionbar /
        .bulkbar2 / .sendbar): dark card surface on the shared tokens. */
@@ -6941,11 +6958,16 @@ function staffSendBar(opts = {}) {
     document.addEventListener('click',function(e){
       var card=e.target&&e.target.closest?e.target.closest('.selcard'):null;
       if(!card)return;
-      if(e.target.closest('a,button,form,select')&&!e.target.classList.contains('fsel'))return;
-      var cb=card.querySelector('.fsel'); if(!cb||cb.disabled)return;
-      if(e.target!==cb)cb.checked=!cb.checked;
-      card.classList.toggle('picked',cb.checked);
-      upd();
+      // V1.3 Phase B: the tick toggles ONLY when the tick itself is clicked.
+      if(e.target.classList&&e.target.classList.contains('fsel')){
+        card.classList.toggle('picked',e.target.checked);
+        upd();
+        return;
+      }
+      if(e.target.closest('a,button,form,select,input,label'))return;
+      // Anywhere else on the card that is not a control opens the listing.
+      var link=card.querySelector('.ac-name-link,.ac-link');
+      if(link&&link.href)window.location.href=link.href;
     });
     function conf(m,go2){if(window.jdmConfirm){window.jdmConfirm(m).then(function(ok){if(ok)go2();});}else if(confirm(m))go2();}
     function go(send){
@@ -7017,7 +7039,7 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
@@ -7059,7 +7081,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const make = String(sp.make || "").trim(), model = String(sp.model || "").trim();
     let intel = "";
     if (make && model) {
-      const [m, fx] = await Promise.all([marketIntel(env, make, model).catch(() => null), getLiveFx(env).catch(() => 0)]);
+      const [m, fx] = await Promise.all([marketIntel(env, make, model, Date.now(), { kuzov: sp.kuzov }).catch(() => null), getLiveFx(env).catch(() => 0)]);
       intel = (m && m.count)
         ? `<div style="margin-top:16px">${marketPanel(m, fx)}</div>`
         : `<div class="empty" style="margin-top:16px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
@@ -7226,7 +7248,7 @@ function clientCarCard(q, opts = {}) {
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Odometer</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
@@ -7253,7 +7275,7 @@ function requestedCard(q) {
       <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}</div></div>
     </div>
     <div class="mstats">
-      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(displayGrade(lot.rate))}</div></div>
+      <div class="s gold"><div class="k">Grade</div><div class="v">${esc(fullGrade(lot))}</div></div>
       <div class="s"><div class="k">Auction est.</div><div class="v">${Number(lot.start) > 0 ? yen(lot.start) : yen(lot.avg_price)}</div></div>
       <div class="s"><div class="k">Chassis</div><div class="v">${esc(lot.kuzov || "-")}</div></div>
       <div class="s"><div class="k">Requested</div><div class="v">${when}</div></div>

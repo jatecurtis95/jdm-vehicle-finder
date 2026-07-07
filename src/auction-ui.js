@@ -10,7 +10,7 @@
 //
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
-import { esc, yen, displayGrade } from "./render.js";
+import { esc, yen, fullGrade } from "./render.js";
 import { imageUrls, splitImages } from "./avtonet.js";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
@@ -55,13 +55,15 @@ const HEART = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-
 const GRID_IC = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`;
 const LIST_IC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>`;
 
-// A Sheet button: opens the inspection-sheet image if the auction house has
-// uploaded it, otherwise a disabled placeholder (upcoming lots often lack one).
+// A Sheet button: opens the inspection-sheet image when the auction house has
+// uploaded it. V1.3 Phase B: the greyed-out placeholder for sheetless lots is
+// gone; a control that does nothing reads as broken, and the sheet appearing
+// later is expected behaviour, not something the card needs to apologise for.
 function sheetBtn(lot) {
   const sheet = splitImages(lot).sheet;
   return sheet
     ? `<a class="ac-sheet" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>`
-    : `<span class="ac-sheet dis" title="Sheet not uploaded yet">Sheet</span>`;
+    : "";
 }
 
 // One rich auction card. opts:
@@ -78,7 +80,7 @@ export function auctionCardV2(lot, opts = {}) {
   const img = imageUrls(lot).medium || "";
   const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const code = String(lot.kuzov || "").trim();
-  const grade = displayGrade(lot.rate);
+  const grade = fullGrade(lot);
   const house = String(lot.auction || "").trim();
   const date = shortDate(lot.auction_date);
   const mileage = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";

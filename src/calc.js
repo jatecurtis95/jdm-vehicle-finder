@@ -127,13 +127,13 @@ function vehicleSizeIdx(lot) {
 // Estimate the full landed + on-road cost (AUD) for one lot, for a client in a
 // given state. Returns null if there's no price or the calculator is
 // unreachable — callers treat null as "no estimate available" and degrade.
-export async function estimateLanded(env, lot, client) {
+export async function estimateLanded(env, lot, client, cfg = null) {
   const jpy = lotJpy(lot);
   if (!jpy) return null;
 
   const state = normalizeState(client?.state) || normalizeState(env.CALC_DEFAULT_STATE) || "VIC";
   const port = STATE_TO_PORT[state] || "MELBOURNE";
-  const fx = await getLiveFx(env);
+  const fx = (cfg && cfg.fx) || await getLiveFx(env);
 
   const payload = {
     jpyPrice: jpy,
@@ -147,8 +147,9 @@ export async function estimateLanded(env, lot, client) {
     isFuelEfficient: false,
     bmsbSeason: false,
     isNonJapanOrigin: false,
-    complianceCost: envNum(env.CALC_COMPLIANCE, 4000),
-    agencyFee: envNum(env.CALC_AGENCY, 0),
+    // Settings-editable assumptions (V1.3 Phase B); env defaults as fallback.
+    complianceCost: (cfg && cfg.compliance != null) ? cfg.compliance : envNum(env.CALC_COMPLIANCE, 4000),
+    agencyFee: (cfg && cfg.agency != null) ? cfg.agency : envNum(env.CALC_AGENCY, 0),
   };
 
   try {
@@ -179,15 +180,33 @@ export async function estimateLanded(env, lot, client) {
   }
 }
 
+// The admin-editable landed-cost assumptions (Settings page), read once per
+// batch. null fields mean "no override, use env/live defaults".
+export async function landedConfig(env) {
+  try {
+    const s = await getSettings(env);
+    const numOrNull = (k) => {
+      const v = String(s[k] ?? "").trim();
+      const n = Number(v);
+      return v && Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    return { compliance: numOrNull("calc_compliance_aud"), agency: numOrNull("calc_agency_aud"), fx: numOrNull("calc_fx_jpy_aud") };
+  } catch (e) {
+    return null;
+  }
+}
+
 // Attach `_landed` to each lot, best-effort, with bounded concurrency so a big
 // batch never bursts past the calculator's rate limit. `pairs` is an array of
 // { lot, client }. Mutates each lot with lot._landed (or leaves it unset).
 export async function attachLanded(env, pairs, concurrency = 6) {
+  // Read the settings-editable cost assumptions once per batch, not per lot.
+  const cfg = await landedConfig(env);
   let i = 0;
   async function worker() {
     while (i < pairs.length) {
       const { lot, client } = pairs[i++];
-      const est = await estimateLanded(env, lot, client);
+      const est = await estimateLanded(env, lot, client, cfg);
       if (est) lot._landed = est;
     }
   }
