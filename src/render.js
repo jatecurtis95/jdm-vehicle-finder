@@ -361,6 +361,25 @@ export function clientPortalInviteHtml(name, link) {
 }
 
 // ---------------------------------------------------------------------------
+// DEALER invite: "set your password" welcome email for vehicle suppliers
+// ---------------------------------------------------------------------------
+export function dealerInviteHtml(name, link) {
+  const first = String(name || "").trim().split(/\s+/)[0];
+  const inner = `
+  <tr><td style="padding:26px 36px 0;">
+    <div style="font-family:${FONT};font-size:11px;font-weight:600;line-height:1;letter-spacing:0.12em;text-transform:uppercase;color:${GOLDTXT};">Dealer Portal</div>
+    <h1 style="margin:10px 0 6px;font-family:${FONT};font-size:24px;font-weight:600;line-height:1.2;color:${INK};">Welcome${first ? ", " + esc(first) : ""}</h1>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.6;color:${BODY};">You've been set up as a dealer on JDM Vehicle Finder. Set your password to sign in and start submitting your inventory for approval.</p>
+  </td></tr>
+  <tr><td style="padding:22px 36px 0;">
+    ${btn(link, "Set your password", { bg: GOLD, color: INK, w: 210 })}
+    <p style="margin:18px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">Or paste this link into your browser:<br><span style="color:${GOLDTXT};word-break:break-all;">${esc(link)}</span></p>
+    <p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTE};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+  </td></tr>`;
+  return shell(inner + `<tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>` + footer(), "Set up your dealer portal login");
+}
+
+// ---------------------------------------------------------------------------
 // STAFF alert: a client asked us (from the portal) to action/translate a car
 // ---------------------------------------------------------------------------
 export function clientRequestAlertHtml(client, lot, wishlist, publicUrl) {

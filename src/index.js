@@ -6,10 +6,10 @@
 //   and the approve/skip decision links from the digest.
 
 import { runAll, sendWelcomeMatch } from "./matcher.js";
-import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml } from "./render.js";
+import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, readShareToken } from "./auth.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicleSubmissions, getDealerVehicles, dealerPortalPage, dealersPage, dealerSubmissionsPage } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
@@ -127,10 +127,14 @@ async function clearLoginFails(env, ip, email) {
 }
 
 // Stamp an account's most recent successful login — drives the CRM "Last login".
-// Admin (id 0) has no DB row; only agents/clients do. Best-effort, never blocks.
+// Admin (id 0) has no DB row; only agents/clients/dealers do. Best-effort, never blocks.
 async function touchLastSeen(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return;
-  const table = role === "agent" ? "agents" : "clients";
+  if (!id) return;
+  let table;
+  if (role === "agent") table = "agents";
+  else if (role === "client") table = "clients";
+  else if (role === "dealer") table = "dealers";
+  else return;
   try { await env.DB.prepare(`UPDATE ${table} SET last_seen = datetime('now') WHERE id = ?`).bind(Number(id)).run(); } catch (_) { /* best effort */ }
 }
 
@@ -329,7 +333,11 @@ export default {
     const here = (p) => new URL(p, url).toString();
 
     // Where each role lands after signing in.
-    const homeFor = (role) => (role === "client" ? "/portal" : "/admin");
+    const homeFor = (role) => {
+      if (role === "client") return "/portal";
+      if (role === "dealer") return "/dealer/portal";
+      return "/admin";
+    };
 
     // Login / logout.
     if (path === "/login") {
@@ -395,14 +403,16 @@ export default {
     }
 
     // Set-password (from an emailed invite link). Public - the single-use token
-    // authorises it. Works for both agent and client invites; the token is
-    // looked up against agents first, then clients. On success the user is
-    // signed straight in and sent to their home.
+    // authorises it. Works for agent, dealer and client invites; the token is
+    // looked up against each in order. On success the user is signed straight in
+    // and sent to their home.
     if (path === "/set-password") {
       // Resolve which kind of invite this token is. {kind, person} | null.
       const resolveInvite = async (token) => {
         const a = await agentByInviteToken(env, token);
         if (a) return { kind: "agent", person: a };
+        const d = await dealerByInviteToken(env, token);
+        if (d) return { kind: "dealer", person: d };
         const c = await clientByInviteToken(env, token);
         if (c) return { kind: "client", person: c };
         return null;
@@ -424,9 +434,11 @@ export default {
           }
           const r = found.kind === "agent"
             ? await setAgentPassword(env, token, pw)
+            : found.kind === "dealer"
+            ? await setDealerPassword(env, token, pw)
             : await setClientPassword(env, token, pw);
           if (r.ok) {
-            const role = found.kind === "agent" ? "agent" : "client";
+            const role = found.kind === "agent" ? "agent" : found.kind === "dealer" ? "dealer" : "client";
             return new Response(null, { status: 303, headers: { Location: here(homeFor(role)), "Set-Cookie": await sessionCookie(env, role, r.id) } });
           }
           return doc(setPasswordPage({ token, name, error: r.error }));
@@ -483,6 +495,12 @@ export default {
     if (session.role === "client") {
       return handleClientPortal(request, env, url, path, session, here);
     }
+
+    // Dealer sessions are isolated: they only reach /dealer/* routes.
+    if (session.role === "dealer") {
+      return handleDealerPortal(request, env, url, path, session, here);
+    }
+
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
     // Append a one-shot outcome message to a redirect destination. The admin
@@ -502,6 +520,51 @@ export default {
         ? withNotice(d, "Sorry, that did not save. Please try again.", true)
         : withNotice(d, okMsg)), 303);
     };
+
+    // Admin dealer management routes (admin only).
+    if (path === "/dealer" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      const r = await createDealer(env, f);
+      if (r.ok) {
+        if (r.token) await sendDealerInvite(env, r);
+        return Response.redirect(here(withNotice("/admin?view=dealers", "Dealer added and invited")), 303);
+      }
+      const msg = r.error === "email already in use"
+        ? "That email is already a dealer account. Use a different address."
+        : "Could not create the dealer. Check the name and email.";
+      return Response.redirect(here(withNotice("/admin?view=dealers", msg, true)), 303);
+    }
+    if (path === "/dealer/invite" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(async () => {
+        const r = await resendDealerInvite(env, id);
+        if (r) await sendDealerInvite(env, r);
+      }, "/admin?view=dealers", "Invite re-sent");
+    }
+    if (path === "/dealer/toggle" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => toggleDealer(env, id), "/admin?view=dealers", "Dealer updated");
+    }
+    if (path === "/dealer/delete" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => deleteDealer(env, id), "/admin?view=dealers", "Dealer deleted");
+    }
+
+    // Dealer vehicle submissions: approve/reject
+    if (path === "/dealer-vehicle/approve" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const id = (await request.formData()).get("id");
+      return act(() => approveDealerVehicle(env, id, session), "/admin?view=dealer-submissions", "Vehicle approved");
+    }
+    if (path === "/dealer-vehicle/reject" && request.method === "POST") {
+      if (session.role !== "admin") return adminOnly();
+      const f = await request.formData();
+      return act(() => rejectDealerVehicle(env, f.get("id"), f.get("notes"), session), "/admin?view=dealer-submissions", "Vehicle rejected");
+    }
 
     if (path === "/admin") {
       const view = url.searchParams.get("view") || "dashboard";
@@ -576,6 +639,15 @@ export default {
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
           kuzov: sp.get("kuzov") || "", layout: sp.get("layout") || "", page: sp.get("page") || "",
         };
+      }
+      if (view === "dealers") {
+        const html = await dealersPage(env);
+        return doc(html, 200);
+      }
+      if (view === "dealer-submissions") {
+        const status = url.searchParams.get("status") || "pending";
+        const html = await dealerSubmissionsPage(env, status);
+        return doc(html, 200);
       }
       return doc(await adminPage(env, view, session, adminOpts));
     }
@@ -1282,6 +1354,18 @@ async function sendInvite(env, r) {
   }
 }
 
+async function sendDealerInvite(env, r) {
+  try {
+    await sendEmail(env, {
+      to: r.email,
+      subject: "Set up your Dealer Portal login",
+      html: dealerInviteHtml(r.name, `${env.PUBLIC_URL}/set-password?token=${r.token}`),
+    });
+  } catch (err) {
+    console.error("Dealer invite email failed:", err.message);
+  }
+}
+
 // Email the admin alert address when a customer submits the public request form
 // (respects the "Email me new vehicle requests" Settings toggle).
 async function alertNewRequest(env, req) {
@@ -1371,6 +1455,41 @@ async function runMatcher(env, session) {
     }
   }
   return total;
+}
+
+// --------------------------------------------------------------------------
+// Dealer portal request handling. Reached only for a dealer session;
+// dealers submit vehicles for admin review.
+// --------------------------------------------------------------------------
+async function handleDealerPortal(request, env, url, path, session, here) {
+  const back = (q = "") => Response.redirect(here("/dealer/portal" + q), 303);
+
+  if (path === "/dealer/portal" && request.method === "GET") {
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ?").bind(session.id).first();
+    if (!dealer) return Response.redirect(here("/login"), 303);
+    let flash = "";
+    if (url.searchParams.get("ok") === "submitted") {
+      flash = "Thanks! Your vehicle has been submitted for review. We'll notify you once the admin approves it.";
+    }
+    const err = url.searchParams.get("err");
+    if (err) {
+      flash = `Error: ${err}`;
+    }
+    const html = await dealerPortalPage(env, dealer, flash);
+    return doc(html, 200);
+  }
+
+  if (path === "/dealer/vehicle/submit" && request.method === "POST") {
+    const f = await request.formData();
+    const result = await submitDealerVehicle(env, f, session);
+    if (result.ok) {
+      return Response.redirect(here("/dealer/portal?ok=submitted"), 303);
+    }
+    return Response.redirect(here(`/dealer/portal?err=${encodeURIComponent(result.error || "save")}`), 303);
+  }
+
+  // Anything else for a dealer → their portal.
+  return Response.redirect(here("/dealer/portal"), 303);
 }
 
 // Handle an approve/skip click from the digest or the in-app cards. When called

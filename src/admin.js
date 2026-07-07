@@ -7310,4 +7310,519 @@ export async function revokeClientPortal(env, clientId, session) {
     "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
     [cid], "revokeClientPortal");
 }
+
+// ============================================================================
+// DEALER SYSTEM - separate login for vehicle suppliers (sellers).
+// Dealers submit vehicles → admin reviews → approved vehicles go live.
+// ============================================================================
+
+// Create a dealer account (admin only). Returns {ok, error?, token?, email?, name?}
+export async function createDealer(env, form) {
+  const name = String(form.get("name") || "").trim();
+  const email = String(form.get("email") || "").trim().toLowerCase();
+  const company = String(form.get("company") || "").trim() || null;
+  const state = String(form.get("state") || "").trim() || null;
+  if (!name || !email) return { ok: false, error: "missing fields" };
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO dealers (email, name, company, state, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, ?, '', '', ?, ?)"
+    ).bind(email, name, company, state, token, exp).run();
+    return { ok: true, token, email, name };
+  } catch (e) {
+    console.error("createDealer failed:", e.message);
+    return { ok: false, error: "email already in use" };
+  }
+}
+
+// Re-issue invite / set-password link for a dealer (admin only).
+export async function resendDealerInvite(env, id) {
+  const d = await env.DB.prepare("SELECT id, name, email FROM dealers WHERE id = ?").bind(Number(id)).first();
+  if (!d) return null;
+  const token = randomToken();
+  const exp = Date.now() + INVITE_TTL_MS;
+  await env.DB.prepare("UPDATE dealers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, d.id).run();
+  return { token, email: d.email, name: d.name };
+}
+
+// Toggle dealer active/inactive status (admin only).
+export async function toggleDealer(env, id) {
+  const did = Number(id);
+  if (!Number.isInteger(did) || did <= 0) return;
+  await env.DB.prepare("UPDATE dealers SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(did).run();
+}
+
+// Delete a dealer and all their vehicle submissions (admin only).
+export async function deleteDealer(env, id) {
+  const did = Number(id);
+  if (!Number.isInteger(did) || did <= 0) return;
+  const stmts = [
+    env.DB.prepare("DELETE FROM dealer_vehicles WHERE dealer_id = ?").bind(did),
+    env.DB.prepare("DELETE FROM dealers WHERE id = ?").bind(did),
+  ];
+  await env.DB.batch(stmts);
+}
+
+// Dealer submits a vehicle for admin review. Returns {ok, error?, id?, vehicle?}
+export async function submitDealerVehicle(env, form, session) {
+  if (!session || session.role !== "dealer") return { ok: false, error: "unauthorized" };
+  const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+  if (!dealer) return { ok: false, error: "dealer not found" };
+
+  const make = String(form.get("make") || "").trim();
+  const model = String(form.get("model") || "").trim();
+  const year = Number(form.get("year") || 0);
+  const price = Number(form.get("price_aud") || 0);
+
+  if (!make || !model || !price || price <= 0) {
+    return { ok: false, error: "missing required fields" };
+  }
+
+  try {
+    const grade = String(form.get("grade") || "").trim() || null;
+    const mileage = Number(form.get("mileage_km") || 0) || null;
+    const location = String(form.get("location") || "").trim() || null;
+    const description = String(form.get("description") || "").trim() || null;
+    const photos = form.get("photos") || "[]"; // JSON array
+
+    const result = await env.DB.prepare(
+      "INSERT INTO dealer_vehicles (dealer_id, make, model, year, grade, mileage_km, price_aud, location, description, photos, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
+    ).bind(session.id, make, model, year || null, grade, mileage, price, location, description, photos).run();
+
+    return {
+      ok: true,
+      id: result.meta.last_row_id,
+      vehicle: { make, model, year, price, status: "pending" },
+    };
+  } catch (e) {
+    console.error("submitDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Admin approves a dealer vehicle submission.
+export async function approveDealerVehicle(env, vehicleId, session) {
+  if (!session || session.role !== "admin") return { ok: false, error: "unauthorized" };
+  const vid = Number(vehicleId);
+  if (!Number.isInteger(vid) || vid <= 0) return { ok: false, error: "invalid id" };
+
+  try {
+    await env.DB.prepare(
+      "UPDATE dealer_vehicles SET status = 'approved', approved_at = datetime('now'), approved_by = ? WHERE id = ?"
+    ).bind(0, vid).run();
+    return { ok: true };
+  } catch (e) {
+    console.error("approveDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Admin rejects a dealer vehicle submission.
+export async function rejectDealerVehicle(env, vehicleId, notes, session) {
+  if (!session || session.role !== "admin") return { ok: false, error: "unauthorized" };
+  const vid = Number(vehicleId);
+  if (!Number.isInteger(vid) || vid <= 0) return { ok: false, error: "invalid id" };
+
+  try {
+    const adminNotes = String(notes || "").trim();
+    await env.DB.prepare(
+      "UPDATE dealer_vehicles SET status = 'rejected', admin_notes = ? WHERE id = ?"
+    ).bind(adminNotes, vid).run();
+    return { ok: true };
+  } catch (e) {
+    console.error("rejectDealerVehicle failed:", e.message);
+    return { ok: false, error: "database error" };
+  }
+}
+
+// Get dealer vehicle submissions for admin review, optionally filtered by status.
+export async function getDealerVehicleSubmissions(env, status = null, limit = 100, offset = 0) {
+  try {
+    let sql = "SELECT dv.*, d.name as dealer_name, d.company as dealer_company, d.email as dealer_email FROM dealer_vehicles dv JOIN dealers d ON dv.dealer_id = d.id";
+    const binds = [];
+    if (status && status !== "all") {
+      sql += " WHERE dv.status = ?";
+      binds.push(status);
+    }
+    sql += " ORDER BY dv.created_at DESC LIMIT ? OFFSET ?";
+    binds.push(limit, offset);
+    const result = await env.DB.prepare(sql).bind(...binds).all();
+    return result.results || [];
+  } catch (e) {
+    console.error("getDealerVehicleSubmissions failed:", e.message);
+    return [];
+  }
+}
+
+// Get a specific dealer's vehicle submissions.
+export async function getDealerVehicles(env, dealerId, status = "pending") {
+  try {
+    let sql = "SELECT * FROM dealer_vehicles WHERE dealer_id = ?";
+    const binds = [dealerId];
+    if (status && status !== "all") {
+      sql += " AND status = ?";
+      binds.push(status);
+    }
+    sql += " ORDER BY created_at DESC";
+    const result = await env.DB.prepare(sql).bind(...binds).all();
+    return result.results || [];
+  } catch (e) {
+    console.error("getDealerVehicles failed:", e.message);
+    return [];
+  }
+}
+
+// ============================================================================
+// DEALER UI PAGES - rendering functions for dealer portal and admin views
+// ============================================================================
+
+// Dealer portal page: vehicle submission form + list of dealer's submissions
+export async function dealerPortalPage(env, dealer, flash = "") {
+  const submissions = await getDealerVehicles(env, dealer.id, "all");
+  const first = (dealer.name || "").split(/\s+/)[0];
+
+  const statusBadge = (status) => {
+    const color = status === "approved" ? "#4CAF50" : status === "rejected" ? "#f44336" : "#FF9800";
+    return `<span style="display:inline-block;padding:4px 8px;border-radius:4px;background:${color};color:white;font-size:12px;font-weight:600;">${esc(status)}</span>`;
+  };
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Portal</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+    .header h1 { margin: 0 0 10px; font-size: 28px; }
+    .header p { margin: 0; color: #666; }
+    .flash { padding: 12px 16px; margin-bottom: 20px; border-radius: 6px; }
+    .flash.ok { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #4caf50; }
+    .flash.err { background: #ffebee; color: #c62828; border-left: 4px solid #f44336; }
+    .card { background: white; padding: 24px; border-radius: 8px; margin-bottom: 20px; }
+    .card h2 { margin: 0 0 16px; font-size: 18px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 14px;
+    }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn:hover { background: #b89340; }
+    .btn.secondary { background: #666; }
+    .btn.secondary:hover { background: #555; }
+    .submissions { margin-top: 20px; }
+    .vehicle-item { background: #f9f9f9; padding: 16px; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #CAA34C; }
+    .vehicle-item.approved { border-left-color: #4CAF50; }
+    .vehicle-item.rejected { border-left-color: #f44336; }
+    .vehicle-item h3 { margin: 0 0 8px; font-size: 16px; }
+    .vehicle-meta { display: flex; gap: 16px; font-size: 13px; color: #666; margin-bottom: 8px; }
+    .vehicle-meta span { display: flex; align-items: center; }
+    .vehicle-notes { margin-top: 8px; padding: 8px; background: white; border-radius: 4px; font-size: 13px; color: #d32f2f; }
+    .empty { color: #999; text-align: center; padding: 40px 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Portal</h1>
+      <p>Welcome${first ? ", " + esc(first) : ""}! Submit your inventory for admin review.</p>
+      ${dealer.company ? `<p style="margin-top: 8px; color: #999;">${esc(dealer.company)}</p>` : ""}
+    </div>
+
+    ${flash ? `<div class="flash ${flash.startsWith("error") ? "err" : "ok"}">${esc(flash)}</div>` : ""}
+
+    <div class="card">
+      <h2>Submit a Vehicle</h2>
+      <form method="POST" action="/dealer/vehicle/submit">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="make">Make *</label>
+            <input type="text" id="make" name="make" placeholder="e.g. NISSAN" required>
+          </div>
+          <div class="form-group">
+            <label for="model">Model *</label>
+            <input type="text" id="model" name="model" placeholder="e.g. SKYLINE" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="year">Year</label>
+            <input type="number" id="year" name="year" placeholder="e.g. 1995" min="1950" max="2030">
+          </div>
+          <div class="form-group">
+            <label for="grade">Grade</label>
+            <input type="text" id="grade" name="grade" placeholder="e.g. 5">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mileage_km">Mileage (km)</label>
+            <input type="number" id="mileage_km" name="mileage_km" placeholder="e.g. 45000" min="0">
+          </div>
+          <div class="form-group">
+            <label for="price_aud">Price (AUD) *</label>
+            <input type="number" id="price_aud" name="price_aud" placeholder="e.g. 25000" min="1" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="location">Location</label>
+          <input type="text" id="location" name="location" placeholder="e.g. Sydney NSW">
+        </div>
+
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea id="description" name="description" placeholder="Any additional details about the vehicle..."></textarea>
+        </div>
+
+        <button type="submit" class="btn">Submit for Review</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Your Submissions (${submissions.length})</h2>
+      <div class="submissions">
+        ${submissions.length === 0
+          ? `<div class="empty">No submissions yet. Submit your first vehicle above!</div>`
+          : submissions.map(v => `
+            <div class="vehicle-item ${v.status}">
+              <h3>${esc(v.make)} ${esc(v.model)}${v.year ? " (" + v.year + ")" : ""}</h3>
+              <div class="vehicle-meta">
+                <span>A$${Number(v.price_aud || 0).toLocaleString()}</span>
+                ${v.mileage_km ? `<span>${Number(v.mileage_km).toLocaleString()} km</span>` : ""}
+                ${v.location ? `<span>${esc(v.location)}</span>` : ""}
+                <span>${statusBadge(v.status)}</span>
+              </div>
+              ${v.admin_notes ? `<div class="vehicle-notes"><strong>Admin notes:</strong> ${esc(v.admin_notes)}</div>` : ""}
+              <div style="font-size: 12px; color: #999; margin-top: 8px;">Submitted ${new Date(v.created_at).toLocaleDateString()}</div>
+            </div>
+          `).join("")
+        }
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  return html;
+}
+
+// Admin dealer management page
+export async function dealersPage(env) {
+  const dealers = await env.DB.prepare("SELECT * FROM dealers ORDER BY created_at DESC").all();
+  const list = dealers.results || [];
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Management</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { margin: 0; font-size: 28px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn:hover { background: #b89340; }
+    .btn.secondary { background: #999; font-size: 12px; padding: 6px 12px; }
+    .btn.danger { background: #f44336; }
+    .btn.danger:hover { background: #d32f2f; }
+    table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; }
+    th { background: #f5f5f5; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; border-bottom: 1px solid #ddd; }
+    td { padding: 12px; border-bottom: 1px solid #eee; }
+    tr:hover { background: #fafafa; }
+    .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .status.active { background: #e8f5e9; color: #2e7d32; }
+    .status.inactive { background: #f5f5f5; color: #999; }
+    .actions { display: flex; gap: 8px; }
+    .email { font-size: 12px; color: #666; }
+    .empty { padding: 40px; text-align: center; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Management</h1>
+      <form method="POST" action="/dealer" style="display: flex; gap: 12px;">
+        <input type="text" name="name" placeholder="Name" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="email" name="email" placeholder="Email" required style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="text" name="company" placeholder="Company (optional)" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="text" name="state" placeholder="State" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <button type="submit" class="btn">Add Dealer</button>
+      </form>
+    </div>
+
+    ${list.length === 0
+      ? `<div style="background: white; padding: 40px; border-radius: 8px; text-align: center; color: #999;">No dealers yet. Create one using the form above.</div>`
+      : `<table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Company</th>
+          <th>Email</th>
+          <th>State</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map(d => `
+          <tr>
+            <td><strong>${esc(d.name)}</strong></td>
+            <td>${esc(d.company || "-")}</td>
+            <td><span class="email">${esc(d.email)}</span></td>
+            <td>${esc(d.state || "-")}</td>
+            <td><span class="status ${d.active ? "active" : "inactive"}">${d.active ? "Active" : "Inactive"}</span></td>
+            <td>${new Date(d.created_at).toLocaleDateString()}</td>
+            <td>
+              <div class="actions">
+                <form method="POST" action="/dealer/invite" style="display: inline;">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">Resend Invite</button>
+                </form>
+                <form method="POST" action="/dealer/toggle" style="display: inline;">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn secondary">${d.active ? "Deactivate" : "Activate"}</button>
+                </form>
+                <form method="POST" action="/dealer/delete" style="display: inline;" onsubmit="return confirm('Really delete this dealer and all their submissions?');">
+                  <input type="hidden" name="id" value="${d.id}">
+                  <button type="submit" class="btn danger">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>`
+    }
+  </div>
+</body>
+</html>`;
+  return html;
+}
+
+// Admin dealer submissions review page
+export async function dealerSubmissionsPage(env, status = "pending") {
+  const submissions = await getDealerVehicleSubmissions(env, status, 100, 0);
+
+  const statusBadge = (s) => {
+    const color = s === "approved" ? "#4CAF50" : s === "rejected" ? "#f44336" : "#FF9800";
+    return `<span style="display:inline-block;padding:4px 8px;border-radius:4px;background:${color};color:white;font-size:11px;font-weight:600;">${esc(s)}</span>`;
+  };
+
+  const tabs = ["pending", "approved", "rejected", "archived"];
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dealer Submissions</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+    .header h1 { margin: 0 0 20px; font-size: 28px; }
+    .tabs { display: flex; gap: 0; border-bottom: 2px solid #eee; }
+    .tab { padding: 12px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 600; color: #999; }
+    .tab.active { color: #CAA34C; border-bottom: 2px solid #CAA34C; margin-bottom: -2px; }
+    .card { background: white; border-radius: 8px; margin-bottom: 16px; padding: 20px; border-left: 4px solid #FF9800; }
+    .card.approved { border-left-color: #4CAF50; }
+    .card.rejected { border-left-color: #f44336; }
+    .vehicle-title { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+    .vehicle-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; font-size: 13px; }
+    .meta-item { display: flex; flex-direction: column; }
+    .meta-label { color: #999; font-weight: 600; margin-bottom: 2px; }
+    .meta-value { color: #333; }
+    .dealer-info { background: #f9f9f9; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; }
+    .dealer-info strong { color: #333; }
+    .description { background: #f9f9f9; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; line-height: 1.5; }
+    .actions { display: flex; gap: 12px; margin-top: 16px; }
+    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .btn.success { background: #4CAF50; }
+    .btn.danger { background: #f44336; }
+    .btn:hover { opacity: 0.9; }
+    .reject-form { display: flex; gap: 8px; align-items: flex-end; }
+    .reject-form textarea { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; min-height: 40px; }
+    .empty { padding: 60px 20px; text-align: center; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dealer Vehicle Submissions</h1>
+      <div class="tabs">
+        ${tabs.map(t => `
+          <form method="GET" style="display: inline;">
+            <input type="hidden" name="view" value="dealer-submissions">
+            <input type="hidden" name="status" value="${t}">
+            <button type="submit" class="tab ${status === t ? "active" : ""}">${t.charAt(0).toUpperCase() + t.slice(1)} ${t === status && submissions.length ? `(${submissions.length})` : ""}</button>
+          </form>
+        `).join("")}
+      </div>
+    </div>
+
+    <div>
+      ${submissions.length === 0
+        ? `<div class="empty" style="background: white; border-radius: 8px;">No ${status} submissions.</div>`
+        : submissions.map(v => `
+          <div class="card ${v.status}">
+            <h2 class="vehicle-title">${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h2>
+
+            <div class="vehicle-meta">
+              <div class="meta-item">
+                <span class="meta-label">Price</span>
+                <span class="meta-value">A$${Number(v.price_aud || 0).toLocaleString()}</span>
+              </div>
+              ${v.mileage_km ? `<div class="meta-item"><span class="meta-label">Mileage</span><span class="meta-value">${Number(v.mileage_km).toLocaleString()} km</span></div>` : ""}
+              ${v.grade ? `<div class="meta-item"><span class="meta-label">Grade</span><span class="meta-value">${esc(v.grade)}</span></div>` : ""}
+              ${v.location ? `<div class="meta-item"><span class="meta-label">Location</span><span class="meta-value">${esc(v.location)}</span></div>` : ""}
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span>${statusBadge(v.status)}</span>
+              </div>
+            </div>
+
+            <div class="dealer-info">
+              <strong>Dealer:</strong> ${esc(v.dealer_name)}${v.dealer_company ? ` (${esc(v.dealer_company)})` : ""}<br>
+              <strong>Email:</strong> ${esc(v.dealer_email)}
+            </div>
+
+            ${v.description ? `<div class="description"><strong>Description:</strong><br>${esc(v.description)}</div>` : ""}
+
+            ${v.admin_notes ? `<div class="description" style="background: #ffe0e0; color: #d32f2f;"><strong>Rejection notes:</strong><br>${esc(v.admin_notes)}</div>` : ""}
+
+            ${v.status === "pending" ? `
+              <div class="actions">
+                <form method="POST" action="/dealer-vehicle/approve" style="display: inline;">
+                  <input type="hidden" name="id" value="${v.id}">
+                  <button type="submit" class="btn success">Approve</button>
+                </form>
+                <form method="POST" action="/dealer-vehicle/reject" class="reject-form">
+                  <input type="hidden" name="id" value="${v.id}">
+                  <textarea name="notes" placeholder="Optional rejection notes..."></textarea>
+                  <button type="submit" class="btn danger">Reject</button>
+                </form>
+              </div>
+            ` : ""}
+          </div>
+        `).join("")
+      }
+    </div>
+  </div>
+</body>
+</html>`;
+  return html;
+}
 // (Phase 5 design pass touched only presentation code above.)

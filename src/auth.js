@@ -1,5 +1,6 @@
-// Stateless signed-cookie sessions with two roles: "admin" (JDM Connect, sees
-// everything) and "agent" (sees only their own clients/wishlists/matches).
+// Stateless signed-cookie sessions with four roles: "admin" (JDM Connect, sees
+// everything), "agent" (sees only their own clients/wishlists/matches), "client"
+// (buyer portal), and "dealer" (vehicle submissions & review).
 //
 // The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
 // ADMIN_TOKEN — no server-side session store. Admin logs in with ADMIN_PASSWORD
@@ -172,9 +173,9 @@ export function passwordValid(env, password) {
 // (which would sign every user out). Admin (id 0) has no DB row, so it stays 0.
 // Fail-open: any DB error returns 0 rather than blocking a login.
 export async function currentSessionVer(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return 0;
+  if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return 0;
   try {
-    const table = role === "agent" ? "agents" : "clients";
+    const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
     const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
     return row ? (Number(row.session_ver) || 0) : 0;
   } catch (e) { return 0; }
@@ -182,8 +183,8 @@ export async function currentSessionVer(env, role, id) {
 
 // Bump an account's session version, immediately invalidating its live cookies.
 export async function bumpSessionVer(env, role, id) {
-  if (!id || (role !== "agent" && role !== "client")) return;
-  const table = role === "agent" ? "agents" : "clients";
+  if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return;
+  const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
   try { await env.DB.prepare(`UPDATE ${table} SET session_ver = session_ver + 1 WHERE id = ?`).bind(Number(id)).run(); } catch (e) { /* best effort */ }
 }
 
@@ -222,12 +223,12 @@ async function sessionFromCookie(request, env) {
   // session_ver so a single account can be revoked without an ADMIN_TOKEN rotate.
   if (parts.length < 3 || parts.length > 4) return null;
   const [role, idStr, expStr, verStr] = parts;
-  if (!["admin", "agent", "client"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
+  if (!["admin", "agent", "client", "dealer"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
   const id = Number(idStr) || 0;
-  if (parts.length === 4 && (role === "agent" || role === "client")) {
+  if (parts.length === 4 && (role === "agent" || role === "client" || role === "dealer")) {
     if (!/^\d+$/.test(verStr)) return null;
     try {
-      const table = role === "agent" ? "agents" : "clients";
+      const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
       const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(id).first();
       if (!row) return null;                                   // account deleted → invalid
       if ((Number(row.session_ver) || 0) !== Number(verStr)) return null; // revoked/bumped
@@ -244,7 +245,8 @@ export async function getSession(request, url, env) {
 }
 
 // Verify login credentials. Admin password wins; then an active agent (email +
-// password); then a portal-enabled client (email + password). {role,id}|null.
+// password); then an active dealer (email + password); then a portal-enabled
+// client (email + password). {role,id}|null.
 export async function authenticate(env, email, password) {
   if (passwordValid(env, password)) return { role: "admin", id: 0 };
   const e = String(email || "").trim().toLowerCase();
@@ -255,6 +257,13 @@ export async function authenticate(env, email, password) {
   ).bind(e).first();
   if (agent && agent.active && agent.pass_hash && await verifyPassword(password, agent.pass_salt, agent.pass_hash)) {
     return { role: "agent", id: agent.id };
+  }
+
+  const dealer = await env.DB.prepare(
+    "SELECT id, pass_salt, pass_hash, active FROM dealers WHERE email = ?"
+  ).bind(e).first();
+  if (dealer && dealer.active && dealer.pass_hash && await verifyPassword(password, dealer.pass_salt, dealer.pass_hash)) {
+    return { role: "dealer", id: dealer.id };
   }
 
   // Buyer portal: a client who has been given access and set a password. If an
@@ -337,4 +346,29 @@ export async function setClientPassword(env, token, password) {
     "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?",
     [salt, hash, c.id], "setClientPassword");
   return { ok: true, id: c.id, email: c.email };
+}
+
+// --- Dealer invites (same pattern as agents and clients) ----------------------
+// Look up the dealer for a valid, unexpired invite token.
+export async function dealerByInviteToken(env, token) {
+  if (!token) return null;
+  const d = await env.DB.prepare(
+    "SELECT id, name, email, invite_exp FROM dealers WHERE invite_token = ?"
+  ).bind(String(token)).first();
+  if (!d || !d.invite_exp || Number(d.invite_exp) < Date.now()) return null;
+  return d;
+}
+
+// Set a dealer's password from a valid invite token. Returns {ok,id,email}.
+export async function setDealerPassword(env, token, password) {
+  const pwErr = passwordPolicyError(password);
+  if (pwErr) return { ok: false, error: pwErr };
+  const d = await dealerByInviteToken(env, token);
+  if (!d) return { ok: false, error: "This link is invalid or has expired." };
+  const { salt, hash } = await hashPassword(password);
+  // Bump session_ver so any older sessions stop validating on password reset.
+  await env.DB.prepare(
+    "UPDATE dealers SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
+  ).bind(salt, hash, d.id).run();
+  return { ok: true, id: d.id, email: d.email };
 }
