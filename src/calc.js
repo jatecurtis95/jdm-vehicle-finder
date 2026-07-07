@@ -81,9 +81,11 @@ export async function getLiveFx(env) {
 // deliberately simple inverse of the landed model — a soft filter, not a quote —
 // so the public signup path never has to call the calculator. We back out a flat
 // import-overhead allowance and the on-value taxes, then convert at the FX rate.
-const IMPORT_OVERHEAD_AUD = 9000; // shipping + compliance + on-road + duties allowance
-const ON_VALUE_TAX = 1.13;        // GST + duties applied to the car's value
-const MIN_CAR_VALUE_AUD = 2000;   // floor so a low budget still matches cheap lots
+// Exported so the wizard can mirror this exact inverse client-side: the yen
+// figure it previews must equal the price_max the server stores.
+export const IMPORT_OVERHEAD_AUD = 9000; // shipping + compliance + on-road + duties allowance
+export const ON_VALUE_TAX = 1.13;        // GST + duties applied to the car's value
+export const MIN_CAR_VALUE_AUD = 2000;   // floor so a low budget still matches cheap lots
 export function audBudgetToYen(audBudget, fx) {
   const aud = Number(audBudget);
   const rate = Number(fx) > 0 ? Number(fx) : 95;

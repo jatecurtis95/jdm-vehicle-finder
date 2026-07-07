@@ -258,6 +258,7 @@ export const onboardingCss = `
   .ob-budget .in{position:relative;display:flex;align-items:center}
   .ob-budget .in .cur{position:absolute;left:16px;font-size:24px;font-weight:800;color:var(--gold-txt);pointer-events:none}
   .ob-budget .in input{font-size:27px;font-weight:800;padding:16px 16px 16px 54px;letter-spacing:-0.01em}
+  .ob-yen{font-size:13.5px;font-weight:600;color:var(--gold-txt);margin:10px 0 0;min-height:18px}
   details.ob-refine{margin-top:22px;border-top:1px solid var(--hair);padding-top:16px}
   details.ob-refine>summary{cursor:pointer;list-style:none;font-size:14px;font-weight:600;color:var(--gold-txt)}
   details.ob-refine>summary::-webkit-details-marker{display:none}
@@ -357,7 +358,9 @@ export const onboardingCss = `
 `;
 
 // Client controller. Injected numbers only; degrades safely.
-export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
+// fxYen mirrors the server's audBudgetToYen (calc.js) so the yen preview under
+// the budget field always equals the price_max ceiling the server will store.
+export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAud, onValueTax, minCarAud }) {
   return `<script>(function(){
     var form=document.getElementById('requestForm'); if(!form) return;
     var root=document.querySelector('.ob'); if(!root) return;
@@ -370,6 +373,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     // account validation is skipped for them.
     var SIGNEDIN=${signedIn ? "true" : "false"};
     var PMIN=${Number(pwMin)}, PMAX=${Number(pwMax)}, BMIN=${Number(budgetMin)};
+    var FX=${Number(fx) > 0 ? Number(fx) : 95}, OVH=${Number(overheadAud) || 9000}, TAX=${Number(onValueTax) || 1.13}, MINCAR=${Number(minCarAud) || 2000};
     var ALLOWED=/^[A-Za-z0-9!@#$%^&*()\\-_=+?<>]*$/;
     var cur=1, max=steps.length;
 
@@ -410,7 +414,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
       var rows=[], car=[mk,md].filter(Boolean).join(' ');
       rows.push('<li><span class="tick">&#10003;</span><span><b>'+(esc(car)||'Your vehicle')+'</b></span></li>');
       if(yf&&yt) rows.push('<li><span class="tick">&#10003;</span><span>'+esc(yf)+' to '+esc(yt)+'</span></li>');
-      if(isFinite(bn)) rows.push('<li><span class="tick">&#10003;</span><span>Budget up to '+fmtAud(bn)+' all-in</span></li>');
+      if(isFinite(bn)) rows.push('<li><span class="tick">&#10003;</span><span>Budget up to '+fmtAud(bn)+' on-road</span></li>');
       if(st) rows.push('<li><span class="tick">&#10003;</span><span>Registered in '+esc(st)+'</span></li>');
       var extra=[];
       if(val('mileage_max')) extra.push('under '+parseInt(val('mileage_max'),10).toLocaleString('en-AU')+' km');
@@ -470,12 +474,25 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
       });
     });
 
+    // Live yen equivalent under the budget field: the same stripped-down
+    // inverse of the landed model the server stores as the search's auction
+    // ceiling (price_max), so what the buyer sees is what the matcher uses.
+    var yenEl=document.getElementById('rq-yen');
+    function updateYen(){
+      if(!yenEl)return;
+      var n=parseFloat(val('budget_aud'));
+      if(!isFinite(n)||n<BMIN){yenEl.textContent='';return;}
+      var yen=Math.max((n-OVH)/TAX,MINCAR)*FX;
+      yenEl.textContent='\\u2248 \\u00A5'+Math.round(yen).toLocaleString('en-AU')+' max auction price in Japan at today\\u2019s rate';
+    }
+    var budEl=el('budget_aud'); if(budEl) budEl.addEventListener('input',updateYen);
+
     // Budget chips fill the budget field.
     [].slice.call(form.querySelectorAll('.ob-chip')).forEach(function(chip){
       chip.addEventListener('click',function(){
         var b=el('budget_aud'); if(b){ b.value=chip.getAttribute('data-budget'); b.classList.remove('bad'); }
         [].slice.call(form.querySelectorAll('.ob-chip')).forEach(function(c){c.classList.toggle('is-on',c===chip);});
-        showErr('rq-budget-error',false); save();
+        showErr('rq-budget-error',false); updateYen(); save();
       });
     });
 
@@ -527,6 +544,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn }) {
     root.classList.add('ob-on');
     var startAttr=parseInt(form.getAttribute('data-error-step'),10);
     if(startAttr>=1){ cur=startAttr; } else { cur=restore(); }
+    updateYen();
     render();
   })();</script>`;
 }

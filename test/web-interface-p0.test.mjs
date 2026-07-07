@@ -60,7 +60,8 @@ test("wizard validation errors are live regions and fields describe their errors
   assert.match(html, /id="rq-models"[^>]+aria-describedby="rq-vehicle-error"/);
   assert.match(html, /id="rq-ymin"[^>]+aria-describedby="rq-year-error"/);
   assert.match(html, /id="rq-ymax"[^>]+aria-describedby="rq-year-error"/);
-  assert.match(html, /id="rq-budget"[^>]+aria-describedby="rq-budget-error"/);
+  // The budget field also references the live yen-equivalent line (rq-yen).
+  assert.match(html, /id="rq-budget"[^>]+aria-describedby="rq-budget-error[^"]*"/);
   assert.match(html, /id="rq-email"[^>]+aria-describedby="rq-email-error"/);
   assert.match(html, /id="rq-pass"[^>]+aria-describedby="rq-pass-error"/);
 });

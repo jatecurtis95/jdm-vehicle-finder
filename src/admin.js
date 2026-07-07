@@ -4,7 +4,7 @@
 import { esc, yen, km, displayGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
@@ -54,89 +54,61 @@ function modelField(listId, current) {
 }
 
 // Inline JS: when the maker <select> changes, (re)load that maker's models into
-// the model <select> via /api/models, clearing any previous selection. Exposes
-// window.jdmLoadModels(want) so presets can load + select a model. No-op if the
-// maker fell back to a text input.
+// the model <select> via /api/models, clearing any previous selection AND the
+// chassis-code field (a code belongs to the old make; leaving it made stale
+// preset codes stick, V1.2 Phase 2). Exposes window.jdmLoadModels(want) so
+// presets can load + select a model. If the models feed is unreachable the
+// select degrades to a free-text input so the form is never bricked; when the
+// feed answers, the model stays strictly select-only.
 function modelScript(makerId, listId, emptyLabel = "Any model") {
   return `<script>(function(){
     var mk=document.getElementById(${JSON.stringify(makerId)}),sel=document.getElementById(${JSON.stringify(listId)});
     if(!mk||!sel)return;
     var EMPTY=${JSON.stringify(emptyLabel)};
+    function degrade(){
+      if(sel.tagName!=="SELECT")return;
+      var inp=document.createElement("input");
+      inp.name=sel.name;inp.id=sel.id;inp.placeholder="e.g. SUPRA";
+      if(sel.getAttribute("aria-describedby"))inp.setAttribute("aria-describedby",sel.getAttribute("aria-describedby"));
+      sel.parentNode.replaceChild(inp,sel);sel=inp;
+    }
     function fill(want){
+      if(sel.tagName!=="SELECT"){if(want)sel.value=want;return;}
       if(mk.tagName!=="SELECT"||!mk.value){sel.innerHTML='<option value="">Select a make to see models</option>';sel.disabled=true;return;}
       sel.disabled=false;sel.innerHTML='<option value="">Loading models…</option>';
       fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){
+        if(!l||!l.length){degrade();if(want)sel.value=want;return;}
         sel.innerHTML='<option value="">'+EMPTY+'</option>';
-        (l||[]).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
+        l.forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
         if(want){var f=false;for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===want){f=true;break;}}if(!f){var o=document.createElement("option");o.value=want;o.textContent=want;sel.appendChild(o);}sel.value=want;}
-      }).catch(function(){sel.innerHTML='<option value="">Any model</option>';});
+      }).catch(function(){degrade();if(want)sel.value=want;});
     }
-    mk.addEventListener("change",function(){fill("");});
+    mk.addEventListener("change",function(){
+      fill("");
+      // Chassis code depends on the make/model that was just discarded.
+      var form=mk.closest("form"),kz=form&&form.querySelector('[name="kuzov"]');
+      if(kz)kz.value="";
+    });
     window.jdmLoadModels=function(want){fill(want||"");};
     if(mk.tagName==="SELECT"&&mk.value){fill(sel.getAttribute("data-want")||"");}
+    else if(mk.tagName!=="SELECT"){degrade();}
   })();</script>`;
 }
 
-// Curated wishlist presets: pick one and it auto-fills make/model/code/year for a
-// known model. EDIT THIS LIST to add or refine presets - especially tricky ones
-// like the E55 (listed under "Mercedes AMG", not Mercedes-Benz). Make uses
-// best-match, so the brand word alone is enough. Verify values against the feed.
-// Curated one-tap presets, grouped for scannability. Every make/model below is a
-// real value from the live auction feed (verified via /api/models) and the model
-// is matched as "contains", so a tap always returns results. Years/chassis narrow
-// the common variant; leave them off to keep a preset broad.
-const WL_PRESETS = [
-  // Sports & performance
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R34)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR34", year_min: 1999, year_max: 2002, label: "R34 GT-R" },
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R33)", make: "NISSAN", model: "SKYLINE", kuzov: "BCNR33", year_min: 1995, year_max: 1998, label: "R33 GT-R" },
-  { group: "Sports & performance", name: "Nissan Skyline GT-R (R32)", make: "NISSAN", model: "SKYLINE", kuzov: "BNR32", year_min: 1989, year_max: 1994, label: "R32 GT-R" },
-  { group: "Sports & performance", name: "Nissan GT-R (R35)", make: "NISSAN", model: "GT-R", year_min: 2007, year_max: 2024, label: "R35 GT-R" },
-  { group: "Sports & performance", name: "Nissan Silvia (S15)", make: "NISSAN", model: "SILVIA", year_min: 1999, year_max: 2002, label: "S15 Silvia" },
-  { group: "Sports & performance", name: "Nissan 180SX", make: "NISSAN", model: "180 SX", year_min: 1989, year_max: 1998, label: "180SX" },
-  { group: "Sports & performance", name: "Nissan Fairlady Z (350Z)", make: "NISSAN", model: "FAIRLADYZ", year_min: 2002, year_max: 2008, label: "350Z" },
-  { group: "Sports & performance", name: "Toyota Supra (A80)", make: "TOYOTA", model: "SUPRA", kuzov: "JZA80", year_min: 1993, year_max: 2002, label: "A80 Supra" },
-  { group: "Sports & performance", name: "Toyota GR Supra (A90)", make: "TOYOTA", model: "SUPRA", year_min: 2019, year_max: 2024, label: "A90 Supra" },
-  { group: "Sports & performance", name: "Toyota GR Yaris", make: "TOYOTA", model: "GR YARIS", year_min: 2020, year_max: 2024, label: "GR Yaris" },
-  { group: "Sports & performance", name: "Toyota 86 / GR86", make: "TOYOTA", model: "86", year_min: 2012, year_max: 2024, label: "86" },
-  { group: "Sports & performance", name: "Toyota Chaser (JZX100)", make: "TOYOTA", model: "CHASER", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Chaser" },
-  { group: "Sports & performance", name: "Toyota Mark II (JZX100)", make: "TOYOTA", model: "MARK II", kuzov: "JZX100", year_min: 1996, year_max: 2001, label: "JZX100 Mark II" },
-  { group: "Sports & performance", name: "Toyota MR2 (SW20)", make: "TOYOTA", model: "MR2", year_min: 1989, year_max: 1999, label: "SW20 MR2" },
-  { group: "Sports & performance", name: "Honda NSX", make: "HONDA", model: "NSX", year_min: 1990, year_max: 2005, label: "NSX" },
-  { group: "Sports & performance", name: "Honda S2000", make: "HONDA", model: "S2000", year_min: 1999, year_max: 2009, label: "S2000" },
-  { group: "Sports & performance", name: "Honda Integra Type R", make: "HONDA", model: "INTEGRA", year_min: 1995, year_max: 2006, label: "Integra Type R" },
-  { group: "Sports & performance", name: "Honda Civic Type R", make: "HONDA", model: "CIVIC", year_min: 2007, year_max: 2023, label: "Civic Type R" },
-  { group: "Sports & performance", name: "Mazda RX-7 (FD3S)", make: "MAZDA", model: "RX-7", kuzov: "FD3S", year_min: 1991, year_max: 2002, label: "FD RX-7" },
-  { group: "Sports & performance", name: "Mazda RX-8", make: "MAZDA", model: "RX-8", year_min: 2003, year_max: 2012, label: "RX-8" },
-  { group: "Sports & performance", name: "Subaru WRX STI (GDB)", make: "SUBARU", model: "IMPREZA", kuzov: "GDB", year_min: 2000, year_max: 2007, label: "GDB STI" },
-  { group: "Sports & performance", name: "Subaru WRX STI (VAB)", make: "SUBARU", model: "WRX STI", year_min: 2014, year_max: 2021, label: "VAB STI" },
-  { group: "Sports & performance", name: "Mitsubishi Lancer Evo (CT9A)", make: "MITSUBISHI", model: "LANCER", kuzov: "CT9A", year_min: 2001, year_max: 2007, label: "Evo 7-9" },
-  { group: "Sports & performance", name: "Mitsubishi GTO", make: "MITSUBISHI", model: "GTO", year_min: 1990, year_max: 2000, label: "GTO" },
-  { group: "Sports & performance", name: "Mercedes E55 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2003, year_max: 2006, label: "E55 AMG" },
-  { group: "Sports & performance", name: "Mercedes E63 AMG (W211)", make: "MERCEDES", model: "E-Class", year_min: 2006, year_max: 2009, label: "E63 AMG" },
-  // SUV, 4x4 & people movers
-  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser", make: "TOYOTA", model: "LAND CRUISER", label: "Land Cruiser" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Land Cruiser Prado", make: "TOYOTA", model: "LAND CRUISER PRADO", label: "Prado" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux", make: "TOYOTA", model: "HILUX", label: "Hilux" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Hilux Surf", make: "TOYOTA", model: "HILUX SURF", label: "Hilux Surf" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Harrier", make: "TOYOTA", model: "HARRIER", label: "Harrier" },
-  { group: "SUV, 4x4 & people movers", name: "Toyota Alphard", make: "TOYOTA", model: "ALPHARD", label: "Alphard" },
-  { group: "SUV, 4x4 & people movers", name: "Nissan Elgrand", make: "NISSAN", model: "ELGRAND", label: "Elgrand" },
-  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Delica D5", make: "MITSUBISHI", model: "DELICA D5", label: "Delica D5" },
-  { group: "SUV, 4x4 & people movers", name: "Mitsubishi Pajero", make: "MITSUBISHI", model: "PAJERO", label: "Pajero" },
-  { group: "SUV, 4x4 & people movers", name: "Subaru Forester", make: "SUBARU", model: "FORESTER", label: "Forester" },
-  // Daily, kei & convertible
-  { group: "Daily, kei & convertible", name: "Toyota Aqua", make: "TOYOTA", model: "AQUA", label: "Aqua" },
-  { group: "Daily, kei & convertible", name: "Toyota Prius", make: "TOYOTA", model: "PRIUS", label: "Prius" },
-  { group: "Daily, kei & convertible", name: "Mazda Roadster (MX-5)", make: "MAZDA", model: "ROADSTER", label: "MX-5 Roadster" },
-  { group: "Daily, kei & convertible", name: "Honda Beat", make: "HONDA", model: "BEAT", label: "Beat" },
-  { group: "Daily, kei & convertible", name: "Suzuki Jimny", make: "SUZUKI", model: "JIMNY", label: "Jimny" },
-  { group: "Daily, kei & convertible", name: "Suzuki Cappuccino", make: "SUZUKI", model: "CAPPUCCINO", label: "Cappuccino" },
-  { group: "Daily, kei & convertible", name: "Suzuki Swift Sport", make: "SUZUKI", model: "SWIFT SPORTS", label: "Swift Sport" },
-];
+// Curated wishlist presets: pick one and it auto-fills make/model/code/year for
+// a known model. INTENTIONALLY EMPTY (V1.2 Phase 2 preset data pass): every
+// preset shipped here must be SEVS-eligible with correct year ranges, and the
+// vetted list is to be supplied by Jate/Ben. "Ship empty rather than wrong."
+// The dropdown hides itself while this list is empty; add entries of the shape
+//   { group, name, make, model, kuzov?, year_min?, year_max?, label }
+// (make/model must be real feed values; model matches as "contains").
+const WL_PRESETS = [];
 
 // Dropdown that fills a wishlist form from a preset. Works on any wishlist form
-// (matches inputs by name, relative to the form).
+// (matches inputs by name, relative to the form). Renders nothing while the
+// preset list is empty (see WL_PRESETS above).
 function presetSelect() {
+  if (!WL_PRESETS.length) return "";
   // Group the presets into <optgroup>s while keeping each option's value as its
   // original index into WL_PRESETS (jdmPreset reads that index).
   const groups = [];
@@ -152,6 +124,7 @@ function presetSelect() {
     <select onchange="jdmPreset(this)"><option value="">No preset</option>${opts}</select></div>`;
 }
 function presetScript() {
+  if (!WL_PRESETS.length) return "";
   return `<script>var WL_PRESETS=${JSON.stringify(WL_PRESETS)};function jdmPreset(sel){
     var form=sel.closest("form")||document;
     function set(n,v){var el=form.querySelector('[name="'+n+'"]');if(el)el.value=(v==null?"":v);}
@@ -2173,7 +2146,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Client<select name="client_id" required>${clientOptions}</select></label></div>
           <div><label>Label<input name="label" placeholder="e.g. under 1.5M daily"></label></div>
           <div><label for="wl-maker">Make</label>${makerField(makers, "wl-maker")}</div>
-          <div><label>Model <span class="opt">(pick or type)</span>${modelField("wl-models")}</label></div>
+          <div><label>Model${modelField("wl-models")}</label></div>
           <div><label>Year min<input name="year_min" type="number" placeholder="1990"></label></div>
           <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
           <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
@@ -4898,8 +4871,12 @@ export async function requestPage(env, opts = {}) {
   // Keep the form short for cold ad traffic: only Make/Model show by default,
   // the rest fold away. Re-open the extra fields if any came back filled (e.g.
   // a preset, or a re-render after a contact error) so nothing looks lost.
-  const moreOpen = ["mileage_max", "rate_min", "kuzov", "label"].some((k) => vals[k]);
+  const moreOpen = ["mileage_max", "rate_min", "kuzov"].some((k) => vals[k]);
   const makers = await distinctMakers(env);
+  // Current FX rate for the live yen-equivalent under the budget field; falls
+  // back to the configured CALC_FX inside getLiveFx, and 0 only if that throws
+  // (the wizard script then uses its own baked-in default).
+  const fx = await getLiveFx(env).catch(() => 0);
   // Social login: the button shows only when Google is configured. `signedIn`
   // ({name,email}) means the visitor arrived already authenticated, so the
   // account step collapses to a one-tap confirm (no email/password re-entry).
@@ -4916,7 +4893,7 @@ export async function requestPage(env, opts = {}) {
   if (ok) {
     const car = [esc(req.marka_name || ""), esc(req.model_name || "")].filter(Boolean).join(" ") || "Your vehicle";
     const yr = req.year_min && req.year_max ? `${esc(req.year_min)} to ${esc(req.year_max)}` : "";
-    const bud = req.budget_aud ? `Budget up to A$${Number(req.budget_aud).toLocaleString("en-AU")} all-in` : "";
+    const bud = req.budget_aud ? `Budget up to A$${Number(req.budget_aud).toLocaleString("en-AU")} on-road` : "";
     const st = req.state ? `Registered in ${esc(req.state)}` : "";
     const summaryRows = [`<b>${car}</b>`, yr, bud, st].filter(Boolean)
       .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
@@ -5007,7 +4984,7 @@ export async function requestPage(env, opts = {}) {
         : opts.error === "year"
           ? "Please enter the year range you're after (and make sure 'from' isn't later than 'to')."
           : opts.error === "budget"
-            ? "Please enter your maximum all-in budget in AUD (at least A$5,000)."
+            ? "Please enter your maximum on-road budget in AUD (at least A$5,000)."
             : opts.error === "email"
               ? "Please enter your email so we can set up your account and reach you when a match comes up."
               : "";
@@ -5036,6 +5013,7 @@ export async function requestPage(env, opts = {}) {
             <p class="ob-lead">Tell us what you're chasing and we'll search every major Japanese auction house for matching vehicles.</p>
             <div class="ob-sub-h">Popular searches</div>
             ${popularCards()}
+            <div style="margin-bottom:18px"><label for="rf-label">Nickname <span class="opt">(optional, for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
             <div class="ob-fields">
               <div><label for="rq-maker">Make</label>${makerField(makers, "rq-maker", "Select a make", vals.marka_name).replace('id="rq-maker"', 'id="rq-maker" aria-describedby="rq-vehicle-error"')}</div>
               <div><label for="rq-models">Model</label>${modelField("rq-models", vals.model_name).replace('id="rq-models"', 'id="rq-models" aria-describedby="rq-vehicle-error"')}</div>
@@ -5044,6 +5022,14 @@ export async function requestPage(env, opts = {}) {
             </div>
             <p id="rq-vehicle-error" class="field-err" role="alert">Please choose a make and model so we know what to look for.</p>
             <p id="rq-year-error" class="field-err" role="alert">Please enter the year range you're after ("from" can't be later than "to").</p>
+            <details class="ob-refine"${moreOpen ? " open" : ""}>
+              <summary>Refine my search (optional)</summary>
+              <div class="ob-fields">
+                <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
+                <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
+                <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+              </div>
+            </details>
             ${recentExamplesShell()}
             <div class="ob-nav-btns ob-only">
               <button type="button" class="btn-gold ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
@@ -5059,23 +5045,15 @@ export async function requestPage(env, opts = {}) {
                 <div class="ob-sub-h">Quick pick</div>
                 ${budgetChips()}
                 <div class="ob-budget">
-                  <label for="rq-budget">Maximum budget <span class="opt">(AUD, all-in)</span></label>
-                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error"></div>
+                  <label for="rq-budget">Max budget <span class="opt">(AUD, on-road)</span></label>
+                  <div class="in"><span class="cur" aria-hidden="true">A$</span><input id="rq-budget" name="budget_aud" type="number" inputmode="numeric" min="5000" max="1000000" step="any" value="${v("budget_aud")}" placeholder="35,000" required aria-describedby="rq-budget-error rq-yen"></div>
+                  <p class="ob-yen" id="rq-yen" aria-live="polite"></p>
                 </div>
-                <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum all-in budget in AUD (at least A$5,000).</p>
+                <p id="rq-budget-error" class="field-err" role="alert">Please enter your maximum on-road budget in AUD (at least A$5,000).</p>
                 <div class="ob-fields" style="margin-top:16px">
                   <div><label for="rq-state">State <span class="opt">(where it&rsquo;ll be registered)</span></label><select id="rq-state" name="state">${stateOptions(vals.state || "")}</select></div>
                   <div><label for="rq-dest">Country</label><input id="rq-dest" name="destination_country" value="${esc(vals.destination_country || "Australia")}" maxlength="60"></div>
                 </div>
-                <details class="ob-refine"${moreOpen ? " open" : ""}>
-                  <summary>Refine my search (optional)</summary>
-                  <div class="ob-fields">
-                    <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
-                    <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
-                    <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
-                    <div><label for="rf-label">Nickname <span class="opt">(for your reference)</span></label><input id="rf-label" name="label" value="${v("label")}" placeholder="e.g. weekend project" maxlength="120"></div>
-                  </div>
-                </details>
               </div>
               ${testimonialPanel()}
             </div>
@@ -5164,7 +5142,7 @@ export async function requestPage(env, opts = {}) {
       </main>
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
-    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn })}`;
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn, fx, overheadAud: IMPORT_OVERHEAD_AUD, onValueTax: ON_VALUE_TAX, minCarAud: MIN_CAR_VALUE_AUD })}`;
   return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
 }
 
@@ -6415,6 +6393,7 @@ async function createRequestWishlist(env, clientId, form) {
   let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
   if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
   const priceMax = clampRange(num(form, "price_max"), 0, 100000000);
+  const budgetAud = clampRange(num(form, "budget_aud"), 0, 10000000);
   const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
 
@@ -6423,15 +6402,32 @@ async function createRequestWishlist(env, clientId, form) {
   let dest = str(form, "destination_country");
   if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
-  const ins = await env.DB.prepare(
-    `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-  ).bind(
-    clientId, str(form, "label"), marka, model,
-    yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
-  ).run();
-  return ins?.meta?.last_row_id ?? null;
+  // budget_aud rides along via the schema-drift-tolerant path: a production DB
+  // that has not applied migration 0014 yet still stores the search (without
+  // the AUD figure) rather than failing the signup.
+  try {
+    const ins = await env.DB.prepare(
+      `INSERT INTO wishlists
+        (client_id, label, marka_name, model_name, year_min, year_max, price_max, budget_aud, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).bind(
+      clientId, str(form, "label"), marka, model,
+      yMin, yMax, priceMax, budgetAud, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
+    ).run();
+    return ins?.meta?.last_row_id ?? null;
+  } catch (e) {
+    if (!/budget_aud/i.test(String(e && e.message))) throw e;
+    console.error("createRequestWishlist: budget_aud column missing (apply migration 0014); storing without it");
+    const ins = await env.DB.prepare(
+      `INSERT INTO wishlists
+        (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).bind(
+      clientId, str(form, "label"), marka, model,
+      yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
+    ).run();
+    return ins?.meta?.last_row_id ?? null;
+  }
 }
 
 const clampMin = (v, min) => (v === null ? null : Math.max(min, v));
@@ -7157,7 +7153,7 @@ export async function portalPage(env, session, opts = {}) {
       <div class="grid">
         <div><label>Label <span class="opt">(your reference)</span><input name="label" placeholder="e.g. weekend project"></label></div>
         <div><label for="pl-maker">Make</label>${makerField(makers, "pl-maker")}</div>
-        <div><label>Model <span class="opt">(pick or type)</span>${modelField("pl-models")}</label></div>
+        <div><label>Model${modelField("pl-models")}</label></div>
         <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
         <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
         <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="any" placeholder="3,000,000"></label></div>
