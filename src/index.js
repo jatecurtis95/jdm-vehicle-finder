@@ -14,7 +14,8 @@ import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from 
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
 import { readAuctionSheet, sweepUnreadSheets, fixAllPhotos } from "./sheet.js";
-import { distinctMakers, distinctModels, refreshLotImages } from "./avtonet.js";
+import { distinctMakers, distinctModels, distinctModelCodes, distinctGrades, refreshLotImages } from "./avtonet.js";
+import { labelForCode } from "./model-codes.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
@@ -364,7 +365,7 @@ export default {
     // (up to ~16 upstream SQL calls per /api/market hit), so an anonymous loop
     // could burn the relay quota (audit Medium #12). Generous cap - real users
     // browsing the wizard make a handful of calls, not 60 in 5 minutes.
-    if (path === "/api/makers" || path === "/api/models" || path === "/api/market") {
+    if (path === "/api/makers" || path === "/api/models" || path === "/api/codes" || path === "/api/grades" || path === "/api/market") {
       const ip = request.headers.get("CF-Connecting-IP") || "";
       if (await apiRateLimited(env, ip)) {
         return new Response(JSON.stringify({ ok: false, error: "rate_limited" }), {
@@ -380,6 +381,22 @@ export default {
     }
     if (path === "/api/models") {
       return new Response(JSON.stringify(await distinctModels(env, url.searchParams.get("maker") || "")), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+    // Model codes for a maker (+ optional model), labelled with the reviewed
+    // association where one exists: [{ code, label }] (V1.2 Phase 4).
+    if (path === "/api/codes") {
+      const codes = await distinctModelCodes(env, url.searchParams.get("maker") || "", url.searchParams.get("model") || "");
+      return new Response(JSON.stringify(codes.map((code) => ({ code, label: labelForCode(code) }))), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+    // Grade (trim) spellings on current and recent listings for a selection.
+    // Powers the Grade multi-select; spelling variants surface as-is.
+    if (path === "/api/grades") {
+      const grades = await distinctGrades(env, url.searchParams.get("maker") || "", url.searchParams.get("model") || "", url.searchParams.get("code") || "");
+      return new Response(JSON.stringify(grades), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
       });
     }

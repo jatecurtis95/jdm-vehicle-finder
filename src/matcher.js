@@ -6,6 +6,21 @@ import { deliverToClient } from "./notify.js";
 import { attachLanded } from "./calc.js";
 import { getSettings, settingNum } from "./settings.js";
 
+// Parse a wishlist's stored grades list: a JSON array string (the canonical
+// form) or a legacy pipe-separated string. Returns up to 8 trimmed entries.
+export function parseGrades(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return [];
+  let list = [];
+  if (s.startsWith("[")) {
+    try { list = JSON.parse(s); } catch (e) { list = []; }
+  } else {
+    list = s.split("|");
+  }
+  return (Array.isArray(list) ? list : [])
+    .map((g) => String(g || "").trim()).filter(Boolean).slice(0, 8);
+}
+
 // Build the SQL for one wishlist. Only upcoming auctions, filtered by the
 // numeric/text criteria we can express in SQL. Grade is refined in code
 // afterwards because grades can be non-numeric.
@@ -59,6 +74,17 @@ export function buildSql(w) {
   if (w.grade_kw) {
     where.push(`UPPER(grade) LIKE '%${sqlLike(w.grade_kw).toUpperCase()}%'`);
   }
+  // V1.2 Phase 4: model_code narrows on the feed's chassis/model-code column
+  // (same contains-match as kuzov); grades is a stored list of grade spellings
+  // OR-ed together, because auction houses write the same real grade many
+  // ways. Both are additive: wishlists without them build identical SQL.
+  if (w.model_code) {
+    where.push(`UPPER(kuzov) LIKE '%${sqlLike(w.model_code).toUpperCase()}%'`);
+  }
+  const gradeList = parseGrades(w.grades);
+  if (gradeList.length) {
+    where.push(`(${gradeList.map((g) => `UPPER(grade) LIKE '%${sqlLike(g).toUpperCase()}%'`).join(" OR ")})`);
+  }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
   // Soonest auctions first; cap each run so a digest stays manageable. The
@@ -85,7 +111,7 @@ export function scoreMatch(lot, w) {
   const grade = gradeValue(lot.rate);
   if (maxP && price > 0) score += Math.min(1, (maxP - price) / maxP);
   if (minG !== null && grade !== null) score += Math.min(1, (grade - minG) / 2);
-  if (w.grade_kw || w.kuzov) score += 0.6;
+  if (w.grade_kw || w.kuzov || w.model_code || parseGrades(w.grades).length) score += 0.6;
   if (grade !== null && grade >= 4.5) score += 0.4;
   return score;
 }
@@ -113,7 +139,7 @@ export function refine(lots, w) {
 export async function runWishlist(env, wishlist) {
   // Safety: a wishlist with no make / model / chassis / grade term would match
   // the whole feed, so skip it. The create form also blocks saving one this broad.
-  if (!(wishlist.marka_name || wishlist.model_name || wishlist.kuzov || wishlist.grade_kw)) return [];
+  if (!(wishlist.marka_name || wishlist.model_name || wishlist.kuzov || wishlist.grade_kw || wishlist.model_code)) return [];
   const sql = buildSql(wishlist);
   const candidates = refine(await query(env, sql), wishlist);
   if (candidates.length === 0) return [];
@@ -230,7 +256,7 @@ export async function sendWelcomeMatch(env, wishlistId) {
         WHERE w.id = ?`
     ).bind(wishlistId).first();
     // A wishlist with no real search term would match the whole feed, so skip it.
-    if (!w || !(w.marka_name || w.model_name || w.kuzov || w.grade_kw)) return none;
+    if (!w || !(w.marka_name || w.model_name || w.kuzov || w.grade_kw || w.model_code)) return none;
 
     const candidates = refine(await query(env, buildSql(w)), w).filter((l) => l.id);
     if (!candidates.length) return none;

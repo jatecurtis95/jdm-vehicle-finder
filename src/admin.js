@@ -95,6 +95,48 @@ function modelScript(makerId, listId, emptyLabel = "Any model") {
   })();</script>`;
 }
 
+// Model code + Grade refinement selects (V1.2 Phase 4). Watches the make and
+// model controls, fills the Model code select from /api/codes (labelled with
+// the reviewed association) and the Grade multi-select from /api/grades (the
+// pre-search over current and recent listings, spelling variants included).
+// Degrades quietly: if the feed is down the selects keep only their current
+// value and the fields stay optional.
+function codeGradeScript(makerId, modelId, codeId, gradesId) {
+  return `<script>(function(){
+    var mk=document.getElementById(${JSON.stringify(makerId)}),md=document.getElementById(${JSON.stringify(modelId)});
+    var cd=document.getElementById(${JSON.stringify(codeId)}),gr=document.getElementById(${JSON.stringify(gradesId)});
+    if(!mk||!cd)return;
+    function opt(sel,val,txt,selected){var o=document.createElement("option");o.value=val;o.textContent=txt;if(selected)o.selected=true;sel.appendChild(o);}
+    function fillGrades(){
+      if(!gr||gr.tagName!=="SELECT")return;
+      var want=(gr.getAttribute("data-want")||"").split(",").map(function(s){return s.trim();}).filter(Boolean);
+      if(!mk.value){gr.innerHTML="";return;}
+      fetch("/api/grades?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||"")+"&code="+encodeURIComponent(cd.value||""))
+        .then(function(r){return r.json();}).then(function(l){
+          gr.innerHTML="";
+          (l||[]).forEach(function(g){opt(gr,g,g,want.indexOf(g)>-1);});
+          want.forEach(function(w){for(var i=0;i<gr.options.length;i++){if(gr.options[i].value===w)return;}opt(gr,w,w,true);});
+        }).catch(function(){});
+    }
+    function fillCodes(){
+      if(cd.tagName!=="SELECT")return;
+      var want=cd.getAttribute("data-want")||cd.value||"";
+      if(!mk.value){cd.innerHTML='<option value="">Any model code</option>';fillGrades();return;}
+      fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||""))
+        .then(function(r){return r.json();}).then(function(l){
+          cd.innerHTML='<option value="">Any model code</option>';
+          (l||[]).forEach(function(c){opt(cd,c.code,c.label,c.code===want);});
+          if(want&&cd.value!==want){opt(cd,want,want,true);}
+          fillGrades();
+        }).catch(function(){fillGrades();});
+    }
+    mk.addEventListener("change",function(){cd.setAttribute("data-want","");if(gr)gr.setAttribute("data-want","");fillCodes();});
+    if(md)md.addEventListener("change",function(){fillCodes();});
+    cd.addEventListener("change",fillGrades);
+    fillCodes();
+  })();</script>`;
+}
+
 // Curated wishlist presets: pick one and it auto-fills make/model/code/year for
 // a known model. INTENTIONALLY EMPTY (V1.2 Phase 2 preset data pass): every
 // preset shipped here must be SEVS-eligible with correct year ranges, and the
@@ -2158,13 +2200,15 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
           <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
+          <div><label for="wl-code">Model code <span class="opt">(exact variant)</span></label><select id="wl-code" name="model_code"><option value="">Any model code</option></select></div>
+          <div><label for="wl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="wl-grades" name="grades" multiple size="4"></select></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-gold" type="submit">Add search</button>
           <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
       </form>
     </div>
-    ${modelScript("wl-maker", "wl-models")}${presetScript()}`;
+    ${modelScript("wl-maker", "wl-models")}${codeGradeScript("wl-maker", "wl-models", "wl-code", "wl-grades")}${presetScript()}`;
 }
 
 function clientsView(clients, wishlists, opts = {}) {
@@ -4163,11 +4207,13 @@ export async function editWishlist(env, form, session) {
   const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ? WHERE id = ?`
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ?,
+       model_code = ?, grades = ? WHERE id = ?`
   ).bind(
     sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"),
     yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
-    clampRange(num(form, "rate_min"), 1, 6), sstr(form, "kuzov"), sstr(form, "grade_kw"), form.get("watch_only") ? 1 : 0, id
+    clampRange(num(form, "rate_min"), 1, 6), sstr(form, "kuzov"), sstr(form, "grade_kw"), form.get("watch_only") ? 1 : 0,
+    sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), id
   ).run();
 }
 
@@ -4183,7 +4229,9 @@ function wishlistEditor(w, opts = {}) {
   const summary = `${esc(displayName(w.marka_name)) || "Any maker"} ${esc(displayName(w.model_name))}`.trim()
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
-    + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "");
+    + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "")
+    + (w.model_code ? ` · ${esc(w.model_code)}` : "")
+    + (gradesText(w.grades) ? ` · ${esc(gradesText(w.grades))}` : "");
   // Staff-only: "Search" runs the live auction search for THIS exact vehicle,
   // pre-filling the Find-a-car form from this search's criteria and jumping to it.
   const searchBtn = (!opts.portal && w.client_id && (w.marka_name || w.model_name || w.kuzov))
@@ -4228,6 +4276,8 @@ function wishlistEditor(w, opts = {}) {
           ${field("Min grade", "rate_min", "number")}
           ${field("Chassis or model code", "kuzov", null, "(contains, best match)")}
           ${field("Grade keyword", "grade_kw", null, "(contains)")}
+          ${field("Model code", "model_code", null, "(exact variant)")}
+          <div><label>Grades <span class="opt">(comma separated, any spelling matches)</span><input name="grades" value="${esc(gradesText(w.grades))}" placeholder="e.g. S450, S450 EXCLUSIVE"></label></div>
         </div>
         ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
         <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
@@ -4747,11 +4797,13 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
+        <div><label for="as-code">Model code <span class="opt">(exact variant)</span></label><select id="as-code" name="model_code"><option value="">Any model code</option></select></div>
+        <div><label for="as-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="as-grades" name="grades" multiple size="4"></select></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
-    </form>${presetScript()}
+    </form>${codeGradeScript("as-make", "as-model", "as-code", "as-grades")}${presetScript()}
   </details>`;
 
   // IA-AUDIT item 5: searches render as one-line summary rows (label, digest,
@@ -5031,6 +5083,8 @@ export async function requestPage(env, opts = {}) {
                 <div><label for="rf-mileage">Max mileage <span class="opt">(km)</span></label><input id="rf-mileage" name="mileage_max" type="number" inputmode="numeric" min="0" max="2000000" step="any" value="${v("mileage_max")}" placeholder="100,000"></div>
                 <div><label for="rf-grade">Min auction grade <span class="opt">(1 to 6)</span></label><input id="rf-grade" name="rate_min" type="number" min="1" max="6" step="any" value="${v("rate_min")}" placeholder="e.g. 4"></div>
                 <div><label for="rf-chassis">Chassis code <span class="opt">(if known)</span></label><input id="rf-chassis" name="kuzov" value="${v("kuzov")}" placeholder="e.g. JZA80" maxlength="40"></div>
+                <div><label for="rf-code">Model code <span class="opt">(exact variant)</span></label><select id="rf-code" name="model_code" data-want="${v("model_code")}"><option value="">Any model code</option>${vals.model_code ? `<option value="${v("model_code")}" selected>${v("model_code")}</option>` : ""}</select></div>
+                <div><label for="rf-grades">Grade <span class="opt">(pick every spelling you'd take)</span></label><select id="rf-grades" name="grades" multiple size="4" data-want="${esc(gradesText(vals.grades || ""))}"></select></div>
               </div>
             </details>
             ${recentExamplesShell()}
@@ -5145,7 +5199,7 @@ export async function requestPage(env, opts = {}) {
       </main>
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
-    ${modelScript("rq-maker", "rq-models", "Select a model")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn, fx, overheadAud: IMPORT_OVERHEAD_AUD, onValueTax: ON_VALUE_TAX, minCarAud: MIN_CAR_VALUE_AUD })}`;
+    ${modelScript("rq-maker", "rq-models", "Select a model")}${codeGradeScript("rq-maker", "rq-models", "rf-code", "rf-grades")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn, fx, overheadAud: IMPORT_OVERHEAD_AUD, onValueTax: ON_VALUE_TAX, minCarAud: MIN_CAR_VALUE_AUD })}`;
   return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
 }
 
@@ -5957,6 +6011,22 @@ export function phoneE164(raw) {
   if (!/^\+?\d{8,15}$/.test(s)) return null;
   return s.startsWith("+") ? s : "+" + s;
 }
+// Grade values from either a multi-select (repeated "grades" keys) or a plain
+// comma-separated text input: each clipped, up to 8, stored as a JSON array
+// string, or null when none chosen (V1.2 Phase 4).
+function sgrades(form) {
+  const list = (form.getAll ? form.getAll("grades") : [])
+    .flatMap((v) => String(v || "").split(","))
+    .map((g) => g.trim().slice(0, FIELD_MAX.grade_kw))
+    .filter(Boolean).slice(0, 8);
+  return list.length ? JSON.stringify(list) : null;
+}
+// Render a stored grades JSON list back to editable comma-separated text.
+export function gradesText(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  try { const l = JSON.parse(s); return Array.isArray(l) ? l.join(", ") : ""; } catch (e) { return s; }
+}
 async function activeWishlistCount(env, clientId) {
   const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE client_id = ? AND active = 1").bind(Number(clientId)).first();
   return Number(r?.n) || 0;
@@ -5975,20 +6045,22 @@ export async function createWishlist(env, form, clientIdOverride, session) {
   if (!(await clientAccessibleBy(env, clientId, session))) return { ok: false, error: "forbidden" };
   const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
   const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
   // Don't save a whole-feed wishlist: require at least one narrowing term.
-  if (!(marka || model || kuzov || gradeKw)) return { ok: false, error: "term" };
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" };
   // Guardrail: cap active searches per client so one record can't fan out into
   // dozens of match-all searches.
   if ((await activeWishlistCount(env, clientId)) >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
   const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, model_code, grades)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     clientId, sstr(form, "label"), marka, model,
     yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
-    clampRange(num(form, "rate_min"), 1, 6), kuzov, gradeKw, form.get("watch_only") ? 1 : 0
+    clampRange(num(form, "rate_min"), 1, 6), kuzov, gradeKw, form.get("watch_only") ? 1 : 0,
+    modelCode, sgrades(form)
   ).run();
   return { ok: true };
 }
@@ -6448,7 +6520,9 @@ async function createRequestWishlist(env, clientId, form) {
   const model = str(form, "model_name");
   const kuzov = str(form, "kuzov");
   const gradeKw = str(form, "grade_kw");
-  const needsDetail = !(marka || model || kuzov || gradeKw) ? 1 : 0;
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  const gradesJson = sgrades(form);
+  const needsDetail = !(marka || model || kuzov || gradeKw || modelCode) ? 1 : 0;
 
   const dupe = await env.DB.prepare(
     `SELECT id FROM wishlists
@@ -6473,31 +6547,28 @@ async function createRequestWishlist(env, clientId, form) {
   let dest = str(form, "destination_country");
   if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
-  // budget_aud rides along via the schema-drift-tolerant path: a production DB
-  // that has not applied migration 0014 yet still stores the search (without
-  // the AUD figure) rather than failing the signup.
-  try {
-    const ins = await env.DB.prepare(
-      `INSERT INTO wishlists
-        (client_id, label, marka_name, model_name, year_min, year_max, price_max, budget_aud, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-    ).bind(
-      clientId, str(form, "label"), marka, model,
-      yMin, yMax, priceMax, budgetAud, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
-    ).run();
-    return ins?.meta?.last_row_id ?? null;
-  } catch (e) {
-    if (!/budget_aud/i.test(String(e && e.message))) throw e;
-    console.error("createRequestWishlist: budget_aud column missing (apply migration 0014); storing without it");
-    const ins = await env.DB.prepare(
-      `INSERT INTO wishlists
-        (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, destination_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-    ).bind(
-      clientId, str(form, "label"), marka, model,
-      yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, needsDetail, dest
-    ).run();
-    return ins?.meta?.last_row_id ?? null;
+  // Schema-drift-tolerant insert: budget_aud (migration 0014) and
+  // model_code/grades (migration 0015) ride along when their columns exist. A
+  // production DB that hasn't applied a migration yet still stores the search
+  // (without that column) rather than failing the signup - the catch strips
+  // whichever column the error names and retries.
+  const optional = { budget_aud: budgetAud, model_code: modelCode, grades: gradesJson };
+  let extraCols = Object.keys(optional);
+  for (;;) {
+    const cols = ["client_id", "label", "marka_name", "model_name", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov", "grade_kw", "watch_only", "needs_detail", "destination_country", ...extraCols];
+    const vals = [clientId, str(form, "label"), marka, model, yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, 0, needsDetail, dest, ...extraCols.map((c) => optional[c])];
+    try {
+      const ins = await env.DB.prepare(
+        `INSERT INTO wishlists (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
+      ).bind(...vals).run();
+      return ins?.meta?.last_row_id ?? null;
+    } catch (e) {
+      const m = String(e && e.message).match(/budget_aud|model_code|grades/i);
+      if (!m || !extraCols.length) throw e;
+      const missing = m[0].toLowerCase();
+      console.error(`createRequestWishlist: ${missing} column missing (apply the matching migration); storing without it`);
+      extraCols = extraCols.filter((c) => c !== missing);
+    }
   }
 }
 
@@ -7231,10 +7302,12 @@ export async function portalPage(env, session, opts = {}) {
         <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="any" placeholder="100,000"></label></div>
         <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="any" placeholder="e.g. 4"></label></div>
         <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
+        <div><label for="pl-code">Model code <span class="opt">(exact variant)</span></label><select id="pl-code" name="model_code"><option value="">Any model code</option></select></div>
+        <div><label for="pl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="pl-grades" name="grades" multiple size="4"></select></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
-    </form>${modelScript("pl-maker", "pl-models")}${presetScript()}
+    </form>${modelScript("pl-maker", "pl-models")}${codeGradeScript("pl-maker", "pl-models", "pl-code", "pl-grades")}${presetScript()}
   </details>`;
 
   const flash = opts.flash ? `<div class="banner"><span class="txt">${esc(opts.flash)}</span></div>` : "";
@@ -7306,17 +7379,18 @@ export async function portalAddWishlist(env, form, session) {
   if (!cid || !(await portalClientActive(env, cid))) return;
   const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
   const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
-  if (!(marka || model || kuzov || gradeKw)) return; // need something to search on
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return; // need something to search on
   // Same active-search cap as staff: a buyer can't fan out unlimited searches.
   if ((await activeWishlistCount(env, cid)) >= WISHLIST_ACTIVE_CAP) return;
   const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
-    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
+    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, model_code, grades)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
   ).bind(
     cid, sstr(form, "label"), marka, model, yMin, yMax,
     sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
-    kuzov, gradeKw
+    kuzov, gradeKw, modelCode, sgrades(form)
   ).run();
 }
 
@@ -7328,11 +7402,11 @@ export async function portalEditWishlist(env, form, session) {
   const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ? WHERE id = ? AND client_id = ?`
+       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, model_code = ?, grades = ? WHERE id = ? AND client_id = ?`
   ).bind(
     sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"), yMin, yMax,
     sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
-    sstr(form, "kuzov"), sstr(form, "grade_kw"), w.id, cid
+    sstr(form, "kuzov"), sstr(form, "grade_kw"), sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), w.id, cid
   ).run();
 }
 
