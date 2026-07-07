@@ -481,8 +481,10 @@ const CSS = `
   .mcl-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;text-decoration:none;color:var(--ink);min-height:44px}
   a.mcl-row:active{background:var(--hover)}
   .mcl-b{flex:1;min-width:0}
-  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
-  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list)}
+  .mcl-t{font-size:var(--fs-body);font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3;overflow-wrap:anywhere}
+  /* overflow-wrap:anywhere: a worst-case unbroken token (long email, VIN-ish
+     label) must wrap inside the card, never widen the page (375px rule). */
+  .mcl-m{font-size:var(--fs-label);color:var(--t3);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;line-height:var(--lh-list);overflow-wrap:anywhere}
   .mcl-r{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
   .mcl-rs{font-size:var(--fs-label);color:var(--t3);white-space:nowrap;display:inline-flex;align-items:center}
   @media(max-width:640px){
