@@ -331,8 +331,12 @@ export default {
             try {
               const cm = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(result.clientId).first();
               if (!(cm && cm.member)) {
-                if (result.wishlistId) welcome = await sendWelcomeMatch(env, result.wishlistId);
                 const settings = await getSettings(env);
+                // TODO(Jate) V1.3 decision pending: auto-send vs manual
+                // review for free accounts. Defaults to manual review, so the
+                // instant welcome match only goes out when free_auto_send is
+                // switched on in Settings.
+                if (result.wishlistId && settingOn(settings, "free_auto_send")) welcome = await sendWelcomeMatch(env, result.wishlistId);
                 const priceAud = settingNum(settings, "membership_monthly_aud", 49);
                 // Only offer the upsell when membership is actually purchasable.
                 if (stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0) {
@@ -1300,7 +1304,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
       code === "member" ? "You're in - Full access is now active on your account." :
       code === "saved" ? "Saved." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
-      err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." : "";
+      err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." :
+      err === "freelimit" ? "Free accounts run one active search at a time. Pause or delete your current search to swap it, or upgrade to Full access for unlimited searches." :
+      err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." : "";
     return doc(await portalPage(env, session, { flash }));
   }
 
@@ -1344,7 +1350,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
   }
 
   if (path === "/portal/wishlist" && request.method === "POST") {
-    await portalAddWishlist(env, await request.formData(), session);
+    const r = await portalAddWishlist(env, await request.formData(), session);
+    if (r && r.error === "free_limit") return back("?err=freelimit");
+    if (r && r.error === "limit") return back("?err=searchcap");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/edit" && request.method === "POST") {
@@ -1377,6 +1385,24 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/pay/cancel") return back();
 
   // Start (or manage) the Full access monthly membership.
+  // A GET (typed URL, shared link, prefetch) lands on a real page: the plan
+  // and a subscribe button when purchasable, an honest note when not
+  // (V1.3 Phase C: the old behaviour was a bare 303 back to /portal).
+  if (path === "/portal/subscribe" && request.method === "GET") {
+    const settings = await getSettings(env);
+    const priceAud = settingNum(settings, "membership_monthly_aud", 49);
+    const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(session.id).first();
+    if (me && me.member) return back("?ok=member");
+    const purchasable = stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0;
+    if (!purchasable) {
+      return doc(infoPage("Full access", "Full access isn't available to buy online just yet. Message us and we'll set you up directly.", { cta: { href: "/portal", label: "Back to your garage" } }));
+    }
+    return doc(infoPage("Full access",
+      `Unlimited saved searches, the live auction floor and landed pricing on every lot. A$${priceAud} a month, cancel anytime.<br><br>
+       <form method="POST" action="/portal/subscribe" style="display:inline"><button class="btn-gold" type="submit">Subscribe now</button></form><br><br>
+       <a href="/portal" style="color:var(--gold-txt);font-weight:600">Back to your garage</a>`,
+      { html: true, cta: { href: "/portal", label: "Your garage" } }));
+  }
   if (path === "/portal/subscribe" && request.method === "POST") {
     return startSubscriptionCheckout(env, session, here);
   }

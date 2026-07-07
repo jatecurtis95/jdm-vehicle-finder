@@ -69,7 +69,7 @@ test("presets ship empty (SEVS-vetted list pending) and the dropdown hides itsel
   assert.doesNotMatch(intake, /Quick preset/, "no preset dropdown renders while the list is empty");
 });
 
-test("the wishlist stores the AUD budget alongside the yen ceiling", async () => {
+test("the wishlist stores the AUD budget on the lead only (V1.3 Phase C: no yen filter)", async () => {
   const env = makeEnv();
   const f = new FormData();
   for (const [k, v] of Object.entries({
@@ -81,5 +81,5 @@ test("the wishlist stores the AUD budget alongside the yen ceiling", async () =>
   assert.equal(r.ok, true);
   const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM wishlists WHERE client_id = ?").bind(r.clientId).first();
   assert.equal(wl.budget_aud, 45000, "the AUD figure is stored");
-  assert.equal(wl.price_max, audBudgetToYen(45000, env.CALC_FX), "the matcher's yen ceiling is unchanged");
+  assert.equal(wl.price_max, null, "no rough yen conversion feeds the matcher's price filter");
 });

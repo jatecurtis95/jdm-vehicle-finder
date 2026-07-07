@@ -23,6 +23,15 @@ const DEFAULTS = {
   membership_enabled: "0",      // show the "Full access" subscribe button in the portal
   membership_monthly_aud: "49", // Full access plan, A$ per month
   free_result_limit: "1",       // (reserved) free-tier result cap, not yet enforced
+  free_search_limit: "1",       // active saved searches allowed on a free account (V1.3 Phase C)
+  // TODO(Jate) V1.3 decision: are free-account matches auto-sent or manually
+  // reviewed before sending? Defaults to manual review ("0") per the work
+  // order; flip to "1" to restore the instant welcome match on signup.
+  free_auto_send: "0",
+  // TODO(Jate) V1.3 decision: should "Run Searches" include free-tier
+  // customers' searches or paid only? Defaults to include ("1"), the current
+  // behaviour; set "0" to run members' searches only.
+  run_includes_free: "1",
   // Landed-cost assumptions (V1.3 Phase B): editable without a deploy. Blank
   // falls back to the env defaults (CALC_COMPLIANCE / CALC_AGENCY) and the
   // live FX rate respectively.
@@ -87,6 +96,9 @@ export async function saveSettings(env, form) {
     membership_enabled: form.get("membership_enabled") ? "1" : "0",
     membership_monthly_aud: posIntStr(form.get("membership_monthly_aud"), "49"),
     free_result_limit: posIntStr(form.get("free_result_limit"), "1"),
+    free_search_limit: posIntStr(form.get("free_search_limit"), "1"),
+    free_auto_send: form.get("free_auto_send") ? "1" : "0",
+    run_includes_free: form.get("run_includes_free") ? "1" : "0",
     calc_compliance_aud: posIntStr(form.get("calc_compliance_aud"), ""),
     calc_agency_aud: posIntStr(form.get("calc_agency_aud"), ""),
     calc_fx_jpy_aud: (() => { const n = Number(String(form.get("calc_fx_jpy_aud") ?? "").trim()); return Number.isFinite(n) && n > 0 ? String(n) : ""; })(),

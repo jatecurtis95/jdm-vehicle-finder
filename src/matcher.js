@@ -211,12 +211,19 @@ async function getSeen(env, wishlistId) {
 // Run every active wishlist. Returns a summary for logging/the digest.
 export async function runAll(env, session) {
   const isAgent = session && session.role === "agent";
+  // TODO(Jate) V1.3 decision pending: whether Run Searches covers free-tier
+  // customers' searches or paid members only. run_includes_free defaults to
+  // "1" (include everyone, the long-standing behaviour); set it to "0" in
+  // Settings to run members' searches only. Wishlist selection only, the
+  // matching logic below is untouched.
+  let membersOnly = false;
+  try { membersOnly = (await getSettings(env)).run_includes_free === "0"; } catch (e) { /* default include */ }
   const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
             c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
      FROM wishlists w JOIN clients c ON c.id = w.client_id
      LEFT JOIN agents ag ON ag.id = c.agent_id
-     WHERE w.active = 1${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
+     WHERE w.active = 1${membersOnly ? " AND c.member = 1" : ""}${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
   );
   const wl = await (isAgent ? stmt.bind(session.id, session.id) : stmt).all();
 

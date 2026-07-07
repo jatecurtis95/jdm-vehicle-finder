@@ -33,9 +33,10 @@ test("an untouched New request shows its age, hot once past the one-hour window"
   assert.match(html, /req-age(?! req-age-hot)[^>]*>New 10m ago/, "10m-old New shows age without the hot state");
 });
 
-test("never-touched New requests are pinned above the activity-ordered rest, oldest first", async () => {
+test("requests order newest first, plainly (V1.3 Phase C)", async () => {
   const env = seededEnv();
-  // A touched, active request that would normally sort first (fresh activity).
+  // Ben's V1.3 rule replaces the hot-lead reshuffle: the most recent requests
+  // sit at the top regardless of activity; age chips still flag untouched News.
   await addRequest(env, { id: 503, status: "searching", createdAgo: "-3 days", lastActivity: new Date().toISOString(), label: "Active search" });
   await addRequest(env, { id: 501, status: "new", createdAgo: "-2 hours" });
   await addRequest(env, { id: 502, status: "new", createdAgo: "-10 minutes" });
@@ -44,8 +45,8 @@ test("never-touched New requests are pinned above the activity-ordered rest, old
   const newer = html.indexOf("REQ-502");
   const touched = html.indexOf("REQ-503");
   assert.ok(older > -1 && newer > -1 && touched > -1, "all three rows render");
-  assert.ok(older < newer, "oldest untouched New renders first (longest waiting, most at risk)");
-  assert.ok(newer < touched, "every untouched New renders above the touched rows");
+  assert.ok(newer < older, "the newest request renders first");
+  assert.ok(older < touched, "older requests follow in created order, newest to oldest");
 });
 
 test("a New request with logged activity is not treated as a hot lead", async () => {

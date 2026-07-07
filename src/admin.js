@@ -1258,7 +1258,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const requests = (view === "requests") ? ((await run(
     `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name,
             (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.sent_at IS NOT NULL) AS sent_count,
-            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count
+            (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count,
+            (SELECT q.lot_id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_id,
+            (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
@@ -2480,15 +2482,11 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card${counts[s.id] ? "" : " pipe-zero"}" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("") + `<button type="button" class="pipe-more" aria-expanded="false" onclick="var p=this.closest('.pipe');var on=p.classList.toggle('all');this.setAttribute('aria-expanded',on?'true':'false');this.textContent=on?'Fewer stages':'All stages'">All stages</button>`;
 
-  // Hot leads first: a never-touched New request is inside (or past) the
-  // one-hour contact window, so it outranks the activity-ordered rest no
-  // matter how stale its created_at sorts. Oldest untouched first: it has
-  // waited longest and is most at risk.
+  // V1.3 Phase C: stupid simple. The most recent requests sit at the top,
+  // full stop (the hot-lead reshuffle confused the read); a fresh untouched
+  // request still gets its age chip so it reads as new.
+  const ordered = [...requests].sort((a, b) => (tsMs(b.created_at) || 0) - (tsMs(a.created_at) || 0));
   const isUntouchedNew = (r) => (r.status || "new") === "new" && !r.last_activity;
-  const ordered = [
-    ...requests.filter(isUntouchedNew).sort((a, b) => (tsMs(a.created_at) || 0) - (tsMs(b.created_at) || 0)),
-    ...requests.filter((r) => !isUntouchedNew(r)),
-  ];
   // Age label for an untouched New row; hot once past the one-hour window.
   const newAge = (r) => {
     if (!isUntouchedNew(r)) return null;
@@ -2504,23 +2502,24 @@ function requestsView(requests, opts = {}) {
   // cell as a chip only when it is the unusual case (overseas).
   const rows = ordered.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
-    const budget = r.price_max ? "&yen;" + Number(r.price_max).toLocaleString("en-US") : "";
     const dest = String(r.destination_country || "").trim();
+    // The latest car queued for this request, linked to its listing detail.
+    let lastLot = null; try { lastLot = r.last_lot_json ? JSON.parse(r.last_lot_json) : null; } catch (e) {}
+    const lastCar = lastLot
+      ? `<a class="clink" href="/admin?view=lot&id=${esc(r.last_lot_id)}">${esc(displayName([lastLot.year, lastLot.marka_name, lastLot.model_name].filter(Boolean).join(" ")) || `Lot ${lastLot.lot || r.last_lot_id}`)}</a>`
+      : `<span class="chip muted">none yet</span>`;
     return `<tr data-st="${r.status || "new"}">
-      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=request&id=${r.id}">REQ-${r.id}</a></span></td>
-      <td class="req-veh"><a class="clink" href="/admin?view=request&id=${r.id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
-      <td class="tnum">${budget || '<span style="color:var(--t3);font-weight:400">-</span>'}</td>
+      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span></td>
+      <td class="req-veh"><a class="clink" href="/admin?view=client&id=${r.client_id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
+      <td class="req-veh">${lastCar}</td>
       <td class="req-status">${statusSelect(r.id, r.status)}</td>
-      <td>${engagementCell(r.sent_count, r.viewed_count)}</td>
-      <td>${(r.deposit_status || "none") === "none" ? '<span class="chip muted">-</span>' : depositBadge(r.deposit_status)}</td>
-      <td>${esc(r.owner_name || "JDM Connect")}</td>
       <td style="white-space:nowrap">${newAge(r) || esc(lastActivityLabel(r.last_activity))}</td>
       <td style="text-align:right">${rowMenu([
         { label: "Open request", href: `/admin?view=request&id=${r.id}` },
         { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
   // Plain-English key so staff aren't guessing what the dots / REQ / Examples
   // column mean (client asked "what do the green and red dots mean?"). Lives
@@ -2556,7 +2555,7 @@ function requestsView(requests, opts = {}) {
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Request</th><th class="req-veh">Vehicle</th><th style="text-align:right">Budget</th><th class="req-status">Status</th><th title="Have we sent example cars, and did the client open them?">Examples</th><th>Deposit</th><th>Owner</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl" class="sortable"><tr><th>Customer</th><th class="req-veh">Request</th><th class="req-veh">Latest car</th><th class="req-status">Status</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
@@ -5010,7 +5009,7 @@ export async function requestPage(env, opts = {}) {
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
           <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
-          <a class="btn-gold" href="/login">Get full access <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-gold" href="/request">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
     const successInner = `<div class="ob">
@@ -5033,7 +5032,7 @@ export async function requestPage(env, opts = {}) {
         ${successTimeline()}
         <p class="ob-note-sm">${acct}</p>
         <div class="ob-cta">
-          <a class="btn-gold" href="/login">View my dashboard <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-gold" href="/request">Start another search <span aria-hidden="true">&rarr;</span></a>
           <a class="btn-ghost" href="/">Browse recent imports</a>
         </div>
         ${supportBlock()}
@@ -6393,13 +6392,16 @@ export async function createRequest(env, form, session) {
   }
 
   // Budget is mandatory: a realistic all-in AUD figure qualifies the lead and
-  // weeds out time-wasters. Convert it to an approximate JPY auction-price ceiling
-  // so it feeds the matcher's price_max (the form no longer collects yen directly).
+  // weeds out time-wasters. V1.3 Phase C: the budget is stored on the lead
+  // record (wishlists.budget_aud) but NO LONGER converted into the matcher's
+  // price_max filter. A rough FX conversion was silently excluding cars the
+  // buyer could afford; staff see the stated budget and judge fit until
+  // filtering can be done properly (landed-cost aware).
   const audBudget = Number(g("budget_aud"));
   if (!Number.isFinite(audBudget) || audBudget < BUDGET_MIN_AUD) {
     return { ok: false, error: "budget", vals };
   }
-  form.set("price_max", String(audBudgetToYen(audBudget, env.CALC_FX) ?? ""));
+  form.delete("price_max");
 
   // A mobile number is mandatory: matches move fast at auction and we need a
   // direct way to reach the buyer. Accept the number typed on the form, or fall
@@ -7242,9 +7244,10 @@ function clientCarCard(q, opts = {}) {
     : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-notify" type="submit">Ask us to get this</button></form>`;
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
+      ${q._href ? `<a href="${esc(q._href)}" aria-label="View this car's full listing" style="position:absolute;inset:0;z-index:1"></a>` : ""}
       <div class="grad"></div>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
+      <div class="ttl"><div class="t">${q._href ? `<a href="${esc(q._href)}" style="color:inherit;text-decoration:none">${title}</a>` : title}</div><div class="a">${esc(lot.auction || "")}${lot.auction_date ? " · " + esc((lot.auction_date || "").slice(0, 10)) : ""}</div></div>
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
@@ -7317,6 +7320,12 @@ export async function portalPage(env, session, opts = {}) {
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1;
 
+  // V1.3 Phase C: every match card links through to the read-only listing
+  // detail (the same signed view-only page the Share button produces), so a
+  // buyer can open the full gallery and specs from their garage.
+  for (const q of cars) {
+    try { q._href = `/v?t=${await makeShareToken(env, q.id)}`; } catch (e) { /* card still renders */ }
+  }
   const carsBody = cars.length
     ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>`
     : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
@@ -7413,13 +7422,23 @@ async function portalClientActive(env, cid) {
 
 export async function portalAddWishlist(env, form, session) {
   const cid = Number(session.id);
-  if (!cid || !(await portalClientActive(env, cid))) return;
+  if (!cid || !(await portalClientActive(env, cid))) return { ok: false };
   const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
   const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
   const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
-  if (!(marka || model || kuzov || gradeKw || modelCode)) return; // need something to search on
-  // Same active-search cap as staff: a buyer can't fan out unlimited searches.
-  if ((await activeWishlistCount(env, cid)) >= WISHLIST_ACTIVE_CAP) return;
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" }; // need something to search on
+  // V1.3 Phase C: free accounts get a configurable number of ACTIVE saved
+  // searches (Settings -> free_search_limit, default 1). Members keep the
+  // general anti-fanout cap only. Enforced here, server side, so a hand-built
+  // POST can't bypass the portal UI.
+  const active = await activeWishlistCount(env, cid);
+  const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(cid).first();
+  if (!(me && me.member)) {
+    const settings = await getSettings(env);
+    const freeLimit = settingNum(settings, "free_search_limit", 1);
+    if (active >= freeLimit) return { ok: false, error: "free_limit" };
+  }
+  if (active >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
   const { yMin, yMax } = yearPair(form);
   await env.DB.prepare(
     `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, model_code, grades)
@@ -7429,6 +7448,7 @@ export async function portalAddWishlist(env, form, session) {
     sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
     kuzov, gradeKw, modelCode, sgrades(form)
   ).run();
+  return { ok: true };
 }
 
 export async function portalEditWishlist(env, form, session) {
@@ -7477,7 +7497,25 @@ export async function portalApprove(env, queueId, session) {
   if (!item || item.status !== "sent") return { ok: false };
   const alreadyDone = !!item.client_request;
   if (!alreadyDone) {
-    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now') WHERE id = ? AND client_id = ?").bind(qid, cid).run();
+    await env.DB.prepare("UPDATE queue SET client_request = 1, client_request_at = datetime('now'), response = 'interested' WHERE id = ? AND client_id = ?").bind(qid, cid).run();
+    // V1.3 Phase C: an interested tap must surface on the admin Requests page
+    // in real time, not just on the customer profile. Advance the parent
+    // request to 'interested' (never regress a request that's already further
+    // along) and bump last_activity so it sorts to the top; log the activity
+    // so the profile timeline shows it in both directions.
+    if (item.wishlist_id) {
+      await env.DB.prepare(
+        `UPDATE wishlists SET
+            status = CASE WHEN COALESCE(status,'new') IN ('new','qualified','searching','vehicles_sent') THEN 'interested' ELSE status END,
+            last_activity = datetime('now')
+          WHERE id = ? AND client_id = ?`
+      ).bind(item.wishlist_id, cid).run();
+    }
+    try {
+      let lotT = {}; try { lotT = JSON.parse(item.lot_json); } catch (e2) {}
+      const title = [lotT.year, lotT.marka_name, lotT.model_name].filter(Boolean).join(" ") || `lot ${item.lot_id}`;
+      await logActivity(env, { wishlist_id: item.wishlist_id, client_id: cid, type: "note", detail: `Client asked us to get: ${title}`, actor: "Portal" });
+    } catch (e2) { /* timeline is best effort */ }
   }
   const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
   let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
