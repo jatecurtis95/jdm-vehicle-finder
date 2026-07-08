@@ -81,7 +81,7 @@ export async function sendEmail(env, { to, subject, html, from }) {
 
 // Push a phone notification (a "chime") for time-sensitive events like a new
 // signup or payment. Reaches your phone via the Pushover or ntfy app even when
-// the site isn't open — the trigger is server-side, so nothing needs to be in a
+// the site isn't open - the trigger is server-side, so nothing needs to be in a
 // browser. No-ops (returns false) until one provider is configured by secret, so
 // it's safe to call unconditionally. Never throws.
 //   Pushover: set PUSHOVER_TOKEN + PUSHOVER_USER (optional PUSHOVER_SOUND).

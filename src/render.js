@@ -73,11 +73,11 @@ function initials(name) {
 
 // Email hero image. Two hard-won rules about the auction image CDN (verified
 // live, July 2026):
-//   * Size params append with '&' straight after the token — there is no '?'.
+//   * Size params append with '&' straight after the token - there is no '?'.
 //     Only &h=50 and &w=320 exist; '?w=...' is silently IGNORED (serves the
 //     plain original) and other '&w=...' values return an HTML error page.
 //   * Plain tokens serve the original photo, EXCEPT fresh-listing tokens
-//     (ending "-<digit>"), whose plain form is a 100x75 thumbnail — those must
+//     (ending "-<digit>"), whose plain form is a 100x75 thumbnail - those must
 //     request &w=320 explicitly or the email hero is a blurry postage stamp.
 // Mail clients also proxy or block third-party image hosts, so emails never
 // reference the CDN directly: the src routes through the Worker's own

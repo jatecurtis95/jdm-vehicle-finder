@@ -78,10 +78,10 @@ async function apiRateLimited(env, ip) {
 // delay so automated guessing is slow. Fails open if KV is unavailable.
 //
 // Two extra fixed dimensions an attacker cannot rotate away from:
-//  * loginfail:admin  — a blank email targets the admin account (that IS the
+//  * loginfail:admin  - a blank email targets the admin account (that IS the
 //    admin login shape), so those attempts always count here too. Rotating IPs
 //    no longer buys fresh unthrottled guesses at ADMIN_PASSWORD.
-//  * loginfail:global — every failure from any source. Generous cap that only
+//  * loginfail:global - every failure from any source. Generous cap that only
 //    a distributed attack would hit; makes email+IP rotation ineffective.
 const LOGIN_MAX_FAILS = 10;
 const LOGIN_ADMIN_MAX_FAILS = 10;
@@ -162,7 +162,7 @@ async function resetRateLimited(env, ip, email) {
   return false;
 }
 
-// Stamp an account's most recent successful login — drives the CRM "Last login".
+// Stamp an account's most recent successful login - drives the CRM "Last login".
 // Admin (id 0) has no DB row; only agents/clients/dealers do. Best-effort, never blocks.
 async function touchLastSeen(env, role, id) {
   if (!id) return;
@@ -228,7 +228,7 @@ export default {
     // and the Worker fetches the photo from the auction CDN server-side.
     // Locked to that CDN's /imgs/ path (host + prefix anchored, length-capped)
     // so it can never be used as an open proxy; anything else 404s. Cached at
-    // the edge — the tokens are immutable, so a week is safe.
+    // the edge - the tokens are immutable, so a week is safe.
     if (path === "/assets/lot-img") {
       const u = String(url.searchParams.get("u") || "");
       if (u.length > 500 || !/^https:\/\/[a-z0-9-]+\.ajes\.com\/imgs\/[!-~]+$/i.test(u)) {
@@ -268,7 +268,7 @@ export default {
     }
 
     // Public, read-only shared vehicle view (the "Share" link). Token-gated and
-    // view-only — it can never trigger approve/skip. No login required.
+    // view-only - it can never trigger approve/skip. No login required.
     if (path === "/v") {
       const sharedId = await readShareToken(env, url.searchParams.get("t"));
       if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
@@ -941,7 +941,7 @@ export default {
       let lot = {};
       try { lot = JSON.parse(q.lot_json); } catch (e) {}
       const settings = await getSettings(env);
-      // Pull the freshest image set first — the inspection sheet is often added
+      // Pull the freshest image set first - the inspection sheet is often added
       // to a lot after we matched it, so the cached snapshot can lack it.
       const imagesChanged = await refreshLotImages(env, lot);
       const result = await readAuctionSheet(env, lot.images, settings.ai_sheet_model);
@@ -1125,7 +1125,7 @@ export default {
       }
     }
     // Flip a client's paid-member flag (gates the auction page in their portal).
-    // Admin only — membership is a paid feature; agents must never grant it.
+    // Admin only - membership is a paid feature; agents must never grant it.
     if (path === "/client/member" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
@@ -1716,7 +1716,7 @@ async function handleDecision(request, env, url) {
   }
 
   // If the click came from inside the app (signed-in session), return to where
-  // the user was — an optional &return= path (e.g. the client they were on),
+  // the user was - an optional &return= path (e.g. the client they were on),
   // falling back to the Matches view. Email links (no session) get a simple
   // confirmation page instead.
   const session = await getSession(request, url, env);
@@ -1778,7 +1778,7 @@ async function handleDecision(request, env, url) {
 }
 
 // Hard-delete selected matches from the queue (the Matches "Delete" bulk action
-// — "start fresh"). Unlike Skip/reject, which keeps the row as 'rejected', this
+// - "start fresh"). Unlike Skip/reject, which keeps the row as 'rejected', this
 // removes the rows entirely. Same per-item agent access check as reject; one
 // failure never stops the batch.
 async function bulkDeleteMatches(env, ids, session) {

@@ -33,20 +33,21 @@ test("an untouched New request shows its age, hot once past the one-hour window"
   assert.match(html, /req-age(?! req-age-hot)[^>]*>New 10m ago/, "10m-old New shows age without the hot state");
 });
 
-test("requests order newest first, plainly (V1.3 Phase C)", async () => {
+test("requests order by most recent activity (V1.3 Phase C)", async () => {
   const env = seededEnv();
-  // Ben's V1.3 rule replaces the hot-lead reshuffle: the most recent requests
-  // sit at the top regardless of activity; age chips still flag untouched News.
+  // Ben's V1.3 rule: most recently ACTIVE requests at the top, so a portal
+  // "I'm interested" tap (which bumps last_activity) floats that request up.
+  // Untouched requests then sort by recency of creation; age chips flag News.
   await addRequest(env, { id: 503, status: "searching", createdAgo: "-3 days", lastActivity: new Date().toISOString(), label: "Active search" });
   await addRequest(env, { id: 501, status: "new", createdAgo: "-2 hours" });
   await addRequest(env, { id: 502, status: "new", createdAgo: "-10 minutes" });
   const html = await adminPage(env, "requests", ADMIN);
-  const older = html.indexOf("REQ-501");
-  const newer = html.indexOf("REQ-502");
   const touched = html.indexOf("REQ-503");
+  const newer = html.indexOf("REQ-502");
+  const older = html.indexOf("REQ-501");
   assert.ok(older > -1 && newer > -1 && touched > -1, "all three rows render");
-  assert.ok(newer < older, "the newest request renders first");
-  assert.ok(older < touched, "older requests follow in created order, newest to oldest");
+  assert.ok(touched < newer, "the just-touched request floats to the top");
+  assert.ok(newer < older, "then untouched requests, most recently created first");
 });
 
 test("a New request with logged activity is not treated as a hot lead", async () => {

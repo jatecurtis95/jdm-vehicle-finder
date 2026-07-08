@@ -378,12 +378,12 @@ const ANALYTICS_HEAD = `<!-- Google Tag Manager --><script>(function(w,d,s,l,i){
 const ANALYTICS_BODY = `<!-- Google Tag Manager (noscript) --><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><!-- End Google Tag Manager (noscript) --><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${FB_PIXEL_ID}&ev=PageView&noscript=1"/></noscript>`;
 
 // Floating "Chat with us on WhatsApp" button for customer-facing pages only
-// (brandDoc — never the staff admin). The status dot/label is computed live in
+// (brandDoc - never the staff admin). The status dot/label is computed live in
 // the browser against JDM Connect's business hours; outside hours it stays
 // visible as "Away" so a lead can still leave a message 24/7. To change the
 // number or hours, edit these constants.
 const WA_NUMBER = "61415111221";      // +61 415 111 221, digits only for wa.me
-const WA_OPEN_DAYS = [1, 2, 3, 4, 5, 6]; // 0=Sun … 6=Sat → Mon–Sat
+const WA_OPEN_DAYS = [1, 2, 3, 4, 5, 6]; // 0=Sun … 6=Sat → Mon-Sat
 const WA_OPEN_START = 9;               // 9am
 const WA_OPEN_END = 17;                // 5pm (exclusive)
 const WA_TZ = "Australia/Perth";       // AWST

@@ -281,7 +281,7 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="st"><div class="k">Eligibility</div><div class="v"><span class="ac-elig '+(v.eligcls==='ok'?'ok':'check')+'"><span class="dot"></span>'+esc(v.elig)+'</span></div></div>';
     h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
-    h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'<span class="ac-sheet dis">Sheet</span>');
+    h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
     if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-notify ac-req" type="submit">Request bid</button></form>';}
     h+='</div></div>';return h;
   }

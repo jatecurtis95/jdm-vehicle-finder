@@ -116,7 +116,7 @@ function decodeEntities(s) {
 // Split a lot's images into the inspection sheet and the car photos.
 //
 // If the AI reader has run (lot._sheet), trust its sheet_index and cover_index
-// (positions into the image list) — that's the reliable signal. Otherwise fall
+// (positions into the image list) - that's the reliable signal. Otherwise fall
 // back to the feed convention that the FIRST image is the inspection sheet.
 // photos[0] is the lead/cover photo (the AI's front-3/4 pick when available).
 // Returns clean base URLs (any size suffix stripped).
@@ -128,11 +128,11 @@ export function splitImages(lot) {
   const ai = lot && lot._sheet;
   const inRange = (n) => Number.isInteger(n) && n >= 0 && n < bases.length;
 
-  // The auction house's initial upload is just [front, rear] — the inspection
+  // The auction house's initial upload is just [front, rear] - the inspection
   // sheet only arrives later, with a fuller set. So image[0] is the FRONT photo
   // on a 2-image snapshot, not a sheet; blindly treating it as one dropped the
   // front and showed the REAR as the cover. From 3 images up, live-feed sampling
-  // (July 2026) shows the set is [sheet, front, rear, ...] — a threshold of 4
+  // (July 2026) shows the set is [sheet, front, rear, ...] - a threshold of 4
   // here was emailing clients the inspection sheet as the hero photo on 3-image
   // lots. Trust the AI's index when present; the convention otherwise.
   const MIN_IMAGES_FOR_SHEET = 3;
@@ -152,7 +152,7 @@ export function splitImages(lot) {
   return { sheet, photos };
 }
 
-// Build the three image sizes for the lot's lead CAR photo — used for card and
+// Build the three image sizes for the lot's lead CAR photo - used for card and
 // email thumbnails. Skips the inspection sheet so listings show the car, not the
 // handwritten form. Provider rule: thumb = &h=50, medium = &w=320, full = plain.
 export function imageUrls(lot) {
@@ -169,7 +169,7 @@ export function imageUrls(lot) {
 // Returns { lots, page, perPage, hasMore }. Upcoming auctions only, soonest
 // first. All inputs are escaped/coerced; the gateway only permits SELECT.
 export async function searchLots(env, p = {}) {
-  // RHD as standard: LHD lots (lhdrive = 1) never surface — AU imports must be
+  // RHD as standard: LHD lots (lhdrive = 1) never surface - AU imports must be
   // right-hand drive. RHD rows carry '0' or an empty field, both pass. The
   // matcher's buildSql applies the same rule.
   const where = ["auction_date >= NOW()", "(lhdrive IS NULL OR lhdrive <> 1)"];
@@ -263,7 +263,7 @@ export async function searchSold(env, p = {}) {
 
 // Re-fetch a single lot's live row from the feed: live `main` first, then the
 // historical `stats` table (a sold lot moves out of main). Returns the row
-// object or null. Throws if the feed is unreachable — callers decide how to
+// object or null. Throws if the feed is unreachable - callers decide how to
 // degrade. Mirrors how the dealer portal reads a single lot on demand.
 export async function fetchLot(env, id) {
   const safe = sqlString(id);
@@ -276,7 +276,7 @@ export async function fetchLot(env, id) {
 // Refresh a cached lot's image set from the live feed. Upcoming lots are often
 // listed before the auction house uploads the inspection sheet, so a snapshot
 // taken at match time can be missing it. Mutates lot.images in place and returns
-// true if it changed. Never throws — a feed outage just leaves the cached set.
+// true if it changed. Never throws - a feed outage just leaves the cached set.
 export async function refreshLotImages(env, lot) {
   if (!lot || !lot.id) return false;
   try {

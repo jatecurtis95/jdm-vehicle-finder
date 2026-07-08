@@ -3,10 +3,10 @@
 // (buyer portal), and "dealer" (vehicle submissions & review).
 //
 // The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
-// ADMIN_TOKEN — no server-side session store. Admin logs in with ADMIN_PASSWORD
+// ADMIN_TOKEN - no server-side session store. Admin logs in with ADMIN_PASSWORD
 // (required; ADMIN_TOKEN is signing-key only and is never a valid password);
 // agents log in with their email + password (PBKDF2-hashed in the agents
-// table). Login is via the form only — no ?key= URL fallback.
+// table). Login is via the form only - no ?key= URL fallback.
 
 const COOKIE = "fsess";
 const SESSION_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -96,7 +96,7 @@ export async function readOauthState(env, token) {
 // --- Public share tokens -----------------------------------------------------
 // A stateless, signed token for the read-only public lot view ("Share" button).
 // Distinct from the queue row's `token` (which drives approve/skip), so a shared
-// link can only VIEW a car — it can never trigger an action. No DB column needed.
+// link can only VIEW a car - it can never trigger an action. No DB column needed.
 export async function makeShareToken(env, queueId) {
   const id = Number(queueId);
   if (!Number.isInteger(id) || id <= 0) return null;
@@ -163,7 +163,7 @@ export function passwordPolicyError(password) {
 
 // --- Admin password ----------------------------------------------------------
 // ADMIN_PASSWORD is the ONLY accepted admin credential. ADMIN_TOKEN is strictly
-// the HMAC signing key and must never be compared against user-supplied input —
+// the HMAC signing key and must never be compared against user-supplied input -
 // accepting it here would let a leaked/guessed token both log in as admin AND
 // forge arbitrary session/share/OAuth tokens (the two roles need opposite
 // secrecy properties). If ADMIN_PASSWORD is unset, admin login is disabled.
@@ -289,7 +289,7 @@ export async function authenticate(env, email, password) {
 
   // Buyer portal: a client who has been given access and set a password. An
   // email can map to several client rows (e.g. a staff-created record plus a
-  // later self-signup), and the password may live on any of them — an invite
+  // later self-signup), and the password may live on any of them - an invite
   // link sets it on the specific row it was issued for. Verify against each
   // candidate (newest first) rather than only the newest, so a valid password
   // on an older duplicate still signs in.
