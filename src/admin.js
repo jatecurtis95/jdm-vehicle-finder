@@ -617,6 +617,10 @@ const CSS = `
   .wlsum{flex:1;min-width:0}
   .wlsum .wln{font-size:var(--fs-sec);font-weight:600}
   .wlsum .wlc{font-size:var(--fs-label);color:var(--t3);margin-top:2px}
+  .wlreq{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .wlreq-k{font-size:var(--fs-label);color:var(--t3);font-weight:500}
+  .wlreq-btn{font-size:var(--fs-label);padding:4px 10px}
+  .wlreq-na{font-size:var(--fs-label);color:var(--warn-c);font-weight:600}
   .wlacts{display:flex;align-items:center;gap:8px}
   .wledit{border-top:1px solid var(--hair);background:var(--off)}
   .wledit summary{cursor:pointer;padding:12px 16px;font-size:var(--fs-sec);font-weight:600;color:var(--gold-txt);list-style:none}
@@ -1378,9 +1382,9 @@ function agentsView(agents, opts = {}) {
       <summary>Invite a new agent</summary>
       <form method="POST" action="/agent">
         <div class="grid">
-          <div><label for="ag-name">Name</label><input id="ag-name" name="name" placeholder="Agent name" value="${vv("name")}" required></div>
-          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" spellcheck="false" placeholder="agent@email.com" value="${vv("email")}" required></div>
-          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" placeholder="e.g. Ofuka" value="${vv("company")}"></div>
+          <div><label for="ag-name">Name</label><input id="ag-name" name="name" maxlength="120" placeholder="Agent name" value="${vv("name")}" required></div>
+          <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="agent@email.com" value="${vv("email")}" required></div>
+          <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" maxlength="120" placeholder="e.g. Ofuka" value="${vv("company")}"></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
@@ -2219,9 +2223,9 @@ function intakeView(clients, makers, opts = {}) {
       <form method="POST" action="/client">
         ${errBanner}
         <div class="grid">
-          <div><label for="ic-name">Name</label><input id="ic-name" name="name" placeholder="Jane Citizen" value="${vv("name")}" required></div>
-          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
-          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
+          <div><label for="ic-name">Name</label><input id="ic-name" name="name" maxlength="120" placeholder="Jane Citizen" value="${vv("name")}" required></div>
+          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" maxlength="40" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
           <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
           <div><label for="ic-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ic-category", vals.category)}</div>
         </div>
@@ -2509,10 +2513,11 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card${counts[s.id] ? "" : " pipe-zero"}" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("") + `<button type="button" class="pipe-more" aria-expanded="false" onclick="var p=this.closest('.pipe');var on=p.classList.toggle('all');this.setAttribute('aria-expanded',on?'true':'false');this.textContent=on?'Fewer stages':'All stages'">All stages</button>`;
 
-  // V1.3 Phase C: stupid simple. The most recent requests sit at the top,
-  // full stop (the hot-lead reshuffle confused the read); a fresh untouched
+  // V1.3 Phase C: stupid simple. The most recently ACTIVE requests sit at the
+  // top (last_activity, falling back to created_at), so a customer tapping
+  // "I'm interested" in their portal floats their request up; a fresh untouched
   // request still gets its age chip so it reads as new.
-  const ordered = [...requests].sort((a, b) => (tsMs(b.created_at) || 0) - (tsMs(a.created_at) || 0));
+  const ordered = [...requests].sort((a, b) => (tsMs(b.last_activity || b.created_at) || 0) - (tsMs(a.last_activity || a.created_at) || 0));
   const isUntouchedNew = (r) => (r.status || "new") === "new" && !r.last_activity;
   // Age label for an untouched New row; hot once past the one-hour window.
   const newAge = (r) => {
@@ -2542,8 +2547,8 @@ function requestsView(requests, opts = {}) {
       <td class="req-status">${statusSelect(r.id, r.status)}</td>
       <td style="white-space:nowrap">${newAge(r) || esc(lastActivityLabel(r.last_activity))}</td>
       <td style="text-align:right">${rowMenu([
-        { label: "Open request", href: `/admin?view=request&id=${r.id}` },
-        { label: "Open customer", href: `/admin?view=client&id=${r.client_id}` },
+        { label: "Open customer profile", href: `/admin?view=client&id=${r.client_id}` },
+        { label: "Open request detail", href: `/admin?view=request&id=${r.id}` },
       ])}</td>
     </tr>`;
   }).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
@@ -2556,7 +2561,7 @@ function requestsView(requests, opts = {}) {
     <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
     <span><span class="health health-amber"></span> Cooling (7 to 14 days)</span>
     <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
-    <span><b class="reqid">REQ-###</b> Request reference, click to open the full request</span>
+    <span><b class="reqid">REQ-###</b> Request reference; the row opens the customer's profile, where you manage the request</span>
     <span><span class="chip chip-info">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
   </div></details>`;
@@ -2567,7 +2572,7 @@ function requestsView(requests, opts = {}) {
   const mobile = `<div class="mcl">${ordered.map((r) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
     return mobileCardRow({
-      href: `/admin?view=request&id=${r.id}`,
+      href: `/admin?view=client&id=${r.client_id}`,
       name: r.client_name,
       title: `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>`,
       meta: esc(veh),
@@ -4296,11 +4301,29 @@ function wishlistEditor(w, opts = {}) {
         return `<a class="btn-gold wl-search" href="/admin?view=client&id=${w.client_id}&${p.toString()}#find">${ICONS.auctions}Search</a>`;
       })()
     : "";
+  // V1.3 Phase C fold: on the staff client profile, each search IS a request, so
+  // show its pipeline stage + deposit inline and let staff advance it right here
+  // (the standalone request page's core, folded into the profile in simplified
+  // form). Portal buyers and system rows never see these controls.
+  const back = `/admin?view=client&id=${w.client_id}`;
+  const reqStrip = (opts.requestControls && !opts.portal && !SYSTEM_WISHLIST_LABELS.has(w.label))
+    ? `<div class="wlreq">
+        <span class="wlreq-k">Stage</span>${statusSelect(w.id, w.status, back)}
+        <span class="wlreq-k">Deposit</span>${depositBadge(w.deposit_status)}
+        ${(w.deposit_status || "none") === "none"
+          ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_requested"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-line wlreq-btn" type="submit">Request deposit</button></form>`
+          : (w.deposit_status || "none") !== "paid"
+            ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-line wlreq-btn" type="submit">Mark paid</button></form>`
+            : ""}
+        ${w.next_action_date ? `<span class="wlreq-na" title="Next follow-up">Follow up ${esc(String(w.next_action_date).slice(0, 10))}${w.next_action_note ? " · " + esc(w.next_action_note) : ""}</span>` : ""}
+      </div>`
+    : "";
   return `<div class="wlrow">
     <div class="wlhead">
       <div class="wlsum">
-        <div class="wln">${esc(w.label || "Search")} ${w.active ? "" : `<span class="chip muted">paused</span>`}</div>
+        <div class="wln">${esc(w.label || "Search")} ${w.active ? "" : `<span class="chip muted">paused</span>`} ${opts.requestControls && !SYSTEM_WISHLIST_LABELS.has(w.label) ? `<span class="reqid">REQ-${w.id}</span>` : ""}</div>
         <div class="wlc">${summary || "Matches anything"}</div>
+        ${reqStrip}
       </div>
       <div class="wlacts">
         ${searchBtn}
@@ -4783,9 +4806,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <form method="POST" action="/client/update">
       <input type="hidden" name="id" value="${c.id}">
       <div class="grid">
-        <div><label for="ec-name">Name</label><input id="ec-name" name="name" value="${esc(c.name || "")}" required></div>
-        <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
-        <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
+        <div><label for="ec-name">Name</label><input id="ec-name" name="name" maxlength="120" value="${esc(c.name || "")}" required></div>
+        <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" maxlength="254" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
+        <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" maxlength="40" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
         <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
         <div><label for="ec-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ec-category", c.category)}</div>
       </div>
@@ -4861,8 +4884,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // On/Off) with the edit form behind its disclosure at EVERY width - the
   // ~1100px expanded form was burying the daily surface (matches) below it.
   const wlSection = `<div class="card">
-    <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"}</h2>
-    ${searchWls.map((w) => wishlistEditor(w)).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
+    <h2><span class="num">${searchWls.length}</span> ${searchWls.length === 1 ? "Search" : "Searches"} <span style="font-size:var(--fs-label);font-weight:400;color:var(--t3)">&middot; each is a request you can move through the pipeline</span></h2>
+    ${searchWls.map((w) => wishlistEditor(w, { requestControls: true })).join("") || `<div class="empty">No search yet, add what ${esc(c.name)} is chasing below.</div>`}
   </div>`;
 
   // Manual auction search for this client. Shown to EVERY staff viewer of this
@@ -5008,13 +5031,15 @@ export async function requestPage(env, opts = {}) {
     const st = req.state ? `Registered in ${esc(req.state)}` : "";
     const summaryRows = [`<b>${car}</b>`, yr, bud, st].filter(Boolean)
       .map((t) => `<li><span class="tick">&#10003;</span><span>${t}</span></li>`).join("");
+    // Account line. A brand-new self-signup (password set inline on this form)
+    // gets the "account ready" message. Every other case shows ONE neutral,
+    // conditional line that never reveals whether this email was already on
+    // file (no enumeration): the "if you already have an account" phrasing is
+    // true-shaped either way, and the reset/set-password link was emailed to a
+    // real account behind the scenes.
     const acct = req.portal
       ? `<strong>Your account is ready.</strong> Sign in any time with your email and password to track your search.`
-      : opts.inviteSent
-        ? `<strong>One more step to finish your login:</strong> you've enquired with us before, so for security we've emailed ${req.email ? `<strong>${esc(req.email)}</strong>` : "you"} a link to set your password (a password typed on this form isn't used for an existing account). Open that email to choose your password, then sign in.`
-        : req.existing
-          ? `You've enquired before, so we added this to your existing details. Sign in to track it, or <a href="/forgot-password" style="color:var(--gold-txt);font-weight:600">reset your password</a> if you can't get in.`
-          : `We'll be in touch the moment a match appears.`;
+      : `We've saved your search. If you already have an account with ${req.email ? `<strong>${esc(req.email)}</strong>` : "this email"}, check your inbox, we've sent a link to sign in or set your password. New cars list constantly, so a quiet start is normal.`;
     // Conversion tracking: fire a Meta Pixel "Lead" only on a genuine, server-
     // validated sign-up (a real req with a name) - never on the honeypot / rate-
     // limited generic success, so bots and spam never inflate the conversion.
@@ -5041,7 +5066,7 @@ export async function requestPage(env, opts = {}) {
       ? `<div class="ob-card" style="border:1px solid var(--gold);background:linear-gradient(180deg,#FFFBEF,#fff)">
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
-          <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and receive every match the moment it appears - no waiting.</p>
+          <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and get every match we find, as soon as we've reviewed it.</p>
           <a class="btn-gold" href="/request">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
@@ -5060,7 +5085,7 @@ export async function requestPage(env, opts = {}) {
         <div class="ob-meta">
           <div class="c"><div class="k">Request ID</div><div class="v">${esc(ref || "-")}</div></div>
           <div class="c"><div class="k">Search status</div><div class="v"><span class="ok">Active</span>, monitoring auctions</div></div>
-          <div class="c"><div class="k">Next update</div><div class="v">As soon as a match appears</div></div>
+          <div class="c"><div class="k">Next update</div><div class="v">As matches come up</div></div>
         </div>
         ${successTimeline()}
         <p class="ob-note-sm">${acct}</p>
@@ -5083,7 +5108,7 @@ export async function requestPage(env, opts = {}) {
       : (opts.error === "email" || opts.error === "password" || opts.error === "phone") ? "4"
         : "";
   const bannerMsg = opts.error === "phone"
-    ? "Please enter a valid mobile number so we can reach you the moment a match appears."
+    ? "Please enter a valid mobile number so we can reach you quickly when a match comes up."
     : opts.error === "limited"
     ? "We've received a lot of requests from your connection just now. Please wait a few minutes and submit again - nothing was saved this time."
     : opts.error === "google"
@@ -5183,7 +5208,7 @@ export async function requestPage(env, opts = {}) {
               <div>
                 <div class="ob-review ob-only" id="obReview"></div>
                 <p class="ob-nojs ob-lead">Check your details below, then create your free account to start the search.</p>
-                <p class="ob-note">We monitor thousands of Japanese auction listings every week and notify you as soon as a suitable vehicle appears.</p>
+                <p class="ob-note">We monitor thousands of Japanese auction listings every week and let you know when a suitable vehicle comes up.</p>
               </div>
               ${whyUs()}
             </div>
@@ -5209,7 +5234,7 @@ export async function requestPage(env, opts = {}) {
                 <div class="ob-fields">
                   <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp") || esc(signedIn.whatsapp || "")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
-                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you quickly when a match comes up.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>
@@ -5237,7 +5262,7 @@ export async function requestPage(env, opts = {}) {
                 </div>
                 <p id="rq-email-error" class="field-err" role="alert">Please enter a valid email. This is also your login.</p>
                 <p id="rq-pass-error" class="field-err" role="alert">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
-                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you the moment a match appears.</p>
+                <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you quickly when a match comes up.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>
                   <span>Every search is reviewed by a JDM Connect specialist before recommendations are sent.</span>

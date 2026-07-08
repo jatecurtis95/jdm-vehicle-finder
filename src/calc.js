@@ -2,7 +2,7 @@
 //
 // Rather than duplicate the pricing tables (shipping lines, LCT, stamp duty,
 // rego, GST…), the finder calls the calculator's own server function at
-// /api/calc — so the numbers here always match calculator.jdmconnect.com.au.
+// /api/calc - so the numbers here always match calculator.jdmconnect.com.au.
 // The API is CORS-locked to JDM domains, so we send an allowed Origin header
 // on the server-to-server call. All figures are indicative estimates.
 
@@ -78,7 +78,7 @@ export async function getLiveFx(env) {
 
 // Turn a buyer's maximum all-in AUD budget (car landed to their door) into an
 // approximate JPY auction-price ceiling, for the matcher's price_max. This is a
-// deliberately simple inverse of the landed model — a soft filter, not a quote —
+// deliberately simple inverse of the landed model - a soft filter, not a quote -
 // so the public signup path never has to call the calculator. We back out a flat
 // import-overhead allowance and the on-value taxes, then convert at the FX rate.
 // Exported so the wizard can mirror this exact inverse client-side: the yen
@@ -126,7 +126,7 @@ function vehicleSizeIdx(lot) {
 
 // Estimate the full landed + on-road cost (AUD) for one lot, for a client in a
 // given state. Returns null if there's no price or the calculator is
-// unreachable — callers treat null as "no estimate available" and degrade.
+// unreachable - callers treat null as "no estimate available" and degrade.
 export async function estimateLanded(env, lot, client, cfg = null) {
   const jpy = lotJpy(lot);
   if (!jpy) return null;

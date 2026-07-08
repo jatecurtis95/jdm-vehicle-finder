@@ -18,7 +18,7 @@ test("main column: matches render before searches, find form last", async () => 
   const env = seededEnv();
   const html = await clientDetailPage(env, 9001, ADMIN);
   const matches = html.indexOf("Live matches</h2>");
-  const searches = html.search(/<span class="num">\d+<\/span> Search(es)?<\/h2>/);
+  const searches = html.search(/<span class="num">\d+<\/span> Search(es)?\b/);
   const find = html.indexOf('id="find"');
   assert.ok(matches > -1 && searches > -1 && find > -1, "all three sections render");
   assert.ok(matches < searches, "Live matches sit above the searches card");

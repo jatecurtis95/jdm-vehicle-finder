@@ -25,7 +25,7 @@ function median(nums) {
 function gradeMix(rows) {
   const m = {};
   for (const r of rows) {
-    const g = String(r.rate || "").trim() || "—";
+    const g = String(r.rate || "").trim() || "-";
     m[g] = (m[g] || 0) + 1;
   }
   return Object.keys(m)
@@ -100,7 +100,7 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
     }
 
     // Raw recent sample (gateway caps ~250-300) for median + grade mix, the
-    // 12-week trend (per-week aggregates, which are uncapped), and comparables —
+    // 12-week trend (per-week aggregates, which are uncapped), and comparables -
     // all in parallel.
     const [raw, recent, bars] = await Promise.all([
       query(env, `select FINISH,RATE from stats where ${where} order by AUCTION_DATE desc limit 300`),
