@@ -75,14 +75,8 @@ export function diffSchema(expected, actual) {
   return missing.sort();
 }
 
-// The query that reads a D1 database's table/column layout. pragma_table_info is
-// a table-valued function SQLite/D1 both support.
-const SCHEMA_SQL =
-  "SELECT m.name AS tbl, ti.name AS col FROM sqlite_master m " +
-  "JOIN pragma_table_info(m.name) ti WHERE m.type = 'table'";
-
-// Pull the schema rows out of `wrangler d1 execute --json` output. wrangler
-// prints an array of result objects; the rows live under [0].results.
+// Pull the rows out of `wrangler d1 execute --json` output. wrangler prints an
+// array of result objects (one per statement); the rows live under [0].results.
 export function parseWranglerJson(stdout) {
   const start = stdout.indexOf("[");
   if (start === -1) throw new Error("no JSON array in wrangler output:\n" + stdout);
@@ -91,10 +85,34 @@ export function parseWranglerJson(stdout) {
   return (first && first.results) || [];
 }
 
-function fetchRemoteSchema(local) {
-  const args = ["wrangler", "d1", "execute", DB_NAME, local ? "--local" : "--remote", "--json", "--command", SCHEMA_SQL];
+// Double-quote a table identifier for safe interpolation into a PRAGMA.
+function quoteIdent(name) {
+  return '"' + String(name).replace(/"/g, '""') + '"';
+}
+
+// Read one table's columns from D1. IMPORTANT: D1's authorizer rejects the
+// pragma_table_info() *table-valued function* (SQLITE_AUTH, code 7500), so we
+// cannot introspect the whole schema in one SELECT. Instead we read each table
+// with the plain `PRAGMA table_info(<name>)` form - the exact form the manual
+// db-apply-pending workflow already uses successfully against production. A
+// non-existent table returns zero rows (no error), which surfaces as a missing
+// table in the diff.
+function remoteTableColumns(local, table) {
+  const args = ["wrangler", "d1", "execute", DB_NAME, local ? "--local" : "--remote",
+                "--json", "--command", `PRAGMA table_info(${quoteIdent(table)})`];
   const stdout = execFileSync("npx", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
-  return rowsToSchema(parseWranglerJson(stdout));
+  return parseWranglerJson(stdout).map((r) => r.name).filter(Boolean);
+}
+
+// Build the live schema by reading only the tables the migrations expect (extra
+// prod tables are irrelevant to the gate), one PRAGMA per table.
+function fetchRemoteSchema(local, expectedTables) {
+  const schema = new Map();
+  for (const t of expectedTables) {
+    const cols = remoteTableColumns(local, t);
+    if (cols.length) schema.set(t, new Set(cols));
+  }
+  return schema;
 }
 
 function main() {
@@ -108,7 +126,7 @@ function main() {
     const file = argv[actualJsonIdx + 1];
     actual = rowsToSchema(parseWranglerJson(readFileSync(file, "utf8")));
   } else {
-    actual = fetchRemoteSchema(local);
+    actual = fetchRemoteSchema(local, [...expected.keys()]);
   }
 
   const missing = diffSchema(expected, actual);
