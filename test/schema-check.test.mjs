@@ -59,3 +59,12 @@ test("parseWranglerJson pulls rows out of the wrangler --json envelope", () => {
   const out = 'some banner line\n[{"results":[{"tbl":"clients","col":"id"}],"success":true,"meta":{}}]\n';
   assert.deepEqual(parseWranglerJson(out), [{ tbl: "clients", col: "id" }]);
 });
+
+test("parseWranglerJson reads a PRAGMA table_info result (column names live under .name)", () => {
+  // This is the real shape the remote check consumes: D1 blocks the
+  // pragma_table_info() table-valued function (SQLITE_AUTH 7500), so the script
+  // runs `PRAGMA table_info(<table>)` per table and maps each row's `name`.
+  const out = '[{"results":[{"cid":0,"name":"id","type":"INTEGER"},{"cid":1,"name":"budget_aud","type":"INTEGER"}],"success":true,"meta":{}}]';
+  const cols = parseWranglerJson(out).map((r) => r.name);
+  assert.deepEqual(cols, ["id", "budget_aud"]);
+});
