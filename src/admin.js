@@ -7,7 +7,7 @@ import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
+import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
@@ -6300,7 +6300,7 @@ export async function createAgent(env, form) {
   try {
     await env.DB.prepare(
       "INSERT INTO agents (email, name, company, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, '', '', ?, ?)"
-    ).bind(email, name, company, token, exp).run();
+    ).bind(email, name, company, await hashToken(token), exp).run();
     return { ok: true, token, email, name };
   } catch (e) {
     console.error("createAgent failed:", e.message);
@@ -6314,7 +6314,7 @@ export async function resendInvite(env, id) {
   if (!a) return null;
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, a.id).run();
+  await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, a.id).run();
   return { token, email: a.email, name: a.name };
 }
 
@@ -7687,7 +7687,7 @@ export async function inviteClientPortal(env, clientId, session) {
   const exp = Date.now() + PORTAL_INVITE_TTL_MS;
   // A staff re-invite is the one sanctioned way back in after a revoke, so it
   // clears the portal_revoked veto.
-  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, cid).run();
+  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, cid).run();
   return { ok: true, token, email: c.email, name: c.name };
 }
 
@@ -7722,7 +7722,7 @@ export async function createDealer(env, form) {
   try {
     await env.DB.prepare(
       "INSERT INTO dealers (email, name, company, state, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, ?, '', '', ?, ?)"
-    ).bind(email, name, company, state, token, exp).run();
+    ).bind(email, name, company, state, await hashToken(token), exp).run();
     return { ok: true, token, email, name };
   } catch (e) {
     console.error("createDealer failed:", e.message);
@@ -7736,7 +7736,7 @@ export async function resendDealerInvite(env, id) {
   if (!d) return null;
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE dealers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(token, exp, d.id).run();
+  await env.DB.prepare("UPDATE dealers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, d.id).run();
   return { token, email: d.email, name: d.name };
 }
 
@@ -7758,31 +7758,75 @@ export async function deleteDealer(env, id) {
   await env.DB.batch(stmts);
 }
 
-// Dealer submits a vehicle for admin review. Returns {ok, error?, id?, vehicle?}
-export async function submitDealerVehicle(env, form, session) {
-  if (!session || session.role !== "dealer") return { ok: false, error: "unauthorized" };
-  const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
-  if (!dealer) return { ok: false, error: "dealer not found" };
+// Server-side caps/ranges for a dealer vehicle submission. Client-side maxlength
+// and min/max are advisory only, so every field is re-validated here regardless
+// of what a hand-built POST sends. Text is length-capped; numerics are held to a
+// sane range for a real, roadworthy car so junk or overflow can't be stored.
+export const DEALER_VEHICLE_LIMITS = {
+  make: 60, model: 60, grade: 40, location: 120, description: 2000,
+  yearMin: 1950, yearMax: 2035,      // classics through near-future model years
+  mileageMax: 2000000,               // km
+  priceMin: 1, priceMax: 100000000,  // AUD
+};
 
+// Dealer submits a vehicle for admin review. Returns {ok, error?, id?, vehicle?}.
+// `error` is a friendly, display-ready sentence (surfaced in the portal flash).
+export async function submitDealerVehicle(env, form, session) {
+  if (!session || session.role !== "dealer") return { ok: false, error: "You are not signed in as a dealer." };
+  const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+  if (!dealer) return { ok: false, error: "Your dealer account is inactive. Please contact JDM Connect." };
+
+  const L = DEALER_VEHICLE_LIMITS;
   const make = String(form.get("make") || "").trim();
   const model = String(form.get("model") || "").trim();
-  const year = Number(form.get("year") || 0);
-  const price = Number(form.get("price_aud") || 0);
+  // Required text.
+  if (!make) return { ok: false, error: "Make is required." };
+  if (!model) return { ok: false, error: "Model is required." };
+  if (make.length > L.make) return { ok: false, error: `Make must be ${L.make} characters or fewer.` };
+  if (model.length > L.model) return { ok: false, error: `Model must be ${L.model} characters or fewer.` };
 
-  if (!make || !model || !price || price <= 0) {
-    return { ok: false, error: "missing required fields" };
+  // Optional text: clip-and-cap. Empty stores as null.
+  const grade = String(form.get("grade") || "").trim();
+  if (grade.length > L.grade) return { ok: false, error: `Grade must be ${L.grade} characters or fewer.` };
+  const location = String(form.get("location") || "").trim();
+  if (location.length > L.location) return { ok: false, error: `Location must be ${L.location} characters or fewer.` };
+  const description = String(form.get("description") || "").trim();
+  if (description.length > L.description) return { ok: false, error: `Description must be ${L.description} characters or fewer.` };
+
+  // Price is required and must land in a sane AUD range.
+  const priceRaw = String(form.get("price_aud") || "").trim().replace(/[,\s$]/g, "");
+  const price = Number(priceRaw);
+  if (!priceRaw || !Number.isFinite(price) || !Number.isInteger(price) || price < L.priceMin || price > L.priceMax) {
+    return { ok: false, error: "Please enter a valid price in AUD." };
+  }
+
+  // Year is optional; when given it must be a real 4-digit model year.
+  const yearRaw = String(form.get("year") || "").trim();
+  let year = null;
+  if (yearRaw) {
+    const y = Number(yearRaw);
+    if (!/^\d{4}$/.test(yearRaw) || y < L.yearMin || y > L.yearMax) {
+      return { ok: false, error: `Year must be between ${L.yearMin} and ${L.yearMax}.` };
+    }
+    year = y;
+  }
+
+  // Mileage is optional; when given it must be a non-negative km value under the cap.
+  const mileageRaw = String(form.get("mileage_km") || "").trim().replace(/[,\s]/g, "");
+  let mileage = null;
+  if (mileageRaw) {
+    const m = Number(mileageRaw);
+    if (!Number.isFinite(m) || !Number.isInteger(m) || m < 0 || m > L.mileageMax) {
+      return { ok: false, error: `Mileage must be a whole number of km between 0 and ${L.mileageMax.toLocaleString()}.` };
+    }
+    mileage = m;
   }
 
   try {
-    const grade = String(form.get("grade") || "").trim() || null;
-    const mileage = Number(form.get("mileage_km") || 0) || null;
-    const location = String(form.get("location") || "").trim() || null;
-    const description = String(form.get("description") || "").trim() || null;
     const photos = form.get("photos") || "[]"; // JSON array
-
     const result = await env.DB.prepare(
       "INSERT INTO dealer_vehicles (dealer_id, make, model, year, grade, mileage_km, price_aud, location, description, photos, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
-    ).bind(session.id, make, model, year || null, grade, mileage, price, location, description, photos).run();
+    ).bind(session.id, make, model, year, grade || null, mileage, price, location || null, description || null, photos).run();
 
     return {
       ok: true,
@@ -7791,7 +7835,7 @@ export async function submitDealerVehicle(env, form, session) {
     };
   } catch (e) {
     console.error("submitDealerVehicle failed:", e.message);
-    return { ok: false, error: "database error" };
+    return { ok: false, error: "Sorry, we couldn't save that vehicle. Please try again." };
   }
 }
 
@@ -7929,7 +7973,7 @@ export async function dealerPortalPage(env, dealer, flash = "") {
       ${dealer.company ? `<p style="margin-top: 8px; color: #999;">${esc(dealer.company)}</p>` : ""}
     </div>
 
-    ${flash ? `<div class="flash ${flash.startsWith("error") ? "err" : "ok"}">${esc(flash)}</div>` : ""}
+    ${flash ? `<div class="flash ${/^error/i.test(flash) ? "err" : "ok"}">${esc(flash)}</div>` : ""}
 
     <div class="card">
       <h2>Submit a Vehicle</h2>

@@ -309,12 +309,32 @@ export function randomToken() {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(24)));
 }
 
+// Single-use invite / reset tokens are secrets that grant a password set. We
+// store only their SHA-256 hash in the DB (invite_token column), so a leaked DB
+// snapshot can't be used to claim a pending invite or hijack a reset - the raw
+// token exists only in the one email we send. On lookup we hash the presented
+// token and match on that. randomToken() output is 24 random bytes, so a raw
+// token can never collide with a hash; the lookups below therefore also accept
+// a raw match, which keeps any pre-hash plaintext rows (issued before this
+// rolled out, or seeded in tests) working until they expire.
+export async function hashToken(token) {
+  const t = String(token || "");
+  if (!t) return "";
+  const digest = await crypto.subtle.digest("SHA-256", enc.encode(t));
+  return toBase64Url(new Uint8Array(digest));
+}
+// The pair (hashed, raw) to bind into a `invite_token IN (?, ?)` lookup.
+async function tokenMatchPair(token) {
+  const raw = String(token || "");
+  return [await hashToken(raw), raw];
+}
+
 // Look up the agent for a valid, unexpired invite token.
 export async function agentByInviteToken(env, token) {
   if (!token) return null;
   const a = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM agents WHERE invite_token = ?"
-  ).bind(String(token)).first();
+    "SELECT id, name, email, invite_exp FROM agents WHERE invite_token IN (?, ?)"
+  ).bind(...(await tokenMatchPair(token))).first();
   if (!a || !a.invite_exp || Number(a.invite_exp) < Date.now()) return null;
   return a;
 }
@@ -354,8 +374,8 @@ export async function setAgentPassword(env, token, password) {
 export async function clientByInviteToken(env, token) {
   if (!token) return null;
   const c = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM clients WHERE invite_token = ?"
-  ).bind(String(token)).first();
+    "SELECT id, name, email, invite_exp FROM clients WHERE invite_token IN (?, ?)"
+  ).bind(...(await tokenMatchPair(token))).first();
   if (!c || !c.invite_exp || Number(c.invite_exp) < Date.now()) return null;
   return c;
 }
@@ -380,8 +400,8 @@ export async function setClientPassword(env, token, password) {
 export async function dealerByInviteToken(env, token) {
   if (!token) return null;
   const d = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM dealers WHERE invite_token = ?"
-  ).bind(String(token)).first();
+    "SELECT id, name, email, invite_exp FROM dealers WHERE invite_token IN (?, ?)"
+  ).bind(...(await tokenMatchPair(token))).first();
   if (!d || !d.invite_exp || Number(d.invite_exp) < Date.now()) return null;
   return d;
 }
@@ -411,8 +431,9 @@ export async function beginPasswordResetFor(env, kind, id) {
   const token = randomToken();
   const exp = Date.now() + RESET_TTL_MS;
   const table = kind === "agent" ? "agents" : kind === "dealer" ? "dealers" : "clients";
+  // Store only the hash; the raw token goes out in the email and is returned here.
   await env.DB.prepare(`UPDATE ${table} SET invite_token = ?, invite_exp = ? WHERE id = ?`)
-    .bind(token, exp, row.id).run();
+    .bind(await hashToken(token), exp, row.id).run();
   return { kind, id: row.id, name: row.name, email: row.email, token };
 }
 
