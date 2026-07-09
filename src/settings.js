@@ -39,6 +39,12 @@ const DEFAULTS = {
   calc_compliance_aud: "",  // typical SEVS/RAWS compliance cost, AUD
   calc_agency_aud: "",      // agency/service fee baked into estimates, AUD
   calc_fx_jpy_aud: "",      // JPY per A$1 override; blank = live rate
+  // Budget filtering (V1.3 Phase C, "done properly"): once a match carries a
+  // REAL per-lot landed estimate, drop the ones that land clearly over the
+  // customer's stated AUD budget. Uses the all-in landed figure, not a rough FX
+  // convert. Tunable here: turn it off, or widen the headroom, without a deploy.
+  budget_filter: "1",         // 1 = hide matches that land over budget + headroom
+  budget_headroom_pct: "10",  // how far above the stated budget a match may still surface (%)
 };
 
 export async function getSettings(env) {
@@ -103,6 +109,8 @@ export async function saveSettings(env, form) {
     calc_compliance_aud: posIntStr(form.get("calc_compliance_aud"), ""),
     calc_agency_aud: posIntStr(form.get("calc_agency_aud"), ""),
     calc_fx_jpy_aud: (() => { const n = Number(String(form.get("calc_fx_jpy_aud") ?? "").trim()); return Number.isFinite(n) && n > 0 ? String(n) : ""; })(),
+    budget_filter: form.get("budget_filter") ? "1" : "0",
+    budget_headroom_pct: posIntStr(form.get("budget_headroom_pct"), "10"),
     ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,
     ai_sheet_auto: SHEET_AUTO_MODES[form.get("ai_sheet_auto")] ? String(form.get("ai_sheet_auto")) : "off",
   };

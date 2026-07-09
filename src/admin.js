@@ -1512,9 +1512,11 @@ function settingsView(settings, opts = {}) {
           <div class="toggles" style="margin-top:0">
             ${toggleRow("free_auto_send", "Auto-send the first match to free signups", "On: a free account gets an example match emailed the instant they sign up. Off (recommended): staff review matches before they are sent.", settingOn(s, "free_auto_send"))}
             ${toggleRow("run_includes_free", "Run Searches includes free accounts", "On (recommended): the matcher runs every active search, free or paid. Off: it runs paid members' searches only.", settingOn(s, "run_includes_free"))}
+            ${toggleRow("budget_filter", "Hide matches that land over budget", "On (recommended): a match is only surfaced when its real all-in landed price fits the customer's stated budget (plus the headroom below). Off: budget is stored on the lead but never filters matches.", settingOn(s, "budget_filter"))}
           </div>
           <div class="grid2" style="margin-top:16px">
             <div><label for="set-freesearch">Active searches per free account</label><input id="set-freesearch" name="free_search_limit" type="number" min="1" step="1" value="${esc(s.free_search_limit || "1")}"></div>
+            <div><label for="set-headroom">Budget headroom <span class="opt">(%, how far over budget still shows)</span></label><input id="set-headroom" name="budget_headroom_pct" type="number" min="0" step="1" value="${esc(s.budget_headroom_pct || "10")}"></div>
           </div>
         </div>
       </div>
