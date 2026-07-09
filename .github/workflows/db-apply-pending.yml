@@ -38,27 +38,30 @@ jobs:
           # are idempotent); any other failure (auth, node version, wrong db)
           # fails the job loudly instead of being masked as a skip.
           add() {
-            echo "--- ADD COLUMN $1 ---"
+            echo "--- ALTER $1 ADD COLUMN $2 ---"
             if out=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
-                     --command "ALTER TABLE wishlists ADD COLUMN $1" 2>&1); then
-              echo "OK: $1 added"
+                     --command "ALTER TABLE $1 ADD COLUMN $2" 2>&1); then
+              echo "OK: $1.$2 added"
             else
               echo "$out"
               if echo "$out" | grep -qiE "duplicate column|already exists"; then
-                echo "SKIP: $1 already present"
+                echo "SKIP: $1.$2 already present"
               else
-                echo "ERROR adding $1"; exit 1
+                echo "ERROR adding $1.$2"; exit 1
               fi
             fi
           }
-          add "budget_aud INTEGER"
-          add "model_code TEXT"
-          add "grades TEXT"
-          echo "=== verifying wishlists schema ==="
-          schema=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
-                   --command "PRAGMA table_info(wishlists)" 2>&1)
-          echo "$schema"
+          add "wishlists" "budget_aud INTEGER"
+          add "wishlists" "model_code TEXT"
+          add "wishlists" "grades TEXT"
+          add "clients" "source TEXT"
+          echo "=== verifying schema ==="
+          wl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
+               --command "PRAGMA table_info(wishlists)" 2>&1); echo "$wl"
           for c in budget_aud model_code grades; do
-            echo "$schema" | grep -qw "$c" || { echo "MISSING COLUMN: $c"; exit 1; }
+            echo "$wl" | grep -qw "$c" || { echo "MISSING wishlists.$c"; exit 1; }
           done
-          echo "VERIFIED: budget_aud, model_code and grades are all present."
+          cl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
+               --command "PRAGMA table_info(clients)" 2>&1); echo "$cl"
+          echo "$cl" | grep -qw "source" || { echo "MISSING clients.source"; exit 1; }
+          echo "VERIFIED: wishlists budget_aud/model_code/grades and clients.source all present."

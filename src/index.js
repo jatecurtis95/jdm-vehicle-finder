@@ -765,6 +765,8 @@ export default {
         adminOpts.showArchived = url.searchParams.get("archived") === "1";
         const cat = url.searchParams.get("cat") || "";
         adminOpts.cat = cat === "private" || cat === "dealer" ? cat : "";
+        const src = url.searchParams.get("src") || "";
+        adminOpts.src = src === "jdm" || src === "public" ? src : "";
       }
       // Re-rendered form values after a validation error (v_ prefixed params),
       // so a failed post never wipes what the user typed.
