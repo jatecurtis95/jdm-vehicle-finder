@@ -58,6 +58,16 @@ export function sqlNum(value) {
 // The SQL is base64-encoded into the `q` param so website firewalls (Wordfence
 // etc.) don't see SQL keywords in the URL and block the request.
 export async function query(env, sql) {
+  // QA / offline fixture mode. When AUCTION_FIXTURE holds feed XML (an
+  // <aj><row>…</row></aj> document), the relay is bypassed entirely and those
+  // rows are returned verbatim, so local staging and end-to-end QA can run
+  // without the live auction API or a relay token. It is inert unless the var is
+  // set, so production (where it is never set) is unaffected. Note: the fixture
+  // is returned as-is regardless of `sql`, so craft it to match the searches
+  // under test; the matcher's code-side refinement (grade etc.) still applies.
+  if (env && typeof env.AUCTION_FIXTURE === "string" && env.AUCTION_FIXTURE.trim()) {
+    return parseRows(env.AUCTION_FIXTURE);
+  }
   const q = btoa(sql);
   const url = `${env.API_BASE}?code=${encodeURIComponent(env.AVTONET_CODE)}&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, {
