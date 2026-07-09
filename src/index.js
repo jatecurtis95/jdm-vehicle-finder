@@ -993,7 +993,11 @@ export default {
     if (path === "/client" && request.method === "POST") {
       const f = await request.formData();
       const r = await createClient(env, f, session);
-      if (r.ok) return Response.redirect(here(withNotice("/admin", "Client added")), 303);
+      // Land on the new client's own page, not the dashboard: that's where the
+      // "Add a search" / "Find a car" forms live, already tied to this client
+      // (no client dropdown to re-pick, add-search open by default). Staff kept
+      // adding the client, then not seeing where to add the car they want.
+      if (r.ok) return Response.redirect(here(withNotice(`/admin?view=client&id=${r.id}`, "Client added, now add the car they're chasing below")), 303);
       if (r.error === "duplicate") return Response.redirect(here(`/admin?view=client&id=${r.id}&dup=1`), 303);
       // Validation error: bounce back with the submitted values so nothing the
       // user typed is lost.
