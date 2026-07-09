@@ -1295,7 +1295,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
-  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, lastContact, pendingCounts, engagedClients });
+  else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, cat: opts.cat, src: opts.src, lastContact, pendingCounts, engagedClients });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") {
     // Parked matches for the Snoozed chip/filter - same joins as the live
@@ -2266,11 +2266,21 @@ function clientsView(clients, wishlists, opts = {}) {
   const session = opts.session || { role: "admin" };
   const agents = opts.agents || [];
   const shares = opts.shares || {};
-  // Category filter (?cat=private|dealer). Filtered here, not in SQL; the list
-  // is already loaded, and the tabs need every category's count regardless.
+  // Two orthogonal filters, applied in-memory (the list is already loaded, and
+  // the tabs need every count regardless):
+  //   ?cat = private | dealer          (trade vs retail)
+  //   ?src = jdm | public              (who added them)
+  // A client's source is 'public' only when they submitted the request form or
+  // signed in themselves; everything else (staff/agent added, or legacy NULL
+  // rows) counts as "Added by JDM".
   const cat = opts.cat || "";
-  const catCount = (id) => clients.filter((c) => (c.category || "private") === id).length;
-  const filteredList = cat ? clients.filter((c) => (c.category || "private") === cat) : clients;
+  const src = opts.src || "";
+  const isPublic = (c) => c.source === "public";
+  const matchCat = (c) => !cat || (c.category || "private") === cat;
+  const matchSrc = (c) => !src || (src === "public" ? isPublic(c) : !isPublic(c));
+  const catCount = (id) => clients.filter((c) => (c.category || "private") === id && matchSrc(c)).length;
+  const srcCount = (id) => clients.filter((c) => (id === "public" ? isPublic(c) : !isPublic(c)) && matchCat(c)).length;
+  const filteredList = clients.filter((c) => matchCat(c) && matchSrc(c));
   // IA-AUDIT item 10: the working set floats up - most recent contact first,
   // never-contacted prospects last (Attio's last-touched default, not A-Z).
   const lastContact = opts.lastContact || {};
@@ -2354,7 +2364,7 @@ function clientsView(clients, wishlists, opts = {}) {
   const rows = list.map((c) =>
     `<tr>
       ${isAdmin ? `<td><input type="checkbox" name="ids" value="${c.id}" form="bulkform"></td>` : ""}
-      <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
+      <td>${avatar(c.name)}<span class="idcell"><span><a class="clink" href="/admin?view=client&id=${c.id}" data-drawer="/admin/drawer?id=${c.id}">${esc(c.name)}</a>${isDealer(c) ? ` <span class="chip">Dealer</span>` : ""}${isPublic(c) ? ` <span class="chip muted">Public</span>` : ""}</span><span class="idsub">${[esc(c.email || ""), esc(c.state || "")].filter(Boolean).join(" &middot; ")}</span></span></td>
       <td style="text-align:right">${countFor(c.id)}</td>
       <td style="text-align:right">${mwCell(c.id)}</td>
       <td>${stageFor(c.id) ? statusBadge(stageFor(c.id)) : `<span class="chip muted">&mdash;</span>`}</td>
@@ -2400,10 +2410,25 @@ function clientsView(clients, wishlists, opts = {}) {
 
   const headCheck = isAdmin ? `<th style="width:30px"><input type="checkbox" onclick="jdmSelectAllVisible(this,'ids')" title="Select all"></th>` : "";
   const headOwner = isAdmin ? `<th>Owner</th>` : "";
-  const archToggle = isAdmin ? `<a href="/admin?view=clients${opts.showArchived ? "" : "&archived=1"}${cat ? `&cat=${cat}` : ""}" style="font-size:var(--fs-label);font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
-  // Category tabs: All / Private / Dealers, with live counts, archive-aware.
+  // Build a clients URL that keeps the OTHER active filters when one changes, so
+  // switching category doesn't drop the source filter (and vice versa).
+  const clientsUrl = (over = {}) => {
+    const c = over.cat !== undefined ? over.cat : cat;
+    const s = over.src !== undefined ? over.src : src;
+    const ar = over.archived !== undefined ? over.archived : opts.showArchived;
+    const p = ["view=clients"];
+    if (c) p.push(`cat=${c}`);
+    if (s) p.push(`src=${s}`);
+    if (ar) p.push("archived=1");
+    return `/admin?${p.join("&")}`;
+  };
+  const archToggle = isAdmin ? `<a href="${clientsUrl({ archived: !opts.showArchived })}" style="font-size:var(--fs-label);font-weight:600;color:var(--t3);text-decoration:none;white-space:nowrap">${opts.showArchived ? "&larr; Hide archived" : "Show archived"}</a>` : "";
+  // Two filter rows. Category (trade vs retail) and source (who added them),
+  // each with live counts that respect the other active filter.
   const catTabs = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${[["", "All"], ["private", "Private"], ["dealer", "Dealers"]].map(([id, label]) =>
-    `<a class="chip ${cat === id ? "chip-on" : "muted"}" style="text-decoration:none" href="/admin?view=clients${id ? `&cat=${id}` : ""}${opts.showArchived ? "&archived=1" : ""}">${label}${id ? ` (${catCount(id)})` : ""}</a>`).join("")}</div>`;
+    `<a class="chip ${cat === id ? "chip-on" : "muted"}" style="text-decoration:none" href="${clientsUrl({ cat: id })}">${label}${id ? ` (${catCount(id)})` : ""}</a>`).join("")}</div>`;
+  const srcTabs = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${[["", "Everyone"], ["jdm", "Added by JDM"], ["public", "Public sign-ups"]].map(([id, label]) =>
+    `<a class="chip ${src === id ? "chip-on" : "muted"}" style="text-decoration:none" href="${clientsUrl({ src: id })}">${label}${id ? ` (${srcCount(id)})` : ""}</a>`).join("")}</div>`;
   // Mobile card list: name, contact, searches and owner without the 560px-wide
   // table's horizontal scroll. Bulk allocation stays a desktop tool.
   const ownerName = (c) => {
@@ -2416,10 +2441,10 @@ function clientsView(clients, wishlists, opts = {}) {
     name: c.name,
     title: esc(c.name),
     meta: [esc(c.email || ""), esc(c.state || ""), `${countFor(c.id)} search${countFor(c.id) === 1 ? "" : "es"}`, pendingCounts[c.id] ? `<b>${pendingCounts[c.id]} match${pendingCounts[c.id] === 1 ? "" : "es"} waiting</b>` : "", c.last_seen ? `last login ${esc(relTime(c.last_seen))}` : "", isAdmin ? esc(ownerName(c)) : ""].filter(Boolean).join(" &middot; "),
-    right: `${stageFor(c.id) ? statusBadge(stageFor(c.id)) : ""}${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
+    right: `${stageFor(c.id) ? statusBadge(stageFor(c.id)) : ""}${isDealer(c) ? `<span class="chip">Dealer</span>` : ""}${isPublic(c) ? `<span class="chip muted">Public</span>` : ""}${c.archived ? `<span class="chip muted">archived</span>` : ""}`,
     rightSub: contactCell(c),
   })).join("") || `<div class="empty">No clients yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Add your first client</a>.</div>`}</div>`;
-  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div>${catTabs}${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
+  return `${opts.showArchived ? `<div class="dupnote" style="margin-bottom:16px">Showing archived customers. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600">Back to active</a></div>` : ""}${bulkBar}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp-3)"><div style="flex:1;min-width:220px">${tableToolbar("clientsTbl", "Search clients by name, email or state…", "jdm-clients")}</div><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">${catTabs}<span style="width:1px;height:20px;background:var(--hair)"></span>${srcTabs}</div>${archToggle}</div>${mobile}<div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table id="clientsTbl" class="sortable"><tr>${headCheck}<th>Client</th><th style="text-align:right">Searches</th><th style="text-align:right">Matches waiting</th><th>Stage</th><th>Last contact</th><th>Last login</th>${headOwner}<th>Shared with</th><th></th></tr>${rows}</table></div>${isAdmin ? `<p class="help" style="margin:var(--sp-3) 0 0;font-size:var(--fs-label)">Owner = whose dashboard a client lives on, and who gets their match alerts. Shared with = other agents who can also see and action them.</p>` : ""}<style>
     .bulkbar{display:none}
     .bulkbar.show{display:flex}
@@ -5951,6 +5976,31 @@ function clientDedupeScope(agentId) {
     : { scopeSql: "agent_id = ?", scopeBinds: [agentId] };
 }
 
+// Schema-drift-tolerant client INSERT. `cols` is an object of column -> value.
+// If the live DB is missing the migration-gated `source` column (0016), the
+// insert would throw "no column named source"; we strip it and retry, so a
+// lagging migration degrades to "stored without that field" rather than
+// blocking client creation. Mirrors the wishlist drift helpers. Returns the run
+// result (so callers can read meta.last_row_id).
+const CLIENT_DRIFT = /source/i;
+async function insertClientDrift(env, cols) {
+  let entries = Object.entries(cols);
+  for (;;) {
+    const names = entries.map(([k]) => k);
+    try {
+      return await env.DB.prepare(
+        `INSERT INTO clients (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
+      ).bind(...entries.map(([, v]) => v)).run();
+    } catch (e) {
+      const m = String(e && e.message).match(CLIENT_DRIFT);
+      const missing = m && m[0].toLowerCase();
+      if (!missing || !entries.some(([k]) => k.toLowerCase() === missing)) throw e;
+      console.error(`insertClientDrift: ${missing} column missing (apply migration 0016); storing without it`);
+      entries = entries.filter(([k]) => k.toLowerCase() !== missing);
+    }
+  }
+}
+
 export async function createClient(env, form, session) {
   const name = sstr(form, "name") || "";
   const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email);
@@ -5988,8 +6038,10 @@ export async function createClient(env, form, session) {
     }
   }
 
-  const r = await env.DB.prepare("INSERT INTO clients (name, email, whatsapp, state, agent_id, category) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(name, email || null, whatsapp || null, state, agentId, category).run();
+  const r = await insertClientDrift(env, {
+    name, email: email || null, whatsapp: whatsapp || null, state,
+    agent_id: agentId, category, source: "jdm",
+  });
   return { ok: true, id: r.meta?.last_row_id };
 }
 
@@ -6600,9 +6652,9 @@ export async function upsertGoogleClient(env, profile) {
     return { id: existing.id, created: false };
   }
 
-  const res = await env.DB.prepare(
-    "INSERT INTO clients (name, email, portal_enabled, google_sub) VALUES (?, ?, 1, ?)"
-  ).bind(name, email, sub).run();
+  const res = await insertClientDrift(env, {
+    name, email, portal_enabled: 1, google_sub: sub, source: "public",
+  });
   return { id: res.meta.last_row_id, created: true };
 }
 
@@ -6631,9 +6683,9 @@ async function upsertPublicClient(env, form, email, whatsapp) {
     ).bind(name, email || "", whatsapp || "", state || "", existing.id).run();
     return { id: existing.id, created: false };
   }
-  const r = await env.DB.prepare(
-    "INSERT INTO clients (name, email, whatsapp, state) VALUES (?, ?, ?, ?)"
-  ).bind(name, email || null, whatsapp || null, state).run();
+  const r = await insertClientDrift(env, {
+    name, email: email || null, whatsapp: whatsapp || null, state, source: "public",
+  });
   return { id: r.meta?.last_row_id, created: true };
 }
 
