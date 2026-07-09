@@ -4261,16 +4261,13 @@ export async function editWishlist(env, form, session) {
   if (!Number.isInteger(id) || id <= 0) return;
   if (!(await wishlistOwnedBy(env, id, session))) return;
   const { yMin, yMax } = yearPair(form);
-  await env.DB.prepare(
-    `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, watch_only = ?,
-       model_code = ?, grades = ? WHERE id = ?`
-  ).bind(
-    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"),
-    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
-    clampRange(num(form, "rate_min"), 1, 6), sstr(form, "kuzov"), sstr(form, "grade_kw"), form.get("watch_only") ? 1 : 0,
-    sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), id
-  ).run();
+  await updateWishlistDrift(env, [
+    ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
+    ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")], ["watch_only", form.get("watch_only") ? 1 : 0],
+    ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
+  ], "WHERE id = ?", [id]);
 }
 
 // Inline editor for one wishlist (native <details>, no JS), plus toggle/delete.
@@ -6121,6 +6118,51 @@ function yearPair(form) {
   return { yMin, yMax };
 }
 
+// Migration-gated wishlist columns: added by 0014 (budget_aud) and 0015
+// (model_code, grades). If a production DB is running new code before its
+// migration has been applied, a plain INSERT/UPDATE naming these columns throws
+// "no column named ..." and the whole save fails. The two helpers below strip
+// whichever such column the error names and retry, so a lagging migration
+// degrades to "stored without that field" instead of a hard failure. This
+// mirrors the pattern createRequestWishlist already uses for the public form,
+// extended to every staff/portal write so no save path can hard-break again.
+const DRIFT_COLS = /budget_aud|model_code|grades/i;
+async function insertWishlistDrift(env, pairs) {
+  let cols = pairs.slice();
+  for (;;) {
+    const names = cols.map((c) => c[0]);
+    try {
+      const ins = await env.DB.prepare(
+        `INSERT INTO wishlists (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
+      ).bind(...cols.map((c) => c[1])).run();
+      return ins?.meta?.last_row_id ?? null;
+    } catch (e) {
+      const m = String(e && e.message).match(DRIFT_COLS);
+      const missing = m && m[0].toLowerCase();
+      if (!missing || !cols.some((c) => c[0].toLowerCase() === missing)) throw e;
+      console.error(`insertWishlistDrift: ${missing} column missing (apply the matching migration); storing without it`);
+      cols = cols.filter((c) => c[0].toLowerCase() !== missing);
+    }
+  }
+}
+async function updateWishlistDrift(env, sets, where, whereVals) {
+  let cols = sets.slice();
+  for (;;) {
+    try {
+      await env.DB.prepare(
+        `UPDATE wishlists SET ${cols.map((c) => `${c[0]} = ?`).join(", ")} ${where}`
+      ).bind(...cols.map((c) => c[1]), ...whereVals).run();
+      return;
+    } catch (e) {
+      const m = String(e && e.message).match(DRIFT_COLS);
+      const missing = m && m[0].toLowerCase();
+      if (!missing || !cols.some((c) => c[0].toLowerCase() === missing)) throw e;
+      console.error(`updateWishlistDrift: ${missing} column missing (apply the matching migration); skipping it`);
+      cols = cols.filter((c) => c[0].toLowerCase() !== missing);
+    }
+  }
+}
+
 export async function createWishlist(env, form, clientIdOverride, session) {
   const clientId = clientIdOverride ?? num(form, "client_id");
   if (!clientId) return { ok: false, error: "client" };
@@ -6135,16 +6177,13 @@ export async function createWishlist(env, form, clientIdOverride, session) {
   // dozens of match-all searches.
   if ((await activeWishlistCount(env, clientId)) >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
   const { yMin, yMax } = yearPair(form);
-  await env.DB.prepare(
-    `INSERT INTO wishlists
-      (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, model_code, grades)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    clientId, sstr(form, "label"), marka, model,
-    yMin, yMax, sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP),
-    clampRange(num(form, "rate_min"), 1, 6), kuzov, gradeKw, form.get("watch_only") ? 1 : 0,
-    modelCode, sgrades(form)
-  ).run();
+  await insertWishlistDrift(env, [
+    ["client_id", clientId], ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
+    ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["kuzov", kuzov], ["grade_kw", gradeKw], ["watch_only", form.get("watch_only") ? 1 : 0],
+    ["model_code", modelCode], ["grades", sgrades(form)],
+  ]);
   return { ok: true };
 }
 
@@ -7502,14 +7541,13 @@ export async function portalAddWishlist(env, form, session) {
   }
   if (active >= WISHLIST_ACTIVE_CAP) return { ok: false, error: "limit" };
   const { yMin, yMax } = yearPair(form);
-  await env.DB.prepare(
-    `INSERT INTO wishlists (client_id, label, marka_name, model_name, year_min, year_max, price_max, mileage_max, rate_min, kuzov, grade_kw, watch_only, needs_detail, model_code, grades)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-  ).bind(
-    cid, sstr(form, "label"), marka, model, yMin, yMax,
-    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
-    kuzov, gradeKw, modelCode, sgrades(form)
-  ).run();
+  await insertWishlistDrift(env, [
+    ["client_id", cid], ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
+    ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["kuzov", kuzov], ["grade_kw", gradeKw], ["watch_only", 0], ["needs_detail", 0],
+    ["model_code", modelCode], ["grades", sgrades(form)],
+  ]);
   return { ok: true };
 }
 
@@ -7519,14 +7557,13 @@ export async function portalEditWishlist(env, form, session) {
   const w = await portalWishlistOwned(env, form.get("id"), cid);
   if (!w) return;
   const { yMin, yMax } = yearPair(form);
-  await env.DB.prepare(
-    `UPDATE wishlists SET label = ?, marka_name = ?, model_name = ?, year_min = ?, year_max = ?,
-       price_max = ?, mileage_max = ?, rate_min = ?, kuzov = ?, grade_kw = ?, model_code = ?, grades = ? WHERE id = ? AND client_id = ?`
-  ).bind(
-    sstr(form, "label"), sstr(form, "marka_name"), sstr(form, "model_name"), yMin, yMax,
-    sint(form, "price_max", PRICE_MAX_CAP), sint(form, "mileage_max", MILEAGE_MAX_CAP), clampRange(num(form, "rate_min"), 1, 6),
-    sstr(form, "kuzov"), sstr(form, "grade_kw"), sstr(form, "model_code", FIELD_MAX.kuzov), sgrades(form), w.id, cid
-  ).run();
+  await updateWishlistDrift(env, [
+    ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
+    ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")],
+    ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
+  ], "WHERE id = ? AND client_id = ?", [w.id, cid]);
 }
 
 export async function portalToggleWishlist(env, form, session) {

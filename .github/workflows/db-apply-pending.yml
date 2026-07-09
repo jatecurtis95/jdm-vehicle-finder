@@ -1,0 +1,54 @@
+# Manual one-off: apply the additive `wishlists` columns from migrations 0014
+# (budget_aud) and 0015 (model_code, grades) to the PRODUCTION D1 database.
+#
+# Why not `wrangler d1 migrations apply`? Production's d1_migrations tracking
+# table was never adopted (see migrations/README.md and the headers of 0011 and
+# 0013), so the runner would try to re-apply already-live older files and fail
+# on "duplicate column". Instead we add each column directly with `d1 execute`,
+# exactly as those migration headers instruct. Every statement is additive and
+# non-destructive: a column that already exists errors harmlessly and is skipped,
+# so this workflow is safe to run more than once.
+#
+# Trigger from the Actions tab ("Run workflow") or the API. Manual only.
+name: Apply pending D1 columns
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add budget_aud (0014), model_code + grades (0015)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -u
+          add() {
+            echo "--- ADD COLUMN $1 ---"
+            npx wrangler d1 execute jdm-vehicle-finder --remote \
+              --command "ALTER TABLE wishlists ADD COLUMN $1" \
+              && echo "OK: $1 added" \
+              || echo "SKIP: $1 (already exists or errored above)"
+          }
+          add "budget_aud INTEGER"
+          add "model_code TEXT"
+          add "grades TEXT"
+
+      - name: Verify the three columns now exist
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "=== wishlists columns budget_aud / model_code / grades ==="
+          npx wrangler d1 execute jdm-vehicle-finder --remote \
+            --command "SELECT name FROM pragma_table_info('wishlists') WHERE name IN ('budget_aud','model_code','grades') ORDER BY name"
