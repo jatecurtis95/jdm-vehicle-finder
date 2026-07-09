@@ -135,8 +135,28 @@ export function refine(lots, w) {
   });
 }
 
+// V1.3: landed-cost-aware budget filter. Runs AFTER attachLanded, so each lot
+// carries a REAL all-in landed estimate (_landed.grandTotal, in AUD) rather than
+// the rough JPY conversion we deliberately never store. Drops matches that land
+// clearly over the customer's stated AUD budget, keeping a headroom margin so
+// borderline-affordable cars still surface. Two safety rails: it is a no-op when
+// the wishlist has no budget, and any lot WITHOUT a computed estimate is always
+// kept (an unknown cost is never treated as over budget).
+export function withinBudget(lots, budgetAud, headroomPct = 10) {
+  const budget = Number(budgetAud) || 0;
+  if (budget <= 0) return lots;
+  const pct = Number(headroomPct);
+  const ceiling = budget * (1 + (Number.isFinite(pct) ? pct : 10) / 100);
+  return lots.filter((lot) => {
+    const landed = lot._landed && Number(lot._landed.grandTotal);
+    return !(landed > 0) || landed <= ceiling;
+  });
+}
+
 // Run one wishlist end to end. Returns the list of newly-queued lot ids.
-export async function runWishlist(env, wishlist) {
+// opts.budgetFilter (default true) and opts.budgetHeadroom (default 10, percent)
+// tune the landed-cost budget filter; runAll passes the live Settings values.
+export async function runWishlist(env, wishlist, opts = {}) {
   // Safety: a wishlist with no make / model / chassis / grade term would match
   // the whole feed, so skip it. The create form also blocks saving one this broad.
   if (!(wishlist.marka_name || wishlist.model_name || wishlist.kuzov || wishlist.grade_kw || wishlist.model_code)) return [];
@@ -170,13 +190,19 @@ export async function runWishlist(env, wishlist) {
   // Estimate landed cost up front so it's snapshotted into lot_json; the admin
   // Matches view then reuses it instead of re-calling the calculator per load.
   await attachLanded(env, take.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
+  // Landed-cost-aware budget gate (see withinBudget). take holds ALL fresh
+  // candidates (the SQL LIMIT sits well under the pending-room cap), so dropping
+  // over-budget lots here simply queues fewer matches; cheaper ones still surface.
+  const affordable = opts.budgetFilter === false
+    ? take
+    : withinBudget(take, wishlist.budget_aud, opts.budgetHeadroom);
   // Tag watch-only "lead" matches: they surface for a follow-up call but the
   // client is never auto-emailed, even on approval.
-  for (const lot of take) lot._watch = wishlist.watch_only ? 1 : 0;
+  for (const lot of affordable) lot._watch = wishlist.watch_only ? 1 : 0;
 
   const queued = [];
   const stmts = [];
-  for (const lot of take) {
+  for (const lot of affordable) {
     const token = crypto.randomUUID().replace(/-/g, "");
     stmts.push(
       env.DB.prepare(
@@ -216,7 +242,14 @@ export async function runAll(env, session) {
   // members' searches only. Wishlist SELECTION only; the matching logic below
   // is untouched either way.
   let membersOnly = false;
-  try { membersOnly = (await getSettings(env)).run_includes_free === "0"; } catch (e) { /* default include */ }
+  let budgetFilter = true;
+  let budgetHeadroom = 10;
+  try {
+    const s = await getSettings(env);
+    membersOnly = s.run_includes_free === "0";
+    budgetFilter = s.budget_filter !== "0";
+    budgetHeadroom = settingNum(s, "budget_headroom_pct", 10);
+  } catch (e) { /* defaults: include free, filter on, 10% headroom */ }
   const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
             c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
@@ -229,7 +262,7 @@ export async function runAll(env, session) {
   const summary = [];
   for (const w of wl.results || []) {
     try {
-      const queued = await runWishlist(env, w);
+      const queued = await runWishlist(env, w, { budgetFilter, budgetHeadroom });
       if (!queued.length) continue;
       // auto_notify wishlists (e.g. a dealer who opted out of review) get their
       // matches delivered immediately and skip the digest. Everything else lands
@@ -271,15 +304,21 @@ export async function sendWelcomeMatch(env, wishlistId) {
 
     const settings = await getSettings(env);
     const limit = Math.max(1, settingNum(settings, "free_result_limit", 1));
-    const picks = candidates.slice(0, limit);
+    // Landed-cost estimate is a nice-to-have; never let it abort the welcome.
+    // Attach it before the budget gate so the same real all-in figure the cron
+    // uses also keeps the welcome match inside the customer's stated budget.
+    try {
+      await attachLanded(env, candidates.map((lot) => ({ lot, client: { state: w.client_state } })));
+    } catch (e) { /* estimate unavailable - send without it */ }
+    const affordable = settings.budget_filter === "0"
+      ? candidates
+      : withinBudget(candidates, w.budget_aud, settingNum(settings, "budget_headroom_pct", 10));
+    if (!affordable.length) return none;
+    const picks = affordable.slice(0, limit);
     for (const lot of picks) {
       const st = strengthFor(lot._score);
       lot._strength = st.label; lot._strengthColor = st.color; lot._watch = 0;
     }
-    // Landed-cost estimate is a nice-to-have; never let it abort the welcome.
-    try {
-      await attachLanded(env, picks.map((lot) => ({ lot, client: { state: w.client_state } })));
-    } catch (e) { /* estimate unavailable - send without it */ }
 
     const client = { id: w.client_id, name: w.client_name, email: w.client_email, whatsapp: w.client_whatsapp, state: w.client_state };
     let emailed = 0;
