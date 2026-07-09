@@ -4872,6 +4872,22 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     </div>` : ""}
   </div>` : "";
 
+  // Manage the record itself: archive (soft-hide) or delete (hard-remove). These
+  // also live on each Customers-list row, but were not discoverable from the
+  // detail page during QA, so surface them here too for admin/owner. Same
+  // confirmation pattern (data-confirm / data-danger) as every other destructive
+  // action. Delete is owner-only server-side; archive/restore is owner or admin.
+  const manageCard = canManage ? `<div class="card">
+    <div class="pa-k">MANAGE CUSTOMER</div>
+    <p class="help" style="margin:4px 0 12px">Archiving hides ${esc(c.name)} from the active list but keeps their history. Deleting removes them and all their searches for good.</p>
+    <div class="pwrap">
+      ${c.archived
+        ? `<form method="POST" action="/client/unarchive" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">Restore from archive</button></form>`
+        : `<form method="POST" action="/client/archive" style="display:inline" data-confirm="Archive ${esc(c.name)}? They move to the archive and drop out of the active list, matcher runs and dashboards. You can restore them any time." data-confirm-ok="Archive"><input type="hidden" name="id" value="${c.id}"><button class="btn-toggle" type="submit">Archive</button></form>`}
+      <form method="POST" action="/client/delete" style="display:inline" data-confirm="Delete ${esc(c.name)} and ALL their searches, matches and history? This cannot be undone." data-danger data-confirm-ok="Delete customer"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>
+    </div>
+  </div>` : "";
+
   const reqSection = requested.length ? `<div class="card">
     <h2><span class="num">${requested.length}</span> Cars ${esc(c.name)} asked us to action</h2>
     <p class="help" style="margin:0 0 var(--sp-4)">Requested from their portal - pull the auction sheet, translate, and follow up.</p>
@@ -5012,7 +5028,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
-    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${matchSection}${reqSection}${historyCard}${wlSection}${newWl}${findCard}</div><aside class="cd-rail">${feed.length ? feedCard + portalCard + editCard : portalCard + editCard + feedCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
+    <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${matchSection}${reqSection}${historyCard}${wlSection}${newWl}${findCard}</div><aside class="cd-rail">${feed.length ? feedCard + portalCard + editCard + manageCard : portalCard + editCard + manageCard + feedCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
 }
 

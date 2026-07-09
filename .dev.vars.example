@@ -17,10 +17,18 @@ ADMIN_TOKEN = "dev-token-change-me-to-something-long"
 # degrade to empty lists when unset, which is fine for local UI work.
 AVTONET_CODE = ""
 
+# QA / offline auction fixture. When set to feed XML, the auction relay is
+# bypassed and these lots are returned instead, so matcher/search/welcome flows
+# produce deterministic results without the live API or a relay token. Paste the
+# contents of seed/auction-fixture.example.xml here for a ready-made JDM set.
+# Leave blank to use the real relay. NEVER set this in production.
+AUCTION_FIXTURE = ""
+
 # Resend is never called while MAIL_DRY_RUN=1, so this can stay blank in dev.
 RESEND_API_KEY = ""
 
 # Stripe TEST mode only. Never put a live (sk_live_...) key in local dev.
-# Get test keys from the Stripe dashboard in test mode.
+# Get test keys from the Stripe dashboard in test mode. Enable deposits in
+# Settings → Payments to exercise the buyer deposit flow with a 4242… test card.
 STRIPE_SECRET_KEY = ""
 STRIPE_WEBHOOK_SECRET = ""

@@ -14,6 +14,7 @@
     "db:check:remote": "node scripts/check-remote-schema.mjs",
     "db:check:local": "node scripts/check-remote-schema.mjs --local",
     "db:seed:local": "wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-dev.sql",
+    "qa:reset": "node scripts/qa-reset.mjs",
     "test": "node --test",
     "tail": "wrangler tail"
   },
