@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv, readFile } from "./helpers/d1.mjs";
 import { runWishlist } from "../src/matcher.js";
-import { adminPage } from "../src/admin.js";
+import { adminPage, dealerPortalPage } from "../src/admin.js";
 
 const ADMIN = { role: "admin", id: 0 };
 
@@ -77,6 +77,15 @@ test("dealer management and submissions render inside the shared admin shell", a
     assert.match(html, /href="\/admin\?view=dealer-submissions"/, `${view} exposes submissions navigation`);
     assert.doesNotMatch(html, /min-width:\s*1000px/, `${view} has no fixed desktop-only minimum width`);
   }
+});
+
+test("the dealer portal uses the shared branded shell and collapses forms on phones", async () => {
+  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
+  const html = await dealerPortalPage(env, { id: 1, name: "Dealer One", email: "dealer@example.com", company: "Demo Cars", active: 1 });
+  assert.match(html, /<aside class="side">/, "dealer portal keeps the shared navigation shell");
+  assert.match(html, /href="\/dealer"/, "dealer home is reachable from its navigation");
+  assert.match(html, /@media\(max-width:640px\)[^{]*\{[^}]*\.dealer-form-grid\{grid-template-columns:1fr/s, "vehicle form becomes one column on phones");
+  assert.doesNotMatch(html, /body \{ font-family: -apple-system/, "legacy standalone stylesheet is gone");
 });
 
 test("local QA scripts resolve npx cross-platform and worst-case data layers over the normal seed", () => {
