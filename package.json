@@ -16,10 +16,11 @@
     "db:seed:local": "wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-dev.sql",
     "qa:reset": "node scripts/qa-reset.mjs",
     "test": "node --test",
+    "test:e2e": "node --test e2e/smoke.mjs",
     "tail": "wrangler tail"
   },
   "devDependencies": {
     "puppeteer-core": "^25.3.0",
-    "wrangler": "^4.101.0"
+    "wrangler": "^4.110.0"
   }
 }

@@ -103,9 +103,11 @@ test("local QA scripts resolve npx cross-platform and worst-case data layers ove
 test("the deploy workflow runs the full test suite before deploying", () => {
   const workflow = readFile(".github/workflows/deploy.yml");
   const testsAt = workflow.indexOf("npm test");
+  const browserAt = workflow.indexOf("npm run test:e2e");
   const deployAt = workflow.indexOf("Deploy Worker");
   assert.ok(testsAt > -1, "workflow runs npm test");
-  assert.ok(deployAt > testsAt, "tests run before deployment");
+  assert.ok(browserAt > testsAt, "workflow runs a browser smoke test after unit regressions");
+  assert.ok(deployAt > browserAt, "all tests run before deployment");
 });
 
 test("README setup commands reference the migration files that actually exist", () => {
