@@ -7951,137 +7951,26 @@ export async function getDealerVehicles(env, dealerId, status = "pending") {
 export async function dealerPortalPage(env, dealer, flash = "") {
   const submissions = await getDealerVehicles(env, dealer.id, "all");
   const first = (dealer.name || "").split(/\s+/)[0];
-
-  const statusBadge = (status) => {
-    const color = status === "approved" ? "#4CAF50" : status === "rejected" ? "#f44336" : "#FF9800";
-    return `<span style="display:inline-block;padding:4px 8px;border-radius:4px;background:${color};color:white;font-size:12px;font-weight:600;">${esc(status)}</span>`;
-  };
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Dealer Portal</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; color: #333; }
-    .container { max-width: 900px; margin: 0 auto; }
-    .header { background: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
-    .header h1 { margin: 0 0 10px; font-size: 28px; }
-    .header p { margin: 0; color: #666; }
-    .flash { padding: 12px 16px; margin-bottom: 20px; border-radius: 6px; }
-    .flash.ok { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #4caf50; }
-    .flash.err { background: #ffebee; color: #c62828; border-left: 4px solid #f44336; }
-    .card { background: white; padding: 24px; border-radius: 8px; margin-bottom: 20px; }
-    .card h2 { margin: 0 0 16px; font-size: 18px; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
-    .form-group input, .form-group textarea, .form-group select {
-      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 14px;
-    }
-    .form-group textarea { resize: vertical; min-height: 80px; }
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .btn { display: inline-block; padding: 10px 20px; background: #CAA34C; color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: none; }
-    .btn:hover { background: #b89340; }
-    .btn.secondary { background: #666; }
-    .btn.secondary:hover { background: #555; }
-    .submissions { margin-top: 20px; }
-    .vehicle-item { background: #f9f9f9; padding: 16px; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #CAA34C; }
-    .vehicle-item.approved { border-left-color: #4CAF50; }
-    .vehicle-item.rejected { border-left-color: #f44336; }
-    .vehicle-item h3 { margin: 0 0 8px; font-size: 16px; }
-    .vehicle-meta { display: flex; gap: 16px; font-size: 13px; color: #666; margin-bottom: 8px; }
-    .vehicle-meta span { display: flex; align-items: center; }
-    .vehicle-notes { margin-top: 8px; padding: 8px; background: white; border-radius: 4px; font-size: 13px; color: #d32f2f; }
-    .empty { color: #999; text-align: center; padding: 40px 20px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>Dealer Portal</h1>
-      <p>Welcome${first ? ", " + esc(first) : ""}! Submit your inventory for admin review.</p>
-      ${dealer.company ? `<p style="margin-top: 8px; color: #999;">${esc(dealer.company)}</p>` : ""}
-    </div>
-
-    ${flash ? `<div class="flash ${/^error/i.test(flash) ? "err" : "ok"}">${esc(flash)}</div>` : ""}
-
-    <div class="card">
-      <h2>Submit a Vehicle</h2>
-      <form method="POST" action="/dealer/vehicle/submit">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="make">Make *</label>
-            <input type="text" id="make" name="make" placeholder="e.g. NISSAN" required>
-          </div>
-          <div class="form-group">
-            <label for="model">Model *</label>
-            <input type="text" id="model" name="model" placeholder="e.g. SKYLINE" required>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="year">Year</label>
-            <input type="number" id="year" name="year" placeholder="e.g. 1995" min="1950" max="2030">
-          </div>
-          <div class="form-group">
-            <label for="grade">Grade</label>
-            <input type="text" id="grade" name="grade" placeholder="e.g. 5">
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="mileage_km">Mileage (km)</label>
-            <input type="number" id="mileage_km" name="mileage_km" placeholder="e.g. 45000" min="0">
-          </div>
-          <div class="form-group">
-            <label for="price_aud">Price (AUD) *</label>
-            <input type="number" id="price_aud" name="price_aud" placeholder="e.g. 25000" min="1" required>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="location">Location</label>
-          <input type="text" id="location" name="location" placeholder="e.g. Sydney NSW">
-        </div>
-
-        <div class="form-group">
-          <label for="description">Description</label>
-          <textarea id="description" name="description" placeholder="Any additional details about the vehicle..."></textarea>
-        </div>
-
-        <button type="submit" class="btn">Submit for Review</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Your Submissions (${submissions.length})</h2>
-      <div class="submissions">
-        ${submissions.length === 0
-          ? `<div class="empty">No submissions yet. Submit your first vehicle above!</div>`
-          : submissions.map(v => `
-            <div class="vehicle-item ${v.status}">
-              <h3>${esc(v.make)} ${esc(v.model)}${v.year ? " (" + v.year + ")" : ""}</h3>
-              <div class="vehicle-meta">
-                <span>A$${Number(v.price_aud || 0).toLocaleString()}</span>
-                ${v.mileage_km ? `<span>${Number(v.mileage_km).toLocaleString()} km</span>` : ""}
-                ${v.location ? `<span>${esc(v.location)}</span>` : ""}
-                <span>${statusBadge(v.status)}</span>
-              </div>
-              ${v.admin_notes ? `<div class="vehicle-notes"><strong>Admin notes:</strong> ${esc(v.admin_notes)}</div>` : ""}
-              <div style="font-size: 12px; color: #999; margin-top: 8px;">Submitted ${new Date(v.created_at).toLocaleDateString()}</div>
-            </div>
-          `).join("")
-        }
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-  return html;
+  const side = `<aside class="side"><div class="brand">${LOGO}</div><nav class="nav"><a class="active" aria-current="page" href="/dealer"><span class="bar" aria-hidden="true"></span><span class="lbl">Submitted stock</span></a></nav><div class="side-foot"><div class="whoami"><span class="who-name">${esc(dealer.name || "Dealer")}</span><span class="who-role">${esc(dealer.company || "Dealer account")}</span></div><a class="signout" href="/logout">Sign out</a></div></aside>`;
+  const badge = (status) => status === "approved" ? `<span class="chip strong">Approved</span>`
+    : status === "rejected" ? `<span class="chip bad">Rejected</span>`
+    : `<span class="chip good">Pending review</span>`;
+  const list = submissions.length ? submissions.map((v) => `<article class="card dealer-own-card"><div class="dealer-own-head"><div><h3>${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h3><p>${v.created_at ? `Submitted ${esc(new Intl.DateTimeFormat("en-AU", { dateStyle: "medium" }).format(new Date(v.created_at)))}` : ""}</p></div>${badge(v.status)}</div><div class="dealer-own-meta"><strong>A$${Number(v.price_aud || 0).toLocaleString("en-AU")}</strong>${v.mileage_km ? `<span>${Number(v.mileage_km).toLocaleString("en-AU")} km</span>` : ""}${v.location ? `<span>${esc(v.location)}</span>` : ""}</div>${v.admin_notes ? `<p class="reqerr"><strong>Review note:</strong> ${esc(v.admin_notes)}</p>` : ""}</article>`).join("") : `<div class="card"><div class="empty">No submissions yet. Add your first vehicle above.</div></div>`;
+  const main = `<div class="topbar"><div><div class="kicker">Dealer portal</div><h1>Welcome${first ? `, ${esc(first)}` : ""}</h1><p class="subline">Submit inventory for the JDM Connect team to review.</p></div><a class="btn-outline" href="/logout">Sign out</a></div><div class="content">
+    ${flash ? `<div class="dealer-flash ${/^error/i.test(flash) ? "err" : ""}" role="status">${esc(flash)}</div>` : ""}
+    <div class="card dealer-submit"><h2>Submit a vehicle</h2><form method="POST" action="/dealer/vehicle/submit" class="dealer-form-grid">
+      <div><label for="dealer-make">Make</label><input id="dealer-make" name="make" maxlength="${DEALER_VEHICLE_LIMITS.make}" required></div>
+      <div><label for="dealer-model">Model</label><input id="dealer-model" name="model" maxlength="${DEALER_VEHICLE_LIMITS.model}" required></div>
+      <div><label for="dealer-year">Year <span class="opt">(optional)</span></label><input id="dealer-year" name="year" type="number" inputmode="numeric" min="1950" max="${new Date().getFullYear() + 1}"></div>
+      <div><label for="dealer-grade">Grade <span class="opt">(optional)</span></label><input id="dealer-grade" name="grade" maxlength="${DEALER_VEHICLE_LIMITS.grade}"></div>
+      <div><label for="dealer-mileage">Mileage (km) <span class="opt">(optional)</span></label><input id="dealer-mileage" name="mileage_km" type="number" inputmode="numeric" min="0" max="${DEALER_VEHICLE_LIMITS.mileageMax}"></div>
+      <div><label for="dealer-price">Price (AUD)</label><input id="dealer-price" name="price_aud" type="number" inputmode="numeric" min="1" max="${DEALER_VEHICLE_LIMITS.priceMax}" required></div>
+      <div class="dealer-wide"><label for="dealer-location">Location <span class="opt">(optional)</span></label><input id="dealer-location" name="location" maxlength="${DEALER_VEHICLE_LIMITS.location}"></div>
+      <div class="dealer-wide"><label for="dealer-description">Description <span class="opt">(optional)</span></label><textarea id="dealer-description" name="description" rows="4" maxlength="${DEALER_VEHICLE_LIMITS.description}"></textarea></div>
+      <div class="dealer-wide"><button type="submit" class="btn-gold">Submit for review</button></div>
+    </form></div><div class="psec"><h2>Your submissions <span class="ct">${submissions.length}</span></h2></div>${list}</div>
+    <style>.dealer-submit{margin-bottom:var(--sp-5)}.dealer-submit h2{margin:0 0 var(--sp-4)}.dealer-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}.dealer-form-grid input,.dealer-form-grid textarea{width:100%}.dealer-wide{grid-column:1/-1}.dealer-flash{padding:12px 16px;margin-bottom:var(--sp-4);border:1px solid var(--ok-fg);background:var(--ok-bg);color:var(--ok-fg);border-radius:var(--r-card)}.dealer-flash.err{border-color:var(--bad-line);background:var(--bad-bg);color:var(--bad)}.dealer-own-card{margin-bottom:var(--sp-3)}.dealer-own-head{display:flex;justify-content:space-between;gap:var(--sp-3)}.dealer-own-head h3{margin:0}.dealer-own-head p{margin:4px 0 0;color:var(--t3);font-size:var(--fs-label)}.dealer-own-meta{display:flex;gap:var(--sp-4);flex-wrap:wrap;margin-top:var(--sp-3);font-size:var(--fs-sec);color:var(--t2)}@media(max-width:640px){.dealer-form-grid{grid-template-columns:1fr}.dealer-own-head{align-items:flex-start}}</style>`;
+  return brandShell(side, main, "Dealer portal - JDM Connect");
 }
 
 // Admin dealer management body. It is rendered by adminPage inside the shared
