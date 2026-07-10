@@ -30,7 +30,10 @@ jobs:
           node-version: "22"  # node:sqlite (schema check) + wrangler >=4.x need Node 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Run regression tests
+        run: npm test
 
       - name: Verify production schema matches migrations
         env:

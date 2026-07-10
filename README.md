@@ -36,10 +36,10 @@ requests up automatically. Two columns support this:
 - `wishlists.auto_notify` — `1` makes the matcher deliver matches immediately and
   skip the approval digest; `0` (default) keeps the manual review flow.
 
-Apply both to the live DB once with:
+Apply all pending versioned migrations to the live DB with:
 
 ```bash
-npx wrangler d1 execute jdm-vehicle-finder --remote --file migrate-portal.sql
+npx wrangler d1 migrations apply jdm-vehicle-finder --remote
 ```
 
 then `npx wrangler deploy` so the matcher honours `auto_notify`.
@@ -70,9 +70,8 @@ is on your website and the database is on Cloudflare; both are shared by every m
 
 - Cloudflare secrets (`AVTONET_CODE`, `RESEND_API_KEY`, `ADMIN_TOKEN`) are stored encrypted
   on Cloudflare, never in these files.
-- `relay/jdm-relay.php` contains the auction API code and relay token in plaintext. PHP runs
-  server-side, so website visitors can never see them — but anyone with your web hosting login
-  or access to this (private) repo can. Keep the repo private.
+- The auction relay runs on the JDM Connect web host, outside this repository. Its API code and
+  relay token are server-side secrets; keep web-hosting access restricted and rotate them if exposed.
 - Optional good practice: ask the auction provider to rotate the API code, then update the
   relay file and the `AVTONET_CODE` Worker secret.
 
@@ -98,7 +97,7 @@ Copy the `database_id` it prints into `wrangler.toml` (replace
 ### 3. Load the schema
 
 ```
-npx wrangler d1 execute jdm-vehicle-finder --remote --file schema.sql
+npx wrangler d1 migrations apply jdm-vehicle-finder --remote
 ```
 
 ### 4. Set secrets

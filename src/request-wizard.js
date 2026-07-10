@@ -451,15 +451,15 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     }
 
     function focusFirst(sec){var f=sec.querySelector('input:not([type=hidden]):not([tabindex="-1"]),select,textarea,button.ob-pop-card');if(f){try{f.focus({preventScroll:true});}catch(e){try{f.focus();}catch(e2){}}}}
-    function render(){
+    function render(shouldScroll){
       steps.forEach(function(s){s.classList.toggle('is-active',parseInt(s.getAttribute('data-step'),10)===cur);});
       dots.forEach(function(d,i){var n=i+1;d.classList.toggle('is-active',n===cur);d.classList.toggle('is-done',n<cur);});
       if(cur===1) loadRecent();
       if(cur===3) buildReview();
       var a=steps[cur-1];
-      if(a){ if(a.scrollIntoView) a.scrollIntoView({behavior:'smooth',block:'start'}); focusFirst(a); }
+      if(a){ if(shouldScroll&&a.scrollIntoView) a.scrollIntoView({behavior:'smooth',block:'start'}); focusFirst(a); }
     }
-    function go(n){ if(n<1||n>max) return; cur=n; render(); save(); }
+    function go(n){ if(n<1||n>max) return; cur=n; render(true); save(); }
     function next(){ var bad=badField(cur); if(bad){var e=errEl(bad); if(e&&e.scrollIntoView)e.scrollIntoView({behavior:'smooth',block:'center'}); return;} go(cur+1); }
     function back(){ go(cur-1); }
 
@@ -545,6 +545,6 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     var startAttr=parseInt(form.getAttribute('data-error-step'),10);
     if(startAttr>=1){ cur=startAttr; } else { cur=restore(); }
     updateYen();
-    render();
+    render(false);
   })();</script>`;
 }

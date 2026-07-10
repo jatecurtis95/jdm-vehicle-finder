@@ -82,8 +82,10 @@ test("dealer management and submissions render inside the shared admin shell", a
 test("local QA scripts resolve npx cross-platform and worst-case data layers over the normal seed", () => {
   const reset = readFile("scripts/qa-reset.mjs");
   const schema = readFile("scripts/check-remote-schema.mjs");
-  assert.match(reset, /npmCommand/, "QA reset uses the cross-platform command helper");
-  assert.match(schema, /npmCommand/, "schema checks use the cross-platform command helper");
+  assert.match(reset, /wranglerCli/, "QA reset resolves Wrangler's local JavaScript CLI");
+  assert.match(schema, /wranglerCli/, "schema checks resolve Wrangler's local JavaScript CLI");
+  assert.match(reset, /run\(process\.execPath/, "QA reset launches Wrangler through Node itself");
+  assert.match(schema, /execFileSync\(process\.execPath/, "schema checks launch Wrangler through Node itself");
   assert.doesNotMatch(reset, /run\("npx"/, "QA reset never directly spawns npx on Windows");
   assert.doesNotMatch(schema, /execFileSync\("npx"/, "schema check never directly spawns npx on Windows");
   assert.match(reset, /seed\/seed-dev\.sql[\s\S]*seed\/seed-worstcase\.sql/, "worst-case mode loads the base seed before its overlay");
