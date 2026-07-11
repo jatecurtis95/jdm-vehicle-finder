@@ -67,6 +67,8 @@ export function buildSql(w) {
 
   const mileageMax = sqlInt(w.mileage_max);
   if (mileageMax !== null) where.push(`(mileage > 0 AND mileage <= ${mileageMax})`);
+  const mileageMin = sqlInt(w.mileage_min);
+  if (mileageMin !== null && mileageMin > 0) where.push(`(mileage >= ${mileageMin})`);
 
   if (w.kuzov) {
     where.push(`UPPER(kuzov) LIKE '%${sqlLike(w.kuzov).toUpperCase()}%'`);
