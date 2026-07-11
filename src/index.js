@@ -31,6 +31,27 @@ const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hou
 const CANONICAL_HOST = "jdmfinder.com.au";
 const REDIRECT_HOSTS = new Set(["finder.jdmconnect.com.au", "www.jdmfinder.com.au"]);
 
+// --- CSRF: same-origin check for cookie-authenticated mutations --------------
+// The staff app, buyer portal and dealer portal all authenticate with a session
+// cookie, so a cross-site page could otherwise auto-submit a form that rides
+// that cookie (CSRF). Every state-changing request from a signed-in session must
+// therefore originate from one of our own pages. Browsers always attach an
+// Origin header to non-GET requests (and a Referer on normal form posts), so a
+// missing or foreign Origin/Referer on an authenticated mutation is refused.
+// Token-gated public routes (/decide, /set-password) and the Stripe webhook sit
+// ABOVE the session gate and are verified by their own token/signature, so they
+// never reach this check. Read-only GET/HEAD is always allowed.
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+function isSameOriginRequest(request, url) {
+  const allowed = new Set([url.host, CANONICAL_HOST, ...REDIRECT_HOSTS]);
+  const hostOf = (v) => { try { return new URL(v).host; } catch (_) { return null; } };
+  const origin = request.headers.get("Origin");
+  if (origin) return allowed.has(hostOf(origin));   // Origin present → must be ours
+  const referer = request.headers.get("Referer");
+  if (referer) return allowed.has(hostOf(referer)); // fall back to Referer host
+  return false;                                     // neither header → refuse
+}
+
 // Best-effort sliding-window limiter for the public request form. Limits per IP
 // AND per contact (email / normalized phone) so IP rotation can't flood one
 // client's searches. Fails open (no KV, or KV errors -> allowed) and only
@@ -635,6 +656,12 @@ export default {
     const session = await getSession(request, url, env);
     if (!session) {
       return Response.redirect(here("/login"), 303);
+    }
+
+    // CSRF guard: reject any state-changing request on an authenticated session
+    // that didn't come from one of our own pages (missing/foreign Origin/Referer).
+    if (MUTATING_METHODS.has(request.method) && !isSameOriginRequest(request, url)) {
+      return doc(infoPage("Request blocked", "For your security, that action was blocked because it didn't come from JDM Connect. Please go back and try again from the app."), 403);
     }
 
     // Buyer (client) sessions are fully isolated from the staff app: they only

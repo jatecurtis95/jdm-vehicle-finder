@@ -202,24 +202,44 @@ export async function runWishlist(env, wishlist, opts = {}) {
   // client is never auto-emailed, even on approval.
   for (const lot of affordable) lot._watch = wishlist.watch_only ? 1 : 0;
 
-  const queued = [];
+  const candidatesToQueue = [];
   const stmts = [];
   for (const lot of affordable) {
     const token = crypto.randomUUID().replace(/-/g, "");
+    // Enqueue-and-claim in one transaction so two concurrent matcher runs can
+    // never queue the same lot twice. `getSeen` above filters lots this run
+    // already knows about, but a second run that started before this one wrote
+    // its seen_lots row would still see the lot as fresh. The queue insert is
+    // therefore gated on the lot NOT already being claimed in seen_lots, and the
+    // seen_lots claim (PRIMARY KEY (wishlist_id, lot_id)) is written in the SAME
+    // batch. D1 batches run as a serialized transaction, so the losing run's
+    // queue insert finds the winner's committed seen_lots row and no-ops.
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, token) VALUES (?, ?, ?, ?, ?)`
-      ).bind(wishlist.id, wishlist.client_id, lot.id, JSON.stringify(lot), token)
+        `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, token)
+         SELECT ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM seen_lots WHERE wishlist_id = ? AND lot_id = ?)`
+      ).bind(wishlist.id, wishlist.client_id, lot.id, JSON.stringify(lot), token, wishlist.id, lot.id)
     );
     stmts.push(
       env.DB.prepare(
         `INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)`
       ).bind(wishlist.id, lot.id)
     );
-    queued.push({ lot, token });
+    candidatesToQueue.push({ lot, token });
   }
-  // One batched round-trip instead of many writes.
-  if (stmts.length) await env.DB.batch(stmts);
+  // One batched round-trip instead of many writes. Each lot contributes two
+  // statements (queue insert, then seen claim); the queue insert's `changes`
+  // tells us whether THIS run actually queued the lot or lost the race, so the
+  // digest and auto-delivery only ever act on rows we truly inserted.
+  const queued = [];
+  if (stmts.length) {
+    const results = await env.DB.batch(stmts);
+    candidatesToQueue.forEach((item, i) => {
+      const changes = Number(results?.[i * 2]?.meta?.changes) || 0;
+      if (changes > 0) queued.push(item);
+    });
+  }
   return queued;
 }
 
@@ -326,9 +346,14 @@ export async function sendWelcomeMatch(env, wishlistId) {
     let emailed = 0;
     for (const lot of picks) {
       const token = crypto.randomUUID().replace(/-/g, "");
-      await env.DB.prepare(
-        `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, token) VALUES (?, ?, ?, ?, ?)`
-      ).bind(w.id, w.client_id, lot.id, JSON.stringify(lot), token).run();
+      // Gate on seen_lots so a double-submitted signup (or a cron run firing at
+      // the same moment) can't queue or email the same welcome match twice.
+      const ins = await env.DB.prepare(
+        `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, token)
+         SELECT ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM seen_lots WHERE wishlist_id = ? AND lot_id = ?)`
+      ).bind(w.id, w.client_id, lot.id, JSON.stringify(lot), token, w.id, lot.id).run();
+      if (!(Number(ins?.meta?.changes) > 0)) continue;
       await env.DB.prepare(`INSERT OR IGNORE INTO seen_lots (wishlist_id, lot_id) VALUES (?, ?)`).bind(w.id, lot.id).run();
       let sent = false;
       try {

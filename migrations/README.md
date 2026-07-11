@@ -45,6 +45,24 @@ which records what it has run in a `d1_migrations` table so each file runs once.
   deploy and its migration can go out independently without breaking the
   currently running Worker.
 
+## Deploy-time schema gate
+
+Because production migrations are applied by hand, a deploy could previously ship
+code that read a column production did not have yet. The deploy workflow now runs
+`npm run db:check:remote` (`scripts/check-remote-schema.mjs`) BEFORE
+`wrangler deploy`. It:
+
+1. Applies every numbered migration to a throwaway in-memory SQLite to get the
+   schema the code expects (identical to what the test suite runs against).
+2. Reads production's live schema with `wrangler d1 execute --remote`.
+3. Fails the deploy, listing exactly what is missing, if production lacks any
+   expected table or column. Extra columns in production are ignored.
+
+So the order of operations for a schema change is unchanged, just enforced:
+apply the migration to production first (with approval), then the deploy passes.
+Run the same check locally against prod any time with `npm run db:check:remote`,
+or against your local D1 with `npm run db:check:local`.
+
 ## Adopting the runner on the existing production database
 
 Production already has every table in `0001_baseline.sql`. Because the baseline
