@@ -54,11 +54,12 @@ jobs:
           add "wishlists" "budget_aud INTEGER"
           add "wishlists" "model_code TEXT"
           add "wishlists" "grades TEXT"
+          add "wishlists" "mileage_min INTEGER"
           add "clients" "source TEXT"
           echo "=== verifying schema ==="
           wl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
                --command "PRAGMA table_info(wishlists)" 2>&1); echo "$wl"
-          for c in budget_aud model_code grades; do
+          for c in budget_aud model_code grades mileage_min; do
             echo "$wl" | grep -qw "$c" || { echo "MISSING wishlists.$c"; exit 1; }
           done
           cl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \

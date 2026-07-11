@@ -2247,6 +2247,7 @@ function intakeView(clients, makers, opts = {}) {
           <div><label>Year min<input name="year_min" type="number" placeholder="1990"></label></div>
           <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
           <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
+          <div><label>Min mileage (km)<input name="mileage_min" type="number" placeholder="0"></label></div>
           <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000"></label></div>
           <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
           <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
@@ -3190,6 +3191,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     ["Vehicle", esc(veh)],
     ["Years", esc(yearRange(w.year_min, w.year_max))],
     ["Max price", w.price_max ? "&yen;" + Number(w.price_max).toLocaleString("en-US") : "Any"],
+    ["Min mileage", w.mileage_min ? Number(w.mileage_min).toLocaleString() + " km" : "Any"],
     ["Max mileage", w.mileage_max ? Number(w.mileage_max).toLocaleString() + " km" : "Any"],
     ["Min grade", w.rate_min ? esc(w.rate_min) : "Any"],
     ["Chassis / code", w.kuzov ? esc(w.kuzov) : "-"],
@@ -4289,7 +4291,7 @@ export async function editWishlist(env, form, session) {
   await updateWishlistDrift(env, [
     ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
-    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
     ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")], ["watch_only", form.get("watch_only") ? 1 : 0],
     ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
   ], "WHERE id = ?", [id]);
@@ -4307,6 +4309,9 @@ function wishlistEditor(w, opts = {}) {
   const summary = `${esc(displayName(w.marka_name)) || "Any maker"} ${esc(displayName(w.model_name))}`.trim()
     + (w.year_min || w.year_max ? ` · ${esc(yearRange(w.year_min, w.year_max))}` : "")
     + (w.price_max ? ` · ¥${Number(w.price_max).toLocaleString()}` : "")
+    + ((w.mileage_min || w.mileage_max)
+        ? ` · ${w.mileage_min ? Number(w.mileage_min).toLocaleString() + "km" : "0"}${w.mileage_max ? ` to ${Number(w.mileage_max).toLocaleString()}km` : "+ km"}`
+        : "")
     + (w.rate_min ? ` · grade ${esc(w.rate_min)}+` : "")
     + (w.model_code ? ` · ${esc(w.model_code)}` : "")
     + (gradesText(w.grades) ? ` · ${esc(gradesText(w.grades))}` : "");
@@ -4368,6 +4373,7 @@ function wishlistEditor(w, opts = {}) {
           ${field("Year from", "year_min", "number")}
           ${field("Year to", "year_max", "number")}
           ${field("Max budget (JPY)", "price_max", "number")}
+          ${field("Min mileage (km)", "mileage_min", "number")}
           ${field("Max mileage (km)", "mileage_max", "number")}
           ${field("Min grade", "rate_min", "number")}
           ${field("Chassis or model code", "kuzov", null, "(contains, best match)")}
@@ -4908,6 +4914,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-yearmin">Year min</label><input id="as-yearmin" name="year_min" type="number" placeholder="1990"></div>
         <div><label for="as-yearmax">Year max</label><input id="as-yearmax" name="year_max" type="number" placeholder="2002"></div>
         <div><label for="as-pricemax">Max price (JPY)</label><input id="as-pricemax" name="price_max" type="number" placeholder="1,500,000"></div>
+        <div><label for="as-mileagemin">Min mileage (km)</label><input id="as-mileagemin" name="mileage_min" type="number" placeholder="0"></div>
         <div><label for="as-mileagemax">Max mileage (km)</label><input id="as-mileagemax" name="mileage_max" type="number" placeholder="80,000"></div>
         <div><label for="as-grademin">Min grade</label><input id="as-grademin" name="rate_min" type="number" step="any" placeholder="e.g. 4"></div>
         <div><label for="as-chassis">Chassis / model code <span class="opt">(contains, best match)</span></label><input id="as-chassis" name="kuzov" placeholder="e.g. JZA80 or 211"></div>
@@ -6194,7 +6201,7 @@ function yearPair(form) {
 // degrades to "stored without that field" instead of a hard failure. This
 // mirrors the pattern createRequestWishlist already uses for the public form,
 // extended to every staff/portal write so no save path can hard-break again.
-const DRIFT_COLS = /budget_aud|model_code|grades/i;
+const DRIFT_COLS = /budget_aud|model_code|grades|mileage_min/i;
 async function insertWishlistDrift(env, pairs) {
   let cols = pairs.slice();
   for (;;) {
@@ -6248,7 +6255,7 @@ export async function createWishlist(env, form, clientIdOverride, session) {
   await insertWishlistDrift(env, [
     ["client_id", clientId], ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
-    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
     ["kuzov", kuzov], ["grade_kw", gradeKw], ["watch_only", form.get("watch_only") ? 1 : 0],
     ["model_code", modelCode], ["grades", sgrades(form)],
   ]);
@@ -7514,6 +7521,7 @@ export async function portalPage(env, session, opts = {}) {
         <div><label>Year from<input name="year_min" type="number" min="1960" max="${yMax}" placeholder="1990"></label></div>
         <div><label>Year to<input name="year_max" type="number" min="1960" max="${yMax}" placeholder="2002"></label></div>
         <div><label>Max budget (JPY)<input name="price_max" type="number" min="0" step="any" placeholder="3,000,000"></label></div>
+        <div><label>Min mileage (km)<input name="mileage_min" type="number" min="0" step="any" placeholder="0"></label></div>
         <div><label>Max mileage (km)<input name="mileage_max" type="number" min="0" step="any" placeholder="100,000"></label></div>
         <div><label>Min grade<input name="rate_min" type="number" min="1" max="6" step="any" placeholder="e.g. 4"></label></div>
         <div><label>Chassis code <span class="opt">(if known)</span><input name="kuzov" placeholder="e.g. JZA80"></label></div>
@@ -7612,7 +7620,7 @@ export async function portalAddWishlist(env, form, session) {
   await insertWishlistDrift(env, [
     ["client_id", cid], ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
-    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
     ["kuzov", kuzov], ["grade_kw", gradeKw], ["watch_only", 0], ["needs_detail", 0],
     ["model_code", modelCode], ["grades", sgrades(form)],
   ]);
@@ -7628,7 +7636,7 @@ export async function portalEditWishlist(env, form, session) {
   await updateWishlistDrift(env, [
     ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
-    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
+    ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
     ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")],
     ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
   ], "WHERE id = ? AND client_id = ?", [w.id, cid]);
