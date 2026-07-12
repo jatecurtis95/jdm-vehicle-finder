@@ -921,6 +921,8 @@ const ICONS = {
   auctions: svgIcon(`<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>`),
   trash: svgIcon(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>`),
   agents: svgIcon(`<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/>`),
+  dealers: svgIcon(`<path d="M3 9h18l-2-5H5L3 9Z"/><path d="M5 9v11h14V9M9 20v-6h6v6"/>`),
+  "dealer-submissions": svgIcon(`<path d="M4 5h16v15H4z"/><path d="M8 3h8v4H8zM8 11h8M8 15h5"/>`),
   payments: svgIcon(`<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/>`),
   settings: svgIcon(`<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="8" cy="18" r="2" fill="var(--card)"/>`),
   bell: svgIcon(`<path d="M6 9a6 6 0 0 1 12 0c0 5.5 1.8 6.5 1.8 6.5H4.2S6 14.5 6 9Z"/><path d="M10 19a2 2 0 0 0 4 0"/>`),
@@ -7952,9 +7954,9 @@ export async function dealerPortalPage(env, dealer, flash = "") {
   const submissions = await getDealerVehicles(env, dealer.id, "all");
   const first = (dealer.name || "").split(/\s+/)[0];
   const side = `<aside class="side"><div class="brand">${LOGO}</div><nav class="nav"><a class="active" aria-current="page" href="/dealer"><span class="bar" aria-hidden="true"></span><span class="lbl">Submitted stock</span></a></nav><div class="side-foot"><div class="whoami"><span class="who-name">${esc(dealer.name || "Dealer")}</span><span class="who-role">${esc(dealer.company || "Dealer account")}</span></div><a class="signout" href="/logout">Sign out</a></div></aside>`;
-  const badge = (status) => status === "approved" ? `<span class="chip strong">Approved</span>`
-    : status === "rejected" ? `<span class="chip bad">Rejected</span>`
-    : `<span class="chip good">Pending review</span>`;
+  const badge = (status) => status === "approved" ? `<span class="chip chip-good">Approved</span>`
+    : status === "rejected" ? `<span class="chip chip-bad">Rejected</span>`
+    : `<span class="chip chip-warn">Pending review</span>`;
   const list = submissions.length ? submissions.map((v) => `<article class="card dealer-own-card"><div class="dealer-own-head"><div><h3>${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h3><p>${v.created_at ? `Submitted ${esc(new Intl.DateTimeFormat("en-AU", { dateStyle: "medium" }).format(new Date(v.created_at)))}` : ""}</p></div>${badge(v.status)}</div><div class="dealer-own-meta"><strong>A$${Number(v.price_aud || 0).toLocaleString("en-AU")}</strong>${v.mileage_km ? `<span>${Number(v.mileage_km).toLocaleString("en-AU")} km</span>` : ""}${v.location ? `<span>${esc(v.location)}</span>` : ""}</div>${v.admin_notes ? `<p class="reqerr"><strong>Review note:</strong> ${esc(v.admin_notes)}</p>` : ""}</article>`).join("") : `<div class="card"><div class="empty">No submissions yet. Add your first vehicle above.</div></div>`;
   const main = `<div class="topbar"><div><div class="kicker">Dealer portal</div><h1>Welcome${first ? `, ${esc(first)}` : ""}</h1><p class="subline">Submit inventory for the JDM Connect team to review.</p></div><a class="btn-outline" href="/logout">Sign out</a></div><div class="content">
     ${flash ? `<div class="dealer-flash ${/^error/i.test(flash) ? "err" : ""}" role="status">${esc(flash)}</div>` : ""}
@@ -7980,7 +7982,7 @@ export function dealersPage(list = []) {
   const rows = list.map((d) => `<tr>
     <td>${avatar(d.name)}<span class="idcell"><strong>${esc(d.name)}</strong><span class="idsub">${esc(d.email)}</span></span></td>
     <td>${esc(d.company || "-")}</td><td>${esc(d.state || "-")}</td>
-    <td>${d.active ? statusBadge("searching") : `<span class="chip muted">Inactive</span>`}</td>
+    <td>${d.active ? `<span class="chip chip-good">Active</span>` : `<span class="chip muted">Inactive</span>`}</td>
     <td>${d.created_at ? esc(new Intl.DateTimeFormat("en-AU", { dateStyle: "medium" }).format(new Date(d.created_at))) : "-"}</td>
     <td style="text-align:right">${rowMenu([
       { label: d.pass_hash ? "Send password reset" : "Resend invite", action: d.pass_hash ? "/send-reset" : "/dealer/invite", id: d.id, extra: d.pass_hash ? { kind: "dealer" } : {} },
@@ -7989,14 +7991,15 @@ export function dealersPage(list = []) {
       { label: "Delete dealer", action: "/dealer/delete", id: d.id, danger: true, confirm: `Delete ${d.name} and all their submissions?` },
     ])}</td>
   </tr>`).join("");
-  const cards = list.map((d) => mobileCard({
-    title: esc(d.name), sub: [esc(d.company || ""), esc(d.email || ""), esc(d.state || "")].filter(Boolean).join(" · "),
-    left: avatar(d.name), right: d.active ? statusBadge("searching") : `<span class="chip muted">Inactive</span>`,
-    foot: rowMenu([
+  const cards = list.map((d) => mobileCardRow({
+    name: d.name,
+    title: esc(d.name),
+    meta: [esc(d.company || ""), esc(d.email || ""), esc(d.state || "")].filter(Boolean).join(" &middot; "),
+    right: `${d.active ? `<span class="chip chip-good">Active</span>` : `<span class="chip muted">Inactive</span>`}${rowMenu([
       { label: d.pass_hash ? "Send password reset" : "Resend invite", action: d.pass_hash ? "/send-reset" : "/dealer/invite", id: d.id, extra: d.pass_hash ? { kind: "dealer" } : {} },
       { label: d.active ? "Deactivate" : "Activate", action: "/dealer/toggle", id: d.id },
       { sep: true }, { label: "Delete dealer", action: "/dealer/delete", id: d.id, danger: true, confirm: `Delete ${d.name} and all their submissions?` },
-    ]),
+    ])}`,
   })).join("");
   return `<div class="card dealer-add"><h2>Add dealer</h2><form method="POST" action="/dealer" class="form-grid">
       <div><label for="dealer-name">Name</label><input id="dealer-name" name="name" autocomplete="name" maxlength="120" required></div>
@@ -8006,20 +8009,20 @@ export function dealersPage(list = []) {
       <div class="form-actions"><button type="submit" class="btn-gold">Add &amp; invite dealer</button></div>
     </form></div>
     <div class="psec"><h2>Dealer accounts <span class="ct">${list.length}</span></h2><a class="btn-outline" href="/admin?view=dealer-submissions">Review submitted stock</a></div>
-    ${list.length ? `<div class="card table-card"><table class="sortable"><thead><tr><th>Dealer</th><th>Company</th><th>State</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="mobile-list">${cards}</div>` : `<div class="card"><div class="empty">No dealer accounts yet. Add the first dealer above.</div></div>`}
+    ${list.length ? `<div class="card table-card tbl-desk"><table class="sortable"><thead><tr><th>Dealer</th><th>Company</th><th>State</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcl">${cards}</div>` : `<div class="card"><div class="empty">No dealer accounts yet. Add the first dealer above.</div></div>`}
     <style>.dealer-add{margin-bottom:var(--sp-5)}.dealer-add h2{margin:0 0 var(--sp-4)}.dealer-add .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}.dealer-add .form-actions{grid-column:1/-1}.dealer-add input{width:100%}@media(max-width:640px){.dealer-add .form-grid{grid-template-columns:1fr}}</style>`;
 }
 
 // Admin dealer-submission review body inside the shared admin shell.
 export function dealerSubmissionsPage(submissions = [], status = "pending") {
   const tabs = ["pending", "approved", "rejected", "archived"];
-  const badge = (s) => s === "approved" ? `<span class="chip strong">Approved</span>`
-    : s === "rejected" ? `<span class="chip bad">Rejected</span>`
+  const badge = (s) => s === "approved" ? `<span class="chip chip-good">Approved</span>`
+    : s === "rejected" ? `<span class="chip chip-bad">Rejected</span>`
     : s === "archived" ? `<span class="chip muted">Archived</span>`
-    : `<span class="chip good">Pending</span>`;
+    : `<span class="chip chip-warn">Pending</span>`;
   const filters = `<div class="fchips dealer-tabs">${tabs.map((t) => `<a class="${status === t ? "on" : ""}" href="/admin?view=dealer-submissions&amp;status=${t}">${t.charAt(0).toUpperCase() + t.slice(1)}${status === t ? ` <span>${submissions.length}</span>` : ""}</a>`).join("")}</div>`;
   const cards = submissions.map((v) => `<article class="card dealer-stock-card">
-    <div class="dealer-stock-head"><div><h2>${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h2><p>${esc(v.dealer_name)}${v.dealer_company ? ` · ${esc(v.dealer_company)}` : ""}</p></div>${badge(v.status)}</div>
+    <div class="dealer-stock-head"><div><h2>${esc(v.make)} ${esc(v.model)}${v.year ? ` (${v.year})` : ""}</h2><p>${esc(v.dealer_name)}${v.dealer_company ? ` &middot; ${esc(v.dealer_company)}` : ""}</p></div>${badge(v.status)}</div>
     <dl class="dealer-stock-meta"><div><dt>Price</dt><dd>A$${Number(v.price_aud || 0).toLocaleString("en-AU")}</dd></div>${v.mileage_km ? `<div><dt>Mileage</dt><dd>${Number(v.mileage_km).toLocaleString("en-AU")} km</dd></div>` : ""}${v.grade ? `<div><dt>Grade</dt><dd>${esc(v.grade)}</dd></div>` : ""}${v.location ? `<div><dt>Location</dt><dd>${esc(v.location)}</dd></div>` : ""}</dl>
     ${v.description ? `<p class="dealer-stock-copy">${esc(v.description)}</p>` : ""}
     ${v.admin_notes ? `<p class="reqerr"><strong>Review note:</strong> ${esc(v.admin_notes)}</p>` : ""}

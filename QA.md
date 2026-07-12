@@ -41,7 +41,7 @@ Created by `seed/seed-dev.sql` (all data is fabricated):
 | Admin        | `/login`, **blank email** + your `ADMIN_PASSWORD` (`.dev.vars`, default `devadmin`) |
 | Agent        | `/login`, `demo.agent@example.com` / `demo1234`            |
 | Buyer portal | `/portal`, `demo.buyer@example.com` / `demo1234`           |
-| Dealer       | create one from Admin → Dealers, then use the invite link  |
+| Dealer       | `/dealer`, `demo.dealer@example.com` / `demo1234`           |
 
 The public request form at `/request` needs no login.
 

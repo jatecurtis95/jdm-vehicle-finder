@@ -22,6 +22,7 @@ tested locally without ever touching real customer records.
 
 - Two agents. `demo.agent@example.com` has a working password; the other is in
   the invited (no password) state.
+- One dealer account with a pending sample vehicle submission.
 - Three clients, including one with the buyer portal enabled.
 - Three wishlists (R34 GT-R, A80 Supra, an FD RX-7 watch-only lead).
 - Three matches: two delivered to the portal buyer (one already requested) and
@@ -33,6 +34,7 @@ tested locally without ever touching real customer records.
 |-------|------------|-------------------------|
 | Agent | `/login`   | `demo.agent@example.com`|
 | Buyer | `/login`   | `demo.buyer@example.com`|
+| Dealer | `/dealer` | `demo.dealer@example.com`|
 | Admin | `/login`   | leave email blank, use the `ADMIN_PASSWORD` from `.dev.vars` |
 
 ## Safety

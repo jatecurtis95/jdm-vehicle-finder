@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { makeEnv, readFile } from "./helpers/d1.mjs";
 import { runWishlist } from "../src/matcher.js";
 import { adminPage, dealerPortalPage } from "../src/admin.js";
+import { authenticate } from "../src/auth.js";
 
 const ADMIN = { role: "admin", id: 0 };
 
@@ -69,7 +70,7 @@ test("the request wizard does not scroll the active step during initial render",
 });
 
 test("dealer management and submissions render inside the shared admin shell", async () => {
-  const env = makeEnv();
+  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
   for (const view of ["dealers", "dealer-submissions"]) {
     const html = await adminPage(env, view, ADMIN, { dealerStatus: "pending" });
     assert.match(html, /<aside class="side">/, `${view} keeps admin navigation`);
@@ -86,6 +87,13 @@ test("the dealer portal uses the shared branded shell and collapses forms on pho
   assert.match(html, /href="\/dealer"/, "dealer home is reachable from its navigation");
   assert.match(html, /@media\(max-width:640px\)[^{]*\{[^}]*\.dealer-form-grid\{grid-template-columns:1fr/s, "vehicle form becomes one column on phones");
   assert.doesNotMatch(html, /body \{ font-family: -apple-system/, "legacy standalone stylesheet is gone");
+});
+
+test("the development seed includes a working dealer login and pending stock", async () => {
+  const env = makeEnv(readFile("seed/seed-dev.sql"));
+  const dealer = await authenticate(env, "demo.dealer@example.com", "demo1234");
+  assert.equal(dealer?.role, "dealer");
+  assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE dealer_id = 9001 AND status = 'pending'").get().n, 1);
 });
 
 test("local QA scripts resolve npx cross-platform and worst-case data layers over the normal seed", () => {

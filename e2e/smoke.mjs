@@ -30,7 +30,7 @@ test("critical mobile flows render without the stabilization regressions", { ski
     assert.match(wizard.heading || "", /What vehicle are you looking for/i);
 
     await page.goto(`${baseUrl}/login`, { waitUntil: "networkidle0" });
-    await page.type('input[name="password"]', "e2e-admin");
+    await page.type('input[name="password"]', process.env.E2E_ADMIN_PASSWORD || "e2e-admin");
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle0" }),
       page.click('button[type="submit"]'),
