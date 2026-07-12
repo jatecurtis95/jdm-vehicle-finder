@@ -21,6 +21,14 @@ INSERT OR REPLACE INTO agents (id, email, name, pass_salt, pass_hash, active, al
   (9001, 'demo.agent@example.com', 'Demo Agent', 'Z/BWEBau6M4vcJs5hitPwQ==', 'QHirASmhIRYnd6NXnoFv9jo6JuP/hOw/1AU3A1Q0I1M=', 1, 1, 'Ofuka Demo'),
   (9002, 'invited.agent@example.com', 'Invited Agent', '', '', 1, 1, NULL);
 
+-- Dealer account -----------------------------------------------------------
+-- Uses the same QA-only demo password as the agent and buyer: demo1234.
+INSERT OR REPLACE INTO dealers (id, email, name, company, state, pass_salt, pass_hash, active) VALUES
+  (9001, 'demo.dealer@example.com', 'Demo Dealer', 'Tokyo Demo Cars', 'WA', 'Z/BWEBau6M4vcJs5hitPwQ==', 'QHirASmhIRYnd6NXnoFv9jo6JuP/hOw/1AU3A1Q0I1M=', 1);
+
+INSERT OR REPLACE INTO dealer_vehicles (id, dealer_id, make, model, year, grade, mileage_km, price_aud, location, description, status) VALUES
+  (9001, 9001, 'NISSAN', 'SKYLINE', 1999, '4.5', 62000, 89500, 'Perth WA', 'Fabricated QA submission for responsive dealer-page checks.', 'pending');
+
 -- Clients ------------------------------------------------------------------
 -- 9001 owned by the demo agent, portal enabled with a working login.
 -- 9002 owned by the demo agent, no portal. 9003 is a JDM Connect direct client.

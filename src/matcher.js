@@ -187,17 +187,15 @@ export async function runWishlist(env, wishlist, opts = {}) {
   ).bind(wishlist.id).first();
   const room = Math.max(0, 40 - (pendingRow?.n || 0));
   if (room <= 0) return [];
-  const take = fresh.slice(0, room);
-
-  // Estimate landed cost up front so it's snapshotted into lot_json; the admin
-  // Matches view then reuses it instead of re-calling the calculator per load.
-  await attachLanded(env, take.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
-  // Landed-cost-aware budget gate (see withinBudget). take holds ALL fresh
-  // candidates (the SQL LIMIT sits well under the pending-room cap), so dropping
-  // over-budget lots here simply queues fewer matches; cheaper ones still surface.
-  const affordable = opts.budgetFilter === false
-    ? take
-    : withinBudget(take, wishlist.budget_aud, opts.budgetHeadroom);
+  // Estimate every fresh candidate before applying the queue-capacity slice.
+  // If we sliced first, a partially full queue could repeatedly inspect the same
+  // over-budget leaders and permanently starve affordable candidates behind them.
+  // The feed query caps this batch at 25, so the calculator work remains bounded.
+  await attachLanded(env, fresh.map((lot) => ({ lot, client: { state: wishlist.client_state } })));
+  const eligible = opts.budgetFilter === false
+    ? fresh
+    : withinBudget(fresh, wishlist.budget_aud, opts.budgetHeadroom);
+  const affordable = eligible.slice(0, room);
   // Tag watch-only "lead" matches: they surface for a follow-up call but the
   // client is never auto-emailed, even on approval.
   for (const lot of affordable) lot._watch = wishlist.watch_only ? 1 : 0;

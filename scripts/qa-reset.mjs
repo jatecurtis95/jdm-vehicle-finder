@@ -19,6 +19,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const DB_NAME = "jdm-vehicle-finder";
 const argv = process.argv.slice(2);
+const wranglerCli = resolve(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 
 function run(cmd, args) {
   console.log(`\n$ ${cmd} ${args.join(" ")}`);
@@ -38,13 +39,16 @@ if (existsSync(state)) {
 // 2) Re-apply all migrations to a fresh local D1. On a fresh database the
 //    runner applies 0001..N cleanly in order (the prod tracking-table drift
 //    documented in migrations/README.md is a remote-only concern).
-run("npx", ["wrangler", "d1", "migrations", "apply", DB_NAME, "--local"]);
+run(process.execPath, [wranglerCli, "d1", "migrations", "apply", DB_NAME, "--local"]);
 
 // 3) Load a seed unless asked not to.
 if (!argv.includes("--no-seed")) {
-  const seedFile = argv.includes("--worstcase") ? "seed/seed-worstcase.sql" : "seed/seed-dev.sql";
-  run("npx", ["wrangler", "d1", "execute", DB_NAME, "--local", "--file", seedFile]);
-  console.log(`\n✓ Loaded ${seedFile}`);
+  const seedFiles = ["seed/seed-dev.sql"];
+  if (argv.includes("--worstcase")) seedFiles.push("seed/seed-worstcase.sql");
+  for (const seedFile of seedFiles) {
+    run(process.execPath, [wranglerCli, "d1", "execute", DB_NAME, "--local", "--file", seedFile]);
+    console.log(`\n✓ Loaded ${seedFile}`);
+  }
 }
 
 console.log(`

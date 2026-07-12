@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicleSubmissions, getDealerVehicles, dealerPortalPage, dealersPage, dealerSubmissionsPage } from "./admin.js";
+import { adminPage, requestPage, loginPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -817,13 +817,10 @@ export default {
         };
       }
       if (view === "dealers") {
-        const html = await dealersPage(env);
-        return doc(html, 200);
+        adminOpts.dealerStatus = "pending";
       }
       if (view === "dealer-submissions") {
-        const status = url.searchParams.get("status") || "pending";
-        const html = await dealerSubmissionsPage(env, status);
-        return doc(html, 200);
+        adminOpts.dealerStatus = url.searchParams.get("status") || "pending";
       }
       return doc(await adminPage(env, view, session, adminOpts));
     }

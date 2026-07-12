@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const DB_NAME = "jdm-vehicle-finder";
+const wranglerCli = resolve(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
 
 // Tables that are infrastructure, not application schema, and must never count
 // as "expected" or "missing".
@@ -98,9 +99,9 @@ function quoteIdent(name) {
 // non-existent table returns zero rows (no error), which surfaces as a missing
 // table in the diff.
 function remoteTableColumns(local, table) {
-  const args = ["wrangler", "d1", "execute", DB_NAME, local ? "--local" : "--remote",
+  const args = [wranglerCli, "d1", "execute", DB_NAME, local ? "--local" : "--remote",
                 "--json", "--command", `PRAGMA table_info(${quoteIdent(table)})`];
-  const stdout = execFileSync("npx", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  const stdout = execFileSync(process.execPath, args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   return parseWranglerJson(stdout).map((r) => r.name).filter(Boolean);
 }
 

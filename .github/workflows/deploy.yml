@@ -30,7 +30,33 @@ jobs:
           node-version: "22"  # node:sqlite (schema check) + wrangler >=4.x need Node 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Prepare browser smoke database
+        run: npm run qa:reset -- --worstcase
+
+      - name: Start local Worker
+        run: |
+          nohup npx wrangler dev --port 8787 \
+            --var ADMIN_PASSWORD:e2e-admin \
+            --var ADMIN_TOKEN:e2e-token-for-browser-smoke-tests \
+            --var MAIL_DRY_RUN:1 > /tmp/jdm-worker.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/login > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/jdm-worker.log
+          exit 1
+
+      - name: Run mobile browser smoke tests
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8787
+        run: |
+          export PUPPETEER_EXECUTABLE_PATH="$(which google-chrome || which chromium || which chromium-browser)"
+          npm run test:e2e
 
       - name: Verify production schema matches migrations
         env:
