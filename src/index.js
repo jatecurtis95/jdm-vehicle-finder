@@ -19,7 +19,7 @@ import { labelForCode } from "./model-codes.js";
 import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
-import { notFoundPage, infoPage, decisionConfirmPage, privacyPage } from "./theme.js";
+import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -302,6 +302,17 @@ export default {
     if (path === "/privacy" || path === "/privacy-policy") {
       return doc(privacyPage());
     }
+    // Public terms of service (footer / launch audit).
+    if (path === "/terms" || path === "/terms-of-service") {
+      return doc(termsPage());
+    }
+    // Sitemap: the public, indexable pages only. Session-gated surfaces and
+    // token-gated share links stay out by design.
+    if (path === "/sitemap.xml") {
+      const pages = ["/", "/request", "/privacy", "/terms"];
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${PUBLIC_ORIGIN}${p}</loc></url>`).join("\n")}\n</urlset>\n`;
+      return new Response(xml, { headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=86400" } });
+    }
 
     // Public vehicle-request form (no login) - for dealers and their clients.
     // A signed-in buyer (e.g. via Google) sees the account step collapse to a
@@ -398,7 +409,16 @@ export default {
         return doc(await requestPage(env, { submitted: true }));
       }
       const reqErr = url.searchParams.get("error") === "google" ? "google" : undefined;
-      return doc(await requestPage(env, { signedIn, error: reqErr }));
+      // Vehicle-enquiry links carry the car into the wizard (launch audit: the
+      // selected car was lost). The prefill plumbing (vals -> selects, refine
+      // panel auto-open) already exists for the validation re-render path.
+      const qp = (k, max = 60) => String(url.searchParams.get(k) || "").slice(0, max).trim();
+      const qVals = {};
+      if (qp("make")) qVals.marka_name = qp("make");
+      if (qp("model")) qVals.model_name = qp("model");
+      if (/^\d{4}$/.test(qp("year"))) { qVals.year_min = qp("year"); qVals.year_max = qp("year"); }
+      if (qp("chassis")) qVals.kuzov = qp("chassis");
+      return doc(await requestPage(env, { signedIn, error: reqErr, vals: qVals }));
     }
 
     // Feed lookup lists for the form dropdowns (public - just car names).
@@ -1416,6 +1436,44 @@ async function handleClientPortal(request, env, url, path, session, here) {
     };
     return doc(await portalSoldPage(env, session, params));
   }
+  // Server-side watchlist sync (launch audit: hearts were per-device only).
+  // GET returns the member's saved lots as {lotId: snapshot}; POST accepts
+  // {add:[snapshot...], remove:[lotId...]} from the shared watch script. The
+  // client keeps localStorage as its cache, so this degrades gracefully.
+  if (path === "/portal/watchlist" && request.method === "GET") {
+    const rows = (await env.DB.prepare("SELECT lot_id, snapshot FROM watchlist_items WHERE client_id = ? ORDER BY id").bind(Number(session.id)).all()).results || [];
+    const map = {};
+    for (const r of rows) { try { map[r.lot_id] = JSON.parse(r.snapshot); } catch (e) {} }
+    return new Response(JSON.stringify(map), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+  if (path === "/portal/watchlist" && request.method === "POST") {
+    const cid = Number(session.id);
+    let body = {}; try { body = await request.json(); } catch (e) {}
+    const adds = Array.isArray(body.add) ? body.add.slice(0, 100) : [];
+    const removes = Array.isArray(body.remove) ? body.remove.slice(0, 100) : [];
+    const WATCH_CAP = 200, SNAP_MAX = 2000, ID_MAX = 64;
+    const stmts = [];
+    for (const raw of removes) {
+      const id = String(raw || "").slice(0, ID_MAX);
+      if (id) stmts.push(env.DB.prepare("DELETE FROM watchlist_items WHERE client_id = ? AND lot_id = ?").bind(cid, id));
+    }
+    const have = (await env.DB.prepare("SELECT COUNT(*) AS n FROM watchlist_items WHERE client_id = ?").bind(cid).first())?.n || 0;
+    let room = Math.max(0, WATCH_CAP - have + removes.length);
+    for (const s of adds) {
+      if (room <= 0) break;
+      const id = String(s && s.id || "").slice(0, ID_MAX);
+      if (!id) continue;
+      const snapshot = JSON.stringify(s);
+      if (snapshot.length > SNAP_MAX) continue;
+      stmts.push(env.DB.prepare(
+        "INSERT INTO watchlist_items (client_id, lot_id, snapshot) VALUES (?, ?, ?) ON CONFLICT(client_id, lot_id) DO UPDATE SET snapshot = excluded.snapshot"
+      ).bind(cid, id, snapshot));
+      room--;
+    }
+    if (stmts.length) await env.DB.batch(stmts);
+    return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+
   if (path === "/portal/auctions/request" && request.method === "POST") {
     const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
     if (!c || !c.member) return Response.redirect(here("/portal/auctions"), 303);

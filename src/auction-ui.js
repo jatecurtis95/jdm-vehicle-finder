@@ -273,10 +273,16 @@ export function feedDownCard() {
 // Client-side Watchlist: toggles favourites in localStorage, keeps the header
 // counts live, marks favourited cards, and (on the Watchlist tab) renders saved
 // lots into #watchGrid. opts.request => include a Request form on watch cards.
+// opts.sync: signed-in buyer surfaces pass true so hearts also persist to the
+// server (/portal/watchlist) and follow the member across devices (launch
+// audit: the watchlist used to be localStorage-only). localStorage stays the
+// cache, so a failed request never loses a heart locally.
 export function auctionWatchScript(opts = {}) {
   const REQUEST = opts.request ? "true" : "false";
+  const SYNC = opts.sync ? "true" : "false";
   return `<script>(function(){
-  var REQUEST=${REQUEST},KEY='jdmWatch';
+  var REQUEST=${REQUEST},SYNC=${SYNC},KEY='jdmWatch';
+  function send(body){if(!SYNC)return;try{fetch('/portal/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(function(){});}catch(e){}}
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
   function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){return {};}}
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
@@ -304,8 +310,17 @@ export function auctionWatchScript(opts = {}) {
     if(!ids.length){g.innerHTML='<div class="awatch-empty"><div class="rule"></div>No cars saved yet. Tap the heart on any lot to add it to your watchlist.</div>';return;}
     var out='';for(var i=0;i<ids.length;i++){out+=card(m[ids[i]]);}g.innerHTML=out;
     var ph=g.querySelectorAll('.ac-photo[data-bg]');for(var j=0;j<ph.length;j++){var u=ph[j].getAttribute('data-bg');if(u)ph[j].style.backgroundImage="url('"+u+"')";}}
-  document.addEventListener('click',function(ev){var t=ev.target,b=t&&t.closest?t.closest('.ac-fav'):null;if(!b)return;ev.preventDefault();var m=load(),id=b.getAttribute('data-id');if(m[id]){delete m[id];}else{m[id]=snap(b);}save(m);mark();paint();renderWatch();});
+  document.addEventListener('click',function(ev){var t=ev.target,b=t&&t.closest?t.closest('.ac-fav'):null;if(!b)return;ev.preventDefault();var m=load(),id=b.getAttribute('data-id');if(m[id]){delete m[id];send({remove:[id]});}else{m[id]=snap(b);send({add:[m[id]]});}save(m);mark();paint();renderWatch();});
   mark();paint();renderWatch();
+  // Hydrate from the server copy, then push up anything only this device has,
+  // so a member's hearts converge across devices without ever blocking paint.
+  if(SYNC){try{fetch('/portal/watchlist').then(function(r){return r.ok?r.json():null;}).then(function(srv){
+    if(!srv)return;var m=load(),push=[],changed=false;
+    Object.keys(srv).forEach(function(id){if(!m[id]){m[id]=srv[id];changed=true;}});
+    Object.keys(m).forEach(function(id){if(!srv[id])push.push(m[id]);});
+    if(changed){save(m);mark();paint();renderWatch();}
+    if(push.length)send({add:push.slice(0,100)});
+  }).catch(function(){});}catch(e){}}
 })();</script>`;
 }
 

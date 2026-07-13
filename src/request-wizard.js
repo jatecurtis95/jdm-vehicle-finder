@@ -132,7 +132,9 @@ export function supportBlock() {
 }
 
 export const onboardingCss = `
-  .ob{--ink:#181a1d;--t2:#5b606a;--t3:#7a808a;--faint:#9aa0a8;
+  .ob{/* --t3/--faint raised to theme.js's light-register greys for WCAG AA
+       (launch audit: step labels and hints sat under 4:1 on white). */
+    --ink:#181a1d;--t2:#5b606a;--t3:#6b7079;--faint:#656a73;
     --gold:#CAA34C;--gold-d:#9A7B2B;--gold-txt:#7A5E1C;--gold-tint:rgba(202,163,76,0.12);--gold-line:rgba(202,163,76,0.5);
     --card:#ffffff;--surface:#faf9f6;--hair:rgba(23,24,28,0.10);--hair-2:rgba(23,24,28,0.06);
     --field:#ffffff;--field-line:rgba(23,24,28,0.16);--good:#1F7A4D;

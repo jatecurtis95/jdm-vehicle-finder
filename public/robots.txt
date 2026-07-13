@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /portal
+Disallow: /dealer
+Disallow: /api/
+Disallow: /webhooks/
+Disallow: /login
+Disallow: /v
+
+Sitemap: https://jdmfinder.com.au/sitemap.xml

@@ -127,8 +127,14 @@ function liveCard(lot) {
   const sub = [lot.kuzov, lot.grade].map((x) => esc(String(x || "").trim())).filter(Boolean).join(" &middot; ");
   const odo = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";
   const closes = String(lot.auction_date || "").slice(0, 10);
+  // Carry the card's car into the request wizard so the enquiry doesn't start
+  // from a blank form (launch audit).
+  const reqHref = "/request?" + new URLSearchParams({
+    make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(),
+    year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim(),
+  }).toString();
   return `
-  <a class="vcard rv" href="/request">
+  <a class="vcard rv" href="${esc(reqHref)}">
     <div class="vc-photo">
       <img src="/assets/lot-img?u=${encodeURIComponent(img)}" alt="${name}" loading="lazy" width="800" height="600" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div class="scrim"></div>
       <span class="vc-lot">Lot ${esc(lot.lot || "-")}</span>
@@ -482,6 +488,12 @@ export async function landingPage(env) {
       <div class="jf-foot-in">
         <a class="jf-brand" href="/" aria-label="JDM Connect home">${LOGO}<span class="jf-tag">Finder</span></a>
         <div class="fmid">Connecting JDM &middot; ジェー・ディー・エムをつなぐ</div>
+        <nav class="flinks" aria-label="Legal and contact">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="mailto:hello@jdmconnect.com.au">hello@jdmconnect.com.au</a>
+          <a href="https://wa.me/61415111221" target="_blank" rel="noopener">+61 415 111 221</a>
+        </nav>
         <div class="fcopy">&copy; 2026 JDM Connect. Find it. We&rsquo;ll handle the rest.</div>
       </div>
     </footer>
@@ -494,5 +506,10 @@ export async function landingPage(env) {
   // small variant.
   const hero = photoSrcset("hero_r32_garage.jpg");
   const heroPreload = `<link rel="preload" as="image" href="${hero.src}" imagesrcset="${hero.srcset}" imagesizes="100vw" fetchpriority="high">`;
-  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", { analytics: true, headExtra: heroPreload });
+  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", {
+    analytics: true,
+    headExtra: heroPreload,
+    description: "Tell us the JDM car you want. We search every live Japanese auction, hand-review the matches and handle bidding, shipping and compliance to Australia. Free to start.",
+    canonical: "https://jdmfinder.com.au/",
+  });
 }

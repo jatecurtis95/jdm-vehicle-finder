@@ -1771,19 +1771,15 @@ export function forgotPasswordPage(opts = {}) {
 
 // Time-aware greeting (client local time) + count-up on the dashboard numbers.
 // Honours prefers-reduced-motion by showing final values immediately.
+// Stat tiles server-render their REAL numbers; there is no count-up any more
+// (launch audit: tiles rendered a literal 0 and animated toward the truth, so
+// the dashboard lied for over a second - or forever with JS off). Any number
+// shown is always the actual value. Only the greeting is scripted.
 function dashScript() {
   return `<script>(function(){
     var h=new Date().getHours();
     var g=h<12?'Good morning':h<18?'Good afternoon':'Good evening';
     var t=document.getElementById('greetTime'); if(t) t.textContent=g;
-    var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.querySelectorAll('[data-count]').forEach(function(n,i){
-      var target=+n.getAttribute('data-count')||0;
-      if(reduce){ n.textContent=target.toLocaleString(); return; }
-      var dur=1150, start=null;
-      function tick(now){ if(start===null)start=now; var p=Math.min((now-start)/dur,1); var e=1-Math.pow(1-p,3); n.textContent=Math.round(target*e).toLocaleString(); if(p<1) requestAnimationFrame(tick); }
-      setTimeout(function(){ requestAnimationFrame(tick); }, i*110);
-    });
   })();</script>`;
 }
 
@@ -1998,8 +1994,10 @@ function dashboardView(session, data) {
   const who = isAdmin ? "Jate" : esc((session.name || "there").split(/\s+/)[0]);
   const ovLabel = isAdmin ? "Team overview" : "Your overview";
   // A KPI cell; when href is given it becomes a clickable shortcut to that view.
+  // The real number renders server-side (never a 0 placeholder - launch audit).
   const metric = (n, label, gold, href) => {
-    const inner = `<div class="num" data-count="${Number(n) || 0}">0</div><div class="cap">${label}</div>`;
+    const v = Number(n) || 0;
+    const inner = `<div class="num" data-count="${v}">${v.toLocaleString("en-AU")}</div><div class="cap">${label}</div>`;
     return href ? `<a class="ov${gold ? " gold" : ""} ov-link" href="${href}">${inner}</a>` : `<div class="ov${gold ? " gold" : ""}">${inner}</div>`;
   };
 
@@ -2084,9 +2082,11 @@ function dashboardView(session, data) {
   }).join("") || `<div class="lrow"><div class="who"><div class="sub">Nothing closing in the next 48h.</div></div></div>`;
 
   // --- Phase 2: "needs attention today" band + live pipeline strip ----------
+  // Real numbers server-side, same as metric() above (launch audit).
   const ac = (n, label, href, alert) => {
-    const tone = (Number(n) || 0) > 0 ? alert : "calm";
-    return `<a class="acard acard-${tone}" href="${href}"><div class="ac-n" data-count="${Number(n) || 0}">0</div><div class="ac-l">${label}</div></a>`;
+    const v = Number(n) || 0;
+    const tone = v > 0 ? alert : "calm";
+    return `<a class="acard acard-${tone}" href="${href}"><div class="ac-n" data-count="${v}">${v.toLocaleString("en-AU")}</div><div class="ac-l">${label}</div></a>`;
   };
   // Decision order, not category order: who to call this hour, what closes,
   // what to send, who to chase, then money and tasks. The hot-lead tile goes
@@ -2140,7 +2140,9 @@ function dashboardView(session, data) {
   const stalledSection = dsec(`<div class="sec-h"><h2>Which requests are stalled? <span class="ct">(${data.stalled || 0})</span></h2>${secBtn(data.stalled, "/admin?view=requests", "Review")}</div>`, `<div class="list">${stalledRows}</div>`);
 
   // Reframe the closing-soon list as a question to match the rest of the board.
-  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close today? <span class="ct">(${data.closing || 0})</span></h2>${secBtn(data.closing, "/admin?view=matches", "Review")}</div>`, `<div class="list">${closingRows}</div>`);
+  // The list and count deliberately look 48h ahead ("the work that can't
+  // wait"), so the heading must say so (launch audit: it claimed "today").
+  const closingQ = dsec(`<div class="sec-h"><h2>Which auctions close within 48h? <span class="ct">(${data.closing || 0})</span></h2>${secBtn(data.closing, "/admin?view=matches", "Review")}</div>`, `<div class="list">${closingRows}</div>`);
 
   // Who needs attention today, scheduled follow-ups due (or overdue).
   const naRows = (data.nextActionList || []).map((w) => {
@@ -5424,7 +5426,11 @@ export async function requestPage(env, opts = {}) {
     </div>
     <style>${onboardingCss}${googleOn ? GOOGLE_BTN_CSS : ""}</style>
     ${modelScript("rq-maker", "rq-models", "Select a model")}${codeGradeScript("rq-maker", "rq-models", "rf-code", "rf-grades")}${wizardScript({ pwMin: PW_MIN, pwMax: PW_MAX, budgetMin: BUDGET_MIN_AUD, signedIn: !!signedIn, fx, overheadAud: IMPORT_OVERHEAD_AUD, onValueTax: ON_VALUE_TAX, minCarAud: MIN_CAR_VALUE_AUD })}`;
-  return brandDoc(inner, "Find your car - JDM Connect", { analytics: true });
+  return brandDoc(inner, "Find your car - JDM Connect", {
+    analytics: true,
+    description: "Tell us the make, model and budget - we search every live Japanese auction and a specialist reviews each match before it reaches you. Free account, two minutes to set up.",
+    canonical: "https://jdmfinder.com.au/request",
+  });
 }
 
 // Read-only public view of a shared car (the "Share" link). No login, no client
@@ -5487,14 +5493,18 @@ export async function publicLotPage(env, queueId) {
         <aside class="plv-right">
           <div class="card plv-spec">
             <div class="plv-rows">${specRows}</div>
-            <a class="btn-gold plv-cta" href="/request">Enquire about this car</a>
+            <a class="btn-gold plv-cta" href="${esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString())}">Enquire about this car</a>
             <p class="plv-fine">Price shown is the Japanese auction price. Ask us for a full landed cost to your state.</p>
           </div>
         </aside>
       </div>
     </div>
     ${PLV_STYLE}${plvGalleryScript()}`;
-  return brandShell(sb, main, title + " - JDM Connect");
+  // Shared links unfurl with the actual car (launch audit: social meta).
+  return brandShell(sb, main, title + " - JDM Connect", {
+    description: [`${title} at Japanese auction`, lot.kuzov ? `chassis ${lot.kuzov}` : "", lot.auction ? `via ${lot.auction}` : ""].filter(Boolean).join(", ") + ". Sourced and imported to Australia by JDM Connect.",
+    ogImage: photos[0] || undefined,
+  });
 }
 
 function plvGalleryScript() {
@@ -5613,7 +5623,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
         </aside>
       </div>
     </div>
-    ${PLV_STYLE}${ALOT_CSS}${plvGalleryScript()}${auctionWatchScript({ request: false })}`;
+    ${PLV_STYLE}${ALOT_CSS}${plvGalleryScript()}${auctionWatchScript({ request: false, sync: member })}`;
   return member
     ? brandShell(portalSidebar(client, "auctions"), main, title + " - JDM Connect")
     : shell(sidebar("auctions", {}, session), main, title + " - JDM Connect");
@@ -7009,7 +7019,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
         <p class="subline">Search every live Japanese auction, save cars to your watchlist, then ask us to chase any lot.</p>
       </div>
     </div>
-    <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true })}${AUCTION_CSS}</div>`;
+    <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true, sync: true })}${AUCTION_CSS}</div>`;
   return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
 }
 
@@ -7074,7 +7084,7 @@ export async function portalSoldPage(env, session, params = {}) {
         <p class="subline">See what cars actually sold for at recent Japanese auctions, so you know what to bid.</p>
       </div>
     </div>
-    <div class="content">${header}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}</div>`;
+    <div class="content">${header}${toolbar}${grid}${pager}${auctionWatchScript({ request: false, sync: true })}${AUCTION_CSS}</div>`;
   return brandShell(portalSidebar(c, "sold"), main, "Sold auctions - JDM Connect");
 }
 

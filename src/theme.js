@@ -60,7 +60,7 @@ export const themeCss = `
      no longer render-blocks behind this stylesheet's @import. */
   :root{
     --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
-    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#7A808A;
+    --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#828994; /* --ph nudged to 4.69:1 on --field for AA placeholders (launch audit) */
     --bg:#0F1115;--bg-2:#0A0C0F;--card:#171A20;--card-2:#1C2027;--off:#13161B;
     --hair:rgba(255,255,255,0.08);--hair-2:rgba(255,255,255,0.05);
     --field:#1B1F26;--field-line:rgba(255,255,255,0.14);
@@ -409,16 +409,29 @@ const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NU
 // buyer's matches, PII and Stripe checkout context (audit Medium #15). Only the
 // public marketing surfaces (landing, request form + its confirmation, info /
 // 404, public lot share) opt in with { analytics: true }.
+// Canonical public origin for absolute URLs in meta tags (matches
+// CANONICAL_HOST in index.js and PUBLIC_URL in wrangler.toml).
+export const PUBLIC_ORIGIN = "https://jdmfinder.com.au";
+const DEFAULT_DESC = "JDM Connect finds your dream JDM car at Japanese auction: tell us the car, we search every live auction, hand-review the matches and handle import to Australia.";
+const DEFAULT_OG_IMAGE = `${PUBLIC_ORIGIN}/assets/og-card.jpg`;
+
 export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
   const head = opts.analytics ? ANALYTICS_HEAD : "";
   const body = opts.analytics ? ANALYTICS_BODY : "";
   // opts.headExtra: page-supplied <head> additions (e.g. the landing page's
   // hero image preload). Caller-built markup, never user input.
   const headExtra = opts.headExtra || "";
+  // SEO/social meta (launch audit): every page gets a description + OG card;
+  // pages can override description/ogImage/canonical (e.g. the lot share page
+  // passes the car's photo so links unfurl with the actual vehicle).
+  const desc = escHtml(opts.description || DEFAULT_DESC);
+  const ogImage = escHtml(opts.ogImage || DEFAULT_OG_IMAGE);
+  const canonical = opts.canonical ? `<link rel="canonical" href="${escHtml(opts.canonical)}">` : "";
+  const seo = `<meta name="description" content="${desc}">${canonical}<meta property="og:site_name" content="JDM Connect"><meta property="og:title" content="${escHtml(title)}"><meta property="og:description" content="${desc}"><meta property="og:image" content="${ogImage}"><meta property="og:type" content="website">${opts.canonical ? `<meta property="og:url" content="${escHtml(opts.canonical)}">` : ""}<meta name="twitter:card" content="summary_large_image">`;
   const content = /\bid=["']main["']/.test(bodyInner)
     ? bodyInner
     : `<main id="main">${bodyInner}</main>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap">${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${seo}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap">${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
@@ -510,7 +523,17 @@ export function privacyPage() {
 
     <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
   </div>
-  <style>
+  <style>${LEGAL_CSS}</style>`;
+  // Public page: keep analytics OFF here (a privacy page loading trackers is a
+  // bad look, and it is not part of the conversion funnel).
+  return brandDoc(inner, "Privacy Policy - JDM Connect", {
+    description: "How JDM Connect collects, uses and protects your personal information under the Australian Privacy Act.",
+    canonical: `${PUBLIC_ORIGIN}/privacy`,
+  });
+}
+
+// Shared styling for the legal pages (privacy + terms).
+const LEGAL_CSS = `
     .legal{max-width:760px;margin:0 auto;padding:48px 22px 90px;color:var(--ink)}
     .lg-back{display:inline-block;color:var(--gold-txt);font-weight:600;text-decoration:none;font-size:14px;margin-bottom:26px}
     .legal h1{font-size:clamp(30px,6vw,44px);font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
@@ -524,10 +547,79 @@ export function privacyPage() {
     .legal strong{color:var(--ink)}
     .legal a{color:var(--gold-txt)}
     .lg-cta{display:inline-block;margin-top:30px}
-  </style>`;
-  // Public page: keep analytics OFF here (a privacy page loading trackers is a
-  // bad look, and it is not part of the conversion funnel).
-  return brandDoc(inner, "Privacy Policy - JDM Connect");
+`;
+
+// Public Terms of Service. Written to match how the product actually works
+// today (free account, Full access membership via Stripe, sourcing service,
+// estimates). Like the privacy policy, the business should have this reviewed
+// by their own adviser.
+export function termsPage() {
+  const updated = "13 July 2026";
+  const s = (h, body) => `<section class="lg-s"><h2>${h}</h2>${body}</section>`;
+  const inner = `<div class="legal">
+    <a class="lg-back" href="/">&larr; JDM Connect</a>
+    <h1>Terms of Service</h1>
+    <p class="lg-updated">Last updated: ${updated}</p>
+    <p class="lg-lead">These terms govern your use of the JDM Finder service at jdmfinder.com.au,
+      run by JDM Connect ("we", "us", "our"). By creating an account or using the site you agree
+      to them. Nothing in these terms excludes rights you have under the Australian Consumer Law.</p>
+
+    ${s("The service", `<p>JDM Finder helps you find and import vehicles from Japanese auctions.
+      A <strong>free account</strong> lets you submit a vehicle request and receive hand-picked
+      matches. <strong>Full access membership</strong> adds live auction search and unlimited
+      saved searches. Sourcing, bidding, purchase, shipping and compliance are arranged with you
+      separately once you decide to proceed on a specific vehicle.</p>`)}
+
+    ${s("Auction information", `<p>Auction listings, photos, grades and inspection sheets come from
+      third-party auction data providers in Japan. We pass them on in good faith but cannot guarantee
+      they are complete, current or error-free, and a listed vehicle may sell, be withdrawn or change
+      before we can act on it. A listing on this site is information, not an offer to sell.</p>`)}
+
+    ${s("Estimates and eligibility", `<p>Landed-cost figures are <strong>estimates only</strong>, based on
+      current exchange rates and typical shipping and compliance costs. Final costs depend on the actual
+      hammer price, exchange rate on the day, freight and your state's charges, and are confirmed with you
+      before you commit. Import-eligibility labels (including "Likely eligible") are guidance only -
+      eligibility under Australian import rules is confirmed per vehicle before purchase.</p>`)}
+
+    ${s("Membership and billing", `<p>Full access is billed monthly through Stripe at the price shown when
+      you subscribe. You can cancel any time from the portal; your access continues to the end of the
+      period you have paid for and no further charges are made. We may change the membership price with
+      notice - the change applies from your next billing period.</p>`)}
+
+    ${s("Deposits and purchases", `<p>If you ask us to pursue a specific vehicle we may take a deposit,
+      with the amount and conditions stated at the time. Vehicle purchases are subject to a separate
+      agreement covering the final price, fees, shipping and delivery.</p>`)}
+
+    ${s("Your account", `<p>Keep your login details secure and your contact details accurate - we use them
+      to reach you about time-sensitive auctions. You must be at least 18 to use the service. We may suspend
+      or close accounts used to abuse the service (including scraping, probing, or misusing auction data).</p>`)}
+
+    ${s("Our content", `<p>The site, its design and content belong to JDM Connect or our licensors.
+      Auction data and images remain the property of their providers and are supplied for your personal
+      use in choosing a vehicle, not for republication.</p>`)}
+
+    ${s("Liability", `<p>To the extent permitted by law, and other than the consumer guarantees that cannot
+      be excluded, we are not liable for indirect or consequential loss arising from your use of the site,
+      including loss caused by auction-data errors or a vehicle becoming unavailable. Where liability cannot
+      be excluded it is limited, at our option, to resupplying the service or the cost of resupply.</p>`)}
+
+    ${s("Privacy", `<p>Our <a href="/privacy">Privacy Policy</a> explains what personal information we
+      collect and how we handle it.</p>`)}
+
+    ${s("Governing law and changes", `<p>These terms are governed by the laws of Western Australia,
+      Australia. We may update them from time to time; the "last updated" date above shows when they last
+      changed, and continued use after a change means you accept the updated terms.</p>`)}
+
+    ${s("Contact", `<p>Questions about these terms: <a href="mailto:hello@jdmconnect.com.au">hello@jdmconnect.com.au</a>
+      or WhatsApp <a href="https://wa.me/${WA_NUMBER}" target="_blank" rel="noopener">+61 415 111 221</a>.</p>`)}
+
+    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+  </div>
+  <style>${LEGAL_CSS}</style>`;
+  return brandDoc(inner, "Terms of Service - JDM Connect", {
+    description: "The terms that govern the JDM Finder vehicle-sourcing service, free accounts and Full access membership.",
+    canonical: `${PUBLIC_ORIGIN}/terms`,
+  });
 }
 
 // Branded "not found" page. Replaces the bare text 404.

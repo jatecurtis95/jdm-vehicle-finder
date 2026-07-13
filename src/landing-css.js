@@ -13,8 +13,11 @@ export const landingCss = `
   .jf{
     /* v2 palette, local so the darker marketing bg never fights theme's --bg. */
     --jf-bg:#07090C;--jf-bg2:#0A0C10;--jf-bg3:#0A0C0F;--jf-card:#10131A;--jf-sheet:#0B0E12;
-    --jf-ink:#F4F2EC;--jf-t2:#C9CCD1;--jf-t3:#9BA0A7;--jf-faint:#888D95;--jf-faint2:#6E737B;
-    --gold:#CAA34C;--gold-2:#E6C879;--gold-hover:#D9B45F;--gold-cream:#9A7B2B;
+    /* --jf-faint2 and --gold-cream raised for WCAG AA (launch audit): 4.5:1+
+       on their darkest/creamiest backgrounds. --gold-cream reuses theme.js's
+       vetted light-register --gold-txt. */
+    --jf-ink:#F4F2EC;--jf-t2:#C9CCD1;--jf-t3:#9BA0A7;--jf-faint:#888D95;--jf-faint2:#808893;
+    --gold:#CAA34C;--gold-2:#E6C879;--gold-hover:#D9B45F;--gold-cream:#7A5E1C;
     --gold-line:rgba(202,163,76,0.5);--gold-line-2:rgba(202,163,76,0.22);--gold-tint:rgba(202,163,76,0.06);
     --green:#5BC08C;--green-bg:rgba(91,192,140,0.13);--green-line:rgba(91,192,140,0.4);
     --red:#C61F2F;--red-mark:#D8434F;--red-dot:#B11226;
@@ -326,6 +329,9 @@ export const landingCss = `
   .jf-foot .jf-brand svg{height:16px;opacity:0.55}
   .jf-foot .jf-tag{color:var(--jf-faint)}
   .jf-foot .fmid{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;color:var(--jf-faint);text-transform:uppercase}
+  .jf-foot .flinks{display:flex;gap:20px;flex-wrap:wrap}
+  .jf-foot .flinks a{font-size:12.5px;color:var(--jf-t3);text-decoration:none}
+  .jf-foot .flinks a:hover{color:var(--gold-2);text-decoration:underline;text-underline-offset:3px}
   .jf-foot .fcopy{font-size:12px;color:var(--jf-faint)}
 
   /* ===== MOTION ===== */
@@ -390,6 +396,14 @@ export const landingCss = `
     .jf-brand svg{height:15px}
     .jf-nav-right{gap:9px}
     .jf-nav .jf-gold{padding:10px 13px}
+    /* 320px worst case (launch audit): the full wordmark + CTA + burger came
+       to ~320px of content against ~276px of room and .jf's overflow-x:clip
+       sliced the burger off. Shrink every fixed piece one more notch. */
+    .jf-nav-in{padding:14px 16px;gap:10px}
+    .jf-brand svg{height:13px}
+    .jf-nav .jf-gold{padding:9px 11px;font-size:12px}
+    .nav-burger{width:36px;height:36px;flex-shrink:0}
+    .nav-burger span{width:14px}
     /* Auction card: shrink the fixed grade oval so the car name + specs aren't
        squashed on ~320px phones. */
     .vc-oval .o{width:66px;height:66px}

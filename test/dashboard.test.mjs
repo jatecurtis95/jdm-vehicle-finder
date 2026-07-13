@@ -22,9 +22,11 @@ test("dashboard renders the greeting, live kicker and a count-up overview", asyn
 test("dashboard numbers reflect the seeded data (scoped counts, not hardcoded)", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
-  // Seed has 3 clients (overview KPI) and exactly 1 pending match (attention card).
-  assert.match(html, /data-count="3"[^>]*>0<\/div>\s*<div class="cap">Active clients/);
-  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="ac-l">Matches to review/);
+  // Seed has 3 clients (overview KPI) and exactly 1 pending match (attention
+  // card). Tiles render the REAL number server-side (launch audit: no more
+  // 0-placeholder count-up).
+  assert.match(html, /data-count="3"[^>]*>3<\/div>\s*<div class="cap">Active clients/);
+  assert.match(html, /data-count="1"[^>]*>1<\/div>\s*<div class="ac-l">Matches to review/);
 });
 
 test("dashboard surfaces the roll-up KPIs and the question-framed sections", async () => {
@@ -34,7 +36,7 @@ test("dashboard surfaces the roll-up KPIs and the question-framed sections", asy
   assert.match(html, /Sent this week/);
   assert.match(html, /Members/);
   assert.match(html, /New matches per day/);            // the previously-unused found series
-  assert.match(html, /Which auctions close today\?/);   // actionable 48h list, reframed
+  assert.match(html, /Which auctions close within 48h\?/); // heading matches its 48h window (launch audit)
   assert.match(html, /Who needs attention today\?/);    // scheduled follow-ups
   assert.match(html, /Who owes money\?/);               // deposits outstanding
 });
@@ -45,19 +47,22 @@ test("dashboard uses the full-width container", async () => {
   assert.match(html, /class="content dash"/);
 });
 
-test("dashboard respects reduced motion (the script guards on the media query)", async () => {
+test("dashboard stat numbers are static server-rendered values (no count-up)", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const html = await adminPage(env, "dashboard", ADMIN);
-  assert.match(html, /prefers-reduced-motion: reduce/);
+  // The count-up animation is gone (launch audit: it flashed wrong zeros);
+  // the greeting script must not touch [data-count] nodes at all.
+  const greet = html.slice(html.indexOf("greetTime") - 200, html.indexOf("greetTime") + 400);
+  assert.doesNotMatch(greet, /data-count/, "dash script no longer animates the tiles");
 });
 
 test("an agent dashboard is scoped to their own clients only", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   // Seed agent 9001 owns clients 9001 and 9002 (not the direct client 9003).
   const html = await adminPage(env, "dashboard", { role: "agent", id: 9001, name: "Demo Agent" });
-  assert.match(html, /data-count="2"[^>]*>0<\/div>\s*<div class="cap">Active clients/);
+  assert.match(html, /data-count="2"[^>]*>2<\/div>\s*<div class="cap">Active clients/);
   // The one pending seeded match belongs to a client this agent owns (attention card).
-  assert.match(html, /data-count="1"[^>]*>0<\/div>\s*<div class="ac-l">Matches to review/);
+  assert.match(html, /data-count="1"[^>]*>1<\/div>\s*<div class="ac-l">Matches to review/);
   // Agents do not see the agents metric.
   assert.doesNotMatch(html, /Active agents/);
 });

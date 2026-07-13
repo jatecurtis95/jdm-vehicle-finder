@@ -85,7 +85,8 @@ test("dashboard leads with the deadline tiles and a hot-lead tile, team overview
   assert.ok(idx("Needs attention today") < idx("Team overview"), "attention band outranks the vanity roll-up");
   // The 2h-old untouched lead flips the tile red (the seed's own untouched
   // wishlists join the count, so only the tone and presence are pinned).
-  assert.match(html, /acard-bad" href="\/admin\?view=requests"><div class="ac-n" data-count="\d+">0<\/div><div class="ac-l">New leads to contact/, "untouched lead past 1h renders the tile red");
+  // Tiles now server-render the REAL number, never a 0 placeholder.
+  assert.match(html, /acard-bad" href="\/admin\?view=requests"><div class="ac-n" data-count="(\d+)">\1<\/div><div class="ac-l">New leads to contact/, "untouched lead past 1h renders the tile red with its real count");
 });
 
 test("dashboard section buttons are gold only when their count is non-zero", async () => {

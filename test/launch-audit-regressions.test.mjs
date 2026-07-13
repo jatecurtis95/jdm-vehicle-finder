@@ -37,6 +37,82 @@ test("the landing page uses a semantic main and reserves live-card image space",
   assert.match(html, /class="vc-photo">\s*<img[^>]+width="800"[^>]+height="600"/);
 });
 
+// ---------------------------------------------------------------------------
+// Round 2: the "important but not launch-blocking" audit items.
+// ---------------------------------------------------------------------------
+
+// Watchlist hearts must follow a signed-in buyer across devices.
+test("the member watchlist persists server-side per client", async () => {
+  const env = makeEnv(`INSERT INTO clients (id, name, email, portal_enabled, member) VALUES (7, 'Casey Client', 'c@x.com', 1, 1);`);
+  env.ADMIN_TOKEN = "test-admin-token";
+  const cookie = await cookieFor(env, "client", 7);
+  const call = (method, body) => worker.fetch(new Request(HOST + "/portal/watchlist", {
+    method, redirect: "manual",
+    headers: { Cookie: cookie, Origin: HOST, "Content-Type": "application/json" },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  }), env, CTX);
+  assert.deepEqual(await (await call("GET")).json(), {}, "starts empty");
+  await call("POST", { add: [{ id: "L1", name: "1999 NISSAN SKYLINE", grade: "4.5" }] });
+  const after = await (await call("GET")).json();
+  assert.equal(after.L1?.name, "1999 NISSAN SKYLINE", "saved lot comes back on any device");
+  // Oversized snapshots are refused; removal works.
+  await call("POST", { add: [{ id: "L2", name: "x".repeat(3000) }], remove: ["L1"] });
+  assert.deepEqual(await (await call("GET")).json(), {}, "remove works and oversized adds are dropped");
+  // The member auction pages ship the sync-enabled script.
+  const page = await worker.fetch(new Request(HOST + "/portal/auctions", { headers: { Cookie: cookie } }), env, CTX);
+  assert.match(await page.text(), /SYNC=true/, "member surface syncs hearts");
+});
+
+// Terms exists, the footer links the legal pages, and the sitemap lists them.
+test("terms, footer legal links and sitemap are live", async () => {
+  const env = makeEnv();
+  const terms = await worker.fetch(new Request(HOST + "/terms"), env, CTX);
+  assert.equal(terms.status, 200);
+  assert.match(await terms.text(), /Terms of Service/, "terms page renders");
+  const landing = await landingPage(env);
+  assert.match(landing, /href="\/privacy">Privacy</, "footer links privacy");
+  assert.match(landing, /href="\/terms">Terms</, "footer links terms");
+  assert.match(landing, /mailto:hello@jdmconnect\.com\.au/, "footer has contact email");
+  const map = await worker.fetch(new Request(HOST + "/sitemap.xml"), env, CTX);
+  assert.equal(map.status, 200);
+  const xml = await map.text();
+  for (const p of ["/", "/request", "/privacy", "/terms"]) {
+    assert.ok(xml.includes(`<loc>https://jdmfinder.com.au${p}</loc>`), `sitemap lists ${p}`);
+  }
+  assert.ok(!xml.includes("/admin") && !xml.includes("/portal"), "gated surfaces stay out");
+});
+
+// Every public page carries a description and social card.
+test("public pages ship meta descriptions and OG tags", async () => {
+  const landing = await landingPage(makeEnv());
+  assert.match(landing, /<meta name="description" content="[^"]{40,}/, "landing description");
+  assert.match(landing, /property="og:image" content="https:\/\/jdmfinder\.com\.au\/assets\/og-card\.jpg"/, "landing OG card");
+  assert.match(landing, /<link rel="canonical" href="https:\/\/jdmfinder\.com\.au\/"/, "landing canonical");
+  const req = await worker.fetch(new Request(HOST + "/request"), makeEnv(), CTX);
+  assert.match(await req.text(), /<meta name="description" content="[^"]{40,}/, "request page description");
+});
+
+// An enquiry link carries its car into the wizard prefill.
+test("vehicle enquiry links prefill the request wizard", async () => {
+  const env = makeEnv();
+  const res = await worker.fetch(new Request(HOST + "/request?make=NISSAN&model=SKYLINE&year=1999&chassis=BNR34"), env, CTX);
+  const html = await res.text();
+  assert.match(html, /value="NISSAN"/, "make carries over");
+  assert.match(html, /(value|data-want)="SKYLINE"/, "model carries over");
+  assert.match(html, /name="year_min"[^>]+value="1999"/, "year carries over");
+  assert.match(html, /name="kuzov"[^>]+value="BNR34"/, "chassis carries over");
+});
+
+// Dashboard tiles render their real numbers server-side - never a 0 that
+// animates toward the truth.
+test("dashboard stat tiles render real numbers, and the closing header says 48h", async () => {
+  const env = makeEnv(`INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');`);
+  const html = await adminPage(env, "dashboard", { role: "admin", id: 0 });
+  assert.match(html, /data-count="1">1</, "active-clients tile shows 1 from first paint");
+  assert.ok(!/data-count="\d+">0</.test(html.replace(/data-count="0">0</g, "")), "no non-zero tile renders a 0 placeholder");
+  assert.match(html, /Which auctions close within 48h\?/, "closing header matches its 48h window");
+});
+
 // Landing photography ships as right-sized WebP with a preloaded hero
 // (launch audit: ~2.75MB of full-res JPEGs drove a ~6s mobile LCP).
 test("landing photography ships as sized WebP with a preloaded hero", async () => {
