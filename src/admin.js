@@ -3760,8 +3760,9 @@ function orderMatches(filtered, st) {
   return { groups, flat: groups.flat() };
 }
 
-// The next page of cards for the current filters (the "Load 30 more" fetch).
-// Session-scoped exactly like the full view.
+// The next page of cards for the current filters (the "Load 30 more" fetch),
+// or every card for one client when sp.cid is set (expanding a group whose
+// cards sit beyond the current page). Session-scoped exactly like the full view.
 export async function matchesChunk(env, session, sp = {}) {
   const st = matchQueryState(sp);
   const offset = Math.max(0, parseInt(sp.offset, 10) || 0);
@@ -3771,6 +3772,11 @@ export async function matchesChunk(env, session, sp = {}) {
   if (st.f !== "sg") p.set("f", st.f);
   if (st.soon) p.set("soon", "1");
   if (st.group === "none") p.set("group", "none");
+  if (sp.cid) {
+    p.set("shown", String(st.shown));
+    const ret = "/admin?" + p.toString();
+    return flat.filter((q) => String(q.client_id) === String(sp.cid)).map((q) => matchCard(q, { ret })).join("");
+  }
   p.set("shown", String(offset + MATCH_PAGE));
   const ret = "/admin?" + p.toString();
   return flat.slice(offset, offset + MATCH_PAGE).map((q) => matchCard(q, { ret })).join("");
@@ -3930,9 +3936,12 @@ function matchesView(pending, opts = {}) {
       const pacing = sr ? `sent ${sr.n} this week (${sr.v || 0} opened), last ${relTime(sr.t)}` : "nothing sent this week";
       const ids = rows.map((r) => r.id).join(",");
       const loaded = rows.filter((r) => shownSet.has(r.id));
-      return `<section class="mgroup" data-cid="${cid}">
+      // Groups whose cards sit beyond the current page render folded, so they
+      // read as closed dropdowns; expanding one fetches its cards on demand.
+      const folded = loaded.length === 0;
+      return `<section class="mgroup${folded ? " folded" : ""}" data-cid="${cid}">
         <div class="ghead2">
-          <button type="button" class="gh-fold" aria-expanded="true" aria-label="Collapse ${esc(name)}'s matches"></button>
+          <button type="button" class="gh-fold" aria-expanded="${folded ? "false" : "true"}" aria-label="${folded ? "Expand" : "Collapse"} ${esc(name)}'s matches" data-name="${esc(name)}"></button>
           ${avatar(name)}
           <div class="gh-id">
             <div class="gh-name"><a class="clink" href="/admin?view=client&id=${cid}" data-drawer="/admin/drawer?id=${cid}">${esc(name)}</a> <span class="gh-count" data-n="${rows.length}">${rows.length} match${rows.length === 1 ? "" : "es"}</span></div>
@@ -3948,7 +3957,7 @@ function matchesView(pending, opts = {}) {
     gridInner = `<div class="scards" data-cards="flat">${shownRows.map((q) => matchCard(q, { ret: retPath })).join("")}</div>
       <div class="mempty" id="mEmpty" style="display:${flat.length ? "none" : ""}">No matches fit these filters.</div>`;
   }
-  const grid = `<div id="mGrid" data-group="${st.group}">${gridInner}</div>`;
+  const grid = `<div id="mGrid" data-group="${st.group}" data-qs="${esc(params({}))}">${gridInner}</div>`;
 
   const more = remaining > 0
     ? `<div class="mmore"><a class="btn-dark" id="mMore" href="${linkTo({})}&shown=${st.shown + MATCH_PAGE}" data-offset="${st.shown}" data-total="${flat.length}" data-qs="${esc(params({}))}">Load ${Math.min(MATCH_PAGE, remaining)} more (${remaining} left)</a></div>`
@@ -3973,6 +3982,7 @@ function matchesView(pending, opts = {}) {
     .gh-fold:after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;transition:transform .15s}
     .mgroup.folded .gh-fold:after{transform:rotate(-90deg)}
     .mgroup.folded .gh-cards{display:none}
+    .mgroup.ldg .gh-fold{opacity:.45;pointer-events:none}
     .gh-id{flex:1;min-width:180px}
     .gh-name{font-size:var(--fs-body);font-weight:var(--w-value)}
     .gh-name a{color:inherit;text-decoration:none}
@@ -4028,7 +4038,8 @@ function ranToast() {
 // Client-side controller for the reorganised Matches view. The server owns
 // filtering, grouping and paging (all in the URL); this script handles the
 // loaded cards only: search-as-you-type, selection + bulk actions, per-group
-// send-all, the stale-Possible triage buttons, collapsible groups and the
+// send-all, the stale-Possible triage buttons, collapsible groups (fetching a
+// group's cards on demand when they sit beyond the current page) and the
 // Load-more chunk fetch. No template literals or ${} inside this string.
 function matchesScript() {
   return `<script>(function(){
@@ -4061,15 +4072,59 @@ function matchesScript() {
   if(mq)mq.addEventListener('input',applySearch);
 
   // Collapsible client groups; the collapsed set is remembered per tab session.
+  // Groups whose cards sit beyond the current page arrive folded and empty;
+  // expanding one fetches its cards from the chunk endpoint on demand.
   var FOLD='jdmMGrpFold';
   function foldMap(){try{return JSON.parse(sessionStorage.getItem(FOLD)||'{}')||{};}catch(e){return {};}}
   function setFold(cid,on){try{var m=foldMap();if(on)m[cid]=1;else delete m[cid];sessionStorage.setItem(FOLD,JSON.stringify(m));}catch(e){}}
-  function applyFold(g,on){g.classList.toggle('folded',on);var b=g.querySelector('.gh-fold');if(b)b.setAttribute('aria-expanded',on?'false':'true');}
+  function applyFold(g,on){
+    g.classList.toggle('folded',on);
+    var b=g.querySelector('.gh-fold'); if(!b)return;
+    b.setAttribute('aria-expanded',on?'false':'true');
+    var n=b.getAttribute('data-name'); if(n)b.setAttribute('aria-label',(on?'Expand ':'Collapse ')+n+"'s matches");
+  }
   (function(){var m=foldMap();[].slice.call(grid.querySelectorAll('.mgroup')).forEach(function(g){if(m[g.getAttribute('data-cid')])applyFold(g,true);});})();
+
+  // Slot server-rendered cards into their groups (or the flat list), skipping
+  // any already on the page so a group fetch and Load more can overlap safely.
+  // In-order (Load more) chunks also clear the out-of-band mark on cards they
+  // cover, so the load-more offset - a count of in-order cards - stays honest.
+  function appendChunk(html,oob){
+    var t=document.createElement('template'); t.innerHTML=html;
+    var list=[].slice.call(t.content.querySelectorAll('.mcard')), added=0;
+    list.forEach(function(c){
+      var ex=grid.querySelector('.mcard[data-qid="'+c.getAttribute('data-qid')+'"]');
+      if(ex){ if(!oob)ex.removeAttribute('data-oob'); return; }
+      var target=grouped?grid.querySelector('[data-cards="'+c.getAttribute('data-cid')+'"]'):grid.querySelector('[data-cards="flat"]');
+      if(target){ if(oob)c.setAttribute('data-oob','1'); target.appendChild(c); added++; }
+    });
+    return {count:list.length,added:added};
+  }
+  function loadGroup(g){
+    var box=g.querySelector('.gh-cards'); if(!box||g.getAttribute('data-busy'))return;
+    var el=g.querySelector('.gh-count');
+    var want=el?(parseInt(el.getAttribute('data-n'),10)||0):0;
+    if(box.querySelectorAll('.mcard').length>=want)return;
+    g.setAttribute('data-busy','1'); g.classList.add('ldg');
+    var qs=grid.getAttribute('data-qs')||'';
+    fetch('/admin/matches/chunk?'+qs+'&cid='+encodeURIComponent(g.getAttribute('data-cid')||''))
+      .then(function(r){ if(!r.ok)throw 0; return r.text(); })
+      .then(function(html){
+        g.removeAttribute('data-busy'); g.classList.remove('ldg');
+        appendChunk(html,true);
+        applySearch(); syncBulk();
+      })
+      .catch(function(){
+        g.removeAttribute('data-busy'); g.classList.remove('ldg');
+        applyFold(g,true); setFold(g.getAttribute('data-cid'),true);
+        toast('Could not load those matches, please try again',true);
+      });
+  }
   grid.addEventListener('click',function(e){
     var b=e.target&&e.target.closest?e.target.closest('.gh-fold'):null; if(!b)return;
     var g=b.closest('.mgroup'); if(!g)return;
     var on=!g.classList.contains('folded'); applyFold(g,on); setFold(g.getAttribute('data-cid'),on);
+    if(!on)loadGroup(g);
   });
 
   // Dismissible default-filter banner.
@@ -4176,27 +4231,23 @@ function matchesScript() {
   wireTriage('triStale'); wireTriage('triPoss');
 
   // Load more: fetch the next server-rendered chunk and slot each card into its
-  // group (the plain href is the no-JS fallback). The next offset is simply how
-  // many cards are loaded now, which stays correct after in-place removals.
+  // group (the plain href is the no-JS fallback). The next offset is how many
+  // in-order cards are loaded now - out-of-band group loads don't count until a
+  // chunk covers them - which stays correct after in-place removals too.
   var more=document.getElementById('mMore');
   if(more)more.addEventListener('click',function(e){
     e.preventDefault();
     if(more.getAttribute('data-busy'))return;
     more.setAttribute('data-busy','1');
     var orig=more.textContent; more.textContent='Loading…';
-    var off=cards().length;
+    var off=cards().filter(function(c){return !c.hasAttribute('data-oob');}).length;
     var total=parseInt(more.getAttribute('data-total'),10)||0;
     var qs=more.getAttribute('data-qs')||'';
     fetch('/admin/matches/chunk?'+qs+'&offset='+off).then(function(r){ if(!r.ok)throw 0; return r.text(); }).then(function(html){
-      var t=document.createElement('template'); t.innerHTML=html;
-      var added=0;
-      [].slice.call(t.content.querySelectorAll('.mcard')).forEach(function(c){
-        var target=grouped?grid.querySelector('[data-cards="'+c.getAttribute('data-cid')+'"]'):grid.querySelector('[data-cards="flat"]');
-        if(target){target.appendChild(c);added++;}
-      });
+      var res=appendChunk(html,false);
       more.removeAttribute('data-busy');
       var now=cards().length, left=Math.max(0,total-now);
-      if(!added||left<=0){var w=more.parentNode;if(w&&w.parentNode)w.parentNode.removeChild(w);}
+      if(!res.count||left<=0){var w=more.parentNode;if(w&&w.parentNode)w.parentNode.removeChild(w);}
       else{more.textContent='Load '+Math.min(30,left)+' more ('+left+' left)';}
       try{var u=new URL(location.href);u.searchParams.set('shown',now);history.replaceState(null,'',u.toString());}catch(e2){}
       applySearch(); syncBulk();

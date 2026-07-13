@@ -96,6 +96,25 @@ test("paging renders only ?shown= cards and the chunk endpoint serves the rest i
   assert.ok(chunk.includes('data-qid="2"') && chunk.includes('data-qid="4"'), "chunk holds the later-closing cards");
 });
 
+test("groups beyond the page render folded and the chunk endpoint serves one client via ?cid=", async () => {
+  const env = makeEnv(seed());
+  // shown=1 loads only Bob's soonest card, so Alice's group has no cards on
+  // the page; her header must arrive folded (a closed dropdown) rather than
+  // expanded over nothing.
+  const html = await adminPage(env, "matches", ADMIN, { matchQuery: { f: "all", shown: "1" } });
+  assert.match(html, /class="mgroup folded" data-cid="1"/, "unloaded group arrives folded");
+  assert.match(html, /aria-expanded="false" aria-label="Expand Alice Apple's matches"/, "folded group reads as closed");
+  assert.match(html, /class="mgroup" data-cid="2"/, "group with loaded cards stays expanded");
+  assert.match(html, /id="mGrid"[^>]*data-qs="view=matches&amp;f=all"/, "grid carries the filter query for on-demand group fetches");
+  // The cid fetch returns every card for that client under the same filters.
+  const chunk = await matchesChunk(env, ADMIN, { f: "all", cid: "1" });
+  assert.ok(chunk.includes('data-qid="1"') && chunk.includes('data-qid="2"'), "both of Alice's cards return");
+  assert.ok(!chunk.includes('data-qid="3"') && !chunk.includes('data-qid="4"'), "no other client's cards leak in");
+  // Filters still apply: under the Strong + Good default Bob's Possible stays out.
+  const sg = await matchesChunk(env, ADMIN, { cid: "2" });
+  assert.ok(sg.includes('data-qid="3"') && !sg.includes('data-qid="4"'), "cid fetch honours the strength filter");
+});
+
 test("admin triage buttons carry the exact stale-Possible id lists", async () => {
   const env = makeEnv(seed({ possAgeDays: 9 }));
   const html = await adminPage(env, "matches", ADMIN);

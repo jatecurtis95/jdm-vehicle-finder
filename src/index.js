@@ -925,12 +925,14 @@ export default {
     }
 
     // HTML fragment: the next page of match cards for the current filters (the
-    // Matches "Load more" button). Session-scoped exactly like the full view.
+    // Matches "Load more" button), or one whole client group when ?cid= is set
+    // (expanding a group whose cards sit beyond the current page). Session-scoped
+    // exactly like the full view.
     if (path === "/admin/matches/chunk") {
       const sp = url.searchParams;
       const html = await matchesChunk(env, session, {
         f: sp.get("f") || "", soon: sp.get("soon") || "", group: sp.get("group") || "",
-        offset: sp.get("offset") || "0",
+        offset: sp.get("offset") || "0", cid: sp.get("cid") || "",
       });
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
