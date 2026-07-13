@@ -20,7 +20,7 @@ import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
-import { landingPage } from "./landing.js";
+import { landingPage, findsPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
@@ -298,6 +298,12 @@ export default {
       return doc(await publicLotPage(env, sharedId));
     }
 
+    // Public "Recent finds" gallery: importer-style social proof built from
+    // cars actually sent to buyers (anonymised to first name + state).
+    if (path === "/finds" || path === "/recent-finds") {
+      return doc(await findsPage(env));
+    }
+
     // Public privacy policy (linked from every email footer and the request form).
     if (path === "/privacy" || path === "/privacy-policy") {
       return doc(privacyPage());
@@ -309,7 +315,7 @@ export default {
     // Sitemap: the public, indexable pages only. Session-gated surfaces and
     // token-gated share links stay out by design.
     if (path === "/sitemap.xml") {
-      const pages = ["/", "/request", "/privacy", "/terms"];
+      const pages = ["/", "/request", "/finds", "/privacy", "/terms"];
       const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${PUBLIC_ORIGIN}${p}</loc></url>`).join("\n")}\n</urlset>\n`;
       return new Response(xml, { headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=86400" } });
     }
@@ -832,6 +838,7 @@ export default {
       }
       if (view === "search") adminOpts.q = url.searchParams.get("q") || "";
       if (view === "tasks") adminOpts.taskMine = url.searchParams.get("mine") === "1";
+      if (view === "requests") adminOpts.reqLayout = url.searchParams.get("layout") === "board" ? "board" : "";
       if (view === "clients") {
         adminOpts.showArchived = url.searchParams.get("archived") === "1";
         const cat = url.searchParams.get("cat") || "";

@@ -1366,7 +1366,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
   else if (view === "search") body = searchView(await adminSearch(env, session, opts.q || ""));
-  else if (view === "requests") body = requestsView(requests);
+  else if (view === "requests") body = requestsView(requests, { layout: opts.reqLayout });
   else if (view === "tasks") body = tasksView(tasks, { clients, session, mine: !!opts.taskMine });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
@@ -2581,7 +2581,69 @@ function mobileCardRow({ href, drawer, name, title, meta, right, rightSub, attrs
   </${tag}>`;
 }
 
+// List | Board layout switch shared by both renderings of the Requests view.
+function reqLayoutToggle(layout) {
+  return `<div class="lay-row"><div class="lay-toggle" role="tablist" aria-label="Pipeline layout">
+    <a href="/admin?view=requests" class="${layout === "board" ? "" : "on"}" role="tab" aria-selected="${layout !== "board"}">List</a>
+    <a href="/admin?view=requests&layout=board" class="${layout === "board" ? "on" : ""}" role="tab" aria-selected="${layout === "board"}">Board</a>
+  </div></div>`;
+}
+
+// Pipedrive-style kanban: one column per stage, requests as draggable cards.
+// Dragging a card to another column POSTs /request/status (the same endpoint
+// the list's dropdowns use); the compact select on each card is the fallback
+// for touch and no-JS, so the board never loses the ability to move a deal.
+function requestsBoard(requests) {
+  const back = "/admin?view=requests&layout=board";
+  const ordered = [...requests].sort((a, b) => (tsMs(b.last_activity || b.created_at) || 0) - (tsMs(a.last_activity || a.created_at) || 0));
+  const card = (r) => {
+    const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    const dep = (r.deposit_status === "requested" || r.deposit_status === "paid") ? depositBadge(r.deposit_status) : "";
+    return `<div class="kbn-card" draggable="true" data-id="${r.id}" data-st="${esc(r.status || "new")}">
+      <div class="kbn-cl">${healthDot(r.last_activity)}<a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></div>
+      <div class="kbn-veh">${esc(veh)}${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</div>
+      <div class="kbn-meta"><span class="reqid">REQ-${r.id}</span><span>${esc(lastActivityLabel(r.last_activity))}</span>${dep}</div>
+      ${statusSelect(r.id, r.status, back)}
+    </div>`;
+  };
+  const cols = REQUEST_STATUSES.map((s) => {
+    const items = ordered.filter((r) => (r.status || "new") === s.id);
+    return `<div class="kbn-col${s.tone === "bad" ? " kbn-lost" : ""}" data-st="${s.id}">
+      <div class="kbn-head"><span>${esc(s.label)}</span><span class="kbn-n">${items.length}</span></div>
+      <div class="kbn-cards">${items.map(card).join("") || `<div class="kbn-empty">Drop here</div>`}</div>
+    </div>`;
+  }).join("");
+  const dnd = `<script>(function(){
+    var drag=null;
+    document.querySelectorAll('.kbn-card').forEach(function(c){
+      c.addEventListener('dragstart',function(e){drag=c;c.classList.add('kbn-drag');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',c.getAttribute('data-id'));}catch(err){}});
+      c.addEventListener('dragend',function(){c.classList.remove('kbn-drag');drag=null;});
+    });
+    function count(col){if(col)col.querySelector('.kbn-n').textContent=col.querySelectorAll('.kbn-card').length;}
+    document.querySelectorAll('.kbn-col').forEach(function(col){
+      col.addEventListener('dragover',function(e){if(!drag)return;e.preventDefault();e.dataTransfer.dropEffect='move';col.classList.add('kbn-over');});
+      col.addEventListener('dragleave',function(){col.classList.remove('kbn-over');});
+      col.addEventListener('drop',function(e){
+        if(!drag)return;e.preventDefault();col.classList.remove('kbn-over');
+        var st=col.getAttribute('data-st');var cardEl=drag;
+        if(cardEl.getAttribute('data-st')===st)return;
+        var fromCol=cardEl.closest('.kbn-col');
+        col.querySelector('.kbn-cards').prepend(cardEl);
+        cardEl.setAttribute('data-st',st);
+        var sel=cardEl.querySelector('select[name=status]');if(sel)sel.value=st;
+        count(col);count(fromCol);
+        var fd=new FormData();fd.set('id',cardEl.getAttribute('data-id'));fd.set('status',st);fd.set('back',${JSON.stringify(back)});
+        fetch('/request/status',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error('save failed');}).catch(function(){location.reload();});
+      });
+    });
+  })();</script>`;
+  return `<div class="kbn">${cols}</div>${dnd}`;
+}
+
 function requestsView(requests, opts = {}) {
+  if (opts.layout === "board") {
+    return `${REQ_CSS}${reqLayoutToggle("board")}${requestsBoard(requests)}`;
+  }
   const counts = {};
   REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
   requests.forEach((r) => { const st = r.status || "new"; counts[st] = (counts[st] || 0) + 1; });
@@ -2664,6 +2726,7 @@ function requestsView(requests, opts = {}) {
   }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
 
   return `${REQ_CSS}
+    ${reqLayoutToggle("")}
     <div class="pipe">${cards}</div>
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
@@ -2675,6 +2738,28 @@ function requestsView(requests, opts = {}) {
 }
 
 const REQ_CSS = `<style>
+  /* List | Board switch (Pipedrive register: quiet segmented control). */
+  .lay-row{display:flex;justify-content:flex-end;margin-bottom:12px}
+  .lay-toggle{display:inline-flex;border:1px solid var(--hair);border-radius:var(--r-ctl);overflow:hidden;background:var(--card)}
+  .lay-toggle a{padding:8px 16px;font-size:var(--fs-label);font-weight:600;color:var(--t2);text-decoration:none}
+  .lay-toggle a.on{background:var(--gold-tint);color:var(--gold-txt)}
+  .lay-toggle a:not(.on):hover{background:var(--hover);color:var(--ink)}
+  /* Kanban board: one horizontally-scrolling row of stage columns. */
+  .kbn{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:16px}
+  .kbn-col{flex:0 0 260px;display:flex;flex-direction:column;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-card);max-height:72vh}
+  .kbn-col.kbn-lost{opacity:.75}
+  .kbn-col.kbn-over{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+  .kbn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 12px 8px;font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
+  .kbn-n{background:var(--soft);border-radius:9999px;padding:1px 8px;color:var(--t2);font-weight:600;font-variant-numeric:tabular-nums}
+  .kbn-cards{flex:1;display:flex;flex-direction:column;gap:8px;padding:4px 8px 12px;overflow-y:auto;min-height:44px}
+  .kbn-card{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:12px;cursor:grab}
+  .kbn-card.kbn-drag{opacity:.5}
+  .kbn-cl{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .kbn-veh{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:1.4}
+  .kbn-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:var(--fs-label);color:var(--t3)}
+  .kbn-empty{font-size:var(--fs-label);color:var(--faint);text-align:center;padding:12px 0;border:1px dashed var(--hair);border-radius:var(--r-ctl)}
+  /* The card's stage select doubles as the touch / no-JS way to move a deal. */
+  .kbn-card .rstat-sel{width:100%;margin-top:8px;border-color:var(--hair);background:var(--card);min-width:0}
   .pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:12px;margin-bottom:16px}
   .pipe-card{text-align:left;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
   .pipe-card:hover{border-color:var(--field-line)}
@@ -4801,6 +4886,18 @@ const CRM_CSS = `<style>
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
+  /* Quick message templates: a quiet disclosure under the contact buttons. */
+  .qmsg{margin-top:16px;border-top:1px solid var(--hair);padding-top:12px}
+  .qmsg summary{cursor:pointer;list-style:none;font-size:var(--fs-sec);font-weight:600;color:var(--gold-txt)}
+  .qmsg summary::-webkit-details-marker{display:none}
+  .qmsg summary:hover{text-decoration:underline}
+  .qm-row{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--hair-2)}
+  .qm-row:last-child{border-bottom:0;padding-bottom:0}
+  .qm-main{flex:1;min-width:220px}
+  .qm-l{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .qm-t{font-size:var(--fs-label);color:var(--t3);margin-top:4px;line-height:1.5;overflow-wrap:anywhere}
+  .qm-acts{display:flex;gap:8px;flex-wrap:wrap}
+  .qm-act{font-size:var(--fs-label);padding:6px 10px;cursor:pointer;font-family:inherit}
   .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
   .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
@@ -4808,6 +4905,47 @@ const CRM_CSS = `<style>
   .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
   .btn-line:hover{border-color:var(--field-line);color:var(--ink);background:var(--hover)}
 </style>`;
+
+// Canned outreach templates (the Pipedrive/HubSpot template library, sized for
+// a small shop): the four moments that cover most manual follow-up. Each opens
+// WhatsApp or email PREFILLED, or copies to the clipboard, so the words are one
+// tap away but staff can still edit before sending. {car} comes from the
+// client's primary saved search so the message never reads like a mail merge.
+function quickMsgTemplates(c, primaryWl) {
+  const first = String(c.name || "").trim().split(/\s+/)[0] || "there";
+  const w = primaryWl || {};
+  const car = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "JDM";
+  return [
+    { id: "intro", label: "New cars on the way", subject: "Cars we found for you at auction",
+      text: `Hi ${first}, JDM Connect here. We've spotted some ${car} examples at auction this week that fit your search, sending them through now. Tell us which ones you'd like a closer look at.` },
+    { id: "followup", label: "Follow up on sent cars", subject: "Did you see the cars we sent?",
+      text: `Hi ${first}, JDM Connect here. Just checking you saw the cars we sent through. Happy to pull the auction sheet translation or extra photos on any of them.` },
+    { id: "deposit", label: "Deposit nudge", subject: "Ready to bid when you are",
+      text: `Hi ${first}, JDM Connect here. To bid at auction we hold a refundable deposit, so we can move the moment the right ${car} comes up. Want me to send the payment link?` },
+    { id: "requiet", label: "Re-engage a quiet buyer", subject: "Still chasing that " + car + "?",
+      text: `Hi ${first}, JDM Connect here. Fresh ${car} listings keep coming through the Japanese auctions every week. Want us to keep the search running, or adjust what we're looking for?` },
+  ];
+}
+
+// The template picker on the client record: a quiet disclosure under the
+// contact buttons. Rendered only when there is a channel to send through.
+function quickMsgMenu(c, primaryWl) {
+  const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
+  if (!waDigits && !c.email) return "";
+  const rows = quickMsgTemplates(c, primaryWl).map((t) => {
+    const wa = waDigits ? `<a class="cd-cta qm-act" data-clog="${c.id}:whatsapp" target="_blank" rel="noopener" href="${esc(`https://wa.me/${waDigits}?text=${encodeURIComponent(t.text)}`)}">WhatsApp</a>` : "";
+    const mail = c.email ? `<a class="cd-cta qm-act" data-clog="${c.id}:email" href="${esc(`mailto:${c.email}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.text)}`)}">Email</a>` : "";
+    return `<div class="qm-row">
+      <div class="qm-main"><div class="qm-l">${esc(t.label)}</div><div class="qm-t">${esc(t.text)}</div></div>
+      <div class="qm-acts">${wa}${mail}<button type="button" class="cd-cta qm-act" data-copy="${esc(t.text)}">Copy</button></div>
+    </div>`;
+  }).join("");
+  return `<details class="qmsg">
+    <summary>Quick message templates</summary>
+    <div class="qm-menu">${rows}</div>
+    <script>document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-copy]');if(!b)return;var t=b.getAttribute('data-copy');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){var was=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=was;},1200);}).catch(function(){window.prompt('Copy the message:',t);});});</script>
+  </details>`;
+}
 
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
@@ -4914,6 +5052,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
+  const msgMenu = quickMsgMenu(c, searchWls[0]);
   const head = `<div class="card cd-card">
     <div class="cd-head">
       <span class="avatar" style="width:46px;height:46px;font-size:var(--fs-body)">${esc(initials(c.name))}</span>
@@ -4926,6 +5065,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
     ${contactBtns ? `<div class="cd-actions">${contactBtns}</div>` : ""}
+    ${msgMenu}
     <div class="cd-stats">
       ${stat(searchWls.length, searchWls.length === 1 ? "Search" : "Searches")}
       ${stat(matches.length, "Live matches")}
