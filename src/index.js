@@ -652,6 +652,16 @@ export default {
       return doc(await landingPage(env));
     }
 
+    // Unknown public GETs should be real 404s, not login redirects. Only the
+    // known signed-in page families continue through to session handling.
+    const protectedPage = path === "/logout" || path === "/run" ||
+      path === "/admin" || path.startsWith("/admin/") ||
+      path === "/portal" || path.startsWith("/portal/") ||
+      path === "/dealer/portal";
+    if ((request.method === "GET" || request.method === "HEAD") && !protectedPage) {
+      return doc(notFoundPage(), 404);
+    }
+
     // Everything below requires a signed-in session.
     const session = await getSession(request, url, env);
     if (!session) {
