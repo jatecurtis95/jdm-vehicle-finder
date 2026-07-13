@@ -92,7 +92,10 @@ export const themeCss = `
   .main .chip.muted{background:#f1f0ec}
   .main .wledit summary:hover{background:rgba(0,0,0,0.03)}
   *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
+  /* Page-level guard (same as the landing shell): a stray too-wide element
+     must never let the page pan sideways on phones. clip, not hidden, so
+     position:sticky keeps working (clip never creates a scroll container). */
+  html{-webkit-text-size-adjust:100%;overflow-x:clip}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;line-height:1.5}
   a{color:inherit;text-decoration:none}
   /* Visually-hidden skip link: off-screen until keyboard focus, then it

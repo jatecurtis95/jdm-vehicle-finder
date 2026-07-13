@@ -262,6 +262,11 @@ const CSS = `
     --info:#3B5E96;--info-bg:rgba(59,115,172,0.1);
   }
   *{box-sizing:border-box}
+  /* Page-level guard (same as the landing shell): the workspace is light on a
+     dark brand canvas, so any stray too-wide element would let the page pan
+     sideways into a black void on phones. clip (not hidden) keeps every
+     position:sticky element working - it never creates a scroll container. */
+  html{overflow-x:clip}
   body{margin:0;font-family:${FONT};color:var(--ink);background:var(--bg);font-variant-numeric:tabular-nums;line-height:var(--lh-body);-webkit-font-smoothing:antialiased}
   /* ONE data numeral: every 20px stat figure (triage, tasks, pipeline,
      client-detail) shares this treatment instead of five local copies. */
@@ -624,6 +629,10 @@ const CSS = `
   .wlreq-btn{font-size:var(--fs-label);padding:4px 10px}
   .wlreq-na{font-size:var(--fs-label);color:var(--warn-c);font-weight:600}
   .wlacts{display:flex;align-items:center;gap:8px}
+  /* Same wrap the portal shell already applies: with the quick Edit button a
+     search row carries four actions, which must drop to a second line instead
+     of squeezing the summary (375px rule). */
+  @media(max-width:640px){.wlhead{flex-wrap:wrap}.wlacts{flex-wrap:wrap}}
   .wledit{border-top:1px solid var(--hair);background:var(--off)}
   .wledit summary{cursor:pointer;padding:12px 16px;font-size:var(--fs-sec);font-weight:600;color:var(--gold-txt);list-style:none}
   .wledit summary::-webkit-details-marker{display:none}
@@ -4451,6 +4460,7 @@ function wishlistEditor(w, opts = {}) {
       </div>
       <div class="wlacts">
         ${searchBtn}
+        <button type="button" class="btn-toggle wl-editbtn" onclick="var d=this.closest('.wlrow').querySelector('.wledit');d.open=!d.open;if(d.open)d.scrollIntoView({block:'nearest'})">Edit</button>
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
         ${opts.portal
           ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`
@@ -4897,6 +4907,10 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     waDigits ? `<a class="cd-cta" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(waDigits)}" target="_blank" rel="noopener">WhatsApp</a><a class="cd-cta" data-clog="${c.id}:call" href="tel:${esc(telDigits)}">Call</a>` : "",
     c.email ? `<a class="cd-cta" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : "",
     `<a class="cd-cta" href="#find">Find a car</a>`,
+    // Quick edit: the Edit-details card lives at the bottom of the side rail
+    // (below the fold on phones), so surface it as a header action that jumps
+    // to the card and springs it open.
+    canManage ? `<a class="cd-cta" href="#edit-details">Edit details</a>` : "",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
@@ -4925,7 +4939,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   // Edit core contact details (owner/admin only). Folded away by default, but
   // springs open if the last save failed so the error and the form are visible.
-  const editCard = canManage ? `<details class="card foldcard"${opts.cerr ? " open" : ""}>
+  const editCard = canManage ? `<details class="card foldcard" id="edit-details" style="scroll-margin-top:80px"${opts.cerr ? " open" : ""}>
     <summary>Edit details</summary>
     ${opts.cerr ? `<div class="dupnote">${esc(clientEditErrorMessage(opts.cerr))}</div>` : ""}
     <form method="POST" action="/client/update">
@@ -4940,6 +4954,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
     </form>
+    <script>(function(){var d=document.getElementById('edit-details');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#edit-details"]');if(a)d.open=true;});if(location.hash==='#edit-details')d.open=true;})();</script>
   </details>` : "";
 
   // Buyer-portal access control (owner/admin only).

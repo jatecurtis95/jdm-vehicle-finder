@@ -152,3 +152,37 @@ test("client detail keeps the mobile overflow guards and the one action bar fami
   assert.match(html, /\.mgrid>\*\{min-width:0\}/, "grid items may shrink under nowrap content");
   assert.match(html, /\.scards \.scard\{gap:var\(--sp-3\);flex-wrap:wrap\}/, "flex-wrap stays scoped to queue rows, never the stacked mgrid cards");
 });
+
+// Quick edit (client feedback: "no quick edit function to edit client details
+// and vehicle details"). The Edit-details card lives at the bottom of the side
+// rail (below the fold on phones), so the record header carries a quick action
+// that jumps to it and springs it open; each search row gets an explicit Edit
+// button that opens its fold-away editor. The admin shell also pins the
+// page-level overflow-x guard: the light workspace sits on a dark brand
+// canvas, so a stray too-wide element used to let phones pan sideways into a
+// black void.
+test("client detail offers quick edit for the client's details and each search", async () => {
+  const env = makeEnv();
+  const id = await seed(env, { name: "Quick Eddie", email: "quick@example.com" });
+  await env.DB.prepare(
+    "INSERT INTO wishlists (id, client_id, label, marka_name, active) VALUES (88, ?, 'Quick search', 'NISSAN', 1)"
+  ).bind(id).run();
+  const html = await clientDetailPage(env, id, ADMIN);
+  // Header quick action -> the edit card, which is anchored and spring-opens.
+  assert.match(html, /<a class="cd-cta" href="#edit-details">Edit details<\/a>/, "header carries the Edit details quick action");
+  assert.match(html, /<details class="card foldcard" id="edit-details"/, "edit card is the anchor target");
+  assert.match(html, /a\[href="#edit-details"\]/, "clicking the quick action opens the fold-away card");
+  // Each search row has an explicit Edit button that opens its editor.
+  assert.match(html, /class="btn-toggle wl-editbtn"/, "search rows carry a quick Edit button");
+  // Page-level guard: clip (not hidden) so position:sticky keeps working.
+  assert.match(html, /html\{overflow-x:clip\}/, "admin shell clips stray horizontal overflow");
+});
+
+test("a non-manager viewer gets no client quick-edit action", async () => {
+  const env = makeEnv(`INSERT INTO agents (id,email,name,pass_salt,pass_hash,active) VALUES (5,'ag@x','Ag','s','h',1), (6,'ag2@x','Ag2','s','h',1);`);
+  const id = await seed(env, { name: "Shared Sam", email: "shared@example.com", agent_id: 5 });
+  await env.DB.prepare("UPDATE clients SET agent_id = 5 WHERE id = ?").bind(id).run();
+  await env.DB.prepare("INSERT INTO client_shares (client_id, agent_id) VALUES (?, 6)").bind(id).run();
+  const html = await clientDetailPage(env, id, { role: "agent", id: 6 });
+  assert.doesNotMatch(html, /href="#edit-details"/, "shared-access agent cannot quick-edit the record");
+});
