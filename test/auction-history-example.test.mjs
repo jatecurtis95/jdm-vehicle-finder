@@ -29,3 +29,24 @@ test("auction-history example reflects filters in removable chips and narrows re
   assert.match(html, /NISSAN/);
   assert.doesNotMatch(html, /Honda Civic Type R/);
 });
+
+test("auction-history example keeps date shortcuts visible and specialist filters progressive", async () => {
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/auction-history-example"), makeEnv(), {});
+  const html = await res.text();
+  for (const label of ["4 weeks", "6 weeks", "3 months", "6 months", "12 months"]) assert.match(html, new RegExp(`>${label}<`, "i"));
+  assert.match(html, /<details class="ah-more"/);
+  for (const name of ["transmission", "mileageMax", "engineMin", "engineMax", "house", "body", "drivetrain", "fuel", "colour", "eligibility"]) {
+    assert.match(html, new RegExp(`name="${name}"`), `${name} is available under more filters`);
+  }
+});
+
+test("specialist filters narrow results and remain removable", async () => {
+  const url = "https://jdmfinder.com.au/auction-history-example?transmission=Manual&drivetrain=AWD&range=6m";
+  const res = await worker.fetch(new Request(url), makeEnv(), {});
+  const html = await res.text();
+  assert.match(html, /Manual/);
+  assert.match(html, /AWD/);
+  assert.match(html, /6 months/);
+  assert.match(html, /class="ah-chip"/);
+  assert.doesNotMatch(html, /Toyota Crown Royal Saloon G/);
+});
