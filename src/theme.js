@@ -406,7 +406,10 @@ const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NU
 export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
   const head = opts.analytics ? ANALYTICS_HEAD : "";
   const body = opts.analytics ? ANALYTICS_BODY : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${bodyInner}${CONTACT_WIDGET}</body></html>`;
+  const content = /\bid=["']main["']/.test(bodyInner)
+    ? bodyInner
+    : `<main id="main">${bodyInner}</main>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature

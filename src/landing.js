@@ -107,7 +107,7 @@ function liveCard(lot) {
   return `
   <a class="vcard rv" href="/request">
     <div class="vc-photo">
-      <img src="/assets/lot-img?u=${encodeURIComponent(img)}" alt="${name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div class="scrim"></div>
+      <img src="/assets/lot-img?u=${encodeURIComponent(img)}" alt="${name}" loading="lazy" width="800" height="600" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div class="scrim"></div>
       <span class="vc-lot">Lot ${esc(lot.lot || "-")}</span>
       <span class="vc-tier">${lineupTier(lot)}</span>
     </div>
@@ -232,12 +232,14 @@ export async function landingPage(env) {
       <div class="nav-menu" id="navMenu">${menuLinks}<a href="/request">Start free</a></div>
     </header>
 
+    <main id="main">
+
     <!-- HERO -->
     <section class="hero" id="top" aria-labelledby="hero-h">
       <div class="hero-bg" aria-hidden="true">
         ${photo("hero_r32_garage.jpg", "Nissan Skyline GT-R R32 at a Japanese auction", { id: "heroImg", eager: true })}<div class="scrim"></div>
       </div>
-      <div class="hero-wrap" id="main">
+      <div class="hero-wrap">
         <div class="hero-copy">
           <div class="eb rv in"><span class="r"></span><span class="t">Live Japanese auction access</span></div>
           <h1 id="hero-h" class="rv in rv-d1">Your dream car is at auction in Japan <em>right now.</em></h1>
@@ -449,6 +451,8 @@ export async function landingPage(env) {
         </div>
       </div>
     </section>
+
+    </main>
 
     <!-- FOOTER -->
     <footer class="jf-foot">

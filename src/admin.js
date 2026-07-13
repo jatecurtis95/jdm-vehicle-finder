@@ -1691,7 +1691,7 @@ export function loginPage(opts = {}) {
       <label for="lg-email">Email</label>
       <input id="lg-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" value="${esc(opts.email || "")}">
       <label for="lg-pass" style="margin-top:16px">Password</label>
-      <input id="lg-pass" type="password" name="password" autocomplete="current-password" autofocus required maxlength="128">
+      <input id="lg-pass" type="password" name="password" autocomplete="current-password" required maxlength="128">
       <p class="login-sub" style="margin:8px 0 0;text-align:right"><a href="/forgot-password" style="color:var(--gold-txt)">Forgot password?</a></p>
       <button class="btn-gold" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:700;text-decoration:underline;text-underline-offset:3px">Sign up to start searching</a></p>
@@ -1718,7 +1718,7 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" autofocus required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}">
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}">
       <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
@@ -1740,7 +1740,7 @@ export function forgotPasswordPage(opts = {}) {
       <h1>Reset your password</h1>
       <p class="login-sub">Enter the email you sign in with and we'll send you a link to choose a new password.</p>
       <label for="fp-email">Email</label>
-      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" autofocus required>
+      <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" required>
       <button class="btn-gold" type="submit">Email me a reset link</button>
       <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
     </form>`;
