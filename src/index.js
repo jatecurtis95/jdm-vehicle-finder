@@ -20,6 +20,7 @@ import { marketSnapshot } from "./market.js";
 import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage } from "./theme.js";
+import { auctionHistoryExamplePage } from "./auction-history-example.js";
 import { landingPage } from "./landing.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
@@ -650,6 +651,12 @@ export default {
     // clear path to start a search or sign in. Safe to share publicly.
     if (path === "/") {
       return doc(await landingPage(env));
+    }
+
+    // Review-only public concept page. It uses fabricated examples and is kept
+    // separate from the member sold-auction surface until the design is chosen.
+    if (path === "/auction-history-example" && (request.method === "GET" || request.method === "HEAD")) {
+      return doc(auctionHistoryExamplePage(Object.fromEntries(url.searchParams)));
     }
 
     // Unknown public GETs should be real 404s, not login redirects. Only the
