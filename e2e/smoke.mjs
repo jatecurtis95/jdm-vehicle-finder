@@ -30,6 +30,20 @@ test("critical mobile flows render without the stabilization regressions", { ski
     assert.match(wizard.heading || "", /What vehicle are you looking for/i);
 
     await page.goto(`${baseUrl}/login`, { waitUntil: "networkidle0" });
+    const login = await page.evaluate(() => ({
+      hasMain: document.querySelector("main#main") !== null,
+      skipTargetExists: document.querySelector('.skip-link[href="#main"]') !== null && document.getElementById("main") !== null,
+      passwordAutofocus: document.querySelector('input[name="password"]')?.hasAttribute("autofocus") || false,
+    }));
+    assert.equal(login.hasMain, true, "login has a semantic main landmark");
+    assert.equal(login.skipTargetExists, true, "login skip link has a real target");
+    assert.equal(login.passwordAutofocus, false, "login does not summon the mobile keyboard automatically");
+
+    const missing = await page.goto(`${baseUrl}/not-a-real-page`, { waitUntil: "networkidle0" });
+    assert.equal(missing?.status(), 404, "unknown public pages return HTTP 404");
+    assert.match(await page.$eval("h1", (el) => el.textContent || ""), /Page not found/i);
+
+    await page.goto(`${baseUrl}/login`, { waitUntil: "networkidle0" });
     await page.type('input[name="password"]', process.env.E2E_ADMIN_PASSWORD || "e2e-admin");
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle0" }),
