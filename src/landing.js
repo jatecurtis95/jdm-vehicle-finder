@@ -40,11 +40,34 @@ import {
 
 // JDM Connect's licensed auction photography, served at the edge from /public
 // (see wrangler.toml [assets]). Treatment (cool, deep-shadow) is applied in CSS.
+// The page references the WebP variants scripts/optimize-landing-images.mjs
+// generates from the .jpg sources (launch audit: the full-resolution JPEGs were
+// the main cause of the ~6s mobile LCP); rerun that script after changing a
+// photo and paste its PHOTO_DIMS output here (real -1280 pixel sizes, so the
+// browser reserves the right box).
 const IMG = "/assets/photo/web";
-const photo = (file, alt, { id = "", eager = false } = {}) =>
-  `<img src="${IMG}/${file}" alt="${alt}" width="1600" height="1067"${id ? ` id="${id}"` : ""} ${
+const PHOTO_DIMS = {
+  "180sx_rps13.jpg": [1280, 877],
+  "chaser_jzx100.jpg": [1280, 931],
+  "hero_r32_garage.jpg": [1280, 1920],
+  "r34_highway_bw.jpg": [1280, 854],
+  "s14_garage.jpg": [1280, 1600],
+  "s15_enginebay.jpg": [1280, 855],
+  "s15_specr.jpg": [1280, 807],
+  "shibuya_night.jpg": [1280, 710],
+  "tokyo_r34_night.jpg": [1280, 1707],
+};
+const photoSrcset = (file) => {
+  const base = file.replace(/\.jpg$/, "");
+  return { src: `${IMG}/${base}-1280.webp`, srcset: `${IMG}/${base}-720.webp 720w, ${IMG}/${base}-1280.webp 1280w` };
+};
+const photo = (file, alt, { id = "", eager = false } = {}) => {
+  const [w, h] = PHOTO_DIMS[file] || [1280, 853];
+  const { src, srcset } = photoSrcset(file);
+  return `<img src="${src}" srcset="${srcset}" sizes="100vw" alt="${alt}" width="${w}" height="${h}"${id ? ` id="${id}"` : ""} ${
     eager ? `fetchpriority="high" decoding="async"` : `loading="lazy" decoding="async"`
   }>`;
+};
 
 const eyebrow = (label, extra = "") =>
   `<div class="eb rv${extra}"><span class="r"></span><span class="t">${label}</span></div>`;
@@ -415,7 +438,7 @@ export async function landingPage(env) {
               <li><span class="tk">&#10003;</span>More matches every scan</li>
               <li><span class="tk">&#10003;</span>Priority sourcing</li>
             </ul>
-            <a class="jf-gold" href="/request">Start membership</a>
+            <a class="jf-gold" href="/login?next=subscribe">Start membership</a>
           </div>
         </div>
         <div class="price-callout rv">
@@ -466,5 +489,10 @@ export async function landingPage(env) {
   </div>
   ${landingMotionScript(COST_TOTAL)}`;
 
-  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", { analytics: true });
+  // Preload the hero (the mobile LCP element) so its fetch starts before the
+  // parser reaches the <img> deep in the body; imagesrcset keeps phones on the
+  // small variant.
+  const hero = photoSrcset("hero_r32_garage.jpg");
+  const heroPreload = `<link rel="preload" as="image" href="${hero.src}" imagesrcset="${hero.srcset}" imagesizes="100vw" fetchpriority="high">`;
+  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", { analytics: true, headExtra: heroPreload });
 }

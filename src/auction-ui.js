@@ -29,13 +29,19 @@ function shortDate(d) {
   return `${m[3]} ${MONTHS[mi] || ""}`.trim();
 }
 
-// Import eligibility signal for a lot. The 25-year age rule is clear-cut and
-// needs no register lookup; anything newer is "Check eligibility" (may still be
-// SEVS-listed). Deliberately honest, not a guarantee. Returns { cls, label }.
+// Import eligibility signal for a lot. The feed carries the build YEAR only,
+// so at exactly 25 calendar years the car may not have reached its 25th
+// build-month yet - never assert "Eligible" on the boundary year (launch
+// audit). Anything newer is "Check eligibility" (may still be SEVS-listed).
+// Deliberately honest, not a guarantee. Returns { cls, label, boundary? }.
 export function auctionEligibility(lot, nowYear) {
   const yr = parseInt(lot && lot.year, 10);
   const year = nowYear || new Date().getFullYear();
-  if (Number.isFinite(yr) && yr > 1950 && (year - yr) >= 25) return { cls: "ok", label: "Eligible" };
+  if (Number.isFinite(yr) && yr > 1950) {
+    const age = year - yr;
+    if (age >= 26) return { cls: "ok", label: "Eligible" };
+    if (age === 25) return { cls: "check", label: "Likely eligible—needs confirmation", boundary: true };
+  }
   return { cls: "check", label: "Check eligibility" };
 }
 
@@ -243,16 +249,25 @@ export function auctionTabs(active, href, { sold = false, stats = false } = {}) 
 
 // Results toolbar: the feed label + a count, and a grid/list view toggle.
 // `viewHref(mode)` builds a URL that swaps only the view.
-export function auctionToolbar({ count = 0, hasMore = false, page = 1, view = "grid", viewHref, label = "Live auction feed" }) {
+export function auctionToolbar({ count = 0, hasMore = false, page = 1, view = "grid", viewHref, label = "Live auction feed", feedDown = false }) {
   const av = (mode, ic, lbl) =>
     `<a class="av${view === mode ? " on" : ""}" href="${esc(viewHref(mode))}" title="${lbl}" aria-label="${lbl}">${ic}</a>`;
+  // A provider outage must never read as "0 lots" (launch audit).
+  const countTxt = feedDown ? "feed unavailable" : `${count} lot${count === 1 ? "" : "s"}${hasMore ? "+" : ""}`;
   return `<div class="atbar">
     <div class="atbar-l">${esc(label)}${page > 1 ? ` <span class="sep">&middot;</span> page ${page}` : ""}</div>
     <div class="atbar-r">
-      <span class="atbar-count">${count} lot${count === 1 ? "" : "s"}${hasMore ? "+" : ""}</span>
+      <span class="atbar-count">${countTxt}</span>
       <div class="aview">${av("grid", GRID_IC, "Grid view")}${av("list", LIST_IC, "List view")}</div>
     </div>
   </div>`;
+}
+
+// Shared outage empty-state: rendered instead of the "no lots" copy whenever
+// the auction provider couldn't be reached, so an outage never looks like an
+// empty market to a customer.
+export function feedDownCard() {
+  return `<div class="card"><div class="empty"><div class="rule"></div>We can't reach the live auction feed right now, so results are temporarily unavailable. This isn't "no cars" - please try again in a few minutes.</div></div>`;
 }
 
 // Client-side Watchlist: toggles favourites in localStorage, keeps the header

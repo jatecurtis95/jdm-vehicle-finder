@@ -71,7 +71,11 @@ test("customer drawer has dialog semantics, live content and keyboard focus supp
   assert.match(html, /id="dwPanel"[^>]+role="dialog"[^>]+aria-modal="true"/);
   assert.match(html, /id="dwContent"[^>]+aria-live="polite"/);
   assert.match(html, /\.dw-panel\{[^}]*overscroll-behavior:contain/);
-  assert.doesNotMatch(html, /id="navToggle"[^>]+aria-hidden="true"/);
+  // The drawer checkbox is fully neutralised for AT - tabindex="-1" removes it
+  // from the tab order, which is what makes aria-hidden safe here - and the
+  // visible Menu label carries the button semantics instead (launch audit).
+  assert.match(html, /id="navToggle"[^>]+aria-hidden="true" tabindex="-1"/);
+  assert.match(html, /class="nav-burger" role="button" tabindex="0" aria-expanded="false"/);
   assert.match(html, /lastFocus/);
   assert.match(html, /focusable/);
 });

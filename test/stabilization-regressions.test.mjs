@@ -70,7 +70,10 @@ test("the request wizard does not scroll the active step during initial render",
 });
 
 test("dealer management and submissions render inside the shared admin shell", async () => {
-  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
+  // The dealer feature ships hidden for launch; these admin views only exist
+  // once the Settings toggle is on (see launch-audit-regressions.test.mjs).
+  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);
+    INSERT INTO settings (key, value) VALUES ('dealer_portal_enabled', '1');`);
   for (const view of ["dealers", "dealer-submissions"]) {
     const html = await adminPage(env, view, ADMIN, { dealerStatus: "pending" });
     assert.match(html, /<aside class="side">/, `${view} keeps admin navigation`);
@@ -84,7 +87,10 @@ test("the dealer portal uses the shared branded shell and collapses forms on pho
   const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
   const html = await dealerPortalPage(env, { id: 1, name: "Dealer One", email: "dealer@example.com", company: "Demo Cars", active: 1 });
   assert.match(html, /<aside class="side">/, "dealer portal keeps the shared navigation shell");
-  assert.match(html, /href="\/dealer"/, "dealer home is reachable from its navigation");
+  // The nav must target the registered GET route - bare /dealer has no GET
+  // handler and 404'd for every dealer (launch audit).
+  assert.match(html, /href="\/dealer\/portal"/, "dealer home is reachable from its navigation");
+  assert.doesNotMatch(html, /href="\/dealer"[^/]/, "the bare /dealer 404 link is gone");
   assert.match(html, /@media\(max-width:640px\)[^{]*\{[^}]*\.dealer-form-grid\{grid-template-columns:1fr/s, "vehicle form becomes one column on phones");
   assert.doesNotMatch(html, /body \{ font-family: -apple-system/, "legacy standalone stylesheet is gone");
 });

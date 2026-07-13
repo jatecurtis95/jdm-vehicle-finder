@@ -45,6 +45,10 @@ const DEFAULTS = {
   // convert. Tunable here: turn it off, or widen the headroom, without a deploy.
   budget_filter: "1",         // 1 = hide matches that land over budget + headroom
   budget_headroom_pct: "10",  // how far above the stated budget a match may still surface (%)
+  // Launch audit: the dealer feature is half-built (approved stock never reaches
+  // buyers), so it ships hidden. Off = the admin Dealers views and new dealer
+  // creation are hidden/blocked; already-invited dealers keep portal access.
+  dealer_portal_enabled: "0",
 };
 
 export async function getSettings(env) {
@@ -111,6 +115,7 @@ export async function saveSettings(env, form) {
     calc_fx_jpy_aud: (() => { const n = Number(String(form.get("calc_fx_jpy_aud") ?? "").trim()); return Number.isFinite(n) && n > 0 ? String(n) : ""; })(),
     budget_filter: form.get("budget_filter") ? "1" : "0",
     budget_headroom_pct: posIntStr(form.get("budget_headroom_pct"), "10"),
+    dealer_portal_enabled: form.get("dealer_portal_enabled") ? "1" : "0",
     ai_sheet_model: SHEET_MODELS[form.get("ai_sheet_model")] ? String(form.get("ai_sheet_model")) : DEFAULT_SHEET_MODEL,
     ai_sheet_auto: SHEET_AUTO_MODES[form.get("ai_sheet_auto")] ? String(form.get("ai_sheet_auto")) : "off",
   };

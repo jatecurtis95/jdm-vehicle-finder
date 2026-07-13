@@ -317,6 +317,9 @@ export const onboardingCss = `
     /* Lift the WhatsApp FAB clear of the sticky step CTA, which it was
        permanently covering at phone widths (the primary submit button). */
     .ob~.wa-fab{bottom:calc(96px + env(safe-area-inset-bottom))}
+    /* Step 4's "Start my search" row is in-flow (not sticky), so give it
+       enough tail room that the raised FAB can never rest on top of it. */
+    .ob-cta-row{margin-bottom:calc(150px + env(safe-area-inset-bottom))}
   }
 
   /* Success page */
@@ -383,8 +386,9 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     var ERR_FIELDS={
       'rq-vehicle-error':['marka_name','model_name'],
       'rq-year-error':['year_min','year_max'],
-      'rq-budget-error':['budget_aud'],
+      'rq-name-error':['name'],
       'rq-email-error':['email'],
+      'rq-budget-error':['budget_aud'],
       'rq-pass-error':['portal_password'],
       'rq-whatsapp-error':['whatsapp']
     };
@@ -393,13 +397,14 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     function emailBad(){var v=val('email');return !v||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
     function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
     function whatsappBad(){var e=el('whatsapp');if(!e)return false;var d=String(e.value||'').replace(/\\D/g,'');return d.length<8;}
+    function nameBad(){return !val('name');}
     function vehicleBad(){return !val('marka_name')||!val('model_name');}
     function yearBad(){var f=parseInt(val('year_min'),10),t=parseInt(val('year_max'),10);return !val('year_min')||!val('year_max')||!isFinite(f)||!isFinite(t)||f>t;}
     function budgetBad(){var n=parseFloat(val('budget_aud'));return !isFinite(n)||n<BMIN;}
     function badField(n){
       if(n===1){var vb=vehicleBad(),yb=yearBad();showErr('rq-vehicle-error',vb);showErr('rq-year-error',yb);return vb?'rq-vehicle-error':(yb?'rq-year-error':null);}
       if(n===2){var bb=budgetBad();showErr('rq-budget-error',bb);return bb?'rq-budget-error':null;}
-      if(n===4){var wb=whatsappBad();showErr('rq-whatsapp-error',wb);if(SIGNEDIN)return wb?'rq-whatsapp-error':null;var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':(wb?'rq-whatsapp-error':null));}
+      if(n===4){var wb=whatsappBad();showErr('rq-whatsapp-error',wb);if(SIGNEDIN)return wb?'rq-whatsapp-error':null;var nb=nameBad(),eb=emailBad(),pb=pwBad();showErr('rq-name-error',nb);showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return nb?'rq-name-error':(eb?'rq-email-error':(pb?'rq-pass-error':(wb?'rq-whatsapp-error':null)));}
       return null;
     }
 

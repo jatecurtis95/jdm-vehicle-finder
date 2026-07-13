@@ -1,22 +1,32 @@
-# Manual one-off: apply the additive `wishlists` columns from migrations 0014
-# (budget_aud) and 0015 (model_code, grades) to the PRODUCTION D1 database.
+# Manual, approved-only: apply reviewed pending D1 migrations to PRODUCTION
+# through wrangler's migration runner (`d1 migrations apply --remote`).
 #
-# Why not `wrangler d1 migrations apply`? Production's d1_migrations tracking
-# table was never adopted (see migrations/README.md and the headers of 0011 and
-# 0013), so the runner would try to re-apply already-live older files and fail
-# on "duplicate column". Instead we add each column directly with `d1 execute`,
-# exactly as those migration headers instruct. Every statement is additive and
-# non-destructive: a column that already exists errors harmlessly and is skipped,
-# so this workflow is safe to run more than once.
+# Requires the one-off "Adopt D1 migration tracking" workflow to have run
+# first - the guard step below refuses to continue while the d1_migrations
+# bookkeeping table is missing or empty, because in that state the runner
+# would try to re-apply already-live files and fail on "duplicate column"
+# (see migrations/README.md). After applying, the same schema gate the deploy
+# uses verifies production matches what the code expects.
 #
-# Trigger from the Actions tab ("Run workflow") or the API. Manual only.
-name: Apply pending D1 columns
+# Trigger from the Actions tab ("Run workflow") or the API. Manual only, and
+# only after the specific migration has been approved (migrations/README.md
+# production safety rules).
+name: Apply reviewed D1 migrations
+
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: jdmfinder-production-database
+  cancel-in-progress: false
+
 jobs:
-  apply:
+  migrate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,42 +37,36 @@ jobs:
           node-version: "22"  # wrangler >=4.x requires Node 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Add + verify pending columns (0014 budget_aud, 0015 model_code/grades)
+      - name: Guard - migration tracking must be adopted first
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          set -uo pipefail
-          # Add one column, tolerating ONLY an "already exists" error (so re-runs
-          # are idempotent); any other failure (auth, node version, wrong db)
-          # fails the job loudly instead of being masked as a skip.
-          add() {
-            echo "--- ALTER $1 ADD COLUMN $2 ---"
-            if out=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
-                     --command "ALTER TABLE $1 ADD COLUMN $2" 2>&1); then
-              echo "OK: $1.$2 added"
-            else
-              echo "$out"
-              if echo "$out" | grep -qiE "duplicate column|already exists"; then
-                echo "SKIP: $1.$2 already present"
-              else
-                echo "ERROR adding $1.$2"; exit 1
-              fi
-            fi
-          }
-          add "wishlists" "budget_aud INTEGER"
-          add "wishlists" "model_code TEXT"
-          add "wishlists" "grades TEXT"
-          add "wishlists" "mileage_min INTEGER"
-          add "clients" "source TEXT"
-          echo "=== verifying schema ==="
-          wl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
-               --command "PRAGMA table_info(wishlists)" 2>&1); echo "$wl"
-          for c in budget_aud model_code grades mileage_min; do
-            echo "$wl" | grep -qw "$c" || { echo "MISSING wishlists.$c"; exit 1; }
-          done
-          cl=$(npx wrangler d1 execute jdm-vehicle-finder --remote \
-               --command "PRAGMA table_info(clients)" 2>&1); echo "$cl"
-          echo "$cl" | grep -qw "source" || { echo "MISSING clients.source"; exit 1; }
-          echo "VERIFIED: wishlists budget_aud/model_code/grades and clients.source all present."
+          set -euo pipefail
+          if ! out=$(npx wrangler d1 execute jdm-vehicle-finder --remote --json \
+                     --command "SELECT COUNT(*) AS n FROM d1_migrations" 2>&1); then
+            echo "$out"
+            echo "ERROR: d1_migrations is missing. Run the 'Adopt D1 migration tracking' workflow first."
+            exit 1
+          fi
+          echo "$out"
+          if ! echo "$out" | grep -qE '"n":\s*[1-9]'; then
+            echo "ERROR: d1_migrations is empty. Run the 'Adopt D1 migration tracking' workflow first."
+            exit 1
+          fi
+
+      - name: Show pending migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run db:migrate:list
+
+      - name: Apply pending migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run db:migrate:remote
+
+      - name: Verify production schema
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run db:check:remote

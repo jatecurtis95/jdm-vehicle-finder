@@ -335,10 +335,13 @@ export const themeCss = `
     .wrap{flex-direction:column}
     .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-burger svg{width:22px;height:22px}
-    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto;overscroll-behavior:contain}
+    /* visibility:hidden (delayed until the slide finishes) pulls the closed
+       drawer's links out of the tab order and accessibility tree, so keyboard
+       users can't tab through an invisible menu (launch audit). */
+    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);visibility:hidden;transition:transform .28s cubic-bezier(.2,.7,.3,1),visibility 0s .28s;z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto;overscroll-behavior:contain}
     .nav{flex-direction:column}
     .side-foot{flex-direction:column;margin-top:auto;padding-top:20px}
-    .nav-cb:checked ~ .wrap .side{transform:none}
+    .nav-cb:checked ~ .wrap .side{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.7,.3,1)}
     .nav-scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .28s;z-index:55}
     .nav-cb:checked ~ .wrap .nav-scrim{opacity:1;visibility:visible}
   }
@@ -352,6 +355,9 @@ export const themeCss = `
     .btn-toggle,.btn-del{min-height:40px}
     .topbar,.content{padding-left:20px;padding-right:20px}
     .topbar{padding-top:24px;padding-bottom:22px}
+    /* Clearance for the fixed WhatsApp button (launch audit: it sat on top of
+       full-width submit buttons at the foot of portal pages). */
+    .content{padding-bottom:calc(88px + env(safe-area-inset-bottom))}
     h1{font-size:28px}
     input,select,textarea{font-size:16px;min-height:48px}
     .actions{flex-wrap:wrap}
@@ -406,18 +412,29 @@ const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NU
 export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
   const head = opts.analytics ? ANALYTICS_HEAD : "";
   const body = opts.analytics ? ANALYTICS_BODY : "";
+  // opts.headExtra: page-supplied <head> additions (e.g. the landing page's
+  // hero image preload). Caller-built markup, never user input.
+  const headExtra = opts.headExtra || "";
   const content = /\bid=["']main["']/.test(bodyInner)
     ? bodyInner
     : `<main id="main">${bodyInner}</main>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap">${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
 // so portal markup can move over without restructuring. Analytics stays OFF by
 // default (the portal is authenticated); public callers pass { analytics: true }.
 export function brandShell(side, main, title = "JDM Connect", opts = {}) {
+  // The drawer stays a CSS checkbox (a click works with no JS at all); the
+  // script layers proper button semantics on top for keyboard and screen-reader
+  // users (launch audit: the Menu control wasn't a real button). The checkbox
+  // itself is tabindex="-1" so nobody lands on an invisible 1px control.
+  const burgerA11y = `<script>(function(){var cb=document.getElementById('navToggle'),b=document.querySelector('.nav-burger');if(!cb||!b)return;
+function sync(){b.setAttribute('aria-expanded',cb.checked?'true':'false');}
+b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){e.preventDefault();cb.checked=!cb.checked;sync();}});
+cb.addEventListener('change',sync);})();</script>`;
   return brandDoc(
-    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" id="main" role="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
+    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true" tabindex="-1"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" id="main" role="main"><label for="navToggle" class="nav-burger" role="button" tabindex="0" aria-expanded="false" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${burgerA11y}`,
     title,
     opts
   );

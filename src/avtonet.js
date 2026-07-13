@@ -219,13 +219,16 @@ export async function searchLots(env, p = {}) {
   const page = Math.max(1, sqlInt(p.page) || 1);
   const offset = (page - 1) * perPage;
   const sql = `SELECT * FROM main WHERE ${where.join(" AND ")} ORDER BY auction_date ASC LIMIT ${offset}, ${perPage}`;
-  let lots = [];
+  // ok:false marks a provider outage so renderers can show an error state
+  // instead of a misleading "0 lots" (launch audit).
+  let lots = [], ok = true;
   try {
     lots = await query(env, sql);
   } catch (e) {
+    ok = false;
     console.error("searchLots failed:", e.message);
   }
-  return { lots, page, perPage, hasMore: lots.length === perPage };
+  return { lots, page, perPage, hasMore: lots.length === perPage, ok };
 }
 
 // Browse the historical `stats` table (sold auction results) for the member
@@ -262,13 +265,15 @@ export async function searchSold(env, p = {}) {
   const page = Math.max(1, sqlInt(p.page) || 1);
   const offset = (page - 1) * perPage;
   const sql = `SELECT * FROM stats WHERE ${where.join(" AND ")} ORDER BY auction_date DESC LIMIT ${offset}, ${perPage}`;
-  let lots = [];
+  // Same outage marker as searchLots.
+  let lots = [], ok = true;
   try {
     lots = await query(env, sql);
   } catch (e) {
+    ok = false;
     console.error("searchSold failed:", e.message);
   }
-  return { lots, page, perPage, hasMore: lots.length === perPage };
+  return { lots, page, perPage, hasMore: lots.length === perPage, ok };
 }
 
 // Re-fetch a single lot's live row from the feed: live `main` first, then the

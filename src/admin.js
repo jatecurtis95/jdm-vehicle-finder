@@ -4,7 +4,7 @@
 import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { labelForCode } from "./model-codes.js";
-import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock } from "./auction-ui.js";
+import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
 import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
@@ -286,7 +286,7 @@ const CSS = `
   .nav a.active .ct{color:var(--gold-txt)}
   .nav a:hover:not(.active){background:var(--hover)}
   .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:16px;padding-top:20px}
-  .btn-search{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:var(--gold-on);font-weight:600;padding:12px;border-radius:var(--r-ctl);font-size:var(--fs-body)}
+  .btn-search{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:var(--gold-on);font-weight:600;padding:12px;border-radius:var(--r-ctl);font-size:var(--fs-body);border:0;cursor:pointer;font-family:inherit;width:100%}
   .btn-search:hover{background:var(--gold-hover)}
   .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--gold-on);display:inline-block}
   .main{flex:1;background:var(--bg);display:flex;flex-direction:column}
@@ -296,7 +296,7 @@ const CSS = `
   .kicker:before{content:"";width:24px;height:1px;background:var(--gold);display:inline-block}
   h1{font-size:var(--fs-page);font-weight:600;letter-spacing:-0.015em;margin:12px 0 4px;line-height:1.1}
   .subline{color:var(--t3);font-size:var(--fs-sec);margin:0}
-  .btn-dark{background:var(--soft);color:var(--ink);border:1px solid var(--hair);font-weight:600;padding:12px 16px;border-radius:var(--r-ctl);font-size:var(--fs-sec);white-space:nowrap}
+  .btn-dark{background:var(--soft);color:var(--ink);border:1px solid var(--hair);font-weight:600;padding:12px 16px;border-radius:var(--r-ctl);font-size:var(--fs-sec);white-space:nowrap;cursor:pointer;font-family:inherit}
   .btn-dark:hover{background:var(--hover)}
   .content{padding:var(--sp-6) var(--sp-6) 64px;max-width:1180px}
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
@@ -460,10 +460,12 @@ const CSS = `
     .wrap{flex-direction:column}
     .nav-burger{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:var(--fs-sec);cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-burger svg{width:22px;height:22px}
-    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
+    /* visibility:hidden (delayed until the slide ends) keeps the closed
+       drawer's links out of the tab order - same fix as the portal shell. */
+    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);visibility:hidden;transition:transform .28s cubic-bezier(.2,.7,.3,1),visibility 0s .28s;z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto}
     .nav{flex-direction:column}
     .side-foot{flex-direction:column;margin-top:auto;padding-top:20px}
-    .nav-cb:checked ~ .wrap .side{transform:none}
+    .nav-cb:checked ~ .wrap .side{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.7,.3,1)}
     .nav-scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .28s;z-index:55}
     .nav-cb:checked ~ .wrap .nav-scrim{opacity:1;visibility:visible}
     .topbar{top:52px}
@@ -955,13 +957,13 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${item("clients", "Customers", counts.clients)}
       ${item("auctions", "Auctions", "")}
       ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
-      ${isAdmin ? item("dealers", "Dealers", counts.dealers || "") : ""}
-      ${isAdmin ? item("dealer-submissions", "Dealer stock", counts.dealerSubmissions || "") : ""}
+      ${isAdmin && counts.dealersOn ? item("dealers", "Dealers", counts.dealers || "") : ""}
+      ${isAdmin && counts.dealersOn ? item("dealer-submissions", "Dealer stock", counts.dealerSubmissions || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
       ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
-      <a class="btn-search" href="/run"><span class="dot"></span>Run Searches</a>
+      <form method="POST" action="/run" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-search"><span class="dot"></span>Run Searches</button></form>
       <div class="whoami"><span class="who-name">${whoLabel}</span><span class="who-role">${whoSub}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
@@ -1031,7 +1033,9 @@ function searchView(res) {
     // Lead with the car (year make model); the raw internal id is never shown.
     let lot = {}; try { lot = JSON.parse(m.lot_json || "{}"); } catch (e) {}
     const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
-    return `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`;
+    // view=lot resolves by queue.id (the row's primary key), not the external
+    // auction lot_id - linking lot_id 404s every time.
+    return `<tr><td><a class="clink" href="/admin?view=lot&id=${esc(m.id)}">${esc(title)}</a></td><td>${esc(m.client_name)}</td><td>${chip(m.status)}</td></tr>`;
   }).join("");
   const payRows = res.payments.map((p) => `<tr><td>${esc(p.client_name || "-")}</td><td>${aud(p.amount_cents, p.currency)}</td><td>${esc(p.description || "-")}</td><td>${chip(p.status)}</td></tr>`).join("");
   return `${grp("Customers", res.clients.length, clientRows)}${grp("Requests", res.requests.length, reqRows)}${grp("Matches", res.matches.length, matchRows)}${grp("Payments", res.payments.length, payRows)}`;
@@ -1095,7 +1099,8 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
         // V1.2 Phase 5: the row leads with the car, never a raw internal id.
         const title = displayName([lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ")) || (lot.lot ? `Lot ${lot.lot}` : `Lot ${m.lot_id}`);
         const landed = m._landed || (lot._landed && lot._landed.grandTotal) || null;
-        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.lot_id)}">${esc(title)}</a></div><div class="dw-item-s">${stage}${strength}${landed ? ` &middot; <b>A$${Number(landed).toLocaleString("en-AU")}</b>` : ""} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
+        // view=lot resolves by queue.id, not the external auction lot_id.
+        return `<div class="dw-item"><div class="dw-item-t"><a class="clink" href="/admin?view=lot&id=${esc(m.id)}">${esc(title)}</a></div><div class="dw-item-s">${stage}${strength}${landed ? ` &middot; <b>A$${Number(landed).toLocaleString("en-AU")}</b>` : ""} &middot; ${esc(String(m.created_at || "").slice(0, 10))}</div></div>`;
       }).join("")
     : `<div class="dw-empty-sm">No matches yet.</div>`;
   const pList = pays.length
@@ -1169,6 +1174,13 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   if (!HEADERS[view]) view = "dashboard";
   if (view === "wishlists") view = "clients"; // searches now live inside the client
   if (["agents", "dealers", "dealer-submissions", "settings", "payments"].includes(view) && isAgent) view = "dashboard"; // admin-only areas
+
+  // Launch audit: the dealer feature ships hidden until it's finished (approved
+  // stock never reaches buyers yet). One settings load serves the gate, the
+  // Matches view and the Settings page alike.
+  const appSettings = await getSettings(env);
+  const dealersOn = settingOn(appSettings, "dealer_portal_enabled");
+  if (["dealers", "dealer-submissions"].includes(view) && !dealersOn) view = "dashboard";
 
   // Rows this session may see: all for admin, owned-or-shared for an agent.
   const acc = accessScope(session);
@@ -1258,7 +1270,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const dealerSubmissions = (!isAgent && view === "dealer-submissions")
     ? await getDealerVehicleSubmissions(env, dealerStatus, 100, 0)
     : [];
-  const settings = (!isAgent && view === "settings") ? await getSettings(env) : null;
+  const settings = (!isAgent && view === "settings") ? appSettings : null;
   const payments = (!isAgent && view === "payments")
     ? (await env.DB.prepare(
         "SELECT p.*, c.name AS client_name FROM payments p LEFT JOIN clients c ON c.id = p.client_id ORDER BY p.created_at DESC LIMIT 200"
@@ -1279,13 +1291,13 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     `SELECT w.*, c.name AS client_name, c.state AS client_state, ow.name AS owner_name,
             (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.sent_at IS NOT NULL) AS sent_count,
             (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count,
-            (SELECT q.lot_id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_id,
+            (SELECT q.id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_queue_id,
             (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
   ).all()).results || []) : [];
-  const matchSettings = view === "matches" ? await getSettings(env) : null;
+  const matchSettings = view === "matches" ? appSettings : null;
   if (isAgent) {
     const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
     session = { ...session, name: me ? me.name : "Agent" };
@@ -1297,12 +1309,12 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const taskBadge = ((await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date <= date('now') AND ${tsc.sql}`
   ).bind(...tsc.binds).first())?.n) || 0;
-  const dealerTotal = !isAgent ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealers WHERE active = 1").first())?.n || 0) : 0;
-  const dealerPending = !isAgent ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
-  const counts = { clients: clients.length, wishlists: wishlists.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge };
+  const dealerTotal = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealers WHERE active = 1").first())?.n || 0) : 0;
+  const dealerPending = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
+  const counts = { clients: clients.length, wishlists: wishlists.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
   const h = HEADERS[view];
   const primary = view === "matches" || view === "intake"
-    ? `<a class="btn-dark" href="/run">${esc(h.btn)}</a>`
+    ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-dark">${esc(h.btn)}</button></form>`
     : ["agents", "dealers", "dealer-submissions", "settings", "payments", "auctions"].includes(view)
     ? ""
     : h.btn ? `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>` : "";
@@ -1523,6 +1535,16 @@ function settingsView(settings, opts = {}) {
         </div>
       </div>
 
+      <div class="card set-card" id="set-dealers">
+        <h2><span class="num">5d</span> Dealer network</h2>
+        <div style="max-width:640px">
+          <p class="help" style="margin:0 0 16px">The dealer stock pipeline (dealer accounts, submissions and the review queue). It ships hidden until approved dealer stock is actually shown to buyers; already-invited dealers keep their portal access either way.</p>
+          <div class="toggles" style="margin-top:0">
+            ${toggleRow("dealer_portal_enabled", "Enable the dealer network", "Show the Dealers and Dealer stock admin views and allow inviting new dealers.", settingOn(s, "dealer_portal_enabled"))}
+          </div>
+        </div>
+      </div>
+
       <div class="card set-card" id="set-freetier">
         <h2><span class="num">5c</span> Free tier &amp; search runs</h2>
         <div style="max-width:640px">
@@ -1682,7 +1704,7 @@ export function loginPage(opts = {}) {
   const styleTag = opts.googleEnabled ? `<style>${GOOGLE_BTN_CSS}</style>` : "";
   const body = `${styleTag}<div class="login-screen">
     ${risingSun({ size: 520, tone: "faint" })}
-    <form class="login-card" method="POST" action="/login">
+    <form class="login-card" method="POST" action="/login${opts.next === "subscribe" ? "?next=subscribe" : ""}">
       <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
       <h1>Welcome back</h1>
       <p class="login-sub">Sign in to track your searches and the matches we find for you.</p>
@@ -2582,9 +2604,11 @@ function requestsView(requests, opts = {}) {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
     const dest = String(r.destination_country || "").trim();
     // The latest car queued for this request, linked to its listing detail.
+    // view=lot resolves by queue.id, so the link must carry the queue row's
+    // primary key, never the external auction lot_id.
     let lastLot = null; try { lastLot = r.last_lot_json ? JSON.parse(r.last_lot_json) : null; } catch (e) {}
     const lastCar = lastLot
-      ? `<a class="clink" href="/admin?view=lot&id=${esc(r.last_lot_id)}">${esc(displayName([lastLot.year, lastLot.marka_name, lastLot.model_name].filter(Boolean).join(" ")) || `Lot ${lastLot.lot || r.last_lot_id}`)}</a>`
+      ? `<a class="clink" href="/admin?view=lot&id=${esc(r.last_queue_id)}">${esc(displayName([lastLot.year, lastLot.marka_name, lastLot.model_name].filter(Boolean).join(" ")) || `Lot ${lastLot.lot || ""}`)}</a>`
       : `<span class="chip muted">none yet</span>`;
     return `<tr data-st="${r.status || "new"}">
       <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span></td>
@@ -5183,7 +5207,7 @@ export async function requestPage(env, opts = {}) {
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
           <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and get every match we find, as soon as we've reviewed it.</p>
-          <a class="btn-gold" href="/request">Get full access <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-gold" href="/login?next=subscribe">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
     const successInner = `<div class="ob">
@@ -5221,7 +5245,7 @@ export async function requestPage(env, opts = {}) {
   // re-render never lands the visitor on the wrong screen.
   const errStep = opts.error === "vehicle" || opts.error === "year" ? "1"
     : opts.error === "budget" ? "2"
-      : (opts.error === "email" || opts.error === "password" || opts.error === "phone") ? "4"
+      : (opts.error === "email" || opts.error === "password" || opts.error === "phone" || opts.error === "name") ? "4"
         : "";
   const bannerMsg = opts.error === "phone"
     ? "Please enter a valid mobile number so we can reach you quickly when a match comes up."
@@ -5239,7 +5263,9 @@ export async function requestPage(env, opts = {}) {
             ? "Please enter your maximum on-road budget in AUD (at least A$5,000)."
             : opts.error === "email"
               ? "Please enter your email so we can set up your account and reach you when a match comes up."
-              : "";
+              : opts.error === "name"
+                ? "Please enter your name so we know who we're searching for."
+                : "";
   const banner = opts.error
     ? `<div style="background:#FCE9EC;border:1px solid rgba(177,18,38,0.28);color:#8A1020;border-radius:12px;padding:14px 18px;margin-bottom:24px;font-size:14px;line-height:1.5">${bannerMsg}</div>`
     : "";
@@ -5371,11 +5397,12 @@ export async function requestPage(env, opts = {}) {
               <div>
                 ${googleOn ? `${googleButton("signup", "Continue with Google")}<div class="ob-or">or use your email</div>` : ""}
                 <div class="ob-fields">
-                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" autocomplete="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required></div>
+                  <div><label for="rq-name">Name</label><input id="rq-name" name="name" autocomplete="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required aria-describedby="rq-name-error"></div>
                   <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" autocomplete="email" spellcheck="false" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
                   <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
                   <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
+                <p id="rq-name-error" class="field-err" role="alert">Please enter your name so we know who we're searching for.</p>
                 <p id="rq-email-error" class="field-err" role="alert">Please enter a valid email. This is also your login.</p>
                 <p id="rq-pass-error" class="field-err" role="alert">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
                 <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you quickly when a match comes up.</p>
@@ -5496,15 +5523,22 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     }
   }
 
-  let lot = null;
-  try { lot = await fetchLot(env, lotId); } catch (e) { /* feed hiccup → not found */ }
+  // A feed outage must read differently from a lot that genuinely left the
+  // feed (launch audit): "not found" implies the car is gone; an outage isn't
+  // about this car at all.
+  let lot = null, feedDown = false;
+  try { lot = await fetchLot(env, lotId); } catch (e) { feedDown = true; }
   const backHref = member ? "/portal/auctions" : "/admin?view=auctions";
   if (!lot || !lot.id) {
-    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>Lot not found</h1></div>${member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`}</div>
-       <div class="content"><div class="card"><div class="empty">This lot may have closed or left the live feed. <a href="${backHref}" style="color:var(--gold-txt);font-weight:600">Back to auction search</a>.</div></div></div>${CRM_CSS}`;
+    const title = feedDown ? "Feed unavailable" : "Lot not found";
+    const copy = feedDown
+      ? `We can't reach the live auction feed right now, so this lot can't be loaded. Please try again in a few minutes.`
+      : `This lot may have closed or left the live feed.`;
+    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>${title}</h1></div>${member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`}</div>
+       <div class="content"><div class="card"><div class="empty">${copy} <a href="${backHref}" style="color:var(--gold-txt);font-weight:600">Back to auction search</a>.</div></div></div>${CRM_CSS}`;
     return member
-      ? brandShell(portalSidebar(client, "auctions"), notFoundBody, "Lot not found - JDM Connect")
-      : shell(sidebar("auctions", {}, session), notFoundBody, "Lot not found - JDM Connect");
+      ? brandShell(portalSidebar(client, "auctions"), notFoundBody, `${title} - JDM Connect`)
+      : shell(sidebar("auctions", {}, session), notFoundBody, `${title} - JDM Connect`);
   }
 
   const nowYear = new Date().getFullYear();
@@ -5536,7 +5570,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
 
   const elig = auctionEligibility(lot, nowYear);
-  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : ", ask us to confirm SEVS/age"}</div>`;
+  const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : elig.boundary ? " (the build month decides the exact date)" : ", ask us to confirm SEVS/age"}</div>`;
 
   // Actions differ by surface. Members can request a bid and watch; staff can
   // add the lot to any client they can see (reuses the /client/find flow).
@@ -5911,7 +5945,7 @@ function uxGuardScript() {
 
 function shell(side, main, title) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
-    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}</body></html>`;
+    <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true" tabindex="-1"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" role="button" tabindex="0" aria-expanded="false" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}<script>(function(){var cb=document.getElementById('navToggle'),b=document.querySelector('.nav-burger');if(!cb||!b)return;function sync(){b.setAttribute('aria-expanded',cb.checked?'true':'false');}b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){e.preventDefault();cb.checked=!cb.checked;sync();}});cb.addEventListener('change',sync);})();</script></body></html>`;
 }
 
 // Slide-in customer drawer: shared chrome (panel + scrim) + a script that
@@ -6606,6 +6640,11 @@ export async function createRequest(env, form, session) {
     // Accounts are mandatory: email is the login identity, so it is required.
     if (!email) return { ok: false, error: "email", vals };
 
+    // The form promises "Name is required" - enforce it server side too, or a
+    // hand-built POST (or the novalidate wizard) creates a nameless account
+    // that upsertPublicClient silently labels "Website enquiry" (launch audit).
+    if (!displayName) return { ok: false, error: "name", vals };
+
     // Email-uniqueness (V1.2 Phase 3): an email that already has a login never
     // opens a second account, but the response must not reveal the account
     // exists either. The enquiry folds into the existing record (the upsert
@@ -6943,12 +6982,14 @@ export async function portalAuctionsPage(env, session, params = {}) {
     body = `${tabs}<div id="watchGrid" class="acgrid"></div>`;
   } else {
     const page = Math.max(1, parseInt(params.page, 10) || 1);
-    const { lots, hasMore } = await searchLots(env, { ...params, page });
+    const { lots, hasMore, ok } = await searchLots(env, { ...params, page });
     const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify ac-req" type="submit">Request bid</button></form>`;
-    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }) });
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), feedDown: !ok });
     let grid;
     if (lots.length) {
       grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot), detailBase: "/portal/auctions/lot?id=" })).join("")}</div>`;
+    } else if (!ok) {
+      grid = feedDownCard();
     } else {
       const filtered = Object.keys(clean).some((k) => k !== "view");
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
@@ -7009,12 +7050,14 @@ export async function portalSoldPage(env, session, params = {}) {
   });
 
   const page = Math.max(1, parseInt(params.page, 10) || 1);
-  const { lots, hasMore } = await searchSold(env, { ...params, page });
+  const { lots, hasMore, ok } = await searchSold(env, { ...params, page });
   const findLive = (lot) => `<a class="btn-notify ac-req" href="/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), label: "Sold at auction" });
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), label: "Sold at auction", feedDown: !ok });
   let grid;
   if (lots.length) {
     grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot) })).join("")}</div>`;
+  } else if (!ok) {
+    grid = feedDownCard();
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
@@ -7368,12 +7411,14 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   // to the Sold prices analytics for that model.
   if (tab === "sold") {
     const page = Math.max(1, parseInt(sp.page, 10) || 1);
-    const { lots, hasMore } = await searchSold(env, { ...sp, page });
+    const { lots, hasMore, ok } = await searchSold(env, { ...sp, page });
     const soldAction = (lot) => `<a class="btn-notify ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "prices", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Sold prices</a>`;
-    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "sold", layout: mode }), label: "Sold at auction" });
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "sold", layout: mode }), label: "Sold at auction", feedDown: !ok });
     let grid;
     if (lots.length) {
       grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: soldAction(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+    } else if (!ok) {
+      grid = feedDownCard();
     } else {
       const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
@@ -7390,7 +7435,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
 
   const page = Math.max(1, parseInt(sp.page, 10) || 1);
-  const { lots, hasMore } = await searchLots(env, { ...sp, page });
+  const { lots, hasMore, ok } = await searchLots(env, { ...sp, page });
   // IA-AUDIT item 15: the live feed reads closing soonest first, mirroring
   // Matches (within the fetched page; dateless lots sink to the end).
   lots.sort((a, b) => (tsMs(a.auction_date) || Infinity) - (tsMs(b.auction_date) || Infinity));
@@ -7430,7 +7475,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
   })();</script>`;
 
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }), label: "Live auction feed, closing soonest first" });
+  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }), label: "Live auction feed, closing soonest first", feedDown: !ok });
   let grid;
   if (lots.length) {
     // Cards are selectable (checkbox + tap outside the links) so a run of cars
@@ -7440,6 +7485,8 @@ export async function adminAuctionsPage(env, session, opts = {}) {
       return clients.length > 0 && !(q && q.status === "sent");
     };
     grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: pickerFor(lot), detailBase: "/admin?view=auctionlot&lot=", select: selectable(lot) })).join("")}</div>`;
+  } else if (!ok) {
+    grid = feedDownCard();
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
@@ -8012,7 +8059,7 @@ export async function getDealerVehicles(env, dealerId, status = "pending") {
 export async function dealerPortalPage(env, dealer, flash = "") {
   const submissions = await getDealerVehicles(env, dealer.id, "all");
   const first = (dealer.name || "").split(/\s+/)[0];
-  const side = `<aside class="side"><div class="brand">${LOGO}</div><nav class="nav"><a class="active" aria-current="page" href="/dealer"><span class="bar" aria-hidden="true"></span><span class="lbl">Submitted stock</span></a></nav><div class="side-foot"><div class="whoami"><span class="who-name">${esc(dealer.name || "Dealer")}</span><span class="who-role">${esc(dealer.company || "Dealer account")}</span></div><a class="signout" href="/logout">Sign out</a></div></aside>`;
+  const side = `<aside class="side"><div class="brand">${LOGO}</div><nav class="nav"><a class="active" aria-current="page" href="/dealer/portal"><span class="bar" aria-hidden="true"></span><span class="lbl">Submitted stock</span></a></nav><div class="side-foot"><div class="whoami"><span class="who-name">${esc(dealer.name || "Dealer")}</span><span class="who-role">${esc(dealer.company || "Dealer account")}</span></div><a class="signout" href="/logout">Sign out</a></div></aside>`;
   const badge = (status) => status === "approved" ? `<span class="chip chip-good">Approved</span>`
     : status === "rejected" ? `<span class="chip chip-bad">Rejected</span>`
     : `<span class="chip chip-warn">Pending review</span>`;

@@ -1,0 +1,69 @@
+# One-off, manual: adopt wrangler's d1_migrations tracking table on the
+# PRODUCTION database (launch audit: "database migration tracking is broken").
+#
+# Production's schema is fully up to date, but every migration since 0002 was
+# applied by hand with `d1 execute`, so the runner's bookkeeping table has no
+# record of them. Until that's fixed, `wrangler d1 migrations apply --remote`
+# would try to re-run non-idempotent files and die on "duplicate column".
+#
+# This workflow backfills the bookkeeping WITHOUT executing any migration:
+#   1. verifies production already has every table/column the migrations define
+#      (schema gate - refuses to mark anything applied that isn't really live),
+#   2. creates d1_migrations (wrangler's own DDL) and INSERT OR IGNOREs every
+#      numbered migration filename,
+#   3. verifies the runner now reports nothing pending.
+# Idempotent - safe to run more than once. After it succeeds, future migrations
+# go through the normal runner ("Apply reviewed D1 migrations" workflow).
+name: Adopt D1 migration tracking
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jdmfinder-production-database
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"  # wrangler >=4.x requires Node 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify production schema is already fully migrated
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run db:check:remote
+
+      - name: Backfill the d1_migrations bookkeeping
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/adopt-migration-tracking.mjs > adopt.sql
+          echo "--- adoption SQL ---"; cat adopt.sql
+          npx wrangler d1 execute jdm-vehicle-finder --remote --file adopt.sql
+
+      - name: Verify the runner reports nothing pending
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          out=$(npm run db:migrate:list 2>&1); echo "$out"
+          # wrangler prints a migrations table when anything is unapplied.
+          if echo "$out" | grep -qE "^\s*│.*\.sql"; then
+            echo "ERROR: the runner still sees unapplied migrations"; exit 1
+          fi
+          echo "VERIFIED: d1_migrations is in sync with the migrations directory."

@@ -65,8 +65,19 @@ or against your local D1 with `npm run db:check:local`.
 
 ## Adopting the runner on the existing production database
 
-Production already has every table in `0001_baseline.sql`. Because the baseline
-is fully idempotent, running `db:migrate:remote` against production will apply
-`0001_baseline` as a harmless no-op and then record it in `d1_migrations`, after
-which only `0002+` do real work. Do this once, with approval, before the first
-real new migration.
+Production's schema is fully up to date, but every migration since `0002` was
+applied by hand with `wrangler d1 execute`, so the runner's `d1_migrations`
+bookkeeping table has no record of them. **Do not run `db:migrate:remote`
+until the tracking is adopted** - the runner would treat all files as
+unapplied and die on the first non-idempotent `ALTER TABLE` ("duplicate
+column").
+
+Adoption backfills the bookkeeping without executing anything: it verifies the
+live schema matches the migrations (the same `db:check:remote` gate deploys
+use), then records every numbered filename in `d1_migrations` via
+`INSERT OR IGNORE` (see `scripts/adopt-migration-tracking.mjs`).
+
+Run the **"Adopt D1 migration tracking"** GitHub workflow once, with approval.
+It is idempotent. After it succeeds, `db:migrate:list` reports nothing pending
+and future migrations go through the **"Apply reviewed D1 migrations"**
+workflow (or `npm run db:migrate:remote`) normally.

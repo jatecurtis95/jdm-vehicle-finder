@@ -465,8 +465,13 @@ export default {
     // Login / logout.
     if (path === "/login") {
       const googleEnabled = googleConfigured(env);
+      // "Start membership" links land here as /login?next=subscribe. Only this
+      // one whitelisted value is honoured (and only for clients), so ?next= can
+      // never become an open redirect or drop an admin somewhere unexpected.
+      const next = url.searchParams.get("next") === "subscribe" ? "subscribe" : "";
+      const afterLogin = (role) => (next && role === "client") ? "/portal/subscribe" : homeFor(role);
       if (request.method === "POST") {
-        if (authBodyTooLarge(request)) return doc(loginPage({ error: true, googleEnabled }), 413);
+        if (authBodyTooLarge(request)) return doc(loginPage({ error: true, googleEnabled, next }), 413);
         const form = await request.formData();
         const ip = request.headers.get("CF-Connecting-IP") || "";
         // Clip the email to its RFC maximum before it reaches KV keys or logs;
@@ -476,24 +481,24 @@ export default {
         // even checking the password, so brute force can't keep guessing.
         if (await loginLocked(env, ip, email)) {
           await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
-          return doc(loginPage({ locked: true, googleEnabled, email: String(email || "") }), 429);
+          return doc(loginPage({ locked: true, googleEnabled, email: String(email || ""), next }), 429);
         }
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
           await clearLoginFails(env, ip, email);
           await touchLastSeen(env, who.role, who.id);
-          return new Response(null, { status: 303, headers: { Location: here(homeFor(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
+          return new Response(null, { status: 303, headers: { Location: here(afterLogin(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
         }
         await recordLoginFail(env, ip, email);
         await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS)); // throttle repeated guesses
         // Re-render with the submitted email preserved so a typo'd password
         // never costs re-typing the address.
-        return doc(loginPage({ error: true, googleEnabled, email: String(email || "") }), 401);
+        return doc(loginPage({ error: true, googleEnabled, email: String(email || ""), next }), 401);
       }
       const existing = await getSession(request, url, env);
-      if (existing) return Response.redirect(here(homeFor(existing.role)), 303);
+      if (existing) return Response.redirect(here(afterLogin(existing.role)), 303);
       const googleError = url.searchParams.get("error") === "google";
-      return doc(loginPage({ googleEnabled, googleError }));
+      return doc(loginPage({ googleEnabled, googleError, next }));
     }
     if (path === "/logout") {
       return new Response(null, { status: 303, headers: { Location: here("/login"), "Set-Cookie": clearCookie() } });
@@ -705,7 +710,16 @@ export default {
         : withNotice(d, okMsg)), 303);
     };
 
-    // Admin dealer management routes (admin only).
+    // Admin dealer management routes (admin only). The whole group also sits
+    // behind the dealer_portal_enabled setting (launch audit: the feature ships
+    // hidden until finished), so a stale bookmark or form can't resurrect it.
+    if ((path === "/dealer" || path.startsWith("/dealer/") || path.startsWith("/dealer-vehicle/")) &&
+        request.method === "POST" && path !== "/dealer/vehicle/submit") {
+      const s = await getSettings(env);
+      if (!settingOn(s, "dealer_portal_enabled")) {
+        return Response.redirect(here(withNotice("/admin", "The dealer network is turned off in Settings.", true)), 303);
+      }
+    }
     if (path === "/dealer" && request.method === "POST") {
       if (session.role !== "admin") return adminOnly();
       const f = await request.formData();
@@ -943,7 +957,10 @@ export default {
       return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
-    if (path === "/run") {
+    // POST only: running every search can email/WhatsApp clients (auto-notify
+    // wishlists), so a bare GET - link prefetch, bookmark, CSRF - must never
+    // trigger it. POST also puts it behind the same-origin guard above.
+    if (path === "/run" && request.method === "POST") {
       const ran = await runMatcher(env, session);
       // If auto sheet-reading is on (strong/all), catch up on a capped batch of
       // unread matches in the background so /run still redirects immediately.
@@ -955,6 +972,8 @@ export default {
       }
       return Response.redirect(here(`/admin?view=matches&ran=${Number(ran) || 0}`), 303);
     }
+    // Old GET bookmarks land on the Matches queue without running anything.
+    if (path === "/run") return Response.redirect(here("/admin?view=matches"), 303);
 
     // One-click "Fix all photos": AI-read every un-read pending match in the
     // background, which tags each car's cover photo + sheet so the cards heal.
@@ -1365,7 +1384,8 @@ async function handleClientPortal(request, env, url, path, session, here) {
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
       err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." :
       err === "freelimit" ? "Free accounts run one active search at a time. Pause or delete your current search to swap it, or upgrade to Full access for unlimited searches." :
-      err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." : "";
+      err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." :
+      err === "save" ? "We couldn't save that search. Add at least a make, model or chassis code so we know what to look for." : "";
     return doc(await portalPage(env, session, { flash }));
   }
 
@@ -1412,6 +1432,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
     const r = await portalAddWishlist(env, await request.formData(), session);
     if (r && r.error === "free_limit") return back("?err=freelimit");
     if (r && r.error === "limit") return back("?err=searchcap");
+    // "Saved." only when a row was actually written - any other failure
+    // (no search criteria, inactive client) must not flash success.
+    if (!r || !r.ok) return back("?err=save");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/edit" && request.method === "POST") {
