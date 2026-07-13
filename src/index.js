@@ -817,7 +817,13 @@ export default {
         }));
       }
       if (view === "auctionlot") {
-        return doc(await auctionLotPage(env, session, url.searchParams.get("lot")));
+        const backRaw = url.searchParams.get("back") || "";
+        return doc(await auctionLotPage(env, session, url.searchParams.get("lot"), {
+          // "Shopping for this client" context from the client-page find
+          // results: preselects the Add target and returns Back to the search.
+          clientId: Number(url.searchParams.get("client")) || 0,
+          back: backRaw.startsWith("/admin") ? backRaw : "",
+        }));
       }
       if (view === "request") {
         return doc(await requestDetailPage(env, url.searchParams.get("id"), session, {
@@ -1119,9 +1125,12 @@ export default {
       const r = await addLotToClient(env, id, f.get("lot_id"), session);
       const flash = r.ok ? (r.already ? "dup" : "added") : "err";
       // From the Auctions workspace, a `back` path returns to the same search.
+      // The flash param must land BEFORE any #fragment (a client-page back
+      // carries #find), or the server never sees it and the flash is lost.
       const back = String(f.get("back") || "");
       if (back.startsWith("/admin")) {
-        return Response.redirect(here(`${back}${back.includes("?") ? "&" : "?"}found=${flash}`), 303);
+        const [backPath, backHash] = back.split("#");
+        return Response.redirect(here(`${backPath}${backPath.includes("?") ? "&" : "?"}found=${flash}${backHash ? "#" + backHash : ""}`), 303);
       }
       // From a client's own page: keep the in-client search query and anchor.
       const q = String(f.get("q") || "").replace(/^[?&]+/, "");

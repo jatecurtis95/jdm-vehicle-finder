@@ -408,8 +408,14 @@ const CSS = `
   .pill.lot{left:12px}
   .pill.str{right:12px;background:rgba(0,0,0,0.55)}
   .pill.str .sd{width:7px;height:7px;border-radius:9999px;display:inline-block}
-  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:var(--on-solid)}
+  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:var(--on-solid);z-index:2}
   .mphoto .ttl .t{font-size:var(--fs-sect);font-weight:600;letter-spacing:-0.01em}
+  .mphoto .ttl .t a{color:inherit;text-decoration:none}
+  .mphoto .ttl .t a:hover{text-decoration:underline;text-decoration-color:var(--gold)}
+  /* Stretched photo link to the full lot page; pills and the title sit above
+     it, and the bulk-select checkbox keeps its higher z-index. */
+  .mphoto .mp-link{position:absolute;inset:0;z-index:1}
+  .mphoto .pill{z-index:2}
   .mphoto .ttl .a{font-size:var(--fs-label);color:#E6E7E8;margin-top:4px}
   .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px}
   .mstats .s .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
@@ -868,6 +874,7 @@ const CSS = `
   .ld-actions .btn-notify{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:var(--r-ctl);padding:12px}
   .ld-actions .btn-notify:hover{background:var(--gold-hover)}
   .ld-status{margin-top:16px;padding:12px;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-ctl);font-size:var(--fs-sec);color:var(--t2);text-align:center}
+  .ld-similar{display:flex;justify-content:center;margin-top:12px;white-space:normal;text-align:center}
   .ld-notes{font-size:var(--fs-sec);color:var(--t2);line-height:1.6;margin:0 0 8px}
   .ld-ai-read{background:var(--off);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px;margin:0 0 16px}
   .ld-ai-head{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
@@ -4822,6 +4829,16 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       </div>`
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
 
+  // One tap from ANY match (live or already actioned) back into the hunt:
+  // pre-fills the client's Find-a-car search with this exact car's shape.
+  // Most valuable when a car sold or was passed on and staff need the next one.
+  const firstNm = String(q.client_name || "").trim().split(/\s+/)[0] || "client";
+  const simQs = new URLSearchParams({ view: "client", id: String(q.client_id) });
+  if (lot.marka_name) simQs.set("make", String(lot.marka_name).trim());
+  if (lot.model_name) simQs.set("model", String(lot.model_name).trim());
+  if (lot.kuzov) simQs.set("kuzov", String(lot.kuzov).trim().split("-")[0]);
+  const findSimilar = `<a class="btn-line ld-similar" href="/admin?${simQs.toString()}#find">Find similar live cars for ${esc(firstNm)}</a>`;
+
   const main = `
     <div class="topbar wide">
       <div>
@@ -4850,6 +4867,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
+            ${findSimilar}
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
@@ -5251,6 +5269,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
+        <a class="btn-line" href="${esc(`/admin?view=auctions&tab=sold${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
@@ -5693,7 +5712,16 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   // about this car at all.
   let lot = null, feedDown = false;
   try { lot = await fetchLot(env, lotId); } catch (e) { feedDown = true; }
-  const backHref = member ? "/portal/auctions" : "/admin?view=auctions";
+  // Client context (staff only): arriving from a client's find results makes
+  // that client the Add target and points Back at the search they came from.
+  const ctxClient = (!member && opts.clientId && await clientAccessibleBy(env, opts.clientId, session))
+    ? await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(Number(opts.clientId)).first()
+    : null;
+  const ctxFirst = ctxClient ? (String(ctxClient.name || "").trim().split(/\s+/)[0] || "client") : "";
+  const backHref = member ? "/portal/auctions"
+    : (opts.back && String(opts.back).startsWith("/admin")) ? String(opts.back)
+    : "/admin?view=auctions";
+  const backLabel = ctxClient ? `Back to ${esc(ctxFirst)}'s search` : "Back to auctions";
   if (!lot || !lot.id) {
     const title = feedDown ? "Feed unavailable" : "Lot not found";
     const copy = feedDown
@@ -5707,6 +5735,9 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   }
 
   const nowYear = new Date().getFullYear();
+  // With client context, price the car for THEM: the landed estimate for their
+  // state sits right next to the Add button, so the decision is made here.
+  if (ctxClient) { try { await attachLanded(env, [{ lot, client: { state: ctxClient.state } }]); } catch (e) {} }
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const showMarket = member ? settingOn(settings, "market_for_clients") : true;
@@ -5736,6 +5767,9 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
 
   const elig = auctionEligibility(lot, nowYear);
   const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : elig.boundary ? " (the build month decides the exact date)" : ", ask us to confirm SEVS/age"}</div>`;
+  const landedLine = lot._landed && Number(lot._landed.grandTotal) > 0
+    ? `<div class="plv-landed"><span class="pl-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}${ctxClient ? ` for ${esc(ctxFirst)}` : ""}</span><span class="pl-v">A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}</span></div>`
+    : "";
 
   // Actions differ by surface. Members can request a bid and watch; staff can
   // add the lot to any client they can see (reuses the /client/find flow).
@@ -5750,18 +5784,25 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     const acc = accessScope(session);
     const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
     const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
-    const options = clients.map((cl) => `<option value="${cl.id}">${esc(cl.name)}</option>`).join("");
+    const options = clients.map((cl) => `<option value="${cl.id}"${ctxClient && Number(cl.id) === Number(ctxClient.id) ? " selected" : ""}>${esc(cl.name)}</option>`).join("");
+    // With client context the primary action is ONE tap: add to that client.
+    // The picker stays underneath for the "actually, this suits someone else"
+    // case; without context it is the only action, as before.
+    const oneTap = ctxClient
+      ? `<form method="POST" action="/client/find" style="margin:0 0 8px"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="client_id" value="${ctxClient.id}"><input type="hidden" name="back" value="${esc(backHref)}"><button class="btn-gold plv-cta" type="submit">Add to ${esc(ctxFirst)}'s queue</button></form>`
+      : "";
+    const pickerLabel = ctxClient ? "Or add to a different client..." : "Add to a client...";
     actions = clients.length
-      ? `<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to a client...</option>${options}</select><button class="btn-gold" type="submit">Add</button></form>
+      ? `${oneTap}<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">${pickerLabel}</option>${ctxClient ? options.replace(` selected`, "") : options}</select><button class="btn-${ctxClient ? "dark" : "gold"}" type="submit">Add</button></form>
          <p class="plv-fine">Adds this lot to the client's review queue as a manual find, ready to Approve &amp; send.</p>`
       : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
   }
 
-  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`;
+  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; ${backLabel}</a>`;
   const main = `
     <div class="topbar"><div class="topbar-in"><div class="kicker">${member ? "Members &middot; Auction vehicle" : "Vehicle Finder &middot; Auction vehicle"}</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div>${topRight}</div>
     <div class="content">
-      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; Back to auction search</a>`}
+      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; ${backLabel}</a>`}
       <div class="plv-grid">
         <div class="plv-left">
           <div class="plv-gallery">${gallery}</div>
@@ -5772,6 +5813,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
           <div class="card plv-spec">
             <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
             ${eligLine}
+            ${landedLine}
             <div class="plv-actions">${actions}</div>
             <div class="plv-rows">${specRows}</div>
           </div>
@@ -5791,6 +5833,10 @@ const ALOT_CSS = `<style>
   .plv-grade-k,.plv-price-k{font-size:var(--fs-label);color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
   .plv-price{text-align:right}
   .plv-price-v{font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  /* Landed-for-this-client strip: same register as the match cards' .mland. */
+  .plv-landed{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--gold-tint);border-radius:var(--r-ctl);padding:10px 12px;margin-bottom:16px}
+  .plv-landed .pl-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--gold-txt)}
+  .plv-landed .pl-v{font-size:var(--fs-body);font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums}
   .alot-elig{display:flex;align-items:center;gap:8px;font-size:var(--fs-sec);font-weight:600;padding:8px 0 16px;border-bottom:1px solid var(--hair);margin-bottom:16px}
   .alot-elig .dot{width:8px;height:8px;border-radius:50%;flex:none}
   .alot-elig.ok{color:var(--good)}.alot-elig.ok .dot{background:var(--good)}
@@ -7485,12 +7531,22 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
   const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  // Full lot page (gallery, inspection report, market history), carrying the
+  // client context so its Add button targets THIS client and Back returns to
+  // these results. Before this, staff had to queue a car blind to see more
+  // than the hero photo.
+  const back = `/admin?view=client&id=${clientId}${qsBack ? "&" + qsBack : ""}#find`;
+  const detailHref = `/admin?view=auctionlot&lot=${encodeURIComponent(lot.id)}&client=${clientId}&back=${encodeURIComponent(back)}`;
+  const sheet = splitImages(lot).sheet;
+  const elig = auctionEligibility(lot);
+  const eligChip = `<span class="chip ${elig.cls === "ok" ? "chip-good" : "chip-warn"}" style="margin-top:4px">${esc(elig.label)}</span>`;
   return `<div class="mcard${selectable ? " selcard" : ""}"${selectable ? ` data-lot="${esc(lot.id)}"` : ""}>
     ${selectable ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
+      <a class="mp-link" href="${esc(detailHref)}" aria-label="View ${title} details"></a>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+      <div class="ttl"><div class="t"><a href="${esc(detailHref)}">${title}</a></div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
@@ -7500,7 +7556,9 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
     </div>
     ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
     <div class="mfoot">
-      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
+      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div>${eligChip}</div>
+      ${sheet ? `<a class="btn-skip" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}
+      <a class="btn-skip" href="${esc(detailHref)}">Details</a>
       ${(queueState === "pending" || queueState === "sent")
         ? queueStateBadge(queueState, firstName)
         : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
