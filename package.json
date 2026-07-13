@@ -11,12 +11,14 @@
     "db:migrate:local": "wrangler d1 migrations apply jdm-vehicle-finder --local",
     "db:migrate:remote": "wrangler d1 migrations apply jdm-vehicle-finder --remote",
     "db:migrate:list": "wrangler d1 migrations list jdm-vehicle-finder --remote",
+    "db:reconcile:remote": "node scripts/reconcile-migration-ledger.mjs",
     "db:check:remote": "node scripts/check-remote-schema.mjs",
     "db:check:local": "node scripts/check-remote-schema.mjs --local",
     "db:seed:local": "wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-dev.sql",
     "qa:reset": "node scripts/qa-reset.mjs",
     "test": "node --test",
     "test:e2e": "node --test e2e/smoke.mjs",
+    "test:prod:smoke": "node scripts/production-smoke.mjs",
     "tail": "wrangler tail"
   },
   "devDependencies": {

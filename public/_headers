@@ -1,0 +1,6 @@
+# Browser-cache immutable, versioned-by-content static photography. Cloudflare
+# still invalidates the edge object when a deployment changes the file hash.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+

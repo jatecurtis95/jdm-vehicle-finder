@@ -1,72 +1,77 @@
 # Database migrations
 
-Schema for the `jdm-vehicle-finder` D1 database is versioned here and applied
-with Cloudflare's built-in migration runner (`wrangler d1 migrations apply`),
-which records what it has run in a `d1_migrations` table so each file runs once.
+The production D1 schema is versioned by the numbered SQL files in this folder.
+Wrangler records each applied file in `d1_migrations` and will only run a file
+once.
 
 ## Layout
 
-- `0001_baseline.sql` - the cumulative baseline schema. Every statement is
-  idempotent (`CREATE ... IF NOT EXISTS`), so it is safe to run against a fresh
-  database and a no-op against one that already has the tables. This is the full
-  end-state, folded together from the historical loose `migrate-*.sql` files.
-- `legacy/` - the original loose migration and one-off data-fix files, kept for
-  history. They were already applied to production over time and are now
-  represented by the baseline. Do not re-run them.
-- `0002_*.sql`, `0003_*.sql`, ... - new changes from here on. One concern per
-  file, numbered in order, with a short header comment.
+- `0001_baseline.sql` is the cumulative starting schema.
+- `0002_*.sql`, `0003_*.sql`, and later files are ordered, additive changes.
+- `legacy/` contains historical loose scripts for reference only. Do not run
+  them against production.
 
-## Workflow
+Never edit a numbered migration after it has reached production. Add the next
+numbered file instead. Prefer additive tables, columns, and indexes so code and
+schema changes can be rolled out safely.
 
-1. Add a new numbered file, for example `migrations/0002_add_tiers.sql`.
-2. Apply it locally first and run the tests:
-   ```
+## Normal workflow
+
+1. Add a numbered migration.
+2. Apply it to the local D1 and run the complete test suite:
+
+   ```powershell
    npm run db:migrate:local
    npm test
    ```
-3. When you are happy, apply it to production. This step changes live data, so
-   it is gated: only run it after Jate has approved the specific migration.
-   ```
+
+3. Review the SQL and take a production backup.
+4. Apply it to production through the migration runner:
+
+   ```powershell
    npm run db:migrate:remote
    ```
-4. Check what production has applied at any time:
-   ```
+
+5. Verify the schema and ledger:
+
+   ```powershell
+   npm run db:check:remote
    npm run db:migrate:list
    ```
 
-## Production safety rules
+The deploy workflow runs the remote schema check before publishing the Worker,
+so code cannot deploy ahead of a required table or column.
 
-- Never apply a migration to production without explicit approval.
-- SQLite has no `ADD COLUMN IF NOT EXISTS`. For a brand new column, a plain
-  `ALTER TABLE ... ADD COLUMN` is fine because the runner applies each file once.
-  Never edit a migration that has already been applied to production; add a new
-  one instead.
-- Prefer additive changes (new tables, new nullable columns with defaults) so a
-  deploy and its migration can go out independently without breaking the
-  currently running Worker.
+## One-time production ledger reconciliation
 
-## Deploy-time schema gate
+Migrations 0004 through 0017 were historically applied as individual SQL files,
+so the live schema contained them before their ledger rows existed. Do not run
+the normal migration command while that partial ledger still reports those files
+as pending, because their `ALTER TABLE` statements would collide with live
+columns.
 
-Because production migrations are applied by hand, a deploy could previously ship
-code that read a column production did not have yet. The deploy workflow now runs
-`npm run db:check:remote` (`scripts/check-remote-schema.mjs`) BEFORE
-`wrangler deploy`. It:
+Use `scripts/reconcile-migration-ledger.mjs` for the one-time adoption. It:
 
-1. Applies every numbered migration to a throwaway in-memory SQLite to get the
-   schema the code expects (identical to what the test suite runs against).
-2. Reads production's live schema with `wrangler d1 execute --remote`.
-3. Fails the deploy, listing exactly what is missing, if production lacks any
-   expected table or column. Extra columns in production are ignored.
+1. verifies the existing ledger is an exact prefix of the repository files;
+2. proves every expected table, column, and index is already live;
+3. refuses to baseline a migration containing non-additive/data-changing SQL;
+4. performs a read-only dry run unless `--apply` is explicitly supplied;
+5. exports a full production SQL backup outside the repository before writing;
+6. inserts only the missing ledger rows and verifies the complete ledger.
 
-So the order of operations for a schema change is unchanged, just enforced:
-apply the migration to production first (with approval), then the deploy passes.
-Run the same check locally against prod any time with `npm run db:check:remote`,
-or against your local D1 with `npm run db:check:local`.
+Run and review the dry run first:
 
-## Adopting the runner on the existing production database
+```powershell
+npm run db:reconcile:remote
+```
 
-Production already has every table in `0001_baseline.sql`. Because the baseline
-is fully idempotent, running `db:migrate:remote` against production will apply
-`0001_baseline` as a harmless no-op and then record it in `d1_migrations`, after
-which only `0002+` do real work. Do this once, with approval, before the first
-real new migration.
+After explicit approval, apply and verify:
+
+```powershell
+npm run db:reconcile:remote -- --apply
+npm run db:migrate:list
+npm run db:check:remote
+```
+
+Once it reports 17 of 17 migrations, all future production changes use the
+normal `db:migrate:remote` workflow above.

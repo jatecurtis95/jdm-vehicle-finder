@@ -2,7 +2,8 @@
 -- Dealer system: separate logins for vehicle suppliers (dealers). Dealers submit
 -- vehicles which admins review & approve before they become available. Separate
 -- from client.category='dealer' which is a buyer tag. These dealers are sellers.
--- Apply with `wrangler d1 execute jdm-vehicle-finder --remote --file migrations/0013_dealer_system.sql`
+-- Historical production installs used d1 execute; see README.md for the
+-- backup-first one-time ledger reconciliation.
 
 CREATE TABLE IF NOT EXISTS dealers (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,

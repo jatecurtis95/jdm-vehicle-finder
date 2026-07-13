@@ -3,6 +3,6 @@
 -- retail buyer everyone starts as) or 'dealer' (a trade buyer we sell to/for).
 -- Shown as a chip on the client page and customers list, filterable there, and
 -- editable from the client's Edit details form.
--- Apply to prod with `wrangler d1 execute jdm-vehicle-finder --remote --file`
--- (NEVER `migrations apply` - the tracking table is out of sync; see README).
+-- Historical production installs used d1 execute. The one-time ledger
+-- reconciliation in README.md records that already-live application safely.
 ALTER TABLE clients ADD COLUMN category TEXT NOT NULL DEFAULT 'private';

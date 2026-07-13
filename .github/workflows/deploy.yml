@@ -1,15 +1,3 @@
-# Auto-deploy to Cloudflare on every push to main.
-# Requires a repo secret named CLOUDFLARE_API_TOKEN (Workers edit permission).
-# Account is read from wrangler.toml; the Worker's secrets already live on
-# Cloudflare, so they don't need to be set here.
-#
-# Before the Worker ships, we VERIFY that production's D1 database already has
-# every table and column the migrations define (scripts/check-remote-schema.mjs).
-# Production migrations are applied manually/with approval (the migrations runner
-# is not adopted in prod - see migrations/README.md), so this gate stops a deploy
-# from racing ahead of its schema and shipping code that references a column that
-# does not exist yet. If it fails, apply the outstanding migration to prod first,
-# then re-run the deploy.
 name: Deploy to Cloudflare
 
 on:
@@ -17,19 +5,34 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Never let two main-branch releases race each other. A running production
+# release finishes before the next one starts, preserving deploy order.
+concurrency:
+  group: jdmfinder-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 78a4648f57e3da163587fff349bf8b19
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"  # node:sqlite (schema check) + wrangler >=4.x need Node 22
+          node-version: "22"
+          cache: npm
 
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
 
       - name: Run regression tests
@@ -64,7 +67,15 @@ jobs:
         run: npm run db:check:remote
 
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 78a4648f57e3da163587fff349bf8b19
           command: deploy
+
+      - name: Production smoke
+        env:
+          PROD_BASE_URL: https://jdmfinder.com.au
+          PROD_SMOKE_ATTEMPTS: "8"
+          PROD_SMOKE_RETRY_MS: "2500"
+        run: npm run test:prod:smoke

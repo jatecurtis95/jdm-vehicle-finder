@@ -5,4 +5,5 @@ node_modules/
 
 # Local-only: contains client PII / internal notes — never commit or push.
 import-clients.sql
+seed/import-managed-*.sql
 UX-AUDIT.md

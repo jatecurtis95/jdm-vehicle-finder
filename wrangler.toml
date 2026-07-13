@@ -1,6 +1,7 @@
 name = "jdm-vehicle-finder"
 main = "src/index.js"
-compatibility_date = "2024-11-01"
+compatibility_date = "2026-07-13"
+upload_source_maps = true
 # Cloudflare account that owns this Worker and the jdmconnect.com.au zone.
 account_id = "78a4648f57e3da163587fff349bf8b19"
 # Keep the *.workers.dev URL alive as a fallback alongside the custom domain.
@@ -36,6 +37,13 @@ directory = "./public"
 # Adjust once the provider confirms rate limits. Times are UTC.
 [triggers]
 crons = ["0 */6 * * *"]
+
+# Persist structured Worker logs so production failures can be diagnosed from
+# the Cloudflare dashboard. Launch traffic is low enough to retain every event;
+# reduce the sampling rate later if volume warrants it.
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 # D1 database binding. Create it with:
 #   npx wrangler d1 create jdm-vehicle-finder
