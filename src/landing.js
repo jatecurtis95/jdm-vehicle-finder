@@ -164,6 +164,157 @@ function liveCard(lot) {
   </a>`;
 }
 
+// --- Recent finds (public /finds page) --------------------------------------
+// Importer-style social proof (the Prestige Motorsport / Iron Chef pattern):
+// real cars recently found and SENT to buyers, straight from the review queue,
+// so nothing unvetted or invented ever shows. Client identity is reduced to a
+// first name + state; the car itself is public auction data. Lots whose linked
+// request has advanced past deposit render a "Secured" ribbon.
+const SECURED_STAGES = new Set(["purchased", "shipping", "compliance", "ready_delivery", "delivered"]);
+// Cache keyed by the D1 binding (not module-global) so two envs - e.g. tests,
+// or a future preview binding - can never serve each other's finds.
+const _findsCache = new WeakMap();
+const FINDS_TTL = 10 * 60 * 1000;
+
+async function recentFinds(env) {
+  const now = Date.now();
+  const hit = _findsCache.get(env.DB);
+  if (hit && now < hit.exp) return hit.finds;
+  const rows = (await env.DB.prepare(
+    `SELECT q.lot_json, q.sent_at, c.name AS client_name, c.state AS client_state, w.status AS req_status
+       FROM queue q JOIN clients c ON c.id = q.client_id
+       LEFT JOIN wishlists w ON w.id = q.wishlist_id
+      WHERE q.sent_at IS NOT NULL AND c.archived = 0
+      ORDER BY q.sent_at DESC LIMIT 80`
+  ).all()).results || [];
+  const seen = new Set();
+  const finds = [];
+  for (const r of rows) {
+    let lot = null; try { lot = JSON.parse(r.lot_json); } catch (e) {}
+    if (!lot || !lot.marka_name || !lot.year) continue;
+    const img = imageUrls(lot).medium;
+    if (!img) continue;
+    const key = String(lot.id || `${lot.lot || ""}@${lot.auction || ""}`);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    finds.push({
+      lot, img,
+      sentAt: String(r.sent_at || ""),
+      first: String(r.client_name || "").trim().split(/\s+/)[0] || "a buyer",
+      state: String(r.client_state || "").trim(),
+      secured: SECURED_STAGES.has(String(r.req_status || "")),
+    });
+    if (finds.length >= 12) break;
+  }
+  _findsCache.set(env.DB, { finds, exp: now + FINDS_TTL });
+  return finds;
+}
+
+function findMonth(sentAt) {
+  const t = Date.parse(sentAt);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleDateString("en-AU", { month: "short", year: "numeric" });
+}
+
+function findCard(f) {
+  const lot = f.lot;
+  const name = `${esc(lot.year)} ${esc(String(lot.marka_name || "").trim())} ${esc(String(lot.model_name || "").trim())}`.replace(/\s+/g, " ").trim();
+  const sub = [lot.kuzov, lot.grade].map((x) => esc(String(x || "").trim())).filter(Boolean).join(" &middot; ");
+  const odo = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";
+  const landed = f.lot._landed && Number(f.lot._landed.grandTotal) > 0
+    ? "A$" + Number(f.lot._landed.grandTotal).toLocaleString("en-AU") : null;
+  const who = `${esc(f.first)}${f.state ? " &middot; " + esc(f.state) : ""}`;
+  // The card funnels into the wizard pre-filled with THIS car's shape, so
+  // "find me one of those" is one tap, not a blank form.
+  const reqHref = "/request?" + new URLSearchParams({
+    make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(),
+    year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim(),
+  }).toString();
+  return `
+  <a class="vcard rv" href="${esc(reqHref)}">
+    <div class="vc-photo">
+      <img src="/assets/lot-img?u=${encodeURIComponent(f.img)}" alt="${name}" loading="lazy" width="800" height="600" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.closest('.vcard').style.display='none'"><div class="scrim"></div>
+      <span class="vc-lot">${esc(findMonth(f.sentAt)) || "Recent"}</span>
+      <span class="vc-tier">${f.secured ? "Secured" : "Found"}</span>
+    </div>
+    <div class="vc-sheet">
+      <div class="vc-chassis"><span>${esc(String(lot.kuzov || "").trim()) || "&nbsp;"}</span></div>
+      <div class="vc-grade-row">
+        <div class="vc-oval">
+          <div class="o"><span class="g">${esc(displayGrade(lot.rate))}</span><span class="gl">GRADE</span></div>
+        </div>
+        <div class="vc-meta">
+          <div class="nm">${name}</div>
+          <div class="sb">${sub || esc(String(lot.auction || "").trim())}</div>
+        </div>
+      </div>
+    </div>
+    <div class="vc-foot">
+      <div class="vc-data">
+        <div class="c"><div class="k">Found for</div><div class="v">${who}</div></div>
+        <div class="c"><div class="k">Odo</div><div class="v">${odo}</div></div>
+        <div class="c"><div class="k">${landed ? "Landed est." : "House"}</div><div class="v">${landed || esc(String(lot.auction || "").trim()) || "-"}</div></div>
+      </div>
+      <div class="vc-watch"><span class="wk">Find me one</span><span class="card-cta">&rarr;</span></div>
+    </div>
+  </a>`;
+}
+
+// Standalone public page: /finds. Same .jf design language as the landing.
+export async function findsPage(env) {
+  const finds = await recentFinds(env).catch(() => []);
+  const cards = finds.map((f) => findCard(f)).join("");
+  const body = `
+  <style>${landingCss}</style>
+  <div class="jf">
+    <header class="jf-nav" id="jdmNav">
+      <div class="jf-nav-in">
+        <a class="jf-brand" href="/" aria-label="JDM Connect Finder home">${LOGO}<span class="jf-tag">Finder</span></a>
+        <div class="jf-nav-right">
+          <nav class="jf-nav-links" aria-label="Primary"><a href="/">Home</a><a href="/login">Sign in</a></nav>
+          <a class="jf-gold" href="/request">Start free</a>
+        </div>
+      </div>
+    </header>
+    <main id="main">
+      <section class="sec" style="padding-top:140px">
+        <div class="sec-in">
+          <div class="list-head">
+            <div>
+              ${eyebrow("Recent finds")}
+              <h2 class="rv rv-d1">Real cars, found for real buyers.</h2>
+            </div>
+            <p class="note rv rv-d2">Every car here was pulled from a live Japanese auction by our team for a JDM Connect buyer. Tell us what you're chasing and yours joins the list.</p>
+          </div>
+          ${cards
+            ? `<div class="cards">${cards}</div>`
+            : `<p class="note rv" style="max-width:none;text-align:center;padding:48px 0">Fresh finds are on their way to this page. Tell us what you're chasing and we'll start the search today.</p>`}
+          <div class="final-btns rv" style="justify-content:center;margin-top:48px">
+            <a class="jf-gold" href="/request">Start your search, free <span class="ar">&rarr;</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="jf-foot">
+      <div class="jf-foot-in">
+        <a class="jf-brand" href="/" aria-label="JDM Connect home">${LOGO}<span class="jf-tag">Finder</span></a>
+        <div class="fmid">Connecting JDM &middot; ジェー・ディー・エムをつなぐ</div>
+        <nav class="flinks" aria-label="Legal and contact">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="mailto:hello@jdmconnect.com.au">hello@jdmconnect.com.au</a>
+        </nav>
+        <div class="fcopy">&copy; 2026 JDM Connect. Find it. We&rsquo;ll handle the rest.</div>
+      </div>
+    </footer>
+  </div>`;
+  return brandDoc(body, "Recent finds - JDMFinder", {
+    analytics: true,
+    description: "Real JDM cars recently found at Japanese auction for JDM Connect buyers, with grades and landed-cost estimates. Yours could be next.",
+    canonical: "https://jdmfinder.com.au/finds",
+  });
+}
+
 // Auction-sheet card. Photo is a placeholder until licensed auction imagery is
 // wired in; the whole card links to /request so any tap starts a search.
 const lineupCard = (c) => `
@@ -225,6 +376,7 @@ const NAV_LINKS = [
   ["#cost", "Real cost"],
   ["#how", "How it works"],
   ["#membership", "Membership"],
+  ["/finds", "Recent finds"],
   ["/login", "Sign in"],
 ];
 

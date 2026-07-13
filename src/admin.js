@@ -408,8 +408,14 @@ const CSS = `
   .pill.lot{left:12px}
   .pill.str{right:12px;background:rgba(0,0,0,0.55)}
   .pill.str .sd{width:7px;height:7px;border-radius:9999px;display:inline-block}
-  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:var(--on-solid)}
+  .mphoto .ttl{position:absolute;left:16px;right:16px;bottom:12px;color:var(--on-solid);z-index:2}
   .mphoto .ttl .t{font-size:var(--fs-sect);font-weight:600;letter-spacing:-0.01em}
+  .mphoto .ttl .t a{color:inherit;text-decoration:none}
+  .mphoto .ttl .t a:hover{text-decoration:underline;text-decoration-color:var(--gold)}
+  /* Stretched photo link to the full lot page; pills and the title sit above
+     it, and the bulk-select checkbox keeps its higher z-index. */
+  .mphoto .mp-link{position:absolute;inset:0;z-index:1}
+  .mphoto .pill{z-index:2}
   .mphoto .ttl .a{font-size:var(--fs-label);color:#E6E7E8;margin-top:4px}
   .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px}
   .mstats .s .k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--faint)}
@@ -868,6 +874,7 @@ const CSS = `
   .ld-actions .btn-notify{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:var(--r-ctl);padding:12px}
   .ld-actions .btn-notify:hover{background:var(--gold-hover)}
   .ld-status{margin-top:16px;padding:12px;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-ctl);font-size:var(--fs-sec);color:var(--t2);text-align:center}
+  .ld-similar{display:flex;justify-content:center;margin-top:12px;white-space:normal;text-align:center}
   .ld-notes{font-size:var(--fs-sec);color:var(--t2);line-height:1.6;margin:0 0 8px}
   .ld-ai-read{background:var(--off);border:1px solid var(--hair);border-radius:var(--r-card);padding:16px;margin:0 0 16px}
   .ld-ai-head{font-size:var(--fs-label);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
@@ -1366,7 +1373,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   else if (view === "payments") body = paymentsView(payments, { stripeSecret: !!env.STRIPE_SECRET_KEY, deposits });
   else if (view === "settings") body = settingsView(settings, { stripeSecret: !!env.STRIPE_SECRET_KEY, publicUrl: env.PUBLIC_URL, aiKey: !!env.ANTHROPIC_API_KEY, waConfigured: whatsappConfigured(env) });
   else if (view === "search") body = searchView(await adminSearch(env, session, opts.q || ""));
-  else if (view === "requests") body = requestsView(requests);
+  else if (view === "requests") body = requestsView(requests, { layout: opts.reqLayout });
   else if (view === "tasks") body = tasksView(tasks, { clients, session, mine: !!opts.taskMine });
 
   // The dashboard is its own hero: no standard page header, the greeting leads.
@@ -2581,7 +2588,69 @@ function mobileCardRow({ href, drawer, name, title, meta, right, rightSub, attrs
   </${tag}>`;
 }
 
+// List | Board layout switch shared by both renderings of the Requests view.
+function reqLayoutToggle(layout) {
+  return `<div class="lay-row"><div class="lay-toggle" role="tablist" aria-label="Pipeline layout">
+    <a href="/admin?view=requests" class="${layout === "board" ? "" : "on"}" role="tab" aria-selected="${layout !== "board"}">List</a>
+    <a href="/admin?view=requests&layout=board" class="${layout === "board" ? "on" : ""}" role="tab" aria-selected="${layout === "board"}">Board</a>
+  </div></div>`;
+}
+
+// Pipedrive-style kanban: one column per stage, requests as draggable cards.
+// Dragging a card to another column POSTs /request/status (the same endpoint
+// the list's dropdowns use); the compact select on each card is the fallback
+// for touch and no-JS, so the board never loses the ability to move a deal.
+function requestsBoard(requests) {
+  const back = "/admin?view=requests&layout=board";
+  const ordered = [...requests].sort((a, b) => (tsMs(b.last_activity || b.created_at) || 0) - (tsMs(a.last_activity || a.created_at) || 0));
+  const card = (r) => {
+    const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    const dep = (r.deposit_status === "requested" || r.deposit_status === "paid") ? depositBadge(r.deposit_status) : "";
+    return `<div class="kbn-card" draggable="true" data-id="${r.id}" data-st="${esc(r.status || "new")}">
+      <div class="kbn-cl">${healthDot(r.last_activity)}<a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a></div>
+      <div class="kbn-veh">${esc(veh)}${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}</div>
+      <div class="kbn-meta"><span class="reqid">REQ-${r.id}</span><span>${esc(lastActivityLabel(r.last_activity))}</span>${dep}</div>
+      ${statusSelect(r.id, r.status, back)}
+    </div>`;
+  };
+  const cols = REQUEST_STATUSES.map((s) => {
+    const items = ordered.filter((r) => (r.status || "new") === s.id);
+    return `<div class="kbn-col${s.tone === "bad" ? " kbn-lost" : ""}" data-st="${s.id}">
+      <div class="kbn-head"><span>${esc(s.label)}</span><span class="kbn-n">${items.length}</span></div>
+      <div class="kbn-cards">${items.map(card).join("") || `<div class="kbn-empty">Drop here</div>`}</div>
+    </div>`;
+  }).join("");
+  const dnd = `<script>(function(){
+    var drag=null;
+    document.querySelectorAll('.kbn-card').forEach(function(c){
+      c.addEventListener('dragstart',function(e){drag=c;c.classList.add('kbn-drag');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',c.getAttribute('data-id'));}catch(err){}});
+      c.addEventListener('dragend',function(){c.classList.remove('kbn-drag');drag=null;});
+    });
+    function count(col){if(col)col.querySelector('.kbn-n').textContent=col.querySelectorAll('.kbn-card').length;}
+    document.querySelectorAll('.kbn-col').forEach(function(col){
+      col.addEventListener('dragover',function(e){if(!drag)return;e.preventDefault();e.dataTransfer.dropEffect='move';col.classList.add('kbn-over');});
+      col.addEventListener('dragleave',function(){col.classList.remove('kbn-over');});
+      col.addEventListener('drop',function(e){
+        if(!drag)return;e.preventDefault();col.classList.remove('kbn-over');
+        var st=col.getAttribute('data-st');var cardEl=drag;
+        if(cardEl.getAttribute('data-st')===st)return;
+        var fromCol=cardEl.closest('.kbn-col');
+        col.querySelector('.kbn-cards').prepend(cardEl);
+        cardEl.setAttribute('data-st',st);
+        var sel=cardEl.querySelector('select[name=status]');if(sel)sel.value=st;
+        count(col);count(fromCol);
+        var fd=new FormData();fd.set('id',cardEl.getAttribute('data-id'));fd.set('status',st);fd.set('back',${JSON.stringify(back)});
+        fetch('/request/status',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error('save failed');}).catch(function(){location.reload();});
+      });
+    });
+  })();</script>`;
+  return `<div class="kbn">${cols}</div>${dnd}`;
+}
+
 function requestsView(requests, opts = {}) {
+  if (opts.layout === "board") {
+    return `${REQ_CSS}${reqLayoutToggle("board")}${requestsBoard(requests)}`;
+  }
   const counts = {};
   REQUEST_STATUSES.forEach((s) => (counts[s.id] = 0));
   requests.forEach((r) => { const st = r.status || "new"; counts[st] = (counts[st] || 0) + 1; });
@@ -2664,6 +2733,7 @@ function requestsView(requests, opts = {}) {
   }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
 
   return `${REQ_CSS}
+    ${reqLayoutToggle("")}
     <div class="pipe">${cards}</div>
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
@@ -2675,6 +2745,28 @@ function requestsView(requests, opts = {}) {
 }
 
 const REQ_CSS = `<style>
+  /* List | Board switch (Pipedrive register: quiet segmented control). */
+  .lay-row{display:flex;justify-content:flex-end;margin-bottom:12px}
+  .lay-toggle{display:inline-flex;border:1px solid var(--hair);border-radius:var(--r-ctl);overflow:hidden;background:var(--card)}
+  .lay-toggle a{padding:8px 16px;font-size:var(--fs-label);font-weight:600;color:var(--t2);text-decoration:none}
+  .lay-toggle a.on{background:var(--gold-tint);color:var(--gold-txt)}
+  .lay-toggle a:not(.on):hover{background:var(--hover);color:var(--ink)}
+  /* Kanban board: one horizontally-scrolling row of stage columns. */
+  .kbn{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:16px}
+  .kbn-col{flex:0 0 260px;display:flex;flex-direction:column;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-card);max-height:72vh}
+  .kbn-col.kbn-lost{opacity:.75}
+  .kbn-col.kbn-over{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+  .kbn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 12px 8px;font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3)}
+  .kbn-n{background:var(--soft);border-radius:9999px;padding:1px 8px;color:var(--t2);font-weight:600;font-variant-numeric:tabular-nums}
+  .kbn-cards{flex:1;display:flex;flex-direction:column;gap:8px;padding:4px 8px 12px;overflow-y:auto;min-height:44px}
+  .kbn-card{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl);padding:12px;cursor:grab}
+  .kbn-card.kbn-drag{opacity:.5}
+  .kbn-cl{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .kbn-veh{font-size:var(--fs-label);color:var(--t2);margin-top:4px;line-height:1.4}
+  .kbn-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:var(--fs-label);color:var(--t3)}
+  .kbn-empty{font-size:var(--fs-label);color:var(--faint);text-align:center;padding:12px 0;border:1px dashed var(--hair);border-radius:var(--r-ctl)}
+  /* The card's stage select doubles as the touch / no-JS way to move a deal. */
+  .kbn-card .rstat-sel{width:100%;margin-top:8px;border-color:var(--hair);background:var(--card);min-width:0}
   .pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:12px;margin-bottom:16px}
   .pipe-card{text-align:left;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card);padding:12px 16px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
   .pipe-card:hover{border-color:var(--field-line)}
@@ -4737,6 +4829,16 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
       </div>`
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
 
+  // One tap from ANY match (live or already actioned) back into the hunt:
+  // pre-fills the client's Find-a-car search with this exact car's shape.
+  // Most valuable when a car sold or was passed on and staff need the next one.
+  const firstNm = String(q.client_name || "").trim().split(/\s+/)[0] || "client";
+  const simQs = new URLSearchParams({ view: "client", id: String(q.client_id) });
+  if (lot.marka_name) simQs.set("make", String(lot.marka_name).trim());
+  if (lot.model_name) simQs.set("model", String(lot.model_name).trim());
+  if (lot.kuzov) simQs.set("kuzov", String(lot.kuzov).trim().split("-")[0]);
+  const findSimilar = `<a class="btn-line ld-similar" href="/admin?${simQs.toString()}#find">Find similar live cars for ${esc(firstNm)}</a>`;
+
   const main = `
     <div class="topbar wide">
       <div>
@@ -4765,6 +4867,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
             ${when ? `<div class="ld-when-row">${when}</div>` : ""}
             <div class="ld-client">${avatar(q.client_name)}<div class="ld-cl"><div class="ld-cl-n">Match for ${esc(q.client_name)}</div><div class="ld-cl-w">${esc(q.wlabel || "search")}</div>${budgetLine}</div></div>
             ${actions}
+            ${findSimilar}
             <div class="ld-rows">${specRows}</div>
             <div class="ld-sec">Auction</div>
             <div class="ld-rows">${auctionRows}</div>
@@ -4801,6 +4904,18 @@ const CRM_CSS = `<style>
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
+  /* Quick message templates: a quiet disclosure under the contact buttons. */
+  .qmsg{margin-top:16px;border-top:1px solid var(--hair);padding-top:12px}
+  .qmsg summary{cursor:pointer;list-style:none;font-size:var(--fs-sec);font-weight:600;color:var(--gold-txt)}
+  .qmsg summary::-webkit-details-marker{display:none}
+  .qmsg summary:hover{text-decoration:underline}
+  .qm-row{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--hair-2)}
+  .qm-row:last-child{border-bottom:0;padding-bottom:0}
+  .qm-main{flex:1;min-width:220px}
+  .qm-l{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
+  .qm-t{font-size:var(--fs-label);color:var(--t3);margin-top:4px;line-height:1.5;overflow-wrap:anywhere}
+  .qm-acts{display:flex;gap:8px;flex-wrap:wrap}
+  .qm-act{font-size:var(--fs-label);padding:6px 10px;cursor:pointer;font-family:inherit}
   .cd-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)}
   .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
@@ -4808,6 +4923,47 @@ const CRM_CSS = `<style>
   .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
   .btn-line:hover{border-color:var(--field-line);color:var(--ink);background:var(--hover)}
 </style>`;
+
+// Canned outreach templates (the Pipedrive/HubSpot template library, sized for
+// a small shop): the four moments that cover most manual follow-up. Each opens
+// WhatsApp or email PREFILLED, or copies to the clipboard, so the words are one
+// tap away but staff can still edit before sending. {car} comes from the
+// client's primary saved search so the message never reads like a mail merge.
+function quickMsgTemplates(c, primaryWl) {
+  const first = String(c.name || "").trim().split(/\s+/)[0] || "there";
+  const w = primaryWl || {};
+  const car = displayName([w.marka_name, w.model_name].filter(Boolean).join(" ")) || "JDM";
+  return [
+    { id: "intro", label: "New cars on the way", subject: "Cars we found for you at auction",
+      text: `Hi ${first}, JDM Connect here. We've spotted some ${car} examples at auction this week that fit your search, sending them through now. Tell us which ones you'd like a closer look at.` },
+    { id: "followup", label: "Follow up on sent cars", subject: "Did you see the cars we sent?",
+      text: `Hi ${first}, JDM Connect here. Just checking you saw the cars we sent through. Happy to pull the auction sheet translation or extra photos on any of them.` },
+    { id: "deposit", label: "Deposit nudge", subject: "Ready to bid when you are",
+      text: `Hi ${first}, JDM Connect here. To bid at auction we hold a refundable deposit, so we can move the moment the right ${car} comes up. Want me to send the payment link?` },
+    { id: "requiet", label: "Re-engage a quiet buyer", subject: "Still chasing that " + car + "?",
+      text: `Hi ${first}, JDM Connect here. Fresh ${car} listings keep coming through the Japanese auctions every week. Want us to keep the search running, or adjust what we're looking for?` },
+  ];
+}
+
+// The template picker on the client record: a quiet disclosure under the
+// contact buttons. Rendered only when there is a channel to send through.
+function quickMsgMenu(c, primaryWl) {
+  const waDigits = String(c.whatsapp || "").replace(/[^0-9]/g, "");
+  if (!waDigits && !c.email) return "";
+  const rows = quickMsgTemplates(c, primaryWl).map((t) => {
+    const wa = waDigits ? `<a class="cd-cta qm-act" data-clog="${c.id}:whatsapp" target="_blank" rel="noopener" href="${esc(`https://wa.me/${waDigits}?text=${encodeURIComponent(t.text)}`)}">WhatsApp</a>` : "";
+    const mail = c.email ? `<a class="cd-cta qm-act" data-clog="${c.id}:email" href="${esc(`mailto:${c.email}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.text)}`)}">Email</a>` : "";
+    return `<div class="qm-row">
+      <div class="qm-main"><div class="qm-l">${esc(t.label)}</div><div class="qm-t">${esc(t.text)}</div></div>
+      <div class="qm-acts">${wa}${mail}<button type="button" class="cd-cta qm-act" data-copy="${esc(t.text)}">Copy</button></div>
+    </div>`;
+  }).join("");
+  return `<details class="qmsg">
+    <summary>Quick message templates</summary>
+    <div class="qm-menu">${rows}</div>
+    <script>document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-copy]');if(!b)return;var t=b.getAttribute('data-copy');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){var was=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=was;},1200);}).catch(function(){window.prompt('Copy the message:',t);});});</script>
+  </details>`;
+}
 
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
@@ -4914,6 +5070,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   ].filter(Boolean).join("");
   const stat = (n, label) => `<div class="cd-stat"><div class="cd-stat-n">${Number(n) || 0}</div><div class="cd-stat-l">${label}</div></div>`;
   const lastViewed = eng.last_viewed ? String(eng.last_viewed).slice(0, 10) : "-";
+  const msgMenu = quickMsgMenu(c, searchWls[0]);
   const head = `<div class="card cd-card">
     <div class="cd-head">
       <span class="avatar" style="width:46px;height:46px;font-size:var(--fs-body)">${esc(initials(c.name))}</span>
@@ -4926,6 +5083,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       <div class="cd-owner"><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     </div>
     ${contactBtns ? `<div class="cd-actions">${contactBtns}</div>` : ""}
+    ${msgMenu}
     <div class="cd-stats">
       ${stat(searchWls.length, searchWls.length === 1 ? "Search" : "Searches")}
       ${stat(matches.length, "Live matches")}
@@ -5111,6 +5269,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
+        <a class="btn-line" href="${esc(`/admin?view=auctions&tab=sold${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
@@ -5553,7 +5712,16 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   // about this car at all.
   let lot = null, feedDown = false;
   try { lot = await fetchLot(env, lotId); } catch (e) { feedDown = true; }
-  const backHref = member ? "/portal/auctions" : "/admin?view=auctions";
+  // Client context (staff only): arriving from a client's find results makes
+  // that client the Add target and points Back at the search they came from.
+  const ctxClient = (!member && opts.clientId && await clientAccessibleBy(env, opts.clientId, session))
+    ? await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(Number(opts.clientId)).first()
+    : null;
+  const ctxFirst = ctxClient ? (String(ctxClient.name || "").trim().split(/\s+/)[0] || "client") : "";
+  const backHref = member ? "/portal/auctions"
+    : (opts.back && String(opts.back).startsWith("/admin")) ? String(opts.back)
+    : "/admin?view=auctions";
+  const backLabel = ctxClient ? `Back to ${esc(ctxFirst)}'s search` : "Back to auctions";
   if (!lot || !lot.id) {
     const title = feedDown ? "Feed unavailable" : "Lot not found";
     const copy = feedDown
@@ -5567,6 +5735,9 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   }
 
   const nowYear = new Date().getFullYear();
+  // With client context, price the car for THEM: the landed estimate for their
+  // state sits right next to the Add button, so the decision is made here.
+  if (ctxClient) { try { await attachLanded(env, [{ lot, client: { state: ctxClient.state } }]); } catch (e) {} }
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const showMarket = member ? settingOn(settings, "market_for_clients") : true;
@@ -5596,6 +5767,9 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
 
   const elig = auctionEligibility(lot, nowYear);
   const eligLine = `<div class="alot-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}${elig.cls === "ok" ? " for import (25+ years)" : elig.boundary ? " (the build month decides the exact date)" : ", ask us to confirm SEVS/age"}</div>`;
+  const landedLine = lot._landed && Number(lot._landed.grandTotal) > 0
+    ? `<div class="plv-landed"><span class="pl-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}${ctxClient ? ` for ${esc(ctxFirst)}` : ""}</span><span class="pl-v">A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}</span></div>`
+    : "";
 
   // Actions differ by surface. Members can request a bid and watch; staff can
   // add the lot to any client they can see (reuses the /client/find flow).
@@ -5610,18 +5784,25 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     const acc = accessScope(session);
     const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
     const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
-    const options = clients.map((cl) => `<option value="${cl.id}">${esc(cl.name)}</option>`).join("");
+    const options = clients.map((cl) => `<option value="${cl.id}"${ctxClient && Number(cl.id) === Number(ctxClient.id) ? " selected" : ""}>${esc(cl.name)}</option>`).join("");
+    // With client context the primary action is ONE tap: add to that client.
+    // The picker stays underneath for the "actually, this suits someone else"
+    // case; without context it is the only action, as before.
+    const oneTap = ctxClient
+      ? `<form method="POST" action="/client/find" style="margin:0 0 8px"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="client_id" value="${ctxClient.id}"><input type="hidden" name="back" value="${esc(backHref)}"><button class="btn-gold plv-cta" type="submit">Add to ${esc(ctxFirst)}'s queue</button></form>`
+      : "";
+    const pickerLabel = ctxClient ? "Or add to a different client..." : "Add to a client...";
     actions = clients.length
-      ? `<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to a client...</option>${options}</select><button class="btn-gold" type="submit">Add</button></form>
+      ? `${oneTap}<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">${pickerLabel}</option>${ctxClient ? options.replace(` selected`, "") : options}</select><button class="btn-${ctxClient ? "dark" : "gold"}" type="submit">Add</button></form>
          <p class="plv-fine">Adds this lot to the client's review queue as a manual find, ready to Approve &amp; send.</p>`
       : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
   }
 
-  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`;
+  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; ${backLabel}</a>`;
   const main = `
     <div class="topbar"><div class="topbar-in"><div class="kicker">${member ? "Members &middot; Auction vehicle" : "Vehicle Finder &middot; Auction vehicle"}</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div>${topRight}</div>
     <div class="content">
-      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; Back to auction search</a>`}
+      ${member ? "" : `<a class="backlink" href="${backHref}">&larr; ${backLabel}</a>`}
       <div class="plv-grid">
         <div class="plv-left">
           <div class="plv-gallery">${gallery}</div>
@@ -5632,6 +5813,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
           <div class="card plv-spec">
             <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
             ${eligLine}
+            ${landedLine}
             <div class="plv-actions">${actions}</div>
             <div class="plv-rows">${specRows}</div>
           </div>
@@ -5651,6 +5833,10 @@ const ALOT_CSS = `<style>
   .plv-grade-k,.plv-price-k{font-size:var(--fs-label);color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
   .plv-price{text-align:right}
   .plv-price-v{font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  /* Landed-for-this-client strip: same register as the match cards' .mland. */
+  .plv-landed{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--gold-tint);border-radius:var(--r-ctl);padding:10px 12px;margin-bottom:16px}
+  .plv-landed .pl-k{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--gold-txt)}
+  .plv-landed .pl-v{font-size:var(--fs-body);font-weight:700;color:var(--gold-txt);font-variant-numeric:tabular-nums}
   .alot-elig{display:flex;align-items:center;gap:8px;font-size:var(--fs-sec);font-weight:600;padding:8px 0 16px;border-bottom:1px solid var(--hair);margin-bottom:16px}
   .alot-elig .dot{width:8px;height:8px;border-radius:50%;flex:none}
   .alot-elig.ok{color:var(--good)}.alot-elig.ok .dot{background:var(--good)}
@@ -7345,12 +7531,22 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
   const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  // Full lot page (gallery, inspection report, market history), carrying the
+  // client context so its Add button targets THIS client and Back returns to
+  // these results. Before this, staff had to queue a car blind to see more
+  // than the hero photo.
+  const back = `/admin?view=client&id=${clientId}${qsBack ? "&" + qsBack : ""}#find`;
+  const detailHref = `/admin?view=auctionlot&lot=${encodeURIComponent(lot.id)}&client=${clientId}&back=${encodeURIComponent(back)}`;
+  const sheet = splitImages(lot).sheet;
+  const elig = auctionEligibility(lot);
+  const eligChip = `<span class="chip ${elig.cls === "ok" ? "chip-good" : "chip-warn"}" style="margin-top:4px">${esc(elig.label)}</span>`;
   return `<div class="mcard${selectable ? " selcard" : ""}"${selectable ? ` data-lot="${esc(lot.id)}"` : ""}>
     ${selectable ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       <div class="grad"></div>
+      <a class="mp-link" href="${esc(detailHref)}" aria-label="View ${title} details"></a>
       <span class="pill lot">Lot ${esc(lot.lot || "-")}</span>
-      <div class="ttl"><div class="t">${title}</div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
+      <div class="ttl"><div class="t"><a href="${esc(detailHref)}">${title}</a></div><div class="a">${esc(lot.auction || "")}${when ? " · " + when : ""}</div></div>
     </div>
     <div class="mstats">
       <div class="s"><div class="k">Year</div><div class="v">${esc(lot.year || "-")}</div></div>
@@ -7360,7 +7556,9 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
     </div>
     ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
     <div class="mfoot">
-      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div></div>
+      <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div>${eligChip}</div>
+      ${sheet ? `<a class="btn-skip" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}
+      <a class="btn-skip" href="${esc(detailHref)}">Details</a>
       ${(queueState === "pending" || queueState === "sent")
         ? queueStateBadge(queueState, firstName)
         : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
