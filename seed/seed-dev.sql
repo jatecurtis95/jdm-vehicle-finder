@@ -63,3 +63,6 @@ INSERT OR REPLACE INTO queue (id, wishlist_id, client_id, lot_id, lot_json, stat
 -- Settings: keep dev safe by default. MAIL_DRY_RUN is an env var, not a setting,
 -- but make sure deposits are off in any seeded local database.
 INSERT OR REPLACE INTO settings (key, value) VALUES ('stripe_enabled', '0');
+-- The dealer feature ships hidden in production (launch audit) but stays ON in
+-- dev/QA seeds so the dealer admin views and smoke tests keep exercising it.
+INSERT OR REPLACE INTO settings (key, value) VALUES ('dealer_portal_enabled', '1');
