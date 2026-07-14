@@ -18,7 +18,7 @@ test("eligibility follows the 25-year age rule", () => {
   // be 25 yet - never assert certainty on the boundary year (launch audit).
   const boundary = auctionEligibility({ year: "2001" }, 2026);
   assert.equal(boundary.cls, "check");
-  assert.equal(boundary.label, "Likely eligible—needs confirmation");
+  assert.equal(boundary.label, "Likely eligible, needs confirmation");
   assert.equal(auctionEligibility({ year: "2000" }, 2026).cls, "ok"); // 26 years: certain
   assert.equal(auctionEligibility({ year: "2015" }, 2026).cls, "check");
   assert.equal(auctionEligibility({ year: "" }, 2026).cls, "check");

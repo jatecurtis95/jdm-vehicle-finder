@@ -40,7 +40,7 @@ export function auctionEligibility(lot, nowYear) {
   if (Number.isFinite(yr) && yr > 1950) {
     const age = year - yr;
     if (age >= 26) return { cls: "ok", label: "Eligible" };
-    if (age === 25) return { cls: "check", label: "Likely eligible—needs confirmation", boundary: true };
+    if (age === 25) return { cls: "check", label: "Likely eligible, needs confirmation", boundary: true };
   }
   return { cls: "check", label: "Check eligibility" };
 }
