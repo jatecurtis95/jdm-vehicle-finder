@@ -4729,7 +4729,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   // Market intelligence (sold comparables) + live FX, in parallel. Both are
   // cached and degrade to null/fallback, so the page never blocks on them.
   const [market, fx] = await Promise.all([
-    marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null),
+    marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade, year: lot.year, mileage: lot.mileage }).catch(() => null),
     getLiveFx(env).catch(() => 0),
   ]);
   const marketBox = marketPanel(market, fx);
@@ -5655,7 +5655,7 @@ export async function publicLotPage(env, queueId) {
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const [market, fx] = settingOn(settings, "market_for_clients")
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade, year: lot.year, mileage: lot.mileage }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
@@ -5765,7 +5765,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const settings = await getSettings(env).catch(() => ({}));
   const showMarket = member ? settingOn(settings, "market_for_clients") : true;
   const [market, fx] = showMarket
-    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade }).catch(() => null), getLiveFx(env).catch(() => 0)])
+    ? await Promise.all([marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade, year: lot.year, mileage: lot.mileage }).catch(() => null), getLiveFx(env).catch(() => 0)])
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";

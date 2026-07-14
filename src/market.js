@@ -36,6 +36,31 @@ function gradeMix(rows) {
 
 const RECENT_COLS = "marka_name,model_name,year,grade,rate,auction_date,finish,mileage,kuzov";
 
+// V1.3 Phase 4: rank comparables inside the matched similarity tier by
+// closeness to the subject car - a year apart counts like ~25,000 km of
+// mileage difference (typical JDM annual use). Rows arrive newest-sold-first
+// and the sort is stable, so recency still breaks ties. Without subject
+// context the feed's recency order stands. Transmission/drivetrain proximity
+// is deliberately NOT queried here: the model-code tier already pins those in
+// practice, and the relay's stats table is not verified to carry kpp/priv
+// (see docs/auction-history.md).
+const KM_PER_YEAR = 25000;
+function rankRecent(rows, subjYear, subjKm) {
+  const hasYear = Number.isFinite(subjYear) && subjYear > 0;
+  const hasKm = Number.isFinite(subjKm) && subjKm > 0;
+  if (!hasYear && !hasKm) return rows.slice(0, 6);
+  const score = (r) => {
+    const y = hasYear && Number(r.year) > 0 ? Math.abs(Number(r.year) - subjYear) : 0;
+    const k = hasKm && Number(r.mileage) > 0 ? Math.abs(Number(r.mileage) - subjKm) / KM_PER_YEAR : 0;
+    return y + k;
+  };
+  return rows
+    .map((r, i) => ({ r, i, s: score(r) }))
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .slice(0, 6)
+    .map((x) => x.r);
+}
+
 function mapRecent(r) {
   return {
     make: r.marka_name || "",
@@ -64,8 +89,10 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
   // similarity level used is reported so the panel can say what it compared.
   const kz = String(opts.kuzov || "").trim().toUpperCase();
   const gr = String(opts.grade || "").trim().toUpperCase();
+  const subjYear = parseInt(opts.year, 10);
+  const subjKm = parseInt(opts.mileage, 10);
 
-  const key = `${mk}|${md}|${kz}|${gr}`;
+  const key = `${mk}|${md}|${kz}|${gr}|${Number.isFinite(subjYear) ? subjYear : ""}|${Number.isFinite(subjKm) ? subjKm : ""}`;
   const hit = _cache.get(key);
   if (hit && nowMs < hit.exp) return hit.data;
 
@@ -80,6 +107,10 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
       const probe = (await query(env, `select count(*) from stats where ${t.where}`))[0] || {};
       if (sqlInt(probe.tag0) > 0) { base = t.where; similarity = t.similarity; break; }
     }
+    // A narrowing was requested but nothing matched it: the figures below
+    // cover the whole model line, and the panel must say so out loud rather
+    // than pass the wider line off as comparable (V1.3 Phase 4).
+    const fallback = (!similarity && (kz || gr)) ? (kz ? "model code " + kz : "grade " + gr) : "";
     const aggSql = (w) => `select avg(FINISH),count(*),min(FINISH),max(FINISH) from stats where ${w}`;
     const cutoff = new Date(nowMs - 84 * 86400000).toISOString().slice(0, 10);
 
@@ -104,7 +135,7 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
     // all in parallel.
     const [raw, recent, bars] = await Promise.all([
       query(env, `select FINISH,RATE from stats where ${where} order by AUCTION_DATE desc limit 300`),
-      query(env, `select ${RECENT_COLS} from stats where ${base} order by AUCTION_DATE desc limit 6`),
+      query(env, `select ${RECENT_COLS} from stats where ${base} order by AUCTION_DATE desc limit 24`),
       Promise.all(
         Array.from({ length: 12 }, (_, idx) => {
           const i = 11 - idx; // idx 0 = oldest week
@@ -119,14 +150,14 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
 
     const prices = raw.map((r) => sqlInt(r.finish)).filter((n) => n && n > 0);
     const data = {
-      make: mk, model: md, windowed, count, similarity,
+      make: mk, model: md, windowed, count, similarity, fallback,
       avg: Math.round(parseFloat(a.tag0) || 0),
       median: median(prices),
       low: sqlInt(a.tag2) || 0,
       high: sqlInt(a.tag3) || 0,
       bars,
       gradeMix: gradeMix(raw),
-      recent: recent.map(mapRecent),
+      recent: rankRecent(recent.map(mapRecent), subjYear, subjKm),
     };
     _cache.set(key, { data, exp: nowMs + CACHE_TTL });
     return data;
@@ -256,8 +287,15 @@ export function marketPanel(m, fx = 0) {
       <div class="mktp-comp-r"><span class="mktp-comp-k">SOLD</span><span class="mktp-comp-v">${yen(r.finish)}</span></div>
     </div>`).join("");
   const audAvg = aud(m.avg, fx);
+  // V1.3 Phase 4: when a requested model code or grade had no sold records,
+  // the figures below cover the whole model line - say so, out loud, rather
+  // than let a Type R read against every base-model sale as if comparable.
+  const fallbackNote = m.fallback
+    ? `<div class="mktp-fallbk">No sold records match ${esc(m.fallback)} yet. These figures cover every ${esc(displayName(m.model))} sold, so treat them as a guide only.</div>`
+    : "";
   return `<div class="card mktp">
     <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}${m.similarity ? " &middot; " + esc(m.similarity) : ""}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
+    ${fallbackNote}
     <div class="mktp-top">
       <div class="mktp-stat lead"><div class="mktp-k">Avg sold</div><div class="mktp-v">${yen(m.avg)}</div>${audAvg ? `<div class="mktp-sub">≈ ${esc(audAvg)}</div>` : ""}</div>
       <div class="mktp-stat"><div class="mktp-k">Median</div><div class="mktp-v">${yen(m.median)}</div></div>
@@ -295,6 +333,7 @@ const MKT_CSS = `<style>
   .mktp-bar{width:9px;background:#e7e3d6;border-radius:2px 2px 0 0;transition:background .15s}
   .mktp-bar.empty{background:rgba(0,0,0,.06)}
   .mktp-bar.on{background:#CAA34C}
+  .mktp-fallbk{font-size:12px;color:#8a5e10;background:rgba(201,138,0,.07);border:1px solid rgba(201,138,0,.25);border-radius:8px;padding:8px 12px;margin:0 0 14px}
   .mktp-mix{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,0,0,.06)}
   .mktp-chip{font-size:11.5px;color:#5b606a;background:#f4f3ef;border:1px solid rgba(0,0,0,.07);border-radius:999px;padding:3px 10px}
   .mktp-chip b{color:#1b1c1e;font-weight:700}
