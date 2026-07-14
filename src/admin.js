@@ -5755,6 +5755,10 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   const sheetBox = sheetBase
     ? `<div class="card plv-sheet"><h2>Auction inspection report</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
     : "";
+  // A row with a hammer price is a historical sold record (fetchLot fell back
+  // to the stats table). The Auction History page links members here, so the
+  // page must read as a sold record, never as a biddable live lot.
+  const sold = Number(lot.finish) > 0;
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
@@ -5762,6 +5766,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
+    ["Sold price", sold ? yen(lot.finish) : ""],
     ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
 
@@ -5774,7 +5779,13 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   // Actions differ by surface. Members can request a bid and watch; staff can
   // add the lot to any client they can see (reuses the /client/find flow).
   let actions;
-  if (member) {
+  if (member && sold) {
+    // Already sold: no bid form, no watchlist heart. The record is a price
+    // guide, so the action is finding the next one like it.
+    const liveHref = `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`;
+    actions = `<a class="btn-gold plv-cta" href="${esc(liveHref)}">Find one like this live</a>
+      <p class="plv-fine">This car has already sold at auction. Use its result as a price guide, then search the live feed and we'll chase the next one.</p>`;
+  } else if (member) {
     const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
     const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(fullGrade(lot))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
     actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
@@ -5811,7 +5822,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
         </div>
         <aside class="plv-right">
           <div class="card plv-spec">
-            <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
+            <div class="plv-top"><div class="plv-grade"><div class="plv-grade-n">${esc(displayGrade(lot.rate))}</div><div class="plv-grade-k">Auction grade</div></div>${sold ? `<div class="plv-price"><div class="plv-price-k">Sold price</div><div class="plv-price-v">${yen(lot.finish)}</div></div>` : Number(lot.start) > 0 ? `<div class="plv-price"><div class="plv-price-k">Start price</div><div class="plv-price-v">${yen(lot.start)}</div></div>` : ""}</div>
             ${eligLine}
             ${landedLine}
             <div class="plv-actions">${actions}</div>
@@ -7120,14 +7131,19 @@ async function enablePortalSelfSignup(env, clientId, password) {
 // ===========================================================================
 const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function portalSidebar(c, active = "garage") {
+export function portalSidebar(c, active = "garage") {
+  // The legacy /portal/sold page highlights the Auction history entry that
+  // replaced its own nav item.
+  if (active === "sold") active = "history";
   const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
   // The auction search page is a paid-member perk, gated on clients.member.
   const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
-  const sold = c && c.member ? item("sold", "/portal/sold", "Sold auctions") : "";
+  // Auction history supersedes the old "Sold auctions" entry in the nav; the
+  // /portal/sold route itself stays live for existing bookmarks.
+  const history = c && c.member ? item("history", "/portal/history", "Auction history") : "";
   return `<aside class="side">
     <div class="brand">${LOGO}</div>
-    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}${sold}</nav>
+    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}${history}</nav>
     <div class="side-foot">
       <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">${c && c.member ? "Member" : "Client"}</span></div>
       <a class="signout" href="/logout">Sign out</a>
@@ -7296,6 +7312,10 @@ export async function requestAuctionLot(env, clientId, lotId) {
   let lot = null;
   try { lot = await fetchLot(env, lotId); } catch (e) {}
   if (!lot || !lot.id) return { ok: false, error: "not_found" };
+  // A hammer price means the car already sold (a stats-table record, reachable
+  // from Auction History). The UI never offers the bid form on a sold lot, but
+  // a replayed/hand-built POST must not queue a bid on a car that's gone.
+  if (Number(lot.finish) > 0) return { ok: false, error: "sold" };
   let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(clientId, DIRECT_REQUESTS_LABEL).first();
   let wishlistId = wl?.id;
   if (!wishlistId) {
