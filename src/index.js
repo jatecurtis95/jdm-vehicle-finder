@@ -1308,7 +1308,12 @@ export default {
       const f = await request.formData();
       // Resolve the redirect target only if this session may actually see the
       // client, so a blocked edit never leaks a foreign client_id in the URL.
-      return act(() => editWishlist(env, f, session), async () => {
+      return act(async () => {
+        const r = await editWishlist(env, f, session);
+        // A refused save (e.g. every narrowing term blanked) must surface as
+        // the failure notice, not a false "Search updated".
+        if (r && r.ok === false) throw new Error(r.error || "invalid");
+      }, async () => {
         const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
         return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
       }, "Search updated");
@@ -1553,7 +1558,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/edit" && request.method === "POST") {
-    await portalEditWishlist(env, await request.formData(), session);
+    const r = await portalEditWishlist(env, await request.formData(), session);
+    // A refused save (blanked search, foreign row) must not flash success.
+    if (!r || !r.ok) return back("?err=save");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/toggle" && request.method === "POST") {

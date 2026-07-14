@@ -4506,14 +4506,21 @@ export async function editWishlist(env, form, session) {
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
   if (!(await wishlistOwnedBy(env, id, session))) return;
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  // The create-time rule holds on edit too: blanking every narrowing term
+  // would turn a saved search into a whole-feed match-everything (V1.3).
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" };
   const { yMin, yMax } = yearPair(form);
   await updateWishlistDrift(env, [
-    ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
+    ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
     ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
-    ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")], ["watch_only", form.get("watch_only") ? 1 : 0],
-    ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
+    ["kuzov", kuzov], ["grade_kw", gradeKw], ["watch_only", form.get("watch_only") ? 1 : 0],
+    ["model_code", modelCode], ["grades", sgrades(form)],
   ], "WHERE id = ?", [id]);
+  return { ok: true };
 }
 
 // Inline editor for one wishlist (native <details>, no JS), plus toggle/delete.
@@ -8011,17 +8018,24 @@ export async function portalAddWishlist(env, form, session) {
 
 export async function portalEditWishlist(env, form, session) {
   const cid = Number(session.id);
-  if (!(await portalClientActive(env, cid))) return;
+  if (!(await portalClientActive(env, cid))) return { ok: false };
   const w = await portalWishlistOwned(env, form.get("id"), cid);
-  if (!w) return;
+  if (!w) return { ok: false };
+  const marka = sstr(form, "marka_name"), model = sstr(form, "model_name");
+  const kuzov = sstr(form, "kuzov"), gradeKw = sstr(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  // Same server-side rule as portalAddWishlist: an edit can't blank every
+  // narrowing term and leave a match-everything search behind (V1.3).
+  if (!(marka || model || kuzov || gradeKw || modelCode)) return { ok: false, error: "term" };
   const { yMin, yMax } = yearPair(form);
   await updateWishlistDrift(env, [
-    ["label", sstr(form, "label")], ["marka_name", sstr(form, "marka_name")], ["model_name", sstr(form, "model_name")],
+    ["label", sstr(form, "label")], ["marka_name", marka], ["model_name", model],
     ["year_min", yMin], ["year_max", yMax], ["price_max", sint(form, "price_max", PRICE_MAX_CAP)],
     ["mileage_max", sint(form, "mileage_max", MILEAGE_MAX_CAP)], ["mileage_min", sint(form, "mileage_min", MILEAGE_MAX_CAP)], ["rate_min", clampRange(num(form, "rate_min"), 1, 6)],
-    ["kuzov", sstr(form, "kuzov")], ["grade_kw", sstr(form, "grade_kw")],
-    ["model_code", sstr(form, "model_code", FIELD_MAX.kuzov)], ["grades", sgrades(form)],
+    ["kuzov", kuzov], ["grade_kw", gradeKw],
+    ["model_code", modelCode], ["grades", sgrades(form)],
   ], "WHERE id = ? AND client_id = ?", [w.id, cid]);
+  return { ok: true };
 }
 
 export async function portalToggleWishlist(env, form, session) {
