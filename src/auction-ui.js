@@ -84,12 +84,19 @@ export function auctionCardV2(lot, opts = {}) {
   const sold = Number(opts.soldPrice) > 0;
   const fav = opts.fav !== false && !sold;
   const img = imageUrls(lot).medium || "";
-  const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
-  const code = String(lot.kuzov || "").trim();
+  // V1.3 Phase 3: the card identifies the car fully - year opens the name and
+  // the variant (the feed's trim string) sits beside the chassis code, so a
+  // Type R never reads as just another Civic.
+  const name = `${String(lot.year || "").trim()} ${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
+  const variant = String(lot.grade || "").trim();
+  const chassis = String(lot.kuzov || "").trim();
+  const code = [chassis, variant].filter(Boolean).join(" · ");
   const grade = fullGrade(lot);
   const house = String(lot.auction || "").trim();
   const date = shortDate(lot.auction_date);
   const mileage = Number(lot.mileage) > 0 ? Number(lot.mileage).toLocaleString("en-US") + " km" : "-";
+  const trans = [lot.kpp || lot.kpp_type, lot.priv].map((s) => String(s || "").trim()).filter(Boolean).join(" · ") || "-";
+  const lotNo = String(lot.lot || "").trim() || "-";
   const elig = auctionEligibility(lot, opts.nowYear);
   const pr = sold
     ? { pk: "Sold price", price: yen(opts.soldPrice), aud: fx > 0 ? "≈ A$" + Math.round(opts.soldPrice / fx).toLocaleString("en-AU") : "" }
@@ -97,7 +104,7 @@ export function auctionCardV2(lot, opts = {}) {
   const sheet = splitImages(lot).sheet;
   const sheetUrl = sheet ? `${sheet}&w=1400` : "";
 
-  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}"` : "";
+  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}" data-trans="${esc(trans)}" data-lotno="${esc(lotNo)}"` : "";
   const heart = fav ? `<button type="button" class="ac-fav"${favData} aria-pressed="false" aria-label="Save to watchlist">${HEART}</button>` : "";
   // When a detail route is supplied, the card opens a full lot page (gallery,
   // inspection report, specs, actions). The link is a stretched overlay UNDER
@@ -124,6 +131,8 @@ export function auctionCardV2(lot, opts = {}) {
       <div class="st"><div class="k">Grade</div><div class="v">${esc(grade)}</div></div>
       <div class="st"><div class="k">Eligibility</div><div class="v"><span class="ac-elig ${elig.cls}"><span class="dot"></span>${esc(elig.label)}</span></div></div>
       <div class="st"><div class="k">Mileage</div><div class="v">${esc(mileage)}</div></div>
+      <div class="st"><div class="k">Transmission</div><div class="v">${esc(trans)}</div></div>
+      <div class="st"><div class="k">Lot</div><div class="v">${esc(lotNo)}</div></div>
     </div>
     <div class="ac-foot">
       <div class="ac-price"><div class="pk">${esc(pr.pk)}</div><div class="pv">${esc(pr.price)}</div>${pr.aud ? `<div class="pa">${esc(pr.aud)}</div>` : ""}</div>
@@ -288,8 +297,8 @@ export function auctionWatchScript(opts = {}) {
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
   function paint(){var n=Object.keys(load()).length,e=document.querySelectorAll('[data-watch-count]');for(var i=0;i<e.length;i++){e[i].textContent=n;}}
   function mark(){var m=load(),b=document.querySelectorAll('.ac-fav[data-id]');for(var i=0;i<b.length;i++){var on=!!m[b[i].getAttribute('data-id')];b[i].classList.toggle('on',on);b[i].setAttribute('aria-pressed',on?'true':'false');b[i].setAttribute('aria-label',on?'Remove from watchlist':'Save to watchlist');}}
-  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet};}
-  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
+  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet,trans:d.trans,lotno:d.lotno};}
+  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
   var HEART='${HEART}';
   function card(v){
     var h='<div class="acard"><div class="ac-photo" data-bg="'+esc(v.img)+'">';
@@ -300,7 +309,9 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="ac-stats"><div class="st"><div class="k">Auction house</div><div class="v">'+(esc(v.house)||'-')+'</div></div>';
     h+='<div class="st"><div class="k">Grade</div><div class="v">'+esc(v.grade)+'</div></div>';
     h+='<div class="st"><div class="k">Eligibility</div><div class="v"><span class="ac-elig '+(v.eligcls==='ok'?'ok':'check')+'"><span class="dot"></span>'+esc(v.elig)+'</span></div></div>';
-    h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div></div>';
+    h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div>';
+    h+='<div class="st"><div class="k">Transmission</div><div class="v">'+(esc(v.trans)||'-')+'</div></div>';
+    h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
     h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
     if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-notify ac-req" type="submit">Request bid</button></form>';}
