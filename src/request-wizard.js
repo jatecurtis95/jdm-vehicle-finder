@@ -379,7 +379,9 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     var SIGNEDIN=${signedIn ? "true" : "false"};
     var PMIN=${Number(pwMin)}, PMAX=${Number(pwMax)}, BMIN=${Number(budgetMin)};
     var FX=${Number(fx) > 0 ? Number(fx) : 95}, OVH=${Number(overheadAud) || 9000}, TAX=${Number(onValueTax) || 1.13}, MINCAR=${Number(minCarAud) || 2000};
-    var ALLOWED=/^[A-Za-z0-9!@#$%^&*()\\-_=+?<>]*$/;
+    // Server policy mirror: any printable character is fine; only control
+    // characters are refused (they can't be typed intentionally).
+    var NOCTRL=/^[^\\u0000-\\u001f\\u007f]*$/;
     var cur=1, max=steps.length;
 
     function el(n){return form.querySelector('[name="'+n+'"]');}
@@ -397,7 +399,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     function setInvalid(id,on){(ERR_FIELDS[id]||[]).forEach(function(n){var f=el(n);if(f)f.setAttribute('aria-invalid',on?'true':'false');});}
     function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none'; setInvalid(id,!!on);}
     function emailBad(){var v=val('email');return !v||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
-    function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
+    function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!NOCTRL.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
     function whatsappBad(){var e=el('whatsapp');if(!e)return false;var d=String(e.value||'').replace(/\\D/g,'');return d.length<8;}
     function nameBad(){return !val('name');}
     function vehicleBad(){return !val('marka_name')||!val('model_name');}

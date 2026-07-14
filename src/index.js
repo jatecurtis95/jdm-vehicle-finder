@@ -8,8 +8,8 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX } from "./auth.js";
+import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX, adminMfaEnabled, verifyAdminTotp, mfaPendingCookie, clearMfaCookie, readMfaPending } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
@@ -501,6 +501,30 @@ export default {
         if (authBodyTooLarge(request)) return doc(loginPage({ error: true, googleEnabled, next }), 413);
         const form = await request.formData();
         const ip = request.headers.get("CF-Connecting-IP") || "";
+        // Admin MFA step 2: an authenticator code plus the short-lived signed
+        // pending cookie proving the password was just entered. Without the
+        // cookie a code is worthless, so this step can't be reached (or
+        // replayed later) on its own. Failed codes count as admin login
+        // failures - same lockout and delay as password guessing.
+        if (form.has("totp")) {
+          if (!(await readMfaPending(request, env))) {
+            return doc(loginPage({ error: true, googleEnabled, next }), 401, { "Set-Cookie": clearMfaCookie() });
+          }
+          if (await loginLocked(env, ip, "")) {
+            await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
+            return doc(loginPage({ locked: true, googleEnabled, next }), 429);
+          }
+          if (await verifyAdminTotp(env, form.get("totp"))) {
+            await clearLoginFails(env, ip, "");
+            const headers = new Headers({ Location: here(afterLogin("admin")) });
+            headers.append("Set-Cookie", await sessionCookie(env, "admin", 0));
+            headers.append("Set-Cookie", clearMfaCookie());
+            return new Response(null, { status: 303, headers });
+          }
+          await recordLoginFail(env, ip, "");
+          await new Promise((r) => setTimeout(r, LOGIN_FAIL_DELAY_MS));
+          return doc(mfaPage({ error: true, next }), 401);
+        }
         // Clip the email to its RFC maximum before it reaches KV keys or logs;
         // authenticate() enforces the same cap (plus the password cap) itself.
         const email = String(form.get("email") || "").slice(0, EMAIL_MAX);
@@ -512,6 +536,12 @@ export default {
         }
         const who = await authenticate(env, email, form.get("password"));
         if (who) {
+          // Correct admin password with MFA enabled: no session yet - hand out
+          // the pending cookie and ask for the authenticator code.
+          if (who.role === "admin" && adminMfaEnabled(env)) {
+            await clearLoginFails(env, ip, email);
+            return doc(mfaPage({ next }), 200, { "Set-Cookie": await mfaPendingCookie(env) });
+          }
           await clearLoginFails(env, ip, email);
           await touchLastSeen(env, who.role, who.id);
           return new Response(null, { status: 303, headers: { Location: here(afterLogin(who.role)), "Set-Cookie": await sessionCookie(env, who.role, who.id) } });
@@ -2039,9 +2069,9 @@ const SECURITY_HEADERS = {
 
 // Return a complete HTML document as-is (used for the full-page admin/request UIs
 // and the branded standalone info / 404 pages from theme.js).
-function doc(htmlString, status = 200) {
+function doc(htmlString, status = 200, extraHeaders = null) {
   return new Response(htmlString, {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS },
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS, ...(extraHeaders || {}) },
   });
 }

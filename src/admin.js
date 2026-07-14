@@ -7,7 +7,7 @@ import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel } from "./market.js";
-import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, PW_SYMBOLS, EMAIL_MAX } from "./auth.js";
+import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
@@ -1738,6 +1738,29 @@ export function loginPage(opts = {}) {
   return brandDoc(body, "Sign in - JDM Connect");
 }
 
+// Second step of the admin sign-in when MFA is enabled (ADMIN_TOTP_SECRET is
+// set): the password was correct, now ask for the current authenticator code.
+// Reached only with the short-lived pending-MFA cookie set by /login.
+export function mfaPage(opts = {}) {
+  const err = opts.error
+    ? `<div class="login-err">That code didn't match. Enter the current 6-digit code from your authenticator app.</div>`
+    : "";
+  const body = `<div class="login-screen">
+    ${risingSun({ size: 520, tone: "faint" })}
+    <form class="login-card" method="POST" action="/login${opts.next === "subscribe" ? "?next=subscribe" : ""}">
+      <div class="login-logo"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
+      <h1>Two-step verification</h1>
+      <p class="login-sub">Enter the 6-digit code from your authenticator app to finish signing in.</p>
+      ${err}
+      <label for="lg-totp">Authenticator code</label>
+      <input id="lg-totp" type="text" name="totp" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" spellcheck="false" required maxlength="6" autofocus>
+      <button class="btn-gold" type="submit">Verify and sign in</button>
+      <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
+    </form>
+  </div>`;
+  return brandDoc(body, "Verify sign-in - JDM Connect");
+}
+
 // Self-serve "Forgot password?" screen. The confirmation is intentionally the
 // same whether or not the email matched an account (no enumeration signal).
 // Agent set-password screen (reached from the emailed invite link).
@@ -1756,7 +1779,7 @@ export function setPasswordPage(opts = {}) {
       ${err}
       <input type="hidden" name="token" value="${esc(token || "")}">
       <label for="sp-pass">New password</label>
-      <input id="sp-pass" type="password" name="password" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}">
+      <input id="sp-pass" type="password" name="password" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters, including a letter and a number. Long passphrases are welcome.">
       <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}">
       <button class="btn-gold" type="submit">Set password and sign in</button>
@@ -5430,7 +5453,7 @@ export async function requestPage(env, opts = {}) {
     : opts.error === "google"
     ? "We couldn't sign you in with Google. Please try again, or fill in the form below."
     : opts.error === "password"
-      ? esc(opts.pwError || `Please choose a password of ${PW_MIN} to ${PW_MAX} characters (letters and numbers).`)
+      ? esc(opts.pwError || `Please choose a password of at least ${PW_MIN} characters, including a letter and a number.`)
       : opts.error === "vehicle"
         ? "Please choose a make and model so we know what car to look for."
         : opts.error === "year"
@@ -5575,12 +5598,12 @@ export async function requestPage(env, opts = {}) {
                 <div class="ob-fields">
                   <div><label for="rq-name">Name</label><input id="rq-name" name="name" autocomplete="name" value="${v("name")}" placeholder="Jane Citizen" maxlength="120" required aria-describedby="rq-name-error"></div>
                   <div><label for="rq-email">Email <span class="opt">(your login)</span></label><input id="rq-email" name="email" type="email" autocomplete="email" spellcheck="false" value="${v("email")}" placeholder="name@email.com" maxlength="160" required aria-describedby="rq-email-error"></div>
-                  <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters. Letters and numbers, plus ${esc(PW_SYMBOLS)}" placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
+                  <div><label for="rq-pass">Create a password</label><input id="rq-pass" name="portal_password" type="password" autocomplete="new-password" minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters, including a letter and a number. Long passphrases are welcome." placeholder="${PW_MIN}+ characters" required aria-describedby="rq-pass-error"></div>
                   <div><label for="rq-whatsapp">Mobile / WhatsApp</label><input id="rq-whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" value="${v("whatsapp")}" placeholder="+61 4XX XXX XXX" maxlength="40" required></div>
                 </div>
                 <p id="rq-name-error" class="field-err" role="alert">Please enter your name so we know who we're searching for.</p>
                 <p id="rq-email-error" class="field-err" role="alert">Please enter a valid email. This is also your login.</p>
-                <p id="rq-pass-error" class="field-err" role="alert">Use ${PW_MIN} to ${PW_MAX} characters: letters, numbers and ${esc(PW_SYMBOLS)}, including a letter and a number.</p>
+                <p id="rq-pass-error" class="field-err" role="alert">Use at least ${PW_MIN} characters, including a letter and a number. Long passphrases are welcome.</p>
                 <p id="rq-whatsapp-error" class="field-err">Please enter a mobile number so we can reach you quickly when a match comes up.</p>
                 <div class="ob-human">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0"/><circle cx="9" cy="8" r="4"/><path d="M15.5 11.5l2 2 4-4"/></svg>

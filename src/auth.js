@@ -140,24 +140,41 @@ export async function verifyPassword(password, saltB64, hashB64) {
 
 // --- Password policy ---------------------------------------------------------
 // One canonical policy, enforced everywhere a NEW password is set (public
-// self-signup, agent/client invite set-password). Length is the main lever; the
-// charset limit keeps inputs to plain keyboard characters (the set the doc
-// approved) and the max length bounds the hashing work. Existing logins are not
-// affected - this only gates newly chosen passwords.
+// self-signup, agent/client invite set-password). Length is the main lever;
+// long passphrases and password-manager output are welcome (any printable
+// character, up to 128 chars), and the max length bounds the hashing work.
+// Existing logins are not affected - this only gates newly chosen passwords.
 export const PW_MIN = 10;
-export const PW_MAX = 32;
+export const PW_MAX = 128;
 // RFC 5321 upper bound for a deliverable address; anything longer is junk and
 // is rejected server-side before any DB or hashing work.
 export const EMAIL_MAX = 254;
-export const PW_SYMBOLS = "!@#$%^&*()-_=+?<>";
-const PW_ALLOWED_RE = /^[A-Za-z0-9!@#$%^&*()\-_=+?<>]+$/;
+// Control characters (and DEL) are the only charset restriction: they can't be
+// typed intentionally and only ever arrive via injection or a broken client.
+const PW_CONTROL_RE = /[\u0000-\u001f\u007f]/;
+// Widely used passwords that satisfy the length and letter+number rules and
+// would otherwise be accepted. Compared lowercased, so casing variants of an
+// entry are refused too. Sourced from published most-common-password lists,
+// filtered to entries that pass the rest of this policy; plus obvious
+// site-specific guesses.
+const PW_COMMON = new Set([
+  "password123", "password1234", "password12345", "password123456",
+  "password123!", "p@ssword123", "passw0rd123", "password2024", "password2025",
+  "password2026", "1234567890a", "a1234567890", "abc123456789", "123456789abc",
+  "1q2w3e4r5t6y", "1qaz2wsx3edc", "qwerty123456", "qwertyuiop123", "asdfghjkl123",
+  "iloveyou1234", "welcome12345", "sunshine1234", "monkey123456", "dragon123456",
+  "superman1234", "michael12345", "football1234", "baseball1234", "letmein12345",
+  "trustno1trustno1", "admin1234567", "administrator1", "changeme1234",
+  "jdmconnect123", "jdmfinder123",
+]);
 // Returns a human-readable reason the password is rejected, or null if it passes.
 export function passwordPolicyError(password) {
   const s = typeof password === "string" ? password : "";
   if (s.length < PW_MIN) return `Password must be at least ${PW_MIN} characters.`;
   if (s.length > PW_MAX) return `Password must be ${PW_MAX} characters or fewer.`;
-  if (!PW_ALLOWED_RE.test(s)) return "Password can only use letters, numbers, and these symbols: " + PW_SYMBOLS.split("").join(" ");
+  if (PW_CONTROL_RE.test(s)) return "Password can't contain control characters like tabs or line breaks.";
   if (!/[A-Za-z]/.test(s) || !/[0-9]/.test(s)) return "Password must include at least one letter and one number.";
+  if (PW_COMMON.has(s.toLowerCase())) return "That password is too common to be safe. Pick something harder to guess.";
   return null;
 }
 
@@ -170,6 +187,93 @@ export function passwordPolicyError(password) {
 export function passwordValid(env, password) {
   if (typeof password !== "string" || password.length === 0) return false;
   return Boolean(env.ADMIN_PASSWORD) && safeEqual(password, env.ADMIN_PASSWORD);
+}
+
+// --- Admin MFA (TOTP, RFC 6238) -----------------------------------------------
+// Opt-in second factor for the admin account: set ADMIN_TOTP_SECRET (a base32
+// authenticator secret, e.g. from `openssl rand` fed to a base32 encoder, or
+// any authenticator app's setup key) as a Worker secret and admin sign-in
+// requires the current 6-digit code after the password. Completely inert while
+// the secret is unset - the flow stays single-step.
+export function adminMfaEnabled(env) {
+  return Boolean(env.ADMIN_TOTP_SECRET);
+}
+
+const B32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+// RFC 4648 base32 decode: case-insensitive, tolerates spaces/dashes/padding
+// (authenticator apps display secrets in spaced groups). Returns null on any
+// character outside the alphabet.
+export function base32Decode(str) {
+  const s = String(str || "").toUpperCase().replace(/[\s=-]/g, "");
+  if (!s) return null;
+  let bits = 0, value = 0;
+  const out = [];
+  for (const ch of s) {
+    const idx = B32_ALPHABET.indexOf(ch);
+    if (idx === -1) return null;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+
+const TOTP_STEP_S = 30;
+const TOTP_DIGITS = 6;
+// The current TOTP code for a secret at a moment in time (RFC 6238 over the
+// RFC 4226 HOTP truncation, SHA-1, 30-second steps, 6 digits - the parameters
+// every mainstream authenticator app defaults to).
+export async function totpCode(secretBytes, atMs) {
+  const counter = Math.floor(atMs / 1000 / TOTP_STEP_S);
+  const msg = new Uint8Array(8);
+  let c = counter;
+  for (let i = 7; i >= 0; i--) { msg[i] = c & 0xff; c = Math.floor(c / 256); }
+  const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const h = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg));
+  const o = h[h.length - 1] & 0x0f;
+  const code = (((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 10 ** TOTP_DIGITS;
+  return String(code).padStart(TOTP_DIGITS, "0");
+}
+
+// Verify a submitted admin code, allowing one 30-second step of clock drift
+// either side. Malformed input returns false rather than throwing.
+export async function verifyAdminTotp(env, code, nowMs = Date.now()) {
+  if (!adminMfaEnabled(env)) return false;
+  const c = String(code || "").trim();
+  if (!new RegExp(`^\\d{${TOTP_DIGITS}}$`).test(c)) return false;
+  const secret = base32Decode(env.ADMIN_TOTP_SECRET);
+  if (!secret || secret.length < 10) return false;
+  for (const skew of [0, -1, 1]) {
+    if (safeEqual(c, await totpCode(secret, nowMs + skew * TOTP_STEP_S * 1000))) return true;
+  }
+  return false;
+}
+
+// The between-steps state: a short-lived signed cookie proving the admin
+// password was just entered, so the code form can't be reached (or replayed)
+// without it. Scoped to /login - it is never sent anywhere else.
+const MFA_COOKIE = "fmfa";
+const MFA_PENDING_SECONDS = 5 * 60;
+export async function mfaPendingCookie(env) {
+  const exp = Date.now() + MFA_PENDING_SECONDS * 1000;
+  const payload = `mfa:${exp}`;
+  const value = `${payload}.${await sign(env, "mfa:" + payload)}`;
+  return `${MFA_COOKIE}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/login; Max-Age=${MFA_PENDING_SECONDS}`;
+}
+export function clearMfaCookie() {
+  return `${MFA_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/login; Max-Age=0`;
+}
+export async function readMfaPending(request, env) {
+  const raw = readCookie(request, MFA_COOKIE);
+  if (!raw) return false;
+  const val = decodeURIComponent(raw);
+  const dot = val.lastIndexOf(".");
+  if (dot < 1) return false;
+  const payload = val.slice(0, dot);
+  if (!safeEqual(val.slice(dot + 1), await sign(env, "mfa:" + payload))) return false;
+  const parts = payload.split(":");
+  if (parts.length !== 2 || parts[0] !== "mfa" || !/^\d+$/.test(parts[1])) return false;
+  return Number(parts[1]) >= Date.now();
 }
 
 // --- Sessions ----------------------------------------------------------------

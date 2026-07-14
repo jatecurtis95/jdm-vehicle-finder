@@ -43,13 +43,14 @@ test("self-signup creates a login for a brand-new client", async () => {
   assert.equal(c.portal_enabled, 1);
 });
 
-test("password policy rejects short/long/weak/bad-charset and accepts a good one", () => {
+test("password policy rejects short/long/weak and accepts good ones", () => {
   assert.ok(passwordPolicyError("short1"));               // too short
-  assert.ok(passwordPolicyError("a".repeat(33) + "1"));   // too long
+  assert.ok(passwordPolicyError("a".repeat(129) + "1"));  // too long (over 128)
   assert.ok(passwordPolicyError("alllettersonly"));       // no number
   assert.ok(passwordPolicyError("1234567890"));           // no letter
-  assert.ok(passwordPolicyError("hasUmlautÜ12"));    // disallowed character
+  assert.ok(passwordPolicyError("password123"));          // too common
   assert.equal(passwordPolicyError("Goodpass123"), null); // valid
+  assert.equal(passwordPolicyError("hasUmlautÜ12"), null); // any printable char is fine (V1.3)
 });
 
 test("signup now requires an email (the login identity)", async () => {
