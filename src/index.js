@@ -21,6 +21,7 @@ import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
 import { landingPage, findsPage } from "./landing.js";
+import { auctionHistoryPage } from "./auction-history.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
@@ -1442,6 +1443,12 @@ async function handleClientPortal(request, env, url, path, session, here) {
     // Full detail page for a single live lot (auctionLotPage re-checks membership).
     return doc(await auctionLotPage(env, session, url.searchParams.get("id")));
   }
+  // Member-only Auction History: sold-price history with the full filter set
+  // (docs/auction-history.md). Params come straight off the URL; every value
+  // is validated inside validateHistoryParams before it can reach SQL.
+  if (path === "/portal/history" && request.method === "GET") {
+    return doc(await auctionHistoryPage(env, session, Object.fromEntries(url.searchParams)));
+  }
   if (path === "/portal/sold" && request.method === "GET") {
     const sp = url.searchParams;
     const params = {
@@ -1498,7 +1505,11 @@ async function handleClientPortal(request, env, url, path, session, here) {
       await alertClientRequest(env, { client: c, lot: r.lot, wishlist: null });
       await sendPush(env, { title: "Member requested a car", message: `${c.name} requested ${[r.lot.year, r.lot.marka_name, r.lot.model_name].filter(Boolean).join(" ")}`.trim(), url: `${env.PUBLIC_URL}/admin?view=client&id=${c.id}` });
     }
-    const msg = !r.ok ? "Sorry, we couldn't fetch that lot - please try again." : r.already ? "You've already requested this car - we're on it." : "Requested! We'll chase this car and be in touch.";
+    const msg = !r.ok
+      ? (r.error === "sold"
+        ? "That car has already sold at auction, so we can't bid on it. Search the live feed and we'll chase the next one."
+        : "Sorry, we couldn't fetch that lot - please try again.")
+      : r.already ? "You've already requested this car - we're on it." : "Requested! We'll chase this car and be in touch.";
     return Response.redirect(here("/portal/auctions?_flash=" + encodeURIComponent(msg)), 303);
   }
 
