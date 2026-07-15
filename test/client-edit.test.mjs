@@ -42,12 +42,25 @@ test("updateClient requires a name", async () => {
   assert.equal(row.name, "Keep Me", "name unchanged after a rejected edit");
 });
 
-test("updateClient requires at least one contact channel", async () => {
+test("updateClient blocks stripping the last contact channel off a reachable client", async () => {
   const env = makeEnv();
   const id = await seed(env, { name: "Reachable", email: "r@example.com" });
   const r = await updateClient(env, fd({ id, name: "Reachable", email: "", whatsapp: "" }), ADMIN);
   assert.equal(r.ok, false);
   assert.equal(r.error, "contact");
+});
+
+test("updateClient lets a contactless client's state be corrected without inventing an email", async () => {
+  // A client imported without an email/phone (matches show 'no contact on
+  // file') must still be editable - staff shouldn't be forced to fake a
+  // contact just to fix the state driving landed-cost estimates.
+  const env = makeEnv("INSERT INTO clients (id,name,email,whatsapp,state,category) VALUES (81,'Ashleigh',NULL,NULL,NULL,'private');");
+  const r = await updateClient(env, fd({ id: 81, name: "Ashleigh", email: "", whatsapp: "", state: "wa" }), ADMIN);
+  assert.equal(r.ok, true, "the state edit saves despite no contact channel");
+  const row = await env.DB.prepare("SELECT state, email, whatsapp FROM clients WHERE id=?").bind(81).first();
+  assert.equal(row.state, normalizeState("wa"));
+  assert.equal(row.email, null, "no fake contact was introduced");
+  assert.equal(row.whatsapp, null);
 });
 
 test("createClient stores a valid category and defaults unknown values to private", async () => {

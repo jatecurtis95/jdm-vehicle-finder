@@ -6462,7 +6462,14 @@ export async function updateClient(env, form, session) {
     ? (c.category || "private")
     : (CLIENT_CATEGORY_IDS.has(String(rawCategory)) ? String(rawCategory) : "private");
   if (!name) return { ok: false, error: "name" };
-  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  // Require a contact channel only if the client already had one: this guards
+  // against an edit STRIPPING the last way to reach them. A client who never
+  // had contact details (e.g. imported without them) can still have their
+  // state, name or category corrected without being forced to invent an email
+  // - the "no email or WhatsApp on file" warnings elsewhere already flag the
+  // gap, so nothing is hidden by allowing the save.
+  const hadContact = !!(c.email || c.whatsapp);
+  if (hadContact && !email && !whatsapp) return { ok: false, error: "contact" };
   // Portal sign-in and invite links are keyed to the email, so don't let it be
   // stripped while the client still has portal access.
   if (c.portal_enabled && !email) return { ok: false, error: "portal_email" };
