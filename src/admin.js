@@ -991,9 +991,9 @@ function sidebar(active, counts, session = { role: "admin" }) {
 
 const HEADERS = {
   dashboard: { kicker: "Vehicle Finder", title: "Dashboard", sub: "Your desk at a glance.", btn: "" },
-  intake: { kicker: "Vehicle Finder", title: "Add a client", sub: "Add a client and the vehicles they're looking for.", btn: "Search auctions" },
-  clients: { kicker: "Vehicle Finder", title: "Customers", sub: "Your buyer directory.", btn: "Add client" },
-  requests: { kicker: "Vehicle Finder", title: "Requests", sub: "Every active vehicle search and where it sits in the pipeline.", btn: "" },
+  intake: { kicker: "Vehicle Finder", title: "New request", sub: "Log a customer and the car they want in one step.", btn: "" },
+  clients: { kicker: "Vehicle Finder", title: "Customers", sub: "The relationship list: contact, portal access and billing. Open anyone to see all their requests.", btn: "New request" },
+  requests: { kicker: "Vehicle Finder", title: "Requests", sub: "The pipeline worklist: every active search, grouped by customer.", btn: "New request" },
   tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
   wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "New auction search" },
@@ -1314,7 +1314,12 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
             (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
        FROM wishlists w JOIN clients c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
-      WHERE ${acc.sql} ORDER BY COALESCE(w.last_activity, w.created_at) DESC LIMIT 500`
+      WHERE ${acc.sql}
+      ORDER BY (SELECT MAX(COALESCE(w2.last_activity, w2.created_at))
+                  FROM wishlists w2 WHERE w2.client_id = w.client_id) DESC,
+               w.client_id,
+               COALESCE(w.last_activity, w.created_at) DESC
+      LIMIT 500`
   ).all()).results || []) : [];
   const matchSettings = view === "matches" ? appSettings : null;
   if (isAgent) {
@@ -1332,16 +1337,16 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const dealerPending = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
   const counts = { clients: clients.length, wishlists: wishlists.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
   const h = HEADERS[view];
-  const primary = view === "matches" || view === "intake"
+  const primary = view === "matches"
     ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-dark">${esc(h.btn)}</button></form>`
-    : ["agents", "dealers", "dealer-submissions", "settings", "payments", "auctions"].includes(view)
+    : ["agents", "dealers", "dealer-submissions", "settings", "payments", "auctions", "intake"].includes(view)
     ? ""
     : h.btn ? `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>` : "";
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
-  else if (view === "intake") body = intakeView(clients, makers, { err: opts.err, vals: opts.vals });
+  else if (view === "intake") body = intakeView(makers, { err: opts.err, vals: opts.vals });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, cat: opts.cat, src: opts.src, lastContact, pendingCounts, engagedClients });
   else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") {
@@ -2287,27 +2292,33 @@ const DASH2_CSS = `<style>
   .ps-arrow{color:var(--faint);font-size:var(--fs-body);flex:none}
 </style>`;
 
-function intakeView(clients, makers, opts = {}) {
-  const clientOptions = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
-    || `<option value="">(add a client first)</option>`;
-  // After a validation error the submitted values come back via opts.vals, so
-  // the fix is one field rather than the whole form again.
+function intakeView(makers, opts = {}) {
+  // One-step new request: the customer AND the car in a single form. On submit
+  // (/request/new -> createAdminRequest) we match an existing customer by email
+  // or phone and attach the request, or create a new customer - no more "add
+  // the client, then add their search" double-handling. After a validation
+  // error the submitted values come back via opts.vals, so the fix is one field.
   const vals = opts.vals || {};
   const vv = (k) => esc(vals[k] || "");
   const errBanner = opts.err === "contact"
-    ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this client. A client with no contact cannot be sent matches.</div>`
+    ? `<div class="reqerr">Add an email or a WhatsApp number so we can reach this customer. A customer with no contact cannot be sent matches.</div>`
     : opts.err === "name"
-    ? `<div class="reqerr">Please enter the client's name.</div>`
+    ? `<div class="reqerr">Please enter the customer's name.</div>`
     : opts.err === "email"
     ? `<div class="reqerr">That email address doesn't look right. Please check it and try again.</div>`
     : opts.err === "whatsapp"
     ? `<div class="reqerr">That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.</div>`
+    : opts.err
+    ? `<div class="reqerr">Sorry, that could not be saved. Please try again.</div>`
     : "";
   return `
+    <style>.intake-sub{font-size:var(--fs-label);font-weight:var(--w-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--t3);margin:24px 0 12px}.intake-sub:first-of-type{margin-top:8px}.intake-sub .opt{text-transform:none;letter-spacing:0}</style>
     <div class="card">
-      <h2><span class="num">01</span> New client</h2>
-      <form method="POST" action="/client">
+      <h2>New request</h2>
+      <p class="help" style="margin:-4px 0 20px">One form for the customer and the car they want. We match an existing customer by email or phone and attach this request to them, or create a new customer if they're new. Leave the car blank to save the customer now and add their search later.</p>
+      <form method="POST" action="/request/new">
         ${errBanner}
+        <h3 class="intake-sub">Customer</h3>
         <div class="grid">
           <div><label for="ic-name">Name</label><input id="ic-name" name="name" maxlength="120" placeholder="Jane Citizen" value="${vv("name")}" required></div>
           <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
@@ -2315,33 +2326,26 @@ function intakeView(clients, makers, opts = {}) {
           <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
           <div><label for="ic-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ic-category", vals.category)}</div>
         </div>
-        <div class="actions"><button class="btn-gold" type="submit">Add client</button>
-          <span class="help">Name plus a way to reach them (email or WhatsApp) is required.</span></div>
-      </form>
-    </div>
-    <div class="card">
-      <h2><span class="num">02</span> Their search</h2>
-      <form method="POST" action="/wishlist">
+        <h3 class="intake-sub">The car they're chasing <span class="opt">(optional - add it now or later)</span></h3>
         ${presetSelect()}
         <div class="grid">
-          <div><label>Client<select name="client_id" required>${clientOptions}</select></label></div>
-          <div><label>Label<input name="label" placeholder="e.g. under 1.5M daily"></label></div>
-          <div><label for="wl-maker">Make</label>${makerField(makers, "wl-maker")}</div>
-          <div><label>Model${modelField("wl-models")}</label></div>
-          <div><label>Year min<input name="year_min" type="number" placeholder="1990"></label></div>
-          <div><label>Year max<input name="year_max" type="number" placeholder="2002"></label></div>
-          <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000"></label></div>
-          <div><label>Min mileage (km)<input name="mileage_min" type="number" placeholder="0"></label></div>
-          <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000"></label></div>
-          <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4"></label></div>
-          <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211"></label></div>
-          <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS"></label></div>
+          <div><label>Label<input name="label" placeholder="e.g. under 1.5M daily" value="${vv("label")}"></label></div>
+          <div><label for="wl-maker">Make</label>${makerField(makers, "wl-maker", "Any maker", vals.marka_name || "")}</div>
+          <div><label>Model${modelField("wl-models", vals.model_name || "")}</label></div>
+          <div><label>Year min<input name="year_min" type="number" placeholder="1990" value="${vv("year_min")}"></label></div>
+          <div><label>Year max<input name="year_max" type="number" placeholder="2002" value="${vv("year_max")}"></label></div>
+          <div><label>Max price (JPY)<input name="price_max" type="number" placeholder="1,500,000" value="${vv("price_max")}"></label></div>
+          <div><label>Min mileage (km)<input name="mileage_min" type="number" placeholder="0" value="${vv("mileage_min")}"></label></div>
+          <div><label>Max mileage (km)<input name="mileage_max" type="number" placeholder="80,000" value="${vv("mileage_max")}"></label></div>
+          <div><label>Min grade<input name="rate_min" type="number" step="any" placeholder="e.g. 4" value="${vv("rate_min")}"></label></div>
+          <div><label>Chassis / model code <span class="opt">(contains, best match)</span><input name="kuzov" placeholder="e.g. JZA80 or 211" value="${vv("kuzov")}"></label></div>
+          <div><label>Grade keyword <span class="opt">(contains)</span><input name="grade_kw" placeholder="e.g. RS" value="${vv("grade_kw")}"></label></div>
           <div><label for="wl-code">Model code <span class="opt">(exact variant)</span></label><select id="wl-code" name="model_code"><option value="">Any model code</option></select></div>
           <div><label for="wl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="wl-grades" name="grades" multiple size="4"></select></div>
         </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client. Good for buyers who aren't ready yet, especially rare cars.</span></label>
-        <div class="actions"><button class="btn-gold" type="submit">Add search</button>
-          <span class="help">Add at least a make, model or chassis/model code. Blank fields match anything.</span></div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this customer. Good for buyers who aren't ready yet, especially rare cars.</span></label>
+        <div class="actions"><button class="btn-gold" type="submit">Add request</button>
+          <span class="help">Name plus a way to reach them (email or WhatsApp) is required. The car can be filled in later.</span></div>
       </form>
     </div>
     ${modelScript("wl-maker", "wl-models")}${codeGradeScript("wl-maker", "wl-models", "wl-code", "wl-grades")}${presetScript()}`;
@@ -2673,6 +2677,28 @@ function requestsBoard(requests) {
   return `<div class="kbn">${cols}</div>${dnd}`;
 }
 
+// Cluster the flat request rows by customer for the grouped Requests list.
+// Returns [{ clientId, name, items }] where the clusters are ordered by each
+// customer's most recent activity and the requests inside a cluster by their
+// own activity. requestsView groups here (not only in SQL) so the view is
+// correct no matter what order the rows arrive in.
+function clusterRequestsByClient(requests) {
+  const recencyOf = (r) => tsMs(r.last_activity || r.created_at) || 0;
+  const byClient = new Map();
+  for (const r of requests) {
+    if (!byClient.has(r.client_id)) byClient.set(r.client_id, []);
+    byClient.get(r.client_id).push(r);
+  }
+  const clusters = [];
+  for (const [clientId, items] of byClient) {
+    items.sort((a, b) => recencyOf(b) - recencyOf(a));
+    const recency = items.reduce((m, r) => Math.max(m, recencyOf(r)), 0);
+    clusters.push({ clientId, name: items[0].client_name, items, recency });
+  }
+  clusters.sort((a, b) => b.recency - a.recency);
+  return clusters;
+}
+
 function requestsView(requests, opts = {}) {
   if (opts.layout === "board") {
     return `${REQ_CSS}${reqLayoutToggle("board")}${requestsBoard(requests)}`;
@@ -2687,11 +2713,6 @@ function requestsView(requests, opts = {}) {
     `<button type="button" class="pipe-card${counts[s.id] ? "" : " pipe-zero"}" data-st="${s.id}" onclick="jdmPipe(this,'${s.id}')"><div class="pc-n">${counts[s.id] || 0}</div><div class="pc-l">${esc(s.label)}</div></button>`
   ).join("") + `<button type="button" class="pipe-more" aria-expanded="false" onclick="var p=this.closest('.pipe');var on=p.classList.toggle('all');this.setAttribute('aria-expanded',on?'true':'false');this.textContent=on?'Fewer stages':'All stages'">All stages</button>`;
 
-  // V1.3 Phase C: stupid simple. The most recently ACTIVE requests sit at the
-  // top (last_activity, falling back to created_at), so a customer tapping
-  // "I'm interested" in their portal floats their request up; a fresh untouched
-  // request still gets its age chip so it reads as new.
-  const ordered = [...requests].sort((a, b) => (tsMs(b.last_activity || b.created_at) || 0) - (tsMs(a.last_activity || a.created_at) || 0));
   const isUntouchedNew = (r) => (r.status || "new") === "new" && !r.last_activity;
   // Age label for an untouched New row; hot once past the one-hour window.
   const newAge = (r) => {
@@ -2702,11 +2723,25 @@ function requestsView(requests, opts = {}) {
     return `<span class="req-age${hot ? " req-age-hot" : ""}">New ${esc(relTime(r.created_at))}</span>`;
   };
 
-  // Attio register: the customer IS the record, so the row leads with one
-  // identity cell (health dot, name, muted REQ reference under it) instead of
-  // separate Request / Customer columns. Destination folds into the vehicle
-  // cell as a chip only when it is the unusual case (overseas).
-  const rows = ordered.map((r) => {
+  // V1.3 Phase C + customer clustering: the customer is the record, so a
+  // returning buyer's several searches read as ONE block, not scattered rows.
+  // clusterRequestsByClient groups by customer, orders the clusters by each
+  // customer's most recent activity (a portal "I'm interested" tap floats their
+  // whole cluster up), and orders the requests inside a cluster by their own
+  // activity. Each request keeps its REQ ref, status and last-activity, and the
+  // row still opens the customer profile - the one source of truth for a person.
+  const clusters = clusterRequestsByClient(requests);
+  // Small badge that marks a returning customer (more than one active search).
+  const repeatBadge = (n) => n > 1
+    ? `<span class="req-repeat" title="${n} active requests from this customer">${n} requests</span>`
+    : "";
+
+  // Attio register: the row leads with one identity cell (health dot, name,
+  // muted REQ reference). On a repeat customer the cluster head carries the
+  // count badge; the follow-on rows dim the repeated name and mark it with a
+  // return arrow, so the searches read as one customer's block. Destination
+  // folds into the vehicle cell as a chip only in the unusual (overseas) case.
+  const requestRow = (r, cluster, head) => {
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
     const dest = String(r.destination_country || "").trim();
     // The latest car queued for this request, linked to its listing detail.
@@ -2716,8 +2751,12 @@ function requestsView(requests, opts = {}) {
     const lastCar = lastLot
       ? `<a class="clink" href="/admin?view=lot&id=${esc(r.last_queue_id)}">${esc(displayName([lastLot.year, lastLot.marka_name, lastLot.model_name].filter(Boolean).join(" ")) || `Lot ${lastLot.lot || ""}`)}</a>`
       : `<span class="chip muted">none yet</span>`;
-    return `<tr data-st="${r.status || "new"}">
-      <td style="white-space:nowrap">${healthDot(r.last_activity)}<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span></td>
+    const grp = cluster.items.length > 1;
+    const idCell = head
+      ? `<span class="idcell"><a class="clink" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a>${repeatBadge(cluster.items.length)}<a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span>`
+      : `<span class="idcell idcont"><span class="cont-mark" aria-hidden="true">&#8627;</span><a class="clink cont-name" href="/admin?view=client&id=${r.client_id}" data-drawer="/admin/drawer?id=${r.client_id}">${esc(r.client_name)}</a><a class="reqid" href="/admin?view=client&id=${r.client_id}">REQ-${r.id}</a></span>`;
+    return `<tr class="req-row${head ? " req-head" : " req-cont"}${grp ? " req-grp" : ""}" data-st="${r.status || "new"}" data-client="${r.client_id}"${grp ? ` style="--band:${avatarColor(r.client_name).bg}"` : ""}>
+      <td style="white-space:nowrap">${healthDot(r.last_activity)}${idCell}</td>
       <td class="req-veh"><a class="clink" href="/admin?view=client&id=${r.client_id}">${esc(veh)}</a>${r.kuzov ? ` <span class="chip muted">${esc(r.kuzov)}</span>` : ""}${dest ? ` <span class="chip chip-info" title="Overseas destination">${esc(dest)}</span>` : ""}</td>
       <td class="req-veh">${lastCar}</td>
       <td class="req-status">${statusSelect(r.id, r.status)}</td>
@@ -2727,36 +2766,44 @@ function requestsView(requests, opts = {}) {
         { label: "Open request detail", href: `/admin?view=request&id=${r.id}` },
       ])}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  };
+  const rows = clusters.map((cluster) =>
+    cluster.items.map((r, i) => requestRow(r, cluster, i === 0)).join("")
+  ).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
 
-  // Plain-English key so staff aren't guessing what the dots / REQ / Examples
-  // column mean (client asked "what do the green and red dots mean?"). Lives
-  // behind a quiet disclosure below the list (Attio register: no permanent
-  // legend card competing with the data).
+  // Plain-English key so staff aren't guessing what the dots / REQ / badges
+  // mean (client asked "what do the green and red dots mean?"). Lives behind a
+  // quiet disclosure below the list (Attio register: no permanent legend card
+  // competing with the data).
   const legend = `<details class="req-legend"><summary>Key to the dots and chips</summary><div class="lg-body">
     <span><span class="health health-green"></span> Active (contacted in the last 7 days)</span>
     <span><span class="health health-amber"></span> Cooling (7 to 14 days)</span>
     <span><span class="health health-red"></span> Stalled (14+ days, or never)</span>
     <span><b class="reqid">REQ-###</b> Request reference; the row opens the customer's profile, where you manage the request</span>
-    <span><span class="chip chip-info">Sent &middot; viewed</span> We sent example cars and the client opened them</span>
+    <span><span class="req-repeat">2 requests</span> A returning customer, with all their searches grouped together</span>
     <span><b>Last activity</b> When this request was last touched (status, note, send or view)</span>
   </div></details>`;
 
   // Mobile card list: REQ ref, customer, vehicle, stage chip, last-activity
   // dot + relative time (or the hot-lead age on an untouched New request).
-  // Same data, no horizontal scroll.
-  const mobile = `<div class="mcl">${ordered.map((r) => {
+  // Grouped by customer like the desktop table; the cluster head carries the
+  // returning-customer badge, the follow-on cards dim the repeated name.
+  const mobile = `<div class="mcl">${clusters.map((cluster) => cluster.items.map((r, i) => {
+    const head = i === 0;
     const veh = displayName([r.marka_name, r.model_name].filter(Boolean).join(" ")) || r.label || "Any vehicle";
+    const title = head
+      ? `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>${repeatBadge(cluster.items.length)}`
+      : `<span class="cont-mark" aria-hidden="true">&#8627;</span> <span class="cont-name">${esc(r.client_name)}</span> <span class="reqid">REQ-${r.id}</span>`;
     return mobileCardRow({
       href: `/admin?view=client&id=${r.client_id}`,
       name: r.client_name,
-      title: `${esc(r.client_name)} <span class="reqid">REQ-${r.id}</span>`,
+      title,
       meta: esc(veh),
       right: statusBadge(r.status || "new"),
       rightSub: `${healthDot(r.last_activity)}${newAge(r) || esc(lastActivityLabel(r.last_activity))}`,
       attrs: ` data-st="${esc(r.status || "new")}"`,
     });
-  }).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
+  }).join("")).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
 
   return `${REQ_CSS}
     ${reqLayoutToggle("")}
@@ -2764,7 +2811,7 @@ function requestsView(requests, opts = {}) {
     ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <table id="reqTbl" class="sortable"><tr><th>Customer</th><th class="req-veh">Request</th><th class="req-veh">Latest car</th><th class="req-status">Status</th><th>Last activity</th><th></th></tr>${rows}</table>
+      <table id="reqTbl"><tr><th>Customer</th><th class="req-veh">Request</th><th class="req-veh">Latest car</th><th class="req-status">Status</th><th>Last activity</th><th></th></tr>${rows}</table>
     </div>
     ${legend}
     <script>function jdmPipe(btn,st){var on=btn.classList.contains('on');document.querySelectorAll('.pipe-card').forEach(function(c){c.classList.remove('on');});var t=document.getElementById('reqTbl');var rows=t.rows;for(var i=0;i<rows.length;i++){var r=rows[i];if(r.getElementsByTagName('th').length)continue;r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';}document.querySelectorAll('.mcl-row[data-st]').forEach(function(r){r.style.display=(on||r.getAttribute('data-st')===st)?'':'none';});if(!on)btn.classList.add('on');}</script>`;
@@ -2803,6 +2850,16 @@ const REQ_CSS = `<style>
   @media(max-width:700px){.pipe .pipe-zero{display:none}.pipe.all .pipe-zero{display:block}.pipe .pipe-zero.on{display:block}.pipe-more{display:block}}
   .reqid{font-size:var(--fs-label);font-weight:400;color:var(--t3);text-decoration:none}
   a.reqid:hover{color:var(--ink)}
+  /* Customer clustering: a returning buyer's searches share a coloured left
+     band (keyed to their avatar colour) and read as one block. The cluster head
+     carries the count badge; follow-on rows dim the repeated name behind a
+     return arrow so the group is obvious without a separate header row. */
+  .req-repeat{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9999px;background:var(--gold-tint);color:var(--gold-txt);font-size:var(--fs-label);font-weight:600;vertical-align:middle;font-variant-numeric:tabular-nums}
+  tr.req-grp>td:first-child{box-shadow:inset 3px 0 0 var(--band,transparent)}
+  tr.req-cont>td{border-top:0}
+  .cont-mark{color:var(--faint);margin-right:6px}
+  .cont-name{color:var(--t2)}
+  .mcl-row .cont-mark{margin-right:2px}
   .health{display:inline-block;width:9px;height:9px;border-radius:9999px;margin-right:8px;vertical-align:middle}
   .health-green{background:var(--good)}.health-amber{background:var(--warn-c)}.health-red{background:var(--bad)}
   .health-neutral{background:transparent;border:1.5px solid var(--faint)}
@@ -7135,6 +7192,69 @@ async function createRequestWishlist(env, clientId, form) {
       extraCols = extraCols.filter((c) => c !== missing);
     }
   }
+}
+
+// One-step staff "new request": capture the customer AND the car they want in a
+// single submit, so staff no longer create a customer and then a request as two
+// separate chores. Reuses the public request path's mechanics - match an
+// existing customer by email/phone and ATTACH (never a duplicate), else create
+// one tagged source 'jdm' - then add the wishlist through createRequestWishlist,
+// so the same-car refresh (no duplicate REQ) and the migration-drift tolerance
+// apply here too. The car fields are optional: a blank search stores flagged
+// (needs_detail) for staff to complete later, exactly like the public form.
+// Staff-only; the route already gates admin/agent. Returns
+// { ok, clientId, wishlistId, created, attached } or { ok:false, error }.
+export async function createAdminRequest(env, form, session) {
+  const name = sstr(form, "name") || "";
+  const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email).toLowerCase();
+  const whatsappRaw = String(form.get("whatsapp") || "").trim();
+  // A customer must be reachable, or any match we find can never be sent. Same
+  // rule as createClient: a name plus at least one contact channel.
+  if (!name) return { ok: false, error: "name" };
+  if (!email && !whatsappRaw) return { ok: false, error: "contact" };
+  if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
+  const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
+  if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
+
+  const state = normalizeState(form.get("state"));
+  const rawCategory = String(form.get("category") || "");
+  const category = CLIENT_CATEGORY_IDS.has(rawCategory) ? rawCategory : "private";
+  const agentId = session && session.role === "agent" ? session.id : null;
+
+  // Attach to the existing customer (matched by email, then phone) instead of
+  // spawning a duplicate; otherwise create one, tagged 'jdm' (staff-added).
+  const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(agentId) });
+  let clientId, created = false;
+  if (match) {
+    clientId = match.id;
+    // Backfill newly-supplied contact details without clobbering existing ones
+    // (mirrors createClient's duplicate branch and upsertPublicClient).
+    await env.DB.prepare(
+      `UPDATE clients SET
+          email = COALESCE(NULLIF(?, ''), email),
+          whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
+          state = COALESCE(NULLIF(?, ''), state)
+        WHERE id = ?`
+    ).bind(email || "", whatsapp || "", state || "", clientId).run();
+  } else {
+    const ins = await insertClientDrift(env, {
+      name, email: email || null, whatsapp: whatsapp || null, state,
+      agent_id: agentId, category, source: "jdm",
+    });
+    clientId = ins?.meta?.last_row_id;
+    created = true;
+  }
+  if (!clientId) return { ok: false, error: "save" };
+
+  // Store the car through the same helper the public form uses (same-car
+  // refresh + drift tolerance). Clip the free-text fields to their column
+  // limits first, since createRequestWishlist reads them straight off the form.
+  for (const k of ["marka_name", "model_name", "kuzov", "grade_kw", "label"]) {
+    form.set(k, sstr(form, k) || "");
+  }
+  form.set("model_code", sstr(form, "model_code", FIELD_MAX.kuzov) || "");
+  const wishlistId = await createRequestWishlist(env, clientId, form);
+  return { ok: true, clientId, wishlistId, created, attached: !created };
 }
 
 const clampMin = (v, min) => (v === null ? null : Math.max(min, v));

@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
+import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX, adminMfaEnabled, verifyAdminTotp, mfaPendingCookie, clearMfaCookie, readMfaPending } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -891,6 +891,13 @@ export default {
           name: sp.get("v_name") || "", email: sp.get("v_email") || "",
           whatsapp: sp.get("v_whatsapp") || "", state: sp.get("v_state") || "",
           company: sp.get("v_company") || "", category: sp.get("v_category") || "",
+          // Car fields, so a rejected one-step new request keeps the search too.
+          label: sp.get("v_label") || "", marka_name: sp.get("v_marka_name") || "",
+          model_name: sp.get("v_model_name") || "", year_min: sp.get("v_year_min") || "",
+          year_max: sp.get("v_year_max") || "", price_max: sp.get("v_price_max") || "",
+          mileage_min: sp.get("v_mileage_min") || "", mileage_max: sp.get("v_mileage_max") || "",
+          rate_min: sp.get("v_rate_min") || "", kuzov: sp.get("v_kuzov") || "",
+          grade_kw: sp.get("v_grade_kw") || "",
         };
       }
       if (view === "auctions") {
@@ -1287,6 +1294,34 @@ export default {
         : action === "share" ? `Shared ${n} ${plural}`
         : `Updated ${n} ${plural}`;
       return act(() => bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session), "/admin?view=clients", okMsg);
+    }
+
+    // One-step new request: capture the customer AND the car in a single form,
+    // then match-or-create the customer and add the wishlist in one go (staff
+    // no longer create a client and then a search). Gated staff-only by the
+    // section above (clients/dealers already diverted to their portals).
+    if (path === "/request/new" && request.method === "POST") {
+      const f = await request.formData();
+      try {
+        const r = await createAdminRequest(env, f, session);
+        if (r && r.ok) {
+          const msg = r.attached
+            ? "Request added to the existing customer"
+            : "New customer and request added";
+          return Response.redirect(here(withNotice(`/admin?view=client&id=${r.clientId}`, msg)), 303);
+        }
+        // Validation error: bounce back to the one-step form, preserving input
+        // (v_ prefixed params) so the fix is one field, not the whole form.
+        const qs = new URLSearchParams({ view: "intake", err: (r && r.error) || "save" });
+        for (const k of ["name", "email", "whatsapp", "state", "category", "label", "marka_name", "model_name", "year_min", "year_max", "price_max", "mileage_min", "mileage_max", "rate_min", "kuzov", "grade_kw"]) {
+          const v = String(f.get(k) || "").trim();
+          if (v) qs.set("v_" + k, v);
+        }
+        return Response.redirect(here(`/admin?${qs.toString()}`), 303);
+      } catch (e) {
+        console.error("/request/new failed:", e.message);
+        return Response.redirect(here(withNotice("/admin?view=intake", "Could not add that request. Please try again.", true)), 303);
+      }
     }
 
     if (path === "/wishlist" && request.method === "POST") {
