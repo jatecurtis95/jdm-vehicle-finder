@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
-import { adminPage, createAdminRequest } from "../src/admin.js";
+import { adminPage, createAdminRequest, WISHLIST_ACTIVE_CAP } from "../src/admin.js";
 import { sessionCookie } from "../src/auth.js";
 import { makeEnv } from "./helpers/d1.mjs";
 
@@ -130,6 +130,34 @@ test("one-step create requires a reachable customer (name + a contact channel)",
   assert.equal((await createAdminRequest(env, fd({ email: "x@example.com", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "name");
   assert.equal((await createAdminRequest(env, fd({ name: "No Contact", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "contact");
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing stored for an unreachable customer");
+});
+
+test("one-step create honours Watch only and stores Min mileage", async () => {
+  const env = makeEnv();
+  const r = await createAdminRequest(env, fd({ name: "Wendy Watch", email: "wendy@example.com", marka_name: "TOYOTA", model_name: "SUPRA", watch_only: "1", mileage_min: "50000", mileage_max: "120000" }), ADMIN);
+  assert.equal(r.ok, true);
+  const w = await env.DB.prepare("SELECT watch_only, mileage_min, mileage_max FROM wishlists WHERE id=?").bind(r.wishlistId).first();
+  assert.equal(w.watch_only, 1, "a watch-only lead is flagged, so it is never auto-emailed");
+  assert.equal(w.mileage_min, 50000, "the Min mileage field is persisted, not silently dropped");
+  assert.equal(w.mileage_max, 120000);
+});
+
+test("one-step create enforces the per-customer active-search cap, but a same-car refresh is exempt", async () => {
+  const env = makeEnv();
+  const email = "capped@example.com";
+  for (let i = 0; i < WISHLIST_ACTIVE_CAP; i++) {
+    const r = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "TOYOTA", model_name: `M${i}` }), ADMIN);
+    assert.equal(r.ok, true, `request ${i} created`);
+  }
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP);
+  // A further DISTINCT car is refused - the same guardrail the staff add-search form has.
+  const over = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "NISSAN", model_name: "GTR" }), ADMIN);
+  assert.equal(over.ok, false);
+  assert.equal(over.error, "limit");
+  // But re-submitting an EXISTING car still succeeds: it refreshes, adds no row.
+  const refresh = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "TOYOTA", model_name: "M0" }), ADMIN);
+  assert.equal(refresh.ok, true, "a same-car refresh is exempt from the cap");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP, "no new row from the refresh");
 });
 
 test("one-step create is scoped: an agent's new customer is theirs, not the public pool", async () => {

@@ -995,7 +995,7 @@ const HEADERS = {
   clients: { kicker: "Vehicle Finder", title: "Customers", sub: "The relationship list: contact, portal access and billing. Open anyone to see all their requests.", btn: "New request" },
   requests: { kicker: "Vehicle Finder", title: "Requests", sub: "The pipeline worklist: every active search, grouped by customer.", btn: "New request" },
   tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
-  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "Add client" },
+  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "New request" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "New auction search" },
   auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
@@ -2308,6 +2308,8 @@ function intakeView(makers, opts = {}) {
     ? `<div class="reqerr">That email address doesn't look right. Please check it and try again.</div>`
     : opts.err === "whatsapp"
     ? `<div class="reqerr">That phone number doesn't look right. Use the full number with area code, e.g. +61 4XX XXX XXX.</div>`
+    : opts.err === "limit"
+    ? `<div class="reqerr">This customer already has the maximum number of active searches. Pause or delete one from their profile first.</div>`
     : opts.err
     ? `<div class="reqerr">Sorry, that could not be saved. Please try again.</div>`
     : "";
@@ -7136,6 +7138,26 @@ async function upsertPublicClient(env, form, email, whatsapp) {
 // make/model/chassis/keyword is still saved, flagged needs_detail so staff can
 // follow up; the matcher skips it until a narrowing term is added. Fix 6: skip
 // an obvious duplicate (same maker + model) for the same client.
+// Same make+model already on this customer (in the same needs-detail state)?
+// Returns the existing wishlist id, or null. Shared by the public request path
+// and the staff one-step path so a repeat car refreshes the one request instead
+// of duplicating it - and so the staff cap can exempt a refresh from the count.
+async function sameCarWishlistId(env, clientId, form) {
+  const marka = str(form, "marka_name"), model = str(form, "model_name");
+  const kuzov = str(form, "kuzov"), gradeKw = str(form, "grade_kw");
+  const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
+  const needsDetail = !(marka || model || kuzov || gradeKw || modelCode) ? 1 : 0;
+  const row = await env.DB.prepare(
+    `SELECT id FROM wishlists
+       WHERE client_id = ?
+         AND lower(COALESCE(marka_name,'')) = lower(?)
+         AND lower(COALESCE(model_name,'')) = lower(?)
+         AND COALESCE(needs_detail,0) = ?
+       LIMIT 1`
+  ).bind(clientId, marka || "", model || "", needsDetail).first();
+  return row ? row.id : null;
+}
+
 async function createRequestWishlist(env, clientId, form) {
   if (!clientId) return null;
   const marka = str(form, "marka_name");
@@ -7146,46 +7168,44 @@ async function createRequestWishlist(env, clientId, form) {
   const gradesJson = sgrades(form);
   const needsDetail = !(marka || model || kuzov || gradeKw || modelCode) ? 1 : 0;
 
-  const dupe = await env.DB.prepare(
-    `SELECT id FROM wishlists
-       WHERE client_id = ?
-         AND lower(COALESCE(marka_name,'')) = lower(?)
-         AND lower(COALESCE(model_name,'')) = lower(?)
-         AND COALESCE(needs_detail,0) = ?
-       LIMIT 1`
-  ).bind(clientId, marka || "", model || "", needsDetail).first();
-  if (dupe) return dupe.id;
+  const dupe = await sameCarWishlistId(env, clientId, form);
+  if (dupe) return dupe;
 
   // Fix 4 (server side): clamp the numbers - the client checks are advisory only.
   let yMin = clampRange(num(form, "year_min"), 1970, 2050), yMax = clampRange(num(form, "year_max"), 1970, 2050);
   if (yMin !== null && yMax !== null && yMin > yMax) { const t = yMin; yMin = yMax; yMax = t; }
   const priceMax = clampRange(num(form, "price_max"), 0, 100000000);
   const budgetAud = clampRange(num(form, "budget_aud"), 0, 10000000);
-  const mileageMax = clampRange(num(form, "mileage_max"), 0, 2000000);
+  const mileageMax = clampRange(num(form, "mileage_max"), 0, MILEAGE_MAX_CAP);
+  const mileageMin = clampRange(num(form, "mileage_min"), 0, MILEAGE_MAX_CAP);
   const rateMin = clampRange(num(form, "rate_min"), 1, 6);
+  // Staff can flag a request "watch only" (surface matches for a follow-up call,
+  // never auto-email). The public request form has no such field, so this stays
+  // 0 there. Reading it here is what makes the staff one-step form honour it.
+  const watchOnly = form.get("watch_only") ? 1 : 0;
 
   // Overseas flag: any non-Australia country value marks the request for manual,
   // non-AU handling. "Australia"/"AU" is treated as the default (no flag).
   let dest = str(form, "destination_country");
   if (dest && /^(australia|aus|au)$/i.test(dest.trim())) dest = null;
 
-  // Schema-drift-tolerant insert: budget_aud (migration 0014) and
-  // model_code/grades (migration 0015) ride along when their columns exist. A
-  // production DB that hasn't applied a migration yet still stores the search
-  // (without that column) rather than failing the signup - the catch strips
-  // whichever column the error names and retries.
-  const optional = { budget_aud: budgetAud, model_code: modelCode, grades: gradesJson };
+  // Schema-drift-tolerant insert: budget_aud (0014), model_code/grades (0015)
+  // and mileage_min (0017) ride along when their columns exist. A production DB
+  // that hasn't applied a migration yet still stores the search (without that
+  // column) rather than failing the signup - the catch strips whichever column
+  // the error names and retries.
+  const optional = { budget_aud: budgetAud, model_code: modelCode, grades: gradesJson, mileage_min: mileageMin };
   let extraCols = Object.keys(optional);
   for (;;) {
     const cols = ["client_id", "label", "marka_name", "model_name", "year_min", "year_max", "price_max", "mileage_max", "rate_min", "kuzov", "grade_kw", "watch_only", "needs_detail", "destination_country", ...extraCols];
-    const vals = [clientId, str(form, "label"), marka, model, yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, 0, needsDetail, dest, ...extraCols.map((c) => optional[c])];
+    const vals = [clientId, str(form, "label"), marka, model, yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, watchOnly, needsDetail, dest, ...extraCols.map((c) => optional[c])];
     try {
       const ins = await env.DB.prepare(
         `INSERT INTO wishlists (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
       ).bind(...vals).run();
       return ins?.meta?.last_row_id ?? null;
     } catch (e) {
-      const m = String(e && e.message).match(/budget_aud|model_code|grades/i);
+      const m = String(e && e.message).match(/budget_aud|model_code|grades|mileage_min/i);
       if (!m || !extraCols.length) throw e;
       const missing = m[0].toLowerCase();
       console.error(`createRequestWishlist: ${missing} column missing (apply the matching migration); storing without it`);
@@ -7253,6 +7273,14 @@ export async function createAdminRequest(env, form, session) {
     form.set(k, sstr(form, k) || "");
   }
   form.set("model_code", sstr(form, "model_code", FIELD_MAX.kuzov) || "");
+
+  // Cap active searches per customer (the guardrail createWishlist enforces
+  // everywhere else in the staff UI), but let a same-car refresh through: it
+  // reuses the existing row, so it never adds to the count.
+  if ((await sameCarWishlistId(env, clientId, form)) == null &&
+      (await activeWishlistCount(env, clientId)) >= WISHLIST_ACTIVE_CAP) {
+    return { ok: false, error: "limit", clientId, created, attached: !created };
+  }
   const wishlistId = await createRequestWishlist(env, clientId, form);
   return { ok: true, clientId, wishlistId, created, attached: !created };
 }
