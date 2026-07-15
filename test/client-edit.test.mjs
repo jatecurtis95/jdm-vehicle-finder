@@ -42,12 +42,25 @@ test("updateClient requires a name", async () => {
   assert.equal(row.name, "Keep Me", "name unchanged after a rejected edit");
 });
 
-test("updateClient requires at least one contact channel", async () => {
+test("updateClient blocks stripping the last contact channel off a reachable client", async () => {
   const env = makeEnv();
   const id = await seed(env, { name: "Reachable", email: "r@example.com" });
   const r = await updateClient(env, fd({ id, name: "Reachable", email: "", whatsapp: "" }), ADMIN);
   assert.equal(r.ok, false);
   assert.equal(r.error, "contact");
+});
+
+test("updateClient lets a contactless client's state be corrected without inventing an email", async () => {
+  // A client imported without an email/phone (matches show 'no contact on
+  // file') must still be editable - staff shouldn't be forced to fake a
+  // contact just to fix the state driving landed-cost estimates.
+  const env = makeEnv("INSERT INTO clients (id,name,email,whatsapp,state,category) VALUES (81,'Ashleigh',NULL,NULL,NULL,'private');");
+  const r = await updateClient(env, fd({ id: 81, name: "Ashleigh", email: "", whatsapp: "", state: "wa" }), ADMIN);
+  assert.equal(r.ok, true, "the state edit saves despite no contact channel");
+  const row = await env.DB.prepare("SELECT state, email, whatsapp FROM clients WHERE id=?").bind(81).first();
+  assert.equal(row.state, normalizeState("wa"));
+  assert.equal(row.email, null, "no fake contact was introduced");
+  assert.equal(row.whatsapp, null);
 });
 
 test("createClient stores a valid category and defaults unknown values to private", async () => {
@@ -119,12 +132,17 @@ test("updateClient won't strip the email while the buyer portal is enabled", asy
 
 test("the client detail page shows an Edit details form prefilled with current values", async () => {
   const env = makeEnv();
-  const id = await seed(env, { name: "Editable Person", email: "edit@example.com", whatsapp: "0400111222" });
+  const id = await seed(env, { name: "Editable Person", email: "edit@example.com", whatsapp: "0400111222", state: "wa" });
   const html = await clientDetailPage(env, id, ADMIN);
   assert.match(html, /action="\/client\/update"/, "edit form posts to the update route");
   assert.match(html, /value="Editable Person"/, "name is prefilled");
   assert.match(html, /value="edit@example.com"/, "email is prefilled");
   assert.match(html, /name="whatsapp"/, "whatsapp field present");
+  // State is a dropdown (one-tap, no typos), prefilled with the stored state,
+  // and stacks full-width in the narrow rail instead of the cramped 3-up grid.
+  assert.match(html, /<select id="ec-state" name="state">/, "state is a select, not free text");
+  assert.match(html, /<option value="WA" selected>WA<\/option>/, "the stored state is preselected");
+  assert.match(html, /class="cd-edit-grid"/, "the edit form uses the rail-friendly stacked grid");
 });
 
 // Mobile overflow guard. A wrapping column flex once blew the stacked match
