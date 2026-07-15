@@ -119,12 +119,17 @@ test("updateClient won't strip the email while the buyer portal is enabled", asy
 
 test("the client detail page shows an Edit details form prefilled with current values", async () => {
   const env = makeEnv();
-  const id = await seed(env, { name: "Editable Person", email: "edit@example.com", whatsapp: "0400111222" });
+  const id = await seed(env, { name: "Editable Person", email: "edit@example.com", whatsapp: "0400111222", state: "wa" });
   const html = await clientDetailPage(env, id, ADMIN);
   assert.match(html, /action="\/client\/update"/, "edit form posts to the update route");
   assert.match(html, /value="Editable Person"/, "name is prefilled");
   assert.match(html, /value="edit@example.com"/, "email is prefilled");
   assert.match(html, /name="whatsapp"/, "whatsapp field present");
+  // State is a dropdown (one-tap, no typos), prefilled with the stored state,
+  // and stacks full-width in the narrow rail instead of the cramped 3-up grid.
+  assert.match(html, /<select id="ec-state" name="state">/, "state is a select, not free text");
+  assert.match(html, /<option value="WA" selected>WA<\/option>/, "the stored state is preselected");
+  assert.match(html, /class="cd-edit-grid"/, "the edit form uses the rail-friendly stacked grid");
 });
 
 // Mobile overflow guard. A wrapping column flex once blew the stacked match
