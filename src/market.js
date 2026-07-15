@@ -75,9 +75,16 @@ function mapRecent(r) {
   };
 }
 
+// Time-window presets for the sold-price lookup. 12 weeks stays the default
+// (the behaviour the panel always had); 0 means no date cutoff at all.
+export const DEFAULT_WINDOW_DAYS = 84;
+const WINDOW_LABELS = { 84: "last 12 weeks", 183: "last 6 months", 366: "last 12 months", 0: "all time" };
+const windowLabelFor = (days) => WINDOW_LABELS[days] || `last ${days} days`;
+
 // Compute the market panel data. Returns null when make/model is missing or the
 // feed is unreachable (caller just hides the panel). `nowMs` is injectable for
-// deterministic tests.
+// deterministic tests. opts: kuzov, grade, year, mileage, plus yearMin /
+// yearMax (build-year range) and windowDays (default 84; 0 = all time).
 export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {}) {
   const mk = String(make || "").trim().toUpperCase();
   const md = String(model || "").trim().toUpperCase();
@@ -91,13 +98,21 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
   const gr = String(opts.grade || "").trim().toUpperCase();
   const subjYear = parseInt(opts.year, 10);
   const subjKm = parseInt(opts.mileage, 10);
+  // Year range: broad names (Skyline, Supra) span decades, so a single
+  // all-years average misleads. Window: how far back the averages look.
+  const ym = sqlInt(opts.yearMin);
+  const yx = sqlInt(opts.yearMax);
+  const wdRaw = sqlInt(opts.windowDays);
+  const wd = wdRaw === null ? DEFAULT_WINDOW_DAYS : Math.max(0, wdRaw);
 
-  const key = `${mk}|${md}|${kz}|${gr}|${Number.isFinite(subjYear) ? subjYear : ""}|${Number.isFinite(subjKm) ? subjKm : ""}`;
+  const key = `${mk}|${md}|${kz}|${gr}|${Number.isFinite(subjYear) ? subjYear : ""}|${Number.isFinite(subjKm) ? subjKm : ""}|${ym ?? ""}|${yx ?? ""}|${wd}`;
   const hit = _cache.get(key);
   if (hit && nowMs < hit.exp) return hit.data;
 
   try {
-    const bare = `MARKA_NAME='${sqlString(mk)}' and MODEL_NAME='${sqlString(md)}' and FINISH>0`;
+    let bare = `MARKA_NAME='${sqlString(mk)}' and MODEL_NAME='${sqlString(md)}' and FINISH>0`;
+    if (ym !== null) bare += ` and YEAR >= ${ym}`;
+    if (yx !== null) bare += ` and YEAR <= ${yx}`;
     const tries = [];
     if (kz) tries.push({ similarity: "model code " + kz, where: `${bare} and UPPER(KUZOV) LIKE '%${sqlLike(kz)}%'` });
     if (gr) tries.push({ similarity: "grade " + gr, where: `${bare} and UPPER(GRADE) LIKE '%${sqlLike(gr)}%'` });
@@ -112,15 +127,22 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
     // than pass the wider line off as comparable (V1.3 Phase 4).
     const fallback = (!similarity && (kz || gr)) ? (kz ? "model code " + kz : "grade " + gr) : "";
     const aggSql = (w) => `select avg(FINISH),count(*),min(FINISH),max(FINISH) from stats where ${w}`;
-    const cutoff = new Date(nowMs - 84 * 86400000).toISOString().slice(0, 10);
 
-    // Prefer the last ~12 weeks; fall back to all-time for rare models.
-    let where = `${base} and AUCTION_DATE >= '${cutoff}'`;
-    let windowed = true;
-    let a = (await query(env, aggSql(where)))[0] || {};
-    if (!(sqlInt(a.tag1) > 0)) {
-      windowed = false;
-      where = base;
+    // Prefer the requested window; fall back to all-time for rare models.
+    let where = base;
+    let windowed = false;
+    let a;
+    if (wd > 0) {
+      const cutoff = new Date(nowMs - wd * 86400000).toISOString().slice(0, 10);
+      where = `${base} and AUCTION_DATE >= '${cutoff}'`;
+      windowed = true;
+      a = (await query(env, aggSql(where)))[0] || {};
+      if (!(sqlInt(a.tag1) > 0)) {
+        windowed = false;
+        where = base;
+        a = (await query(env, aggSql(where)))[0] || {};
+      }
+    } else {
       a = (await query(env, aggSql(where)))[0] || {};
     }
     const count = sqlInt(a.tag1) || 0;
@@ -150,7 +172,8 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
 
     const prices = raw.map((r) => sqlInt(r.finish)).filter((n) => n && n > 0);
     const data = {
-      make: mk, model: md, windowed, count, similarity, fallback,
+      make: mk, model: md, windowed, count, similarity,
+      windowLabel: windowed ? windowLabelFor(wd) : "all time", fallback,
       avg: Math.round(parseFloat(a.tag0) || 0),
       median: median(prices),
       low: sqlInt(a.tag2) || 0,
@@ -251,16 +274,11 @@ function shortDate(iso) {
   return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1] || ""}`.trim();
 }
 
-// JPY → "A$x,xxx" using the live FX rate (JPY per AUD).
-function aud(jpy, fx) {
-  if (!fx || fx <= 0 || !jpy) return "";
-  return "A$" + Math.round(jpy / fx).toLocaleString("en-AU");
-}
-
 // Self-contained market panel (carries its own styles so it renders identically
 // on the staff detail page and the client portal, which use different global
-// stylesheets). Returns "" when there's nothing useful to show.
-export function marketPanel(m, fx = 0) {
+// stylesheets). Returns "" when there's nothing useful to show. Pure JPY:
+// sold prices are auction hammer prices, never converted.
+export function marketPanel(m) {
   if (!m || !m.count) return "";
   const maxBar = Math.max(1, ...m.bars.map((b) => b.avg));
   const trend = m.bars.map((b, i) => {
@@ -286,7 +304,6 @@ export function marketPanel(m, fx = 0) {
       ].filter(Boolean).join(" &middot; ")}</span></div>
       <div class="mktp-comp-r"><span class="mktp-comp-k">SOLD</span><span class="mktp-comp-v">${yen(r.finish)}</span></div>
     </div>`).join("");
-  const audAvg = aud(m.avg, fx);
   // V1.3 Phase 4: when a requested model code or grade had no sold records,
   // the figures below cover the whole model line - say so, out loud, rather
   // than let a Type R read against every base-model sale as if comparable.
@@ -294,10 +311,10 @@ export function marketPanel(m, fx = 0) {
     ? `<div class="mktp-fallbk">No sold records match ${esc(m.fallback)} yet. These figures cover every ${esc(displayName(m.model))} sold, so treat them as a guide only.</div>`
     : "";
   return `<div class="card mktp">
-    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${m.windowed ? "last 12 weeks" : "all time"}${m.similarity ? " &middot; " + esc(m.similarity) : ""}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
+    <div class="mktp-head"><span class="mktp-kick">Market &middot; ${esc(m.windowLabel || (m.windowed ? "last 12 weeks" : "all time"))}${m.similarity ? " &middot; " + esc(m.similarity) : ""}</span><span class="mktp-n">${m.count.toLocaleString("en-AU")} sold</span></div>
     ${fallbackNote}
     <div class="mktp-top">
-      <div class="mktp-stat lead"><div class="mktp-k">Avg sold</div><div class="mktp-v">${yen(m.avg)}</div>${audAvg ? `<div class="mktp-sub">≈ ${esc(audAvg)}</div>` : ""}</div>
+      <div class="mktp-stat lead"><div class="mktp-k">Avg sold</div><div class="mktp-v">${yen(m.avg)}</div></div>
       <div class="mktp-stat"><div class="mktp-k">Median</div><div class="mktp-v">${yen(m.median)}</div></div>
       <div class="mktp-stat"><div class="mktp-k">Range</div><div class="mktp-v sm">${yen(m.low)} - ${yen(m.high)}</div></div>
       ${m.bars.some((b) => b.avg > 0) ? `<div class="mktp-trend"><div class="mktp-k">Price trend</div><div class="mktp-bars" role="img" aria-label="${esc(trendLabel)}">${trend}</div></div>` : ""}
@@ -327,7 +344,6 @@ const MKT_CSS = `<style>
   .mktp-v{font-size:18px;font-weight:700;color:#1b1c1e;line-height:1;font-variant-numeric:tabular-nums}
   .mktp-v.sm{font-size:13.5px;font-weight:600}
   .mktp-stat.lead .mktp-v{font-size:26px}
-  .mktp-sub{font-size:11.5px;color:#7A5E1C;margin-top:4px;font-weight:600;font-variant-numeric:tabular-nums}
   .mktp-trend{margin-left:auto}
   .mktp-bars{display:flex;align-items:flex-end;gap:3px;height:46px}
   .mktp-bar{width:9px;background:#e7e3d6;border-radius:2px 2px 0 0;transition:background .15s}

@@ -248,10 +248,21 @@ export async function searchSold(env, p = {}) {
   const yMax = sqlInt(p.yearMax); if (yMax !== null) where.push(`year <= ${yMax}`);
   const pMax = sqlInt(p.priceMax); if (pMax !== null) where.push(`finish <= ${pMax}`);
   const gMin = sqlNum(p.gradeMin); if (gMin !== null) where.push(`rate >= ${gMin}`);
+  // Grade (trim) keyword, mirroring marketIntel's grade narrowing so the sold
+  // grid under the Sold prices panel answers to the same filter set.
+  const grade = String(p.grade || "").trim();
+  if (grade) where.push(`UPPER(grade) LIKE '%${sqlLike(grade).toUpperCase()}%'`);
   const kuzov = String(p.kuzov || "").trim();
   if (kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlLike(kuzov).toUpperCase()}%'`);
   const house = String(p.house || "").trim();
   if (house) where.push(`UPPER(auction) LIKE '%${sqlLike(house).toUpperCase()}%'`);
+  // Time window: cutoff computed in JS (the gateway has no NOW()/DATE_SUB).
+  // 0 / unset = no cutoff. p.nowMs is injectable for deterministic tests.
+  const wd = sqlInt(p.windowDays);
+  if (wd !== null && wd > 0) {
+    const cutoff = new Date((sqlNum(p.nowMs) || Date.now()) - wd * 86400000).toISOString().slice(0, 10);
+    where.push(`auction_date >= '${cutoff}'`);
+  }
   const qStr = String(p.q || "").trim();
   if (qStr) {
     for (const t of qStr.split(/\s+/).filter(Boolean).slice(0, 4)) {

@@ -904,6 +904,7 @@ export default {
           q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
           house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
           priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
+          grade: sp.get("grade") || "", window: sp.get("window") || "",
           kuzov: sp.get("kuzov") || "", layout: sp.get("layout") || "", page: sp.get("page") || "",
         };
       }

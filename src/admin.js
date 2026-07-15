@@ -2,7 +2,7 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctGrades, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
@@ -4742,7 +4742,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     marketIntel(env, lot.marka_name, lot.model_name, Date.now(), { kuzov: lot.kuzov, grade: lot.grade, year: lot.year, mileage: lot.mileage }).catch(() => null),
     getLiveFx(env).catch(() => 0),
   ]);
-  const marketBox = marketPanel(market, fx);
+  const marketBox = marketPanel(market);
   // The image proxy only serves the plain (full) URL or the &w=320 / &h=50
   // transforms, arbitrary widths return nothing. Hero = full, thumbs = &w=320.
   const big = (u) => u;
@@ -5695,7 +5695,7 @@ export async function publicLotPage(env, queueId) {
         <div class="plv-left">
           <div class="plv-gallery">${gallery}</div>
           ${sheetBox}
-          ${marketPanel(market, fx)}
+          ${marketPanel(market)}
         </div>
         <aside class="plv-right">
           <div class="card plv-spec">
@@ -5851,7 +5851,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
         <div class="plv-left">
           <div class="plv-gallery">${gallery}</div>
           ${sheetBox}
-          ${showMarket ? marketPanel(market, fx) : ""}
+          ${showMarket ? marketPanel(market) : ""}
         </div>
         <aside class="plv-right">
           <div class="card plv-spec">
@@ -7606,8 +7606,26 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
 // history lookup. Live results carry an "Add to client" picker (reuses the same
 // /client/find flow as the in-client search); sold history reuses marketIntel +
 // marketPanel. Hits the live feed only when a query is present.
+// Time-window choices for the Sold prices lookup. Days feed marketIntel's
+// windowDays and searchSold's cutoff; 0 means no date cutoff.
+const SOLD_WINDOWS = {
+  "12w": { days: 84, label: "Last 12 weeks" },
+  "6m": { days: 183, label: "Last 6 months" },
+  "12m": { days: 366, label: "Last 12 months" },
+  all: { days: 0, label: "All time" },
+};
+// One-tap lookups for the tab's first load, so it never opens blank.
+const POPULAR_SOLD_LOOKUPS = [
+  ["NISSAN", "SKYLINE"], ["TOYOTA", "SUPRA"], ["TOYOTA", "CHASER"],
+  ["MAZDA", "RX-7"], ["TOYOTA", "LAND CRUISER"], ["NISSAN", "SILVIA"],
+  ["HONDA", "CIVIC"], ["MITSUBISHI", "LANCER"],
+];
+
 export async function adminAuctionsPage(env, session, opts = {}) {
-  const tab = ["sold", "prices", "watch", "history"].includes(opts.tab) ? opts.tab : "live";
+  // "sold" folded into "prices" (one Sold prices tab: averages + the sold
+  // lots); the alias keeps old bookmarks and deep links working.
+  const requested = opts.tab === "sold" ? "prices" : opts.tab;
+  const tab = ["prices", "watch", "history"].includes(requested) ? requested : "live";
   const sp = opts.search || {};
   const layout = sp.layout === "list" ? "list" : "grid";
   const nowYear = new Date().getFullYear();
@@ -7615,11 +7633,11 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   // Preserve the active search + layout across tabs and paging. On /admin the
   // `view` param selects the page, so the grid/list toggle uses `layout`.
   const clean = { view: "auctions" };
-  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "layout"]) {
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "grade", "window", "kuzov", "house", "layout"]) {
     const val = String(sp[k] ?? "").trim(); if (val) clean[k] = val;
   }
   const buildUrl = (over) => "/admin?" + new URLSearchParams({ ...clean, ...over }).toString();
-  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { sold: true, stats: true, history: true });
+  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { stats: true, history: true });
 
   // The full-filter Auction History experience, shared with the member page
   // (auction-history.js). Staff sessions are already authenticated, so it
@@ -7628,36 +7646,97 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     return `${tabs}${await auctionHistoryContent(env, opts.rawQuery || {}, HISTORY_SURFACES.staff)}`;
   }
 
-  // Sold prices: the make/model lookup with the market panel (average, median,
-  // trend). The browsable Sold auctions grid lives under the "sold" tab below.
+  // Sold prices: ONE home for sold history. The averages panel (marketIntel)
+  // renders on top and the individual sold lots (searchSold) below, both
+  // driven by the same filters. Pure JPY - hammer prices, never converted.
   if (tab === "prices") {
-    const makers = await distinctMakers(env);
-    const datalist = `<datalist id="auc-makers">${makers.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>`;
     const sv = (k) => esc(sp[k] || "");
-    const make = String(sp.make || "").trim(), model = String(sp.model || "").trim();
-    let intel = "";
-    if (make && model) {
-      const [m, fx] = await Promise.all([marketIntel(env, make, model, Date.now(), { kuzov: sp.kuzov }).catch(() => null), getLiveFx(env).catch(() => 0)]);
-      intel = (m && m.count)
-        ? `<div style="margin-top:16px">${marketPanel(m, fx)}</div>`
-        : `<div class="empty" style="margin-top:16px">No sold records for ${esc(displayName(make))} ${esc(displayName(model))} yet. Try a broader model name.</div>`;
-    }
-    const panel = `<div class="card">
+    const make = String(sp.make || "").trim();
+    const model = String(sp.model || "").trim();
+    const windowKey = Object.prototype.hasOwnProperty.call(SOLD_WINDOWS, sp.window) ? sp.window : "12w";
+    const windowDays = SOLD_WINDOWS[windowKey].days;
+    const page = Math.max(1, parseInt(sp.page, 10) || 1);
+    const hasQuery = !!(make && model);
+
+    const [makers, models, grades] = await Promise.all([
+      distinctMakers(env),
+      make ? distinctModels(env, make) : [],
+      hasQuery ? distinctGrades(env, make, model, "").catch(() => []) : [],
+    ]);
+    const dl = (id, list) => `<datalist id="${id}">${(list || []).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>`;
+    const datalists = dl("auc-makers", makers) + dl("auc-models", models) + dl("auc-grades", grades);
+
+    const filters = { yearMin: sp.yearMin, yearMax: sp.yearMax, grade: sp.grade };
+    const [m, soldRes] = await Promise.all([
+      hasQuery
+        ? marketIntel(env, make, model, Date.now(), { ...filters, kuzov: sp.kuzov, windowDays }).catch(() => null)
+        : null,
+      searchSold(env, hasQuery ? { make, model, ...filters, windowDays, page } : { page }),
+    ]);
+
+    const windowOpts = Object.entries(SOLD_WINDOWS)
+      .map(([k, w]) => `<option value="${k}"${k === windowKey ? " selected" : ""}>${w.label}</option>`).join("");
+    const form = `<div class="card">
       <form method="GET" action="/admin">
         <input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="prices">
-        <div class="grid2">
-          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN" required></label>${datalist}</div>
-          <div><label>Model<input name="model" value="${sv("model")}" placeholder="e.g. SKYLINE" required></label></div>
+        <div class="grid">
+          <div><label>Make<input name="make" list="auc-makers" value="${sv("make")}" placeholder="e.g. NISSAN" autocomplete="off" required></label></div>
+          <div><label>Model<input name="model" list="auc-models" value="${sv("model")}" placeholder="e.g. SKYLINE" autocomplete="off" required></label></div>
+          <div><label>Grade / trim <span class="opt">(optional)</span><input name="grade" list="auc-grades" value="${sv("grade")}" placeholder="e.g. GT-R" autocomplete="off"></label></div>
+          <div><label>Year from<input name="yearMin" type="number" min="1960" max="2100" value="${sv("yearMin")}" placeholder="1995"></label></div>
+          <div><label>Year to<input name="yearMax" type="number" min="1960" max="2100" value="${sv("yearMax")}" placeholder="2002"></label></div>
+          <div><label>Sold within<select name="window">${windowOpts}</select></label></div>
         </div>
         <div class="actions"><button class="btn-gold" type="submit">Show sold prices</button>
-          <span class="help">Recent sold-auction results: average, median, range, a 12-week trend and recent comparables.</span></div>
-      </form>${intel}
+          <span class="help">Average, median, range and trend for the filters above, with every matching sold car below. Prices are JPY hammer prices.</span></div>
+      </form>${datalists}
+      <script>(function(){
+        var card=document.currentScript.closest(".card"),f=card?card.querySelector("form"):null;if(!f)return;
+        var mk=f.querySelector('input[name="make"]'),dlm=document.getElementById("auc-models");
+        if(!mk||!dlm)return;
+        mk.addEventListener("change",function(){
+          dlm.innerHTML="";if(!mk.value)return;
+          fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(list){
+            (list||[]).forEach(function(x){var o=document.createElement("option");o.value=x;dlm.appendChild(o);});
+          }).catch(function(){});
+        });
+      })();</script>
     </div>`;
-    return `${tabs}${panel}${AUCTION_CSS}`;
+
+    // First load: one-tap popular lookups instead of a blank page.
+    const chips = hasQuery ? "" : `<div class="spx-pop"><span class="spx-pop-k">Popular lookups</span>${POPULAR_SOLD_LOOKUPS.map(([pmk, pmd]) =>
+      `<a class="chip" href="${esc(buildUrl({ tab: "prices", make: pmk, model: pmd }))}">${esc(displayName(pmk))} ${esc(displayName(pmd))}</a>`).join("")}
+      <style>.spx-pop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-8px 0 20px}.spx-pop-k{font-size:var(--fs-label);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}.spx-pop .chip:hover{border-color:var(--field-line);color:var(--ink)}</style></div>`;
+
+    // Averages panel. Skipped during an outage so a relay failure never reads
+    // as "no sold records" (launch-audit rule).
+    let intel = "";
+    if (hasQuery && soldRes.ok) {
+      intel = (m && m.count)
+        ? marketPanel(m)
+        : `<div class="card"><div class="empty"><div class="rule"></div>No sold records for ${esc(displayName(make))} ${esc(displayName(model))}${sp.grade ? " (" + sv("grade") + ")" : ""} with those filters yet. Try a wider year range or time window, or a broader model name.</div></div>`;
+    }
+
+    // The matching sold lots, newest first (site-wide latest on first load).
+    const { lots, hasMore, ok } = soldRes;
+    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "prices", layout: mode }), label: hasQuery ? "Sold at auction" : "Latest sold results", feedDown: !ok });
+    const findLive = (lot) => `<a class="btn-notify ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
+    let grid;
+    if (lots.length) {
+      grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
+    } else if (!ok) {
+      grid = feedDownCard();
+    } else {
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${hasQuery ? "No individual sold lots match those filters. Try a wider year range or time window." : "No sold results to show right now. Check back shortly."}</div></div>`;
+    }
+    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "prices", page: page - 1 }))}">&larr; More recent</a>` : "";
+    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "prices", page: page + 1 }))}">Older &rarr;</a>` : "";
+    const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
+    return `${tabs}${form}${chips}${intel}${toolbar}${grid}${pager}${AUCTION_CSS}`;
   }
 
-  // Live, Watchlist and the browsable Sold auctions grid share the search header
-  // (and, for live, the client list that powers the add-to-client picker).
+  // Live and Watchlist share the search header (and, for live, the client
+  // list that powers the add-to-client picker).
   const [makers, houses, fx] = await Promise.all([
     distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
   ]);
@@ -7665,34 +7744,11 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const codes = String(sp.make || "").trim()
     ? (await distinctModelCodes(env, sp.make, sp.model)).map((code) => ({ code, label: labelForCode(code) }))
     : [];
-  const headerTab = tab === "sold" ? "sold" : "live";
-  const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="${headerTab}">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
-  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, codes, houses, showBid: false, label: tab === "sold" ? "Search sold auction results" : "Search live Japanese auctions" });
+  const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
+  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, codes, houses, showBid: false, label: "Search live Japanese auctions" });
 
   if (tab === "watch") {
     return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
-  }
-
-  // Browsable Sold auctions grid (staff): recent sold lots, each linking through
-  // to the Sold prices analytics for that model.
-  if (tab === "sold") {
-    const page = Math.max(1, parseInt(sp.page, 10) || 1);
-    const { lots, hasMore, ok } = await searchSold(env, { ...sp, page });
-    const soldAction = (lot) => `<a class="btn-notify ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "prices", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Sold prices</a>`;
-    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "sold", layout: mode }), label: "Sold at auction", feedDown: !ok });
-    let grid;
-    if (lots.length) {
-      grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: soldAction(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
-    } else if (!ok) {
-      grid = feedDownCard();
-    } else {
-      const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
-      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
-    }
-    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page - 1 }))}">&larr; More recent</a>` : "";
-    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "sold", page: page + 1 }))}">Older &rarr;</a>` : "";
-    const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
-    return `${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
   }
 
   const acc = accessScope(session);

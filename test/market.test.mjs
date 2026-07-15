@@ -49,15 +49,15 @@ test("marketIntel returns null when make or model is missing", async () => {
   assert.equal(await marketIntel(feedEnv(), "NISSAN", "", NOW), null);
 });
 
-test("marketPanel renders headline figures and comparables, empty when no data", async () => {
+test("marketPanel renders headline figures and comparables in pure JPY, empty when no data", async () => {
   stubFeed();
   const m = await marketIntel(feedEnv(), "NISSAN", "DAYZ", NOW);
-  const html = marketPanel(m, 95);
+  const html = marketPanel(m);
   assert.match(html, /Market &middot; last 12 weeks/);
   assert.match(html, /371,567/);
-  assert.match(html, /≈ A\$3,9\d\d/); // 371567 / 95
+  assert.doesNotMatch(html, /A\$/, "sold prices are never converted to AUD");
   assert.match(html, /Recent comparable sales/);
   assert.match(html, /Dayz/); // model is title-cased for display
-  assert.equal(marketPanel(null, 95), "");
-  assert.equal(marketPanel({ count: 0 }, 95), "");
+  assert.equal(marketPanel(null), "");
+  assert.equal(marketPanel({ count: 0 }), "");
 });

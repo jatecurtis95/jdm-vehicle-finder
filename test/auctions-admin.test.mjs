@@ -47,13 +47,14 @@ test("Auctions Sold prices tab shows a no-data message when there are no sold re
   assert.match(html, /No sold records/i);
 });
 
-test("Auctions Sold auctions tab browses the sold feed with a Sold-prices link", async () => {
+test("the old Sold auctions tab folds into Sold prices (alias keeps bookmarks working)", async () => {
   const env = makeEnv();
   const soldXml = `<aj><row><id>S1</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><rate>4</rate><finish>2500000</finish><auction>USS Tokyo</auction><auction_date>2026-06-01T00:00:00</auction_date></row></aj>`;
   stub(soldXml);
   const html = await adminPage(env, "auctions", ADMIN, { tab: "sold", search: {} });
-  assert.match(html, /Sold auctions/);        // the tab
+  assert.doesNotMatch(html, />Sold auctions</, "the separate tab is gone from the bar");
+  assert.match(html, />Sold prices</, "the merged tab renders instead");
   assert.match(html, /Sold price/);           // the card price label
-  assert.match(html, /¥2,500,000/);
-  assert.match(html, /tab=prices/);           // card links through to the analytics
+  assert.match(html, /¥2,500,000/);           // the sold lots still browse
+  assert.match(html, /Latest sold results/);  // first-load framing
 });
