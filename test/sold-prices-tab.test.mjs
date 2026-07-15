@@ -127,6 +127,32 @@ test("Sold prices shows the averages panel AND the sold lots for one filter set"
   assert.match(html, /<option value="6m" selected>/);
 });
 
+test("the averages panel survives when only the sold-lot browse fails", async () => {
+  // marketIntel succeeds; searchSold (a separate feed call) errors. The panel
+  // must still render, and the lots side shows the outage state - the panel's
+  // visibility is not coupled to the browse query's success.
+  let call = 0;
+  globalThis.fetch = async (u) => {
+    let q = null; try { q = new URL(String(u)).searchParams.get("q"); } catch (e) {}
+    if (!q) throw new Error("offline");
+    const sql = atob(q);
+    // `select * from stats` is searchSold's row query - fail only that.
+    if (/^select \* from stats/i.test(sql)) throw new Error("browse down");
+    let xml;
+    if (sql.includes("min(FINISH)")) xml = "<aj><row><tag0>2500000</tag0><tag1>42</tag1><tag2>1000000</tag2><tag3>12850000</tag3></row></aj>";
+    else if (sql.includes("AUCTION_DATE <")) xml = "<aj><row><tag0>2400000</tag0><tag1>3</tag1></row></aj>";
+    else if (sql.includes("count(*)")) xml = "<aj><row><tag0>42</tag0></row></aj>";
+    else if (sql.includes("FINISH,RATE")) xml = "<aj><row><finish>2500000</finish><rate>4</rate></row></aj>";
+    else xml = SOLD_ROWS;
+    return { ok: true, status: 200, text: async () => xml };
+  };
+  const html = await adminPage(makeEnvFeed(), "auctions", ADMIN, { tab: "prices", search: { make: "NISSAN", model: "SKYLINE" } });
+  assert.match(html, /Avg sold/, "the averages panel still renders");
+  assert.match(html, /42 sold/);
+  assert.match(html, /feed unavailable|can't reach the live auction feed/, "the lots side shows the outage, not a fake empty");
+  assert.doesNotMatch(html, /No sold records for/, "a browse outage never reads as no sold records");
+});
+
 test("first load is useful: popular chips and the latest sold results", async () => {
   stubFeed();
   const html = await adminPage(makeEnvFeed(), "auctions", ADMIN, { tab: "prices", search: {} });

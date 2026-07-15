@@ -35,7 +35,7 @@ test("client find results carry details, eligibility and sold-history affordance
   assert.match(html, /view=auctionlot(?:&|&amp;)lot=fx-1(?:&|&amp;)client=7(?:&|&amp;)back=/, "details link carries lot + client + back");
   assert.match(html, /class="mp-link"/, "the photo is a link to the lot page");
   assert.match(html, /chip chip-good[^>]*>Eligible</, "the 25-year eligibility reads on the card");
-  assert.match(html, /view=auctions(?:&|&amp;)tab=sold(?:&|&amp;)make=NISSAN(?:&|&amp;)model=SKYLINE/, "sold price history is one tap from the search");
+  assert.match(html, /view=auctions(?:&|&amp;)tab=prices(?:&|&amp;)make=NISSAN(?:&|&amp;)model=SKYLINE/, "sold price history is one tap from the search");
 });
 
 test("the auction lot page in client context offers a one-tap add and a back-to-search", async () => {

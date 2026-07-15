@@ -245,13 +245,12 @@ export function watchAlertBlock(href) {
 
 // Live / Watchlist (and, for staff, Sold prices) pill tabs. `href` builds a URL
 // for a given tab, preserving the current query.
-export function auctionTabs(active, href, { sold = false, stats = false, history = false } = {}) {
+export function auctionTabs(active, href, { stats = false, history = false } = {}) {
   const tab = (id, label, extra = "") =>
     `<a class="atab${active === id ? " on" : ""}"${active === id ? ' aria-current="page"' : ""} href="${esc(href(id))}">${label}${extra}</a>`;
   return `<div class="atabs">
     ${tab("live", "Live auctions")}
     ${tab("watch", "Watchlist", ` <b data-watch-count>0</b>`)}
-    ${sold ? tab("sold", "Sold auctions") : ""}
     ${history ? tab("history", "Auction history") : ""}
     ${stats ? tab("prices", "Sold prices") : ""}
   </div>`;
@@ -440,6 +439,11 @@ export const AUCTION_CSS = `<style>
 
   .awatch-empty{color:var(--faint);padding:32px 0;text-align:center;font-size:var(--fs-sec,13px)}
   .awatch-empty .rule{width:42px;height:1px;background:var(--hair);margin:0 auto 16px}
+
+  /* Sold prices empty-state: one-tap popular lookups. */
+  .spx-pop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-8px 0 20px}
+  .spx-pop-k{font-size:var(--fs-label,12px);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .spx-pop .chip:hover{border-color:var(--field-line);color:var(--ink)}
 
   @media(max-width:640px){
     .acgrid{grid-template-columns:1fr}

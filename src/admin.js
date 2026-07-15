@@ -6,7 +6,7 @@ import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCo
 import { labelForCode } from "./model-codes.js";
 import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
 import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
-import { marketIntel, marketPanel } from "./market.js";
+import { marketIntel, marketPanel, DEFAULT_WINDOW_DAYS } from "./market.js";
 import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
@@ -5302,7 +5302,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
-        <a class="btn-line" href="${esc(`/admin?view=auctions&tab=sold${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
+        <a class="btn-line" href="${esc(`/admin?view=auctions&tab=prices${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
@@ -7218,7 +7218,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
     action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
     p: params, makers, models, codes, houses, showBid: true, bidCount,
   });
-  const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), { sold: false });
+  const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), {});
 
   let body = "";
   if (tab === "watch") {
@@ -7607,9 +7607,10 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
 // /client/find flow as the in-client search); sold history reuses marketIntel +
 // marketPanel. Hits the live feed only when a query is present.
 // Time-window choices for the Sold prices lookup. Days feed marketIntel's
-// windowDays and searchSold's cutoff; 0 means no date cutoff.
+// windowDays and searchSold's cutoff; 0 means no date cutoff. The 12-week
+// default stays in lockstep with marketIntel's own DEFAULT_WINDOW_DAYS.
 const SOLD_WINDOWS = {
-  "12w": { days: 84, label: "Last 12 weeks" },
+  "12w": { days: DEFAULT_WINDOW_DAYS, label: "Last 12 weeks" },
   "6m": { days: 183, label: "Last 6 months" },
   "12m": { days: 366, label: "Last 12 months" },
   all: { days: 0, label: "All time" },
@@ -7666,10 +7667,13 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const dl = (id, list) => `<datalist id="${id}">${(list || []).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>`;
     const datalists = dl("auc-makers", makers) + dl("auc-models", models) + dl("auc-grades", grades);
 
-    const filters = { yearMin: sp.yearMin, yearMax: sp.yearMax, grade: sp.grade };
+    // One filter set drives both halves. kuzov has no field on this tab but
+    // can arrive preserved from a Live / Auction History link; passing it to
+    // both keeps the averages and the sold lots over the same population.
+    const filters = { yearMin: sp.yearMin, yearMax: sp.yearMax, grade: sp.grade, kuzov: sp.kuzov };
     const [m, soldRes] = await Promise.all([
       hasQuery
-        ? marketIntel(env, make, model, Date.now(), { ...filters, kuzov: sp.kuzov, windowDays }).catch(() => null)
+        ? marketIntel(env, make, model, Date.now(), { ...filters, windowDays }).catch(() => null)
         : null,
       searchSold(env, hasQuery ? { make, model, ...filters, windowDays, page } : { page }),
     ]);
@@ -7705,16 +7709,21 @@ export async function adminAuctionsPage(env, session, opts = {}) {
 
     // First load: one-tap popular lookups instead of a blank page.
     const chips = hasQuery ? "" : `<div class="spx-pop"><span class="spx-pop-k">Popular lookups</span>${POPULAR_SOLD_LOOKUPS.map(([pmk, pmd]) =>
-      `<a class="chip" href="${esc(buildUrl({ tab: "prices", make: pmk, model: pmd }))}">${esc(displayName(pmk))} ${esc(displayName(pmd))}</a>`).join("")}
-      <style>.spx-pop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-8px 0 20px}.spx-pop-k{font-size:var(--fs-label);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}.spx-pop .chip:hover{border-color:var(--field-line);color:var(--ink)}</style></div>`;
+      `<a class="chip" href="${esc(buildUrl({ tab: "prices", make: pmk, model: pmd }))}">${esc(displayName(pmk))} ${esc(displayName(pmd))}</a>`).join("")}</div>`;
 
-    // Averages panel. Skipped during an outage so a relay failure never reads
-    // as "no sold records" (launch-audit rule).
+    // Averages panel, gated on marketIntel's OWN outcome (a separate feed
+    // call from the sold-lot browse): a real panel renders whenever it has
+    // data, even if searchSold happened to fail. The "no sold records"
+    // empty-state only shows when marketIntel actually returned zero, not on
+    // an outage - so a relay failure never reads as "no sold records"
+    // (launch-audit rule). m === null means marketIntel itself threw/timed out.
     let intel = "";
-    if (hasQuery && soldRes.ok) {
+    if (hasQuery) {
       intel = (m && m.count)
         ? marketPanel(m)
-        : `<div class="card"><div class="empty"><div class="rule"></div>No sold records for ${esc(displayName(make))} ${esc(displayName(model))}${sp.grade ? " (" + sv("grade") + ")" : ""} with those filters yet. Try a wider year range or time window, or a broader model name.</div></div>`;
+        : (m /* succeeded with zero rows */
+          ? `<div class="card"><div class="empty"><div class="rule"></div>No sold records for ${esc(displayName(make))} ${esc(displayName(model))}${sp.grade ? " (" + sv("grade") + ")" : ""} with those filters yet. Try a wider year range or time window, or a broader model name.</div></div>`
+          : "");
     }
 
     // The matching sold lots, newest first (site-wide latest on first load).
