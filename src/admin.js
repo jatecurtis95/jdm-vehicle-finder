@@ -14,6 +14,9 @@ import { googleConfigured } from "./oauth.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
+import { portalSidebar } from "./portal-shell.js";
+import { auctionHistoryContent, HISTORY_SURFACES } from "./auction-history.js";
+export { portalSidebar };
 
 // "Continue with Google" button (social login). The official four-colour G mark,
 // a neutral white button, and an "or" divider - shared by the login screen and
@@ -7161,25 +7164,8 @@ async function enablePortalSelfSignup(env, clientId, password) {
 // ===========================================================================
 const PORTAL_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-export function portalSidebar(c, active = "garage") {
-  // The legacy /portal/sold page highlights the Auction history entry that
-  // replaced its own nav item.
-  if (active === "sold") active = "history";
-  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
-  // The auction search page is a paid-member perk, gated on clients.member.
-  const auctions = c && c.member ? item("auctions", "/portal/auctions", "Auction search") : "";
-  // Auction history supersedes the old "Sold auctions" entry in the nav; the
-  // /portal/sold route itself stays live for existing bookmarks.
-  const history = c && c.member ? item("history", "/portal/history", "Auction history") : "";
-  return `<aside class="side">
-    <div class="brand">${LOGO}</div>
-    <nav class="nav">${item("garage", "/portal", "Your garage")}${auctions}${history}</nav>
-    <div class="side-foot">
-      <div class="whoami"><span class="who-name">${esc(c?.name || "You")}</span><span class="who-role">${c && c.member ? "Member" : "Client"}</span></div>
-      <a class="signout" href="/logout">Sign out</a>
-    </div>
-  </aside>`;
-}
+// portalSidebar moved to portal-shell.js so the Auction History module can
+// share it without a dependency cycle; re-exported here for existing callers.
 
 const DIRECT_REQUESTS_LABEL = "Direct requests";
 // Lots staff add to a client from the in-client auction search land here.
@@ -7621,7 +7607,7 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
 // /client/find flow as the in-client search); sold history reuses marketIntel +
 // marketPanel. Hits the live feed only when a query is present.
 export async function adminAuctionsPage(env, session, opts = {}) {
-  const tab = ["sold", "prices", "watch"].includes(opts.tab) ? opts.tab : "live";
+  const tab = ["sold", "prices", "watch", "history"].includes(opts.tab) ? opts.tab : "live";
   const sp = opts.search || {};
   const layout = sp.layout === "list" ? "list" : "grid";
   const nowYear = new Date().getFullYear();
@@ -7633,7 +7619,14 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const val = String(sp[k] ?? "").trim(); if (val) clean[k] = val;
   }
   const buildUrl = (over) => "/admin?" + new URLSearchParams({ ...clean, ...over }).toString();
-  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { sold: true, stats: true });
+  const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { sold: true, stats: true, history: true });
+
+  // The full-filter Auction History experience, shared with the member page
+  // (auction-history.js). Staff sessions are already authenticated, so it
+  // carries no membership gate here.
+  if (tab === "history") {
+    return `${tabs}${await auctionHistoryContent(env, opts.rawQuery || {}, HISTORY_SURFACES.staff)}`;
+  }
 
   // Sold prices: the make/model lookup with the market panel (average, median,
   // trend). The browsable Sold auctions grid lives under the "sold" tab below.

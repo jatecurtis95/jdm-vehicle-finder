@@ -8,7 +8,7 @@ import { makeEnv } from "./helpers/d1.mjs";
 import worker from "../src/index.js";
 import { sessionCookie } from "../src/auth.js";
 import { auctionHistoryPage } from "../src/auction-history.js";
-import { auctionLotPage, requestAuctionLot } from "../src/admin.js";
+import { auctionLotPage, requestAuctionLot, adminAuctionsPage } from "../src/admin.js";
 import {
   validateHistoryParams, buildHistoryWhere, searchHistory,
 } from "../src/auction-history-query.js";
@@ -362,4 +362,31 @@ test("a bid request on a sold lot is refused server-side", async () => {
   const r = await requestAuctionLot(env(), 1, "H1");
   assert.equal(r.ok, false);
   assert.equal(r.error, "sold");
+});
+
+// --- Staff surface (Admin -> Auctions -> Auction history) -------------------
+
+test("staff get the same Auction History as a tab in the Auctions workspace", async () => {
+  const seen = stubFeed({ count: 37 });
+  const html = await adminAuctionsPage(env(), { role: "admin", id: 0 }, {
+    tab: "history",
+    rawQuery: { make: "NISSAN", sort: "price_asc" },
+  });
+  assert.match(html, />Auction history</, "the tab is in the strip");
+  assert.match(html, /name="view" value="auctions"/, "the form posts back into the workspace");
+  assert.match(html, /name="tab" value="history"/);
+  assert.match(html, /37 sold results/);
+  assert.match(html, /1999 Nissan Skyline/);
+  assert.match(html, /\/admin\?view=auctionlot&(amp;)?lot=H1/, "record links stay in the staff app");
+  assert.doesNotMatch(html, /portal\/auctions\/lot/, "no member-portal links on the staff surface");
+  assert.ok(statsSql(seen).some((s) => /UPPER\(marka_name\) LIKE '%NISSAN%'/.test(s)), "filters apply");
+  assert.ok(statsSql(seen).some((s) => /order by finish ASC/.test(s)), "sorting applies");
+});
+
+test("the staff history tab needs no membership and other tabs are unchanged", async () => {
+  stubFeed();
+  const html = await adminAuctionsPage(env(), { role: "admin", id: 0 }, { tab: "history", rawQuery: {} });
+  assert.doesNotMatch(html, /members feature/i);
+  const live = await adminAuctionsPage(env(), { role: "admin", id: 0 }, {});
+  assert.match(live, /Search live Japanese auctions/, "the live tab still renders its own search header");
 });

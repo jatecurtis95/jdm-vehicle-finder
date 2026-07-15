@@ -13,7 +13,7 @@ import { imageUrls, distinctMakers, distinctModels, distinctHouses } from "./avt
 import { getLiveFx, carAudToLanded } from "./calc.js";
 import { auctionEligibility, displayMaker, feedDownCard } from "./auction-ui.js";
 import { brandShell } from "./theme.js";
-import { portalSidebar } from "./admin.js";
+import { portalSidebar } from "./portal-shell.js";
 import {
   validateHistoryParams, searchHistory, HISTORY_RANGES, HISTORY_SORTS,
   KPP_GROUPS, FUEL_KEYWORDS, BODY_KEYWORDS, HISTORY_COLOURS,
@@ -50,6 +50,24 @@ const ADVANCED_KEYS = ["transmission", "drivetrain", "mileageMax", "engineMin", 
 // Everything that belongs in a shareable URL, in canonical order.
 const URL_KEYS = ["make", "model", "range", ...ADVANCED_KEYS, "sort", "page"];
 
+// The same history experience renders on two surfaces. A surface says where
+// the form posts back to (basePath + baseParams carried on every URL) and
+// where a result's record / live-search links land for that audience.
+export const HISTORY_SURFACES = {
+  member: {
+    basePath: "/portal/history",
+    baseParams: {},
+    detailBase: "/portal/auctions/lot?id=",
+    liveSearch: (lot) => `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`,
+  },
+  staff: {
+    basePath: "/admin",
+    baseParams: { view: "auctions", tab: "history" },
+    detailBase: "/admin?view=auctionlot&lot=",
+    liveSearch: (lot) => `/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" })}`,
+  },
+};
+
 // Compact param bag for URL building: only non-defaults are carried.
 function cleanParams(p) {
   const clean = {};
@@ -63,13 +81,13 @@ function cleanParams(p) {
   return clean;
 }
 
-function historyUrl(clean, over = {}) {
-  const merged = { ...clean, ...over };
+function historyUrl(surface, clean, over = {}) {
+  const merged = { ...surface.baseParams, ...clean, ...over };
   for (const k of Object.keys(merged)) {
     if (merged[k] === null || merged[k] === "" || merged[k] === undefined) delete merged[k];
   }
   const qs = new URLSearchParams(merged).toString();
-  return "/portal/history" + (qs ? `?${qs}` : "");
+  return surface.basePath + (qs ? `?${qs}` : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +99,7 @@ const opt = (value, label, selected) =>
 const optTable = (table, selected) =>
   Object.entries(table).map(([k, v]) => opt(k, v.label, selected)).join("");
 
-function filterForm(p, { makers, models, houses }) {
+function filterForm(p, { makers, models, houses }, surface) {
   const makerOpts = opt("", "All makes", p.make) +
     makers.map((m) => opt(m, displayMaker(m), p.make)).join("") +
     (p.make && !makers.includes(p.make) ? opt(p.make, displayMaker(p.make), p.make) : "");
@@ -100,8 +118,10 @@ function filterForm(p, { makers, models, houses }) {
   const advancedOpen = ADVANCED_KEYS.some((k) => p[k] !== "" && p[k] !== null);
   const numVal = (v) => (v === null ? "" : String(v));
 
-  return `<form class="ahx-filter" method="GET" action="/portal/history" data-ahx-form role="search" aria-label="Search auction history">
-    ${p.sort !== "newest" ? `<input type="hidden" name="sort" value="${esc(p.sort)}">` : ""}
+  const baseHidden = Object.entries(surface.baseParams)
+    .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+  return `<form class="ahx-filter" method="GET" action="${esc(surface.basePath)}" data-ahx-form role="search" aria-label="Search auction history">
+    ${baseHidden}${p.sort !== "newest" ? `<input type="hidden" name="sort" value="${esc(p.sort)}">` : ""}
     <div class="ahx-frow">
       <label><span>Make</span><select name="make" data-ahx-make>${makerOpts}</select></label>
       <label><span>Model</span><select name="model" data-ahx-model>${modelOpts}</select></label>
@@ -163,20 +183,20 @@ function chipLabels(p) {
   return labels;
 }
 
-function chipsRow(p, clean) {
+function chipsRow(p, clean, surface) {
   const labels = chipLabels(p);
   if (!labels.length) return "";
   const chips = labels.map(([key, label]) =>
-    `<a class="ahx-chip" data-ahx-nav href="${esc(historyUrl(clean, { [key]: "", page: "" }))}" aria-label="Remove ${esc(label)} filter">${esc(label)} <span aria-hidden="true">&times;</span></a>`
+    `<a class="ahx-chip" data-ahx-nav href="${esc(historyUrl(surface, clean, { [key]: "", page: "" }))}" aria-label="Remove ${esc(label)} filter">${esc(label)} <span aria-hidden="true">&times;</span></a>`
   ).join("");
-  return `<div class="ahx-chips"><span>Filters</span>${chips}<a class="ahx-clear" data-ahx-nav href="/portal/history">Clear all filters</a></div>`;
+  return `<div class="ahx-chips"><span>Filters</span>${chips}<a class="ahx-clear" data-ahx-nav href="${esc(historyUrl(surface, {}))}">Clear all filters</a></div>`;
 }
 
 // ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
 
-function lotView(lot, fx, nowYear) {
+function lotView(lot, fx, nowYear, surface) {
   const title = `${lot.year || ""} ${displayMaker(lot.marka_name)} ${displayMaker(lot.model_name)}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const jpy = Number(lot.finish) || 0;
   const audVal = jpy > 0 && fx > 0 ? Math.round(jpy / fx) : 0;
@@ -199,8 +219,8 @@ function lotView(lot, fx, nowYear) {
     aud: audVal > 0 ? "≈ " + audFmt(audVal) : "",
     landed: landed ? audFmt(landed) : "",
     elig,
-    detailHref: `/portal/auctions/lot?id=${encodeURIComponent(lot.id)}`,
-    liveHref: `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`,
+    detailHref: `${surface.detailBase}${encodeURIComponent(lot.id)}`,
+    liveHref: surface.liveSearch(lot),
   };
 }
 
@@ -245,16 +265,16 @@ function resultCard(v) {
   </article>`;
 }
 
-function sortRow(p, clean, countTxt) {
+function sortRow(p, clean, countTxt, surface) {
   const links = Object.entries(HISTORY_SORTS).map(([key, s]) =>
-    `<a class="ahx-sort${p.sort === key ? " on" : ""}"${p.sort === key ? ' aria-current="true"' : ""} data-ahx-nav href="${esc(historyUrl(clean, { sort: key === "newest" ? "" : key, page: "" }))}">${esc(s.label)}</a>`
+    `<a class="ahx-sort${p.sort === key ? " on" : ""}"${p.sort === key ? ' aria-current="true"' : ""} data-ahx-nav href="${esc(historyUrl(surface, clean, { sort: key === "newest" ? "" : key, page: "" }))}">${esc(s.label)}</a>`
   ).join("");
   return `<div class="ahx-tbar"><span class="ahx-count">${countTxt}</span><div class="ahx-sorts" role="navigation" aria-label="Sort results">${links}</div></div>`;
 }
 
-function pager(r, clean) {
+function pager(r, clean, surface) {
   const link = (page, label, cls = "", current = false) =>
-    `<a class="ahx-pg ${cls}${current ? " on" : ""}"${current ? ' aria-current="page"' : ""} data-ahx-nav href="${esc(historyUrl(clean, { page: page === 1 ? "" : String(page) }))}">${label}</a>`;
+    `<a class="ahx-pg ${cls}${current ? " on" : ""}"${current ? ' aria-current="page"' : ""} data-ahx-nav href="${esc(historyUrl(surface, clean, { page: page === 1 ? "" : String(page) }))}">${label}</a>`;
   const parts = [];
   if (r.page > 1) parts.push(link(r.page - 1, "&larr; Prev", "nav"));
   if (r.pageCount !== null && r.pageCount > 1) {
@@ -290,22 +310,11 @@ const LOADING_SCRIPT = `<script>(function(){
 // Page
 // ---------------------------------------------------------------------------
 
-export async function auctionHistoryPage(env, session, rawParams = {}) {
-  const cid = Number(session.id);
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
-  if (!c) {
-    return brandShell(portalSidebar(null),
-      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
-       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
-      "Auction history - JDM Connect");
-  }
-  if (!c.member) {
-    return brandShell(portalSidebar(c, "history"),
-      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction history</h1><p class="subline">See what comparable cars actually sold for at Japanese auction.</p></div></div>
-       <div class="content"><div class="card"><div class="empty"><div class="rule"></div>Auction history is a members feature. With Full access you can see what every car really sells for before you bid.<br><br><a class="btn-gold" href="/portal/subscribe">See Full access</a></div></div></div>`,
-      "Auction history - JDM Connect");
-  }
-
+// The full history experience (filter card, chips, results, pager, states)
+// for one surface. Callers own access control and the page chrome: the member
+// route gates on portal_enabled + member below; the staff Auctions workspace
+// is already behind a staff session.
+export async function auctionHistoryContent(env, rawParams = {}, surface = HISTORY_SURFACES.member) {
   const p = validateHistoryParams(rawParams);
   const nowYear = new Date().getFullYear();
   const clean = cleanParams(p);
@@ -333,12 +342,12 @@ export async function auctionHistoryPage(env, session, rawParams = {}) {
     // just not this deep - say so instead of the contradictory generic empty.
     const pastEnd = r.total !== null && r.total > 0 && p.page > 1;
     results = `<div class="card"><div class="empty"><div class="rule"></div>${pastEnd
-      ? `You've gone past the last page of these results.<br><br><a class="btn-gold" data-ahx-nav href="${esc(historyUrl(clean, { page: "" }))}">Back to the first page</a>`
+      ? `You've gone past the last page of these results.<br><br><a class="btn-gold" data-ahx-nav href="${esc(historyUrl(surface, clean, { page: "" }))}">Back to the first page</a>`
       : filtered
-      ? `No sold results match those filters. Try removing a filter or widening the date range.<br><br><a class="ahx-clear" href="/portal/history">Clear all filters</a>`
+      ? `No sold results match those filters. Try removing a filter or widening the date range.<br><br><a class="ahx-clear" href="${esc(historyUrl(surface, {}))}">Clear all filters</a>`
       : "No sold results to show right now. Check back shortly."}</div></div>`;
   } else {
-    const views = r.lots.map((lot) => lotView(lot, fx, nowYear));
+    const views = r.lots.map((lot) => lotView(lot, fx, nowYear, surface));
     results = `<div class="ahx-table"><table>
         <thead><tr><th>Vehicle</th><th>Gearbox / drive</th><th>Condition</th><th>Auction</th><th>Sold price</th><th>Est. landed</th><th><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>${views.map(resultRow).join("")}</tbody>
@@ -350,6 +359,33 @@ export async function auctionHistoryPage(env, session, rawParams = {}) {
     ? `<p class="ahx-note">Sold prices are auction hammer prices. A$ conversion uses today's indicative rate (¥${Math.round(fx)} = A$1). Est. landed adds typical shipping, compliance and on-value taxes - a guide, not a quote.</p>`
     : "";
 
+  return `${filterForm(p, { makers, models, houses }, surface)}
+      ${chipsRow(p, clean, surface)}
+      <section id="ahxResults" class="ahx-results" aria-label="Sold auction results">
+        ${sortRow(p, clean, countTxt, surface)}
+        ${results}
+        ${r.ok && r.lots.length ? pager(r, clean, surface) : ""}
+      </section>
+      ${fine}
+      ${LOADING_SCRIPT}${AHX_CSS}`;
+}
+
+export async function auctionHistoryPage(env, session, rawParams = {}) {
+  const cid = Number(session.id);
+  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  if (!c) {
+    return brandShell(portalSidebar(null),
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
+      "Auction history - JDM Connect");
+  }
+  if (!c.member) {
+    return brandShell(portalSidebar(c, "history"),
+      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction history</h1><p class="subline">See what comparable cars actually sold for at Japanese auction.</p></div></div>
+       <div class="content"><div class="card"><div class="empty"><div class="rule"></div>Auction history is a members feature. With Full access you can see what every car really sells for before you bid.<br><br><a class="btn-gold" href="/portal/subscribe">See Full access</a></div></div></div>`,
+      "Auction history - JDM Connect");
+  }
+
   const main = `
     <div class="topbar">
       <div class="topbar-in">
@@ -359,15 +395,7 @@ export async function auctionHistoryPage(env, session, rawParams = {}) {
       </div>
     </div>
     <div class="content">
-      ${filterForm(p, { makers, models, houses })}
-      ${chipsRow(p, clean)}
-      <section id="ahxResults" class="ahx-results" aria-label="Sold auction results">
-        ${sortRow(p, clean, countTxt)}
-        ${results}
-        ${r.ok && r.lots.length ? pager(r, clean) : ""}
-      </section>
-      ${fine}
-      ${LOADING_SCRIPT}${AHX_CSS}
+      ${await auctionHistoryContent(env, rawParams, HISTORY_SURFACES.member)}
     </div>`;
   return brandShell(portalSidebar(c, "history"), main, "Auction history - JDM Connect");
 }
