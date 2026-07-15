@@ -897,6 +897,9 @@ export default {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
         adminOpts.found = sp.get("found") || "";
+        // The history tab validates its own params (validateHistoryParams),
+        // so it gets the raw query rather than the live-search whitelist.
+        adminOpts.rawQuery = Object.fromEntries(sp);
         adminOpts.search = {
           q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
           house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
