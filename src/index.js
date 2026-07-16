@@ -1285,15 +1285,40 @@ export default {
       const f = await request.formData();
       // The "Delete selected" button posts do=delete; Apply uses the action select.
       const action = f.get("do") === "delete" ? "delete" : f.get("action");
-      const n = f.getAll("ids").length;
+      const ids = f.getAll("ids");
+      const n = ids.length;
       if (!n) return Response.redirect(here(withNotice("/admin?view=clients", "Tick at least one client first", true)), 303);
+      // Delete reports its own outcome: agent-owned customers are protected
+      // unless the admin ticked "Include agents' customers", so the notice has
+      // to reflect how many were actually removed vs. skipped.
+      if (action === "delete") {
+        const includeAgents = f.get("confirm_agents") === "1";
+        try {
+          const res = await bulkAllocate(env, "delete", null, ids, session, includeAgents);
+          const deleted = (res && res.deleted) || 0;
+          const skipped = (res && res.skipped) || 0;
+          const cust = (k) => `${k} ${k === 1 ? "customer" : "customers"}`;
+          if (deleted === 0 && skipped === 0) {
+            return Response.redirect(here(withNotice("/admin?view=clients", "No matching customers to delete.", true)), 303);
+          }
+          if (deleted === 0) {
+            return Response.redirect(here(withNotice("/admin?view=clients", `Nothing deleted - all ${cust(skipped)} belong to an agent. Tick "Include agents' customers" to remove them.`, true)), 303);
+          }
+          const msg = skipped
+            ? `Deleted ${cust(deleted)}; skipped ${skipped} owned by an agent (tick "Include agents' customers" to remove those too).`
+            : `Deleted ${cust(deleted)}`;
+          return Response.redirect(here(withNotice("/admin?view=clients", msg)), 303);
+        } catch (e) {
+          console.error("/clients/bulk delete failed:", e.message);
+          return Response.redirect(here(withNotice("/admin?view=clients", "Sorry, that delete did not complete. Please try again.", true)), 303);
+        }
+      }
       const plural = n === 1 ? "client" : "clients";
-      const okMsg = action === "delete" ? `Deleted ${n} ${plural}`
-        : action === "archive" ? `Archived ${n} ${plural}`
+      const okMsg = action === "archive" ? `Archived ${n} ${plural}`
         : action === "unarchive" ? `Restored ${n} ${plural}`
         : action === "share" ? `Shared ${n} ${plural}`
         : `Updated ${n} ${plural}`;
-      return act(() => bulkAllocate(env, action, f.get("agent_id"), f.getAll("ids"), session), "/admin?view=clients", okMsg);
+      return act(() => bulkAllocate(env, action, f.get("agent_id"), ids, session), "/admin?view=clients", okMsg);
     }
 
     // One-step new request: capture the customer AND the car in a single form,

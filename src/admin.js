@@ -368,6 +368,8 @@ const CSS = `
      keep the field affordance the quiet row treatment removes. */
   .bulkbar select.share-pick{width:auto;border-color:var(--field-line);background:var(--field);color:var(--ink)}
   .bulk-label{font-size:var(--fs-sec);font-weight:600;color:var(--t2)}
+  .bulk-inc{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-label);color:var(--t2);cursor:pointer;margin-left:auto}
+  .bulk-inc input{width:auto}
   .toggles{margin-top:var(--sp-5);display:flex;flex-direction:column;gap:8px}
   .toggle{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid var(--hair);border-radius:var(--r-ctl);cursor:pointer}
   .toggle:hover{background:var(--hover)}
@@ -2489,13 +2491,16 @@ function clientsView(clients, wishlists, opts = {}) {
         <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
         ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
         <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
+        <label class="bulk-inc" title="Off by default, customers owned by an agent are protected from a bulk delete. Tick this to remove them too."><input type="checkbox" name="confirm_agents" value="1"> Include agents' customers</label>
         <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
       </form>
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
       document.addEventListener('change',function(e){var t=e.target;if(!t||t.type!=='checkbox')return;setTimeout(function(){var f=document.getElementById('bulkform');if(!f)return;var n=jdmBulkTicked(f);f.classList.toggle('show',n>0);var s=document.getElementById('bulkSel');if(s)s.textContent=n;},0);});
       function jdmBulkApply(btn){var f=btn.form;if(!jdmBulkTicked(f)){jdmToast('Tick the clients you want first, then Apply.');return false;}return true;}
       function jdmBulkDelete(btn){var f=btn.form;if(f.dataset.jdmConfirmed==='1'){f.dataset.jdmConfirmed='';return true;}var n=jdmBulkTicked(f);if(!n){jdmToast('Tick the clients you want to delete first.');return false;}
-        jdmConfirm('Delete '+n+' selected client'+(n===1?'':'s')+' and ALL their searches, matches and history? This cannot be undone.',{danger:true,okLabel:'Delete '+n+' client'+(n===1?'':'s')}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
+        var inc=f.elements['confirm_agents']&&f.elements['confirm_agents'].checked;
+        var guard=inc?' This includes any that belong to an agent.':' Customers owned by an agent are protected and will be skipped.';
+        jdmConfirm('Delete '+n+' selected customer'+(n===1?'':'s')+' and ALL their searches, matches and history?'+guard+' This cannot be undone.',{danger:true,okLabel:'Delete'}).then(function(ok){if(ok){f.dataset.jdmConfirmed='1';if(f.requestSubmit){f.requestSubmit(btn);}else{f.submit();}}});
         return false;}</script>`
     : "";
 
@@ -6821,17 +6826,30 @@ export async function assignClient(env, clientId, agentId, session) {
 
 // Bulk allocate selected clients - admin only. action "assign" sets the owner
 // (empty agent = JDM Connect); "share" adds the agent as a co-searcher.
-export async function bulkAllocate(env, action, agentId, ids, session) {
+export async function bulkAllocate(env, action, agentId, ids, session, includeAgents = false) {
   if (!session || session.role !== "admin") return;
   const list = (ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (!list.length) return;
 
   // Bulk delete: cascade each client (matches, seen-lots, searches, shares) then
-  // the client itself - same order as the single deleteClient. Owner selection
-  // is irrelevant here. Admin-only, already enforced above.
+  // the client itself - same order as the single deleteClient. Admin-only.
+  // Safety: a select-all delete must never sweep up an agent's book by accident.
+  // By default any selected customer OWNED by an agent (agent_id set) is skipped;
+  // the admin has to opt in (the "Include agents' customers" checkbox ->
+  // includeAgents) to remove those. Shared-but-unowned customers belong to JDM
+  // Connect, so they stay in scope. Returns { deleted, skipped } for the notice.
   if (action === "delete") {
+    let deletable = list, skipped = 0;
+    if (!includeAgents) {
+      const owned = new Set(
+        (((await env.DB.prepare("SELECT id FROM clients WHERE agent_id IS NOT NULL").all()).results) || [])
+          .map((r) => Number(r.id))
+      );
+      deletable = list.filter((cid) => !owned.has(cid));
+      skipped = list.length - deletable.length;
+    }
     const stmts = [];
-    for (const cid of list) {
+    for (const cid of deletable) {
       stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
@@ -6840,8 +6858,8 @@ export async function bulkAllocate(env, action, agentId, ids, session) {
       stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
     }
-    await env.DB.batch(stmts);
-    return;
+    if (stmts.length) await env.DB.batch(stmts);
+    return { deleted: deletable.length, skipped };
   }
 
   // Soft archive / restore selected clients.

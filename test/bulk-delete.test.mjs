@@ -60,6 +60,38 @@ test("bulk delete with no ids is a safe no-op", async () => {
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 3);
 });
 
+// An agent's own customers (agent_id set) must never be swept up by an admin's
+// select-all delete unless the admin explicitly opts in. Shared-but-unowned
+// customers belong to JDM Connect, so they stay deletable (see the first test).
+const OWNED_FIXTURE = `
+  INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
+  INSERT INTO clients (id,name,email,agent_id) VALUES (10,'Unowned','u@x',NULL),(11,'Agent Book','ao@x',1);
+  INSERT INTO wishlists (id,client_id,label) VALUES (100,10,'w'),(110,11,'w');
+`;
+
+test("bulk delete protects agent-owned customers by default and reports the skip", async () => {
+  const env = makeEnv(OWNED_FIXTURE);
+  const res = await bulkAllocate(env, "delete", null, ["10", "11"], ADMIN);
+  assert.deepEqual(res, { deleted: 1, skipped: 1 });
+  assert.ok(!(await env.DB.prepare("SELECT id FROM clients WHERE id=10").first()), "the unowned customer is deleted");
+  assert.ok(await env.DB.prepare("SELECT id FROM clients WHERE id=11").first(), "the agent's customer is protected");
+  assert.ok(await env.DB.prepare("SELECT id FROM wishlists WHERE id=110").first(), "and their request survives too");
+});
+
+test("bulk delete removes agent-owned customers only when the admin opts in", async () => {
+  const env = makeEnv(OWNED_FIXTURE);
+  const res = await bulkAllocate(env, "delete", null, ["10", "11"], ADMIN, true);
+  assert.deepEqual(res, { deleted: 2, skipped: 0 });
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "both removed with the opt-in");
+});
+
+test("the Clients bulk bar exposes the 'Include agents' customers' opt-in", async () => {
+  const env = makeEnv(FIXTURE);
+  const html = await adminPage(env, "clients", ADMIN);
+  assert.match(html, /name="confirm_agents"/, "opt-in checkbox is wired");
+  assert.match(html, /Include agents' customers/, "and labelled");
+});
+
 test("the Clients page shows a clear 'Delete selected' button (not buried in a dropdown)", async () => {
   const env = makeEnv(FIXTURE);
   const html = await adminPage(env, "clients", ADMIN);
