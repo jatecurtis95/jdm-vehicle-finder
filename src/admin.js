@@ -4987,6 +4987,14 @@ const CRM_CSS = `<style>
   .cd-grid{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
   @media(min-width:1100px){.cd-grid{grid-template-columns:minmax(0,1fr) 340px;column-gap:var(--gap-grid)}}
   .cd-rail .card h2{font-size:var(--fs-body)}
+  /* Edit details lives in the ~340px rail, so its fields stack full-width
+     instead of using the 3-up .grid (which squeezed each field to ~100px and
+     wrapped every label). State + Category are short, so they pair on one row. */
+  .cd-edit-grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .cd-edit-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:400px){.cd-edit-pair{grid-template-columns:1fr}}
+  .cd-edit-grid label{white-space:normal}
+  .cd-edit-grid .opt{display:inline}
   .cd-head .avatar{width:44px;height:44px;font-size:var(--fs-body);margin-right:0}
   /* Long unbroken contact strings (55 char emails) must wrap, not push the
      record header past a 375px viewport. */
@@ -5199,12 +5207,14 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     ${opts.cerr ? `<div class="dupnote">${esc(clientEditErrorMessage(opts.cerr))}</div>` : ""}
     <form method="POST" action="/client/update">
       <input type="hidden" name="id" value="${c.id}">
-      <div class="grid">
+      <div class="cd-edit-grid">
         <div><label for="ec-name">Name</label><input id="ec-name" name="name" maxlength="120" value="${esc(c.name || "")}" required></div>
         <div><label for="ec-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ec-email" name="email" type="email" maxlength="254" spellcheck="false" value="${esc(c.email || "")}" placeholder="name@email.com"></div>
         <div><label for="ec-whatsapp">WhatsApp <span class="opt">(+61…)</span></label><input id="ec-whatsapp" name="whatsapp" type="tel" inputmode="tel" maxlength="40" value="${esc(c.whatsapp || "")}" placeholder="+61 4XX XXX XXX"></div>
-        <div><label for="ec-state">State <span class="opt">(for landed-cost estimates)</span></label><input id="ec-state" name="state" value="${esc(c.state || "")}" placeholder="VIC"></div>
-        <div><label for="ec-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ec-category", c.category)}</div>
+        <div class="cd-edit-pair">
+          <div><label for="ec-state">State <span class="opt">(landed-cost estimates)</span></label><select id="ec-state" name="state">${stateOptions(normalizeState(c.state) || "")}</select></div>
+          <div><label for="ec-category">Category <span class="opt">(dealer = trade)</span></label>${categorySelect("ec-category", c.category)}</div>
+        </div>
       </div>
       <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
@@ -6516,7 +6526,14 @@ export async function updateClient(env, form, session) {
     ? (c.category || "private")
     : (CLIENT_CATEGORY_IDS.has(String(rawCategory)) ? String(rawCategory) : "private");
   if (!name) return { ok: false, error: "name" };
-  if (!email && !whatsapp) return { ok: false, error: "contact" };
+  // Require a contact channel only if the client already had one: this guards
+  // against an edit STRIPPING the last way to reach them. A client who never
+  // had contact details (e.g. imported without them) can still have their
+  // state, name or category corrected without being forced to invent an email
+  // - the "no email or WhatsApp on file" warnings elsewhere already flag the
+  // gap, so nothing is hidden by allowing the save.
+  const hadContact = !!(c.email || c.whatsapp);
+  if (hadContact && !email && !whatsapp) return { ok: false, error: "contact" };
   // Portal sign-in and invite links are keyed to the email, so don't let it be
   // stripped while the client still has portal access.
   if (c.portal_enabled && !email) return { ok: false, error: "portal_email" };
