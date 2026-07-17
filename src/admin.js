@@ -939,7 +939,6 @@ const ICONS = {
   clients: svgIcon(`<circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><path d="M16 3.2a3 3 0 0 1 0 7.6"/><path d="M21 21v-1a5 5 0 0 0-3.5-4.8"/>`),
   requests: svgIcon(`<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6V6H9z"/><path d="M8.5 11h7M8.5 15h4"/>`),
   tasks: svgIcon(`<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1.2 1.2L7.5 5"/><path d="M4 12l1.2 1.2L7.5 11"/><path d="M4 18l1.2 1.2L7.5 17"/>`),
-  wishlists: svgIcon(`<path d="M12 21C12 21 4 13.7 4 8.6A4.6 4.6 0 0 1 12 6a4.6 4.6 0 0 1 8 2.6C20 13.7 12 21 12 21Z"/>`),
   matches: svgIcon(`<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 13l1.6-7a2 2 0 0 1 2-1.6h6.8a2 2 0 0 1 2 1.6L19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/>`),
   auctions: svgIcon(`<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>`),
   trash: svgIcon(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>`),
@@ -997,7 +996,6 @@ const HEADERS = {
   clients: { kicker: "Vehicle Finder", title: "Customers", sub: "The relationship list: contact, portal access and billing. Open anyone to see all their requests.", btn: "New request" },
   requests: { kicker: "Vehicle Finder", title: "Requests", sub: "The pipeline worklist: every active search, grouped by customer.", btn: "New request" },
   tasks: { kicker: "Vehicle Finder", title: "Tasks", sub: "What needs doing today, and what's overdue.", btn: "" },
-  wishlists: { kicker: "Vehicle Finder", title: "Wishlists", sub: "Search criteria matched against the live auction feed.", btn: "New request" },
   matches: { kicker: "Vehicle Finder", title: "Matches", sub: "Auction lots matched to your clients' searches.", btn: "New auction search" },
   auctions: { kicker: "Vehicle Finder", title: "Auctions", sub: "Search live lots and look up sold-price history.", btn: "" },
   agents: { kicker: "Vehicle Finder", title: "Agents", sub: "Logins that find cars for their own clients.", btn: "Search auctions" },
@@ -1337,7 +1335,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   ).bind(...tsc.binds).first())?.n) || 0;
   const dealerTotal = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealers WHERE active = 1").first())?.n || 0) : 0;
   const dealerPending = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
-  const counts = { clients: clients.length, wishlists: wishlists.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
+  const counts = { clients: clients.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
   const h = HEADERS[view];
   const primary = view === "matches"
     ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-dark">${esc(h.btn)}</button></form>`
@@ -1350,7 +1348,6 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   if (view === "dashboard") body = dashboardView(session, await dashboardData(env, session));
   else if (view === "intake") body = intakeView(makers, { err: opts.err, vals: opts.vals });
   else if (view === "clients") body = clientsView(clients, wishlists, { session, agents: shareAgents, shares: sharesByClient, showArchived, cat: opts.cat, src: opts.src, lastContact, pendingCounts, engagedClients });
-  else if (view === "wishlists") body = wishlistsView(wishlists);
   else if (view === "matches") {
     // Parked matches for the Snoozed chip/filter - same joins as the live
     // queue, waking soonest first. Nothing snoozed can vanish irrecoverably.
@@ -3771,25 +3768,6 @@ function tcWord(w) {
 }
 function displayName(s) {
   return String(s || "").split(/\s+/).map(tcWord).join(" ").trim();
-}
-
-function wishlistsView(wishlists) {
-  const rows = wishlists.map((w) => {
-    const vehicle = `${displayName(w.marka_name) || "Any maker"} ${displayName(w.model_name)}`.trim();
-    return `<tr>
-      <td>${avatar(w.client_name)}${esc(w.client_name)}${w.needs_detail ? ` <span class="chip muted">needs detail</span>` : ""}</td>
-      <td>${esc(w.label || "-")}</td>
-      <td>${esc(vehicle)}</td>
-      <td>${esc(yearRange(w.year_min, w.year_max))}</td>
-      <td>${w.price_max ? "¥" + Number(w.price_max).toLocaleString() : "-"}</td>
-      <td>${w.mileage_max ? Number(w.mileage_max).toLocaleString() + "km" : "-"}</td>
-      <td>${esc(w.rate_min || "-")}</td>
-      <td><form method="POST" action="/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form></td>
-      <td style="text-align:right"><form method="POST" action="/wishlist/delete" style="display:inline" data-confirm="Delete this wishlist? Its queued matches and history go with it. This cannot be undone." data-danger><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form></td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">No wishlists yet. <a href="/admin?view=clients" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Open a client</a> to add what they're chasing.</td></tr>`;
-  return `<div class="card" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table><tr><th>Client</th><th>Label</th><th>Vehicle</th><th>Years</th><th>Max ¥</th><th>Max km</th><th>Grade</th><th>Active</th><th></th></tr>${rows}</table></div>`;
 }
 
 // Whole days until an auction date string (negative = past). 999 if unparseable,
@@ -7437,71 +7415,6 @@ export async function portalAuctionsPage(env, session, params = {}) {
     </div>
     <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true, sync: true })}${AUCTION_CSS}</div>`;
   return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
-}
-
-// Member-only "Sold auctions" page: browse recent sold-price history from the
-// stats feed with the same search UI. Gated on clients.member.
-export async function portalSoldPage(env, session, params = {}) {
-  const cid = Number(session.id);
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
-  if (!c) {
-    return brandShell(portalSidebar(null),
-      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
-       <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
-      "Sold auctions - JDM Connect");
-  }
-  if (!c.member) {
-    return brandShell(portalSidebar(c, "sold"),
-      `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Sold auctions</h1><p class="subline">See what cars actually sold for at recent Japanese auctions.</p></div></div>
-       <div class="content"><div class="card"><div class="empty">Sold-price history is a members feature. Ask JDM Connect to upgrade your account and you'll see what every car sells for.</div></div></div>`,
-      "Sold auctions - JDM Connect");
-  }
-
-  const nowYear = new Date().getFullYear();
-  const view = params.view === "list" ? "list" : "grid";
-  const [makers, houses, fx] = await Promise.all([
-    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
-  ]);
-  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
-
-  const clean = {};
-  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
-    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
-  }
-  const buildUrl = (over) => "/portal/sold?" + new URLSearchParams({ ...clean, ...over }).toString();
-
-  const header = auctionSearchHeader({
-    action: "/portal/sold", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
-    p: params, makers, models, houses, showBid: false, label: "Search sold auction results",
-  });
-
-  const page = Math.max(1, parseInt(params.page, 10) || 1);
-  const { lots, hasMore, ok } = await searchSold(env, { ...params, page });
-  const findLive = (lot) => `<a class="btn-notify ac-req" href="/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), label: "Sold at auction", feedDown: !ok });
-  let grid;
-  if (lots.length) {
-    grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot) })).join("")}</div>`;
-  } else if (!ok) {
-    grid = feedDownCard();
-  } else {
-    const filtered = Object.keys(clean).some((k) => k !== "view");
-    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No sold results match that search. Try fewer filters, or a broader make and model." : "No sold results to show right now. Check back shortly."}</div></div>`;
-  }
-  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; More recent</a>` : "";
-  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
-  const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
-
-  const main = `
-    <div class="topbar">
-      <div class="topbar-in">
-        <div class="kicker">Members</div>
-        <h1>Sold auctions</h1>
-        <p class="subline">See what cars actually sold for at recent Japanese auctions, so you know what to bid.</p>
-      </div>
-    </div>
-    <div class="content">${header}${toolbar}${grid}${pager}${auctionWatchScript({ request: false, sync: true })}${AUCTION_CSS}</div>`;
-  return brandShell(portalSidebar(c, "sold"), main, "Sold auctions - JDM Connect");
 }
 
 // Member requests a lot found via auction search. Files it against a per-client

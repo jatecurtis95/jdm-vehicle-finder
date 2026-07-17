@@ -8,7 +8,7 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, portalSoldPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
+import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
 import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX, adminMfaEnabled, verifyAdminTotp, mfaPendingCookie, clearMfaCookie, readMfaPending } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
@@ -1549,14 +1549,16 @@ async function handleClientPortal(request, env, url, path, session, here) {
     return doc(await auctionHistoryPage(env, session, Object.fromEntries(url.searchParams)));
   }
   if (path === "/portal/sold" && request.method === "GET") {
-    const sp = url.searchParams;
-    const params = {
-      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
-      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
-      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1", view: sp.get("view") || "grid",
-    };
-    return doc(await portalSoldPage(env, session, params));
+    // Superseded by Auction History: one destination for sold-price data.
+    // Old bookmarks land there; make/model/house are the only params with a
+    // history equivalent (validateHistoryParams drops anything unrecognised).
+    const carry = new URLSearchParams();
+    for (const k of ["make", "model", "house"]) {
+      const v = (url.searchParams.get(k) || "").trim();
+      if (v) carry.set(k, v);
+    }
+    const qs = carry.toString();
+    return Response.redirect(here("/portal/history" + (qs ? "?" + qs : "")), 301);
   }
   // Server-side watchlist sync (launch audit: hearts were per-device only).
   // GET returns the member's saved lots as {lotId: snapshot}; POST accepts

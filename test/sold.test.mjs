@@ -1,43 +1,38 @@
-// Member-only "Sold auctions" page: gating, the sold-price feed query, and the
-// sold card. The stats feed is stubbed so no network is hit.
+// The old member "Sold auctions" page was superseded by Auction History:
+// /portal/sold now 301s to /portal/history (bookmarks survive, one sold-data
+// UI). The sold-price feed query itself still powers the staff Sold prices tab.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import worker from "../src/index.js";
 import { makeEnv } from "./helpers/d1.mjs";
-import { portalSoldPage } from "../src/admin.js";
+import { sessionCookie } from "../src/auth.js";
 import { searchSold } from "../src/avtonet.js";
 
-const SOLD = "<aj><row><id>S1</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><rate>4</rate><finish>2500000</finish><auction>USS Tokyo</auction><auction_date>2026-06-01T00:00:00</auction_date><kuzov>BNR34</kuzov></row></aj>";
+const HOST = "https://jdmfinder.com.au";
 
-function stub(xml = SOLD) {
-  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => xml });
+async function memberFetch(path) {
+  const env = makeEnv("INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);");
+  env.ADMIN_TOKEN = "test-admin-token";
+  const cookie = (await sessionCookie(env, "client", 1)).split(";")[0];
+  return worker.fetch(new Request(HOST + path, { headers: { Cookie: cookie }, redirect: "manual" }), env, {});
 }
-function env2() {
-  const e = makeEnv("INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1),(2,'Free Fred',1,0);");
-  e.API_BASE = "http://feed/api"; e.AVTONET_CODE = "c";
-  return e;
-}
-// Server-rendered cards only (the watchlist script embeds the same markup).
-const acards = (h) => ((h.replace(/<script[\s\S]*?<\/script>/g, "")).match(/class="acard"/g) || []).length;
 
-test("sold page is gated to members", async () => {
-  stub();
-  const e = env2();
-  const free = await portalSoldPage(e, { role: "client", id: 2 }, {});
-  assert.match(free, /members feature/i);
-  assert.ok(!/name="q"/.test(free), "non-member gets no search bar");
-  const member = await portalSoldPage(e, { role: "client", id: 1 }, {});
-  assert.match(member, /<h1>Sold auctions<\/h1>/);
-  assert.match(member, /Search sold auction results/);
+test("/portal/sold permanently redirects to /portal/history", async () => {
+  const res = await memberFetch("/portal/sold");
+  assert.equal(res.status, 301);
+  assert.equal(res.headers.get("location"), HOST + "/portal/history");
 });
 
-test("the sold page renders sold cards with the hammer price and a Find-live action", async () => {
-  stub();
-  const html = await portalSoldPage(env2(), { role: "client", id: 1 }, {});
-  assert.equal(acards(html), 1);
-  assert.match(html, /Sold price/);
-  assert.match(html, /¥2,500,000/);
-  assert.match(html, /Find live/);
-  assert.ok(!/class="ac-fav"/.test(html.replace(/<script[\s\S]*?<\/script>/g, "")), "sold cards have no watchlist heart");
+test("the redirect carries make/model/house and drops params history can't use", async () => {
+  const res = await memberFetch("/portal/sold?make=NISSAN&model=SKYLINE&house=USS&priceMax=2000000&view=list");
+  assert.equal(res.status, 301);
+  const loc = new URL(res.headers.get("location"));
+  assert.equal(loc.pathname, "/portal/history");
+  assert.equal(loc.searchParams.get("make"), "NISSAN");
+  assert.equal(loc.searchParams.get("model"), "SKYLINE");
+  assert.equal(loc.searchParams.get("house"), "USS");
+  assert.equal(loc.searchParams.get("priceMax"), null, "sold-only params are dropped");
+  assert.equal(loc.searchParams.get("view"), null, "sold-only params are dropped");
 });
 
 function sqlStub() {
