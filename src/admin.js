@@ -959,6 +959,10 @@ const ICONS = {
 
 function sidebar(active, counts, session = { role: "admin" }) {
   const isAdmin = session.role === "admin";
+  // Tasks folded into the Dashboard and Agents under Settings > Team: both
+  // views stay routable, so highlight the nav item they now live under.
+  if (active === "tasks") active = "dashboard";
+  if (active === "agents") active = "settings";
   const item = (id, label, count) =>
     `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}">
       ${ICONS[id] || ""}<span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
@@ -974,11 +978,9 @@ function sidebar(active, counts, session = { role: "admin" }) {
     <nav class="nav">
       ${item("dashboard", "Dashboard", "")}
       ${item("requests", "Requests", counts.requests || "")}
-      ${item("tasks", "Tasks", counts.tasks || "")}
       ${item("matches", "Matches", counts.matches || "")}
       ${item("clients", "Customers", counts.clients)}
       ${item("auctions", "Auctions", "")}
-      ${isAdmin ? item("agents", "Agents", counts.agents || "") : ""}
       ${isAdmin && counts.dealersOn ? item("dealers", "Dealers", counts.dealers || "") : ""}
       ${isAdmin && counts.dealersOn ? item("dealer-submissions", "Dealer stock", counts.dealerSubmissions || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
@@ -1480,6 +1482,7 @@ function settingsView(settings, opts = {}) {
         <a href="#set-freetier">Free tier</a>
         <a href="#set-landed">Landed cost</a>
         <a href="#set-ai">AI reader</a>
+        <a href="#set-team">Team</a>
       </nav>
 
       <div class="card set-card" id="set-notifications">
@@ -1615,6 +1618,13 @@ function settingsView(settings, opts = {}) {
 
       <div class="actionbar actionbar-end"><button class="btn-primary" type="submit">Save settings</button></div>
     </form>
+    <div class="card set-card" id="set-team">
+      <h2><span class="num">7</span> Team</h2>
+      <div style="max-width:640px">
+        <p class="help" style="margin:0 0 16px">Agent logins that find cars for their own clients - invites, passwords, alerts and access.</p>
+        <a class="btn-secondary" href="/admin?view=agents">Manage agents</a>
+      </div>
+    </div>
     <form id="tsEmail" method="POST" action="/settings/test-email"></form>
     <form id="tsWa" method="POST" action="/settings/test-whatsapp"></form>
     <script>(function(){
