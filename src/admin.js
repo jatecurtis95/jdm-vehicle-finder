@@ -2785,7 +2785,7 @@ function requestsView(requests, opts = {}) {
   };
   const rows = clusters.map((cluster) =>
     cluster.items.map((r, i) => requestRow(r, cluster, i === 0)).join("")
-  ).join("") || `<tr><td colspan="6" class="empty">No requests yet. They appear here as customers submit searches.</td></tr>`;
+  ).join("") || `<tr><td colspan="6" class="empty">No requests yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Log the first request</a>, or they appear here as customers submit searches.</td></tr>`;
 
   // Plain-English key so staff aren't guessing what the dots / REQ / badges
   // mean (client asked "what do the green and red dots mean?"). Lives behind a
@@ -2819,12 +2819,11 @@ function requestsView(requests, opts = {}) {
       rightSub: `${healthDot(r.last_activity)}${newAge(r) || esc(lastActivityLabel(r.last_activity))}`,
       attrs: ` data-st="${esc(r.status || "new")}"`,
     });
-  }).join("")).join("") || `<div class="empty">No requests yet. They appear here as customers submit searches.</div>`}</div>`;
+  }).join("")).join("") || `<div class="empty">No requests yet. <a href="/admin?view=intake" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">Log the first request</a>, or they appear here as customers submit searches.</div>`}</div>`;
 
   return `${REQ_CSS}
-    ${reqLayoutToggle("")}
+    <div class="req-tools">${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}${reqLayoutToggle("")}</div>
     <div class="pipe">${cards}</div>
-    ${tableSearch("reqTbl", "Search requests by customer, vehicle, state or country…")}
     ${mobile}
     <div class="card tbl-desk" style="padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table id="reqTbl"><tr><th>Customer</th><th class="req-veh">Request</th><th class="req-veh">Latest car</th><th class="req-status">Status</th><th>Last activity</th><th></th></tr>${rows}</table>
@@ -2834,6 +2833,12 @@ function requestsView(requests, opts = {}) {
 }
 
 const REQ_CSS = `<style>
+  /* One toolbar band: search (the actionable tool) plus the layout switch on
+     a single row, so the first request card sits higher on a phone (IA-AUDIT:
+     three stacked bands pushed it below the 375px fold). */
+  .req-tools{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .req-tools .tbl-tools{flex:1;margin-bottom:0}
+  .req-tools .lay-row{margin-bottom:0}
   /* List | Board switch (Pipedrive register: quiet segmented control). */
   .lay-row{display:flex;justify-content:flex-end;margin-bottom:12px}
   .lay-toggle{display:inline-flex;border:1px solid var(--hair);border-radius:var(--r-ctl);overflow:hidden;background:var(--card)}
@@ -3993,7 +3998,8 @@ function matchesView(pending, opts = {}) {
   const snoozedRows = opts.snoozedRows || [];
   if (pending.length === 0 && snoozedRows.length === 0) {
     return `<div class="card"><div class="empty"><div class="rule"></div>
-      No matches awaiting review. Press <strong>New auction search</strong> to score the latest lots against every search.</div></div>` + ranToast();
+      No matches awaiting review.
+      <form method="POST" action="/run" style="margin-top:16px" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-primary">Run the auction search</button></form></div></div>` + ranToast();
   }
   decorateMatches(pending);
   decorateMatches(snoozedRows);
@@ -5901,7 +5907,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
       : "";
     const pickerLabel = ctxClient ? "Or add to a different client..." : "Add to a client...";
     actions = clients.length
-      ? `${oneTap}<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">${pickerLabel}</option>${ctxClient ? options.replace(` selected`, "") : options}</select><button class="btn-${ctxClient ? "dark" : "gold"}" type="submit">Add</button></form>
+      ? `${oneTap}<form method="POST" action="/client/find" class="plv-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(backHref)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">${pickerLabel}</option>${ctxClient ? options.replace(` selected`, "") : options}</select><button class="btn-${ctxClient ? "secondary" : "primary"}" type="submit">Add</button></form>
          <p class="plv-fine">Adds this lot to the client's review queue as a manual find, ready to Approve &amp; send.</p>`
       : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
   }
@@ -7408,7 +7414,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
       grid = feedDownCard();
     } else {
       const filtered = Object.keys(clean).some((k) => k !== "view");
-      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="/portal/auctions" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
     }
     const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
     const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
@@ -7837,14 +7843,14 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     // The matching sold lots, newest first (site-wide latest on first load).
     const { lots, hasMore, ok } = soldRes;
     const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "prices", layout: mode }), label: hasQuery ? "Sold at auction" : "Latest sold results", feedDown: !ok });
-    const findLive = (lot) => `<a class="btn-primary btn-sm ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
+    const findLive = (lot) => `<a class="btn-secondary btn-sm ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
     let grid;
     if (lots.length) {
       grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
     } else if (!ok) {
       grid = feedDownCard();
     } else {
-      grid = `<div class="card"><div class="empty"><div class="rule"></div>${hasQuery ? "No individual sold lots match those filters. Try a wider year range or time window." : "No sold results to show right now. Check back shortly."}</div></div>`;
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${hasQuery ? `No individual sold lots match those filters. Try a wider year range or time window, or <a href="/admin?view=auctions&tab=prices" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No sold results to show right now. Check back shortly."}</div></div>`;
     }
     const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "prices", page: page - 1 }))}">&larr; More recent</a>` : "";
     const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "prices", page: page + 1 }))}">Older &rarr;</a>` : "";
@@ -7903,7 +7909,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
       ? queueStateBadge(q.status, String(q.client_name || "").trim().split(/\s+/)[0])
       : "";
     return clients.length
-      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-primary btn-sm" type="submit">Add</button></form>`
+      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-secondary btn-sm" type="submit">Add</button></form>`
       : `<span class="help">Add a client first to queue cars.</span>`;
   };
 
@@ -7928,7 +7934,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     grid = feedDownCard();
   } else {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
-    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
   }
   const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
   const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";

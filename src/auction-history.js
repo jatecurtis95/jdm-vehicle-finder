@@ -342,7 +342,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     // just not this deep - say so instead of the contradictory generic empty.
     const pastEnd = r.total !== null && r.total > 0 && p.page > 1;
     results = `<div class="card"><div class="empty"><div class="rule"></div>${pastEnd
-      ? `You've gone past the last page of these results.<br><br><a class="btn-primary" data-ahx-nav href="${esc(historyUrl(surface, clean, { page: "" }))}">Back to the first page</a>`
+      ? `You've gone past the last page of these results.<br><br><a class="btn-secondary" data-ahx-nav href="${esc(historyUrl(surface, clean, { page: "" }))}">Back to the first page</a>`
       : filtered
       ? `No sold results match those filters. Try removing a filter or widening the date range.<br><br><a class="ahx-clear" href="${esc(historyUrl(surface, {}))}">Clear all filters</a>`
       : "No sold results to show right now. Check back shortly."}</div></div>`;
