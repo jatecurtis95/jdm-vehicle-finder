@@ -86,8 +86,8 @@ export const themeCss = `
   }
   .main input:focus,.main select:focus,.main textarea:focus{background:#ffffff}
   .main select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236F7378' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")}
-  .main .btn-dark{background:#f1f0ec}
-  .main .btn-dark:hover{background:#e8e7e1}
+  .main .btn-secondary{background:#f1f0ec}
+  .main .btn-secondary:hover{background:#e8e7e1}
   .main .btn-toggle.off{background:#f1f0ec}
   .main .chip.muted{background:#f1f0ec}
   .main .wledit summary:hover{background:rgba(0,0,0,0.03)}
@@ -131,7 +131,7 @@ export const themeCss = `
   .topbar{position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;background:var(--bg-2);padding:34px 40px 28px;border-bottom:1px solid var(--hair);overflow:hidden}
   .topbar .topbar-in{position:relative;z-index:1}
   .topbar>div:not(.topbar-in){position:relative;z-index:1}
-  .topbar .btn-dark{position:relative;z-index:1}
+  .topbar .btn-secondary{position:relative;z-index:1}
   .kicker{display:flex;align-items:center;gap:10px;color:var(--gold-txt);font-size:11px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase}
   .kicker:before{content:"";width:26px;height:1px;background:var(--gold);display:inline-block}
   h1{font-size:34px;font-weight:700;letter-spacing:-0.02em;margin:13px 0 7px;line-height:1.04;color:var(--ink);text-wrap:balance}
@@ -169,26 +169,26 @@ export const themeCss = `
   .help{color:var(--faint);font-size:13px;line-height:1.5}
 
   /* Buttons */
-  .btn-gold,.btn-dark,.btn-notify,.btn-search{touch-action:manipulation}
-  .btn-gold{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;font-weight:700;border:0;padding:12px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};transition:background .15s,transform .05s}
-  .btn-gold:hover{background:var(--gold-hover)}
-  .btn-gold:active{transform:translateY(1px)}
-  .btn-dark,.btn-notify{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,0.06);color:var(--ink);font-weight:600;border:1px solid var(--hair);padding:11px 18px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};white-space:nowrap;transition:background .15s,border-color .15s}
-  .btn-dark:hover,.btn-notify:hover{background:rgba(255,255,255,0.1);border-color:var(--gold-line)}
-  .btn-notify{background:var(--gold);color:#15120A;border:0;font-weight:700}
-  .btn-notify:hover{background:var(--gold-hover)}
-  .btn-search{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--gold);color:#15120A;font-weight:700;padding:13px;border-radius:8px;font-size:15px}
-  .btn-search:hover{background:var(--gold-hover)}
-  .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:#15120A;display:inline-block}
-  .btn-skip{color:var(--t3);font-size:13px;padding:9px 8px;border-radius:7px}
-  .btn-skip:hover{color:var(--ink)}
+  /* Action buttons: the same four-tier system as the staff admin theme
+     (one gold primary per scope, quiet secondary, text tertiary, danger),
+     plus .btn-sm for row-scoped actions. .btn-toggle is the on/off chip. */
+  .btn-primary,.btn-secondary{touch-action:manipulation}
+  .btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;font-weight:700;border:0;padding:12px 22px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};transition:background .15s,transform .05s}
+  .btn-primary:hover{background:var(--gold-hover)}
+  .btn-primary:active{transform:translateY(1px)}
+  .btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,0.06);color:var(--ink);font-weight:600;border:1px solid var(--hair);padding:11px 18px;border-radius:8px;font-size:14px;cursor:pointer;font-family:${FONT};white-space:nowrap;transition:background .15s,border-color .15s}
+  .btn-secondary:hover{background:rgba(255,255,255,0.1);border-color:var(--gold-line)}
+  .btn-sm{padding:11px 18px}
+  .btn-tertiary{background:transparent;border:0;color:var(--t3);font-size:13px;font-weight:600;padding:9px 8px;border-radius:7px;cursor:pointer;font-family:${FONT}}
+  .btn-tertiary:hover{color:var(--ink)}
   .btn-toggle{border:1px solid var(--hair);font-size:12px;font-weight:600;padding:7px 14px;border-radius:9999px;cursor:pointer;background:transparent;color:var(--t2);font-family:${FONT}}
   .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold-line);color:var(--gold-txt)}
   .btn-toggle.off{background:rgba(255,255,255,0.04);color:var(--t3)}
-  .btn-del{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:12px;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer;font-family:${FONT}}
-  .btn-del:hover{background:var(--bad-bg)}
-  .btn-link{background:transparent;border:0;color:var(--gold-txt);font-size:13px;font-weight:600;padding:7px 8px;cursor:pointer;font-family:${FONT}}
-  .btn-link:hover{text-decoration:underline}
+  .btn-danger{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:12px;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer;font-family:${FONT}}
+  .btn-danger:hover{background:var(--bad-bg)}
+  .btn-primary:focus-visible,.btn-secondary:focus-visible,.btn-tertiary:focus-visible,.btn-toggle:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .btn-danger:focus-visible{outline:2px solid var(--bad);outline-offset:2px}
+  .btn-primary:disabled,.btn-secondary:disabled,.btn-tertiary:disabled,.btn-danger:disabled{opacity:.55;cursor:default;pointer-events:none}
 
   /* Badges, chips, banners, eligibility */
   .chip{display:inline-block;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);font-size:11px;font-weight:600;padding:4px 10px;border-radius:9999px;font-family:${FONT}}
@@ -293,7 +293,7 @@ export const themeCss = `
   .login-card h1{font-size:22px;font-weight:700;margin:0 0 6px;text-align:center;letter-spacing:-0.01em}
   .login-card .login-sub{color:var(--t3);font-size:14px;text-align:center;margin:0 0 22px;line-height:1.45}
   .login-card label{margin-bottom:8px}
-  .login-card .btn-gold{width:100%;margin-top:18px;padding:13px;font-size:15px}
+  .login-card .btn-primary{width:100%;margin-top:18px;padding:13px;font-size:15px}
   .login-err{background:var(--bad-bg);border:1px solid var(--bad-line);color:#F0A8B5;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:16px;text-align:center}
   .login-note{font-size:12px;color:var(--t3);line-height:1.5;margin-top:7px;text-align:left}
 
@@ -309,7 +309,7 @@ export const themeCss = `
   .tier ul{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
   .tier li{font-size:13.5px;color:var(--t2);display:flex;gap:9px;align-items:flex-start}
   .tier li:before{content:"";flex:0 0 auto;width:16px;height:16px;margin-top:1px;border-radius:9999px;background:var(--gold-tint);border:1px solid var(--gold-line);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.2 2.3 4.8-5' stroke='%23E6C879' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:center}
-  .tier .btn-gold,.tier .btn-dark{width:100%;margin-top:auto}
+  .tier .btn-primary,.tier .btn-secondary{width:100%;margin-top:auto}
 
   /* Freemium gate */
   .gate{margin-top:22px;padding:22px 24px;text-align:center;background:linear-gradient(180deg,rgba(202,163,76,0.08),var(--card));border:1px dashed var(--gold-line);border-radius:var(--radius)}
@@ -355,7 +355,7 @@ export const themeCss = `
     .mgrid{grid-template-columns:1fr}
     .wlhead{flex-wrap:wrap}
     .wlacts{width:100%;justify-content:flex-end}
-    .btn-toggle,.btn-del{min-height:40px}
+    .btn-toggle,.btn-danger{min-height:40px}
     .topbar,.content{padding-left:20px;padding-right:20px}
     .topbar{padding-top:24px;padding-bottom:22px}
     /* Clearance for the fixed WhatsApp button (launch audit: it sat on top of
@@ -364,7 +364,7 @@ export const themeCss = `
     h1{font-size:28px}
     input,select,textarea{font-size:16px;min-height:48px}
     .actions{flex-wrap:wrap}
-    .actions .btn-gold{width:100%;min-height:48px}
+    .actions .btn-primary{width:100%;min-height:48px}
   }
 `;
 
@@ -524,7 +524,7 @@ export function privacyPage() {
     ${s("Changes to this policy", `<p>We may update this policy from time to time. The "last updated" date
       above shows when it last changed.</p>`)}
 
-    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+    <a class="btn-primary lg-cta" href="/request">Start a vehicle request</a>
   </div>
   <style>${LEGAL_CSS}</style>`;
   // Public page: keep analytics OFF here (a privacy page loading trackers is a
@@ -616,7 +616,7 @@ export function termsPage() {
     ${s("Contact", `<p>Questions about these terms: <a href="mailto:hello@jdmconnect.com.au">hello@jdmconnect.com.au</a>
       or WhatsApp <a href="https://wa.me/${WA_NUMBER}" target="_blank" rel="noopener">+61 415 111 221</a>.</p>`)}
 
-    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+    <a class="btn-primary lg-cta" href="/request">Start a vehicle request</a>
   </div>
   <style>${LEGAL_CSS}</style>`;
   return brandDoc(inner, "Terms of Service - JDM Connect", {
@@ -633,7 +633,7 @@ export function notFoundPage() {
       <div class="ico">${LOGO}</div>
       <h1>Page not found</h1>
       <p>We could not find that page. The link may be old or mistyped.</p>
-      <a class="btn-gold" href="/request">Start a vehicle request</a>
+      <a class="btn-primary" href="/request">Start a vehicle request</a>
     </div>
   </div>`;
   return brandDoc(inner, "Not found - JDM Connect");
@@ -643,8 +643,8 @@ export function notFoundPage() {
 // and other simple outcomes). `opts.cta` is an optional { href, label }.
 export function infoPage(title, message, opts = {}) {
   const cta = opts.cta
-    ? `<a class="btn-gold" href="${escHtml(opts.cta.href)}">${escHtml(opts.cta.label)}</a>`
-    : `<a class="btn-dark" href="/request">Back to JDM Connect</a>`;
+    ? `<a class="btn-primary" href="${escHtml(opts.cta.href)}">${escHtml(opts.cta.label)}</a>`
+    : `<a class="btn-secondary" href="/request">Back to JDM Connect</a>`;
   const inner = `<div class="infowrap">
     ${risingSun({ size: 460, tone: "faint" })}
     <div class="infocard">
@@ -668,7 +668,7 @@ export function decisionConfirmPage(token, action, ret) {
     ? "This sends the vehicle to the client and marks the match handled."
     : "This removes the match from your review queue. The client is not contacted.";
   const label = isApprove ? "Approve and send" : "Skip this match";
-  const cls = isApprove ? "btn-gold" : "btn-dark";
+  const cls = isApprove ? "btn-primary" : "btn-secondary";
   const retField = ret && String(ret).startsWith("/admin")
     ? `<input type="hidden" name="return" value="${escHtml(ret)}">` : "";
   const inner = `<div class="infowrap">

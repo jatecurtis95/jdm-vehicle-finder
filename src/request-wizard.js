@@ -156,11 +156,11 @@ export const onboardingCss = `
   .ob label .opt{color:var(--faint);font-weight:400}
   .ob .field-err{display:none;color:#B11226;font-size:13px;margin-top:9px;font-weight:500}
 
-  .ob .btn-gold{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;
+  .ob .btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:#15120A;
     font-size:15px;font-weight:600;border:0;padding:14px 24px;border-radius:10px;cursor:pointer;font-family:inherit;
     transition:background .18s var(--ease),transform .05s,box-shadow .18s}
-  .ob .btn-gold:hover{background:#D9B45F;box-shadow:0 6px 18px rgba(202,163,76,0.28)}
-  .ob .btn-gold:active{transform:translateY(1px)}
+  .ob .btn-primary:hover{background:#D9B45F;box-shadow:0 6px 18px rgba(202,163,76,0.28)}
+  .ob .btn-primary:active{transform:translateY(1px)}
   .ob .btn-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#fff;color:var(--ink);
     font-size:15px;font-weight:600;border:1px solid var(--hair);padding:14px 22px;border-radius:10px;cursor:pointer;font-family:inherit;
     transition:border-color .18s,background .18s}
@@ -310,12 +310,12 @@ export const onboardingCss = `
   .ob-nav-btns .ob-next-btn{margin-left:auto}
   .ob-nav-btns .ob-back{order:-1}
   .ob-cta-row{display:flex;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap}
-  .ob-cta-row .btn-gold{flex:1;min-width:200px}
+  .ob-cta-row .btn-primary{flex:1;min-width:200px}
   @media(max-width:640px){
     .ob-on .ob-nav-btns{position:sticky;bottom:0;z-index:20;margin-top:22px;padding:14px 0;gap:10px;
       background:linear-gradient(180deg,rgba(250,249,246,0) 0%,var(--surface) 30%);border-top:1px solid var(--hair)}
     .ob-nav-btns .ob-next-btn{flex:1;min-height:52px}
-    .ob-cta-row .btn-gold{width:100%}
+    .ob-cta-row .btn-primary{width:100%}
     /* Lift the WhatsApp FAB clear of the sticky step CTA, which it was
        permanently covering at phone widths (the primary submit button). */
     .ob~.wa-fab{bottom:calc(96px + env(safe-area-inset-bottom))}

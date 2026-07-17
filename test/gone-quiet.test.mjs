@@ -79,6 +79,6 @@ test("the empty state renders quiet with an outline button", async () => {
   const i = html.indexOf("Who's gone quiet?");
   assert.ok(i > -1, "section renders even when empty");
   const sec = html.slice(i, i + 700);
-  assert.match(sec, /btn-line/, "zero count keeps the outline button (gold diet)");
+  assert.match(sec, /btn-secondary/, "zero count keeps the outline button (gold diet)");
   assert.match(sec, /No engaged buyers have gone quiet/, "calm empty state");
 });

@@ -1669,7 +1669,7 @@ async function handleClientPortal(request, env, url, path, session, here) {
     }
     return doc(infoPage("Full access",
       `Unlimited saved searches, the live auction floor and landed pricing on every lot. A$${priceAud} a month, cancel anytime.<br><br>
-       <form method="POST" action="/portal/subscribe" style="display:inline"><button class="btn-gold" type="submit">Subscribe now</button></form><br><br>
+       <form method="POST" action="/portal/subscribe" style="display:inline"><button class="btn-primary" type="submit">Subscribe now</button></form><br><br>
        <a href="/portal" style="color:var(--gold-txt);font-weight:600">Back to your garage</a>`,
       { html: true, cta: { href: "/portal", label: "Your garage" } }));
   }

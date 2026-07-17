@@ -125,7 +125,7 @@ function filterForm(p, { makers, models, houses }, surface) {
     <div class="ahx-frow">
       <label><span>Make</span><select name="make" data-ahx-make>${makerOpts}</select></label>
       <label><span>Model</span><select name="model" data-ahx-model>${modelOpts}</select></label>
-      <button class="btn-gold ahx-go" type="submit" data-ahx-go>Search history</button>
+      <button class="btn-primary ahx-go" type="submit" data-ahx-go>Search history</button>
     </div>
     <fieldset class="ahx-range"><legend>Auction held within</legend>${pills}</fieldset>
     <details class="ahx-more"${advancedOpen ? " open" : ""}>
@@ -142,7 +142,7 @@ function filterForm(p, { makers, models, houses }, surface) {
         <label><span>Colour</span><select name="colour">${opt("", "Any colour", p.colour)}${optTable(HISTORY_COLOURS, p.colour)}</select></label>
         <label><span>Import eligibility</span><select name="eligibility">${opt("", "Any status", p.eligibility)}${opt("eligible", "Eligible (25-year rule)", p.eligibility)}</select></label>
       </div>
-      <div class="ahx-more-act"><button class="btn-gold" type="submit" data-ahx-go>Search history</button></div>
+      <div class="ahx-more-act"><button class="btn-primary" type="submit" data-ahx-go>Search history</button></div>
     </details>
     <script>(function(){
       var f=document.currentScript.closest("form");if(!f)return;
@@ -342,7 +342,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     // just not this deep - say so instead of the contradictory generic empty.
     const pastEnd = r.total !== null && r.total > 0 && p.page > 1;
     results = `<div class="card"><div class="empty"><div class="rule"></div>${pastEnd
-      ? `You've gone past the last page of these results.<br><br><a class="btn-gold" data-ahx-nav href="${esc(historyUrl(surface, clean, { page: "" }))}">Back to the first page</a>`
+      ? `You've gone past the last page of these results.<br><br><a class="btn-primary" data-ahx-nav href="${esc(historyUrl(surface, clean, { page: "" }))}">Back to the first page</a>`
       : filtered
       ? `No sold results match those filters. Try removing a filter or widening the date range.<br><br><a class="ahx-clear" href="${esc(historyUrl(surface, {}))}">Clear all filters</a>`
       : "No sold results to show right now. Check back shortly."}</div></div>`;
@@ -375,14 +375,14 @@ export async function auctionHistoryPage(env, session, rawParams = {}) {
   const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
-      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>
        <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
       "Auction history - JDM Connect");
   }
   if (!c.member) {
     return brandShell(portalSidebar(c, "history"),
       `<div class="topbar"><div class="topbar-in"><div class="kicker">Members</div><h1>Auction history</h1><p class="subline">See what comparable cars actually sold for at Japanese auction.</p></div></div>
-       <div class="content"><div class="card"><div class="empty"><div class="rule"></div>Auction history is a members feature. With Full access you can see what every car really sells for before you bid.<br><br><a class="btn-gold" href="/portal/subscribe">See Full access</a></div></div></div>`,
+       <div class="content"><div class="card"><div class="empty"><div class="rule"></div>Auction history is a members feature. With Full access you can see what every car really sells for before you bid.<br><br><a class="btn-primary" href="/portal/subscribe">See Full access</a></div></div></div>`,
       "Auction history - JDM Connect");
   }
 

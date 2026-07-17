@@ -194,7 +194,7 @@ export function auctionSearchHeader(o = {}) {
               <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
               <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
             </div>
-            <div class="asrch-adv-act"><button class="btn-gold" type="submit">Search</button></div>
+            <div class="asrch-adv-act"><button class="btn-primary" type="submit">Search</button></div>
           </div>
         </details>
       </div>
@@ -314,7 +314,7 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
     h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
-    if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-notify ac-req" type="submit">Request bid</button></form>';}
+    if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-primary btn-sm ac-req" type="submit">Request bid</button></form>';}
     h+='</div></div>';return h;
   }
   function renderWatch(){var g=document.getElementById('watchGrid');if(!g)return;var m=load(),ids=Object.keys(m);
@@ -425,7 +425,7 @@ export const AUCTION_CSS = `<style>
   .ac-sheet{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:8px 12px;font-size:var(--fs-sec,13px);font-weight:600;cursor:pointer}
   .ac-sheet:hover{border-color:var(--field-line);background:var(--hover,rgba(0,0,0,.04))}
   .ac-sheet.dis{opacity:.42;pointer-events:none}
-  .ac-req,.acard .btn-notify{flex:0 0 auto;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
+  .ac-req,.acard .btn-primary{flex:0 0 auto;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
   .ac-picker{display:flex;gap:8px;width:100%;margin-top:2px}
   .ac-picker select{flex:1;min-width:0}
 

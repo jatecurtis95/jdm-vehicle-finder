@@ -21,7 +21,7 @@ test("admin views with no primary action do not render empty buttons", async () 
   const env = makeEnv();
   for (const view of ["requests", "tasks", "search"]) {
     const html = await adminPage(env, view, ADMIN);
-    assert.doesNotMatch(html, /<a class="btn-dark" href="\/admin\?view=intake">\s*<\/a>/, `${view} has no empty action link`);
+    assert.doesNotMatch(html, /<a class="btn-secondary" href="\/admin\?view=intake">\s*<\/a>/, `${view} has no empty action link`);
   }
 });
 

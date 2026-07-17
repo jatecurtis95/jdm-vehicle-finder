@@ -294,9 +294,8 @@ const CSS = `
   .nav a.active .ct{color:var(--gold-txt)}
   .nav a:hover:not(.active){background:var(--hover)}
   .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:16px;padding-top:20px}
-  .btn-search{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:var(--gold-on);font-weight:600;padding:12px;border-radius:var(--r-ctl);font-size:var(--fs-body);border:0;cursor:pointer;font-family:inherit;width:100%}
-  .btn-search:hover{background:var(--gold-hover)}
-  .btn-search .dot{width:7px;height:7px;border-radius:9999px;background:var(--gold-on);display:inline-block}
+  .run-btn{width:100%;padding:12px;font-size:var(--fs-body)}
+  .run-btn .dot{width:7px;height:7px;border-radius:9999px;background:var(--gold-on);display:inline-block}
   .main{flex:1;background:var(--bg);display:flex;flex-direction:column}
   .topbar{position:sticky;top:0;z-index:5;background:var(--bg-2);padding:24px 32px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--hair)}
   .topbar.unstick{position:static}
@@ -304,8 +303,8 @@ const CSS = `
   .kicker:before{content:"";width:24px;height:1px;background:var(--gold);display:inline-block}
   h1{font-size:var(--fs-page);font-weight:600;letter-spacing:-0.015em;margin:12px 0 4px;line-height:1.1}
   .subline{color:var(--t3);font-size:var(--fs-sec);margin:0}
-  .btn-dark{background:var(--soft);color:var(--ink);border:1px solid var(--hair);font-weight:600;padding:12px 16px;border-radius:var(--r-ctl);font-size:var(--fs-sec);white-space:nowrap;cursor:pointer;font-family:inherit}
-  .btn-dark:hover{background:var(--hover)}
+  .btn-secondary{background:var(--soft);color:var(--ink);border:1px solid var(--hair);font-weight:600;padding:12px 16px;border-radius:var(--r-ctl);font-size:var(--fs-sec);white-space:nowrap;cursor:pointer;font-family:inherit}
+  .btn-secondary:hover{background:var(--hover)}
   .content{padding:var(--sp-6) var(--sp-6) 64px;max-width:1180px}
   .content.wide,.topbar.wide{width:100%;max-width:1640px;margin-left:auto;margin-right:auto}
   .content.dash{width:100%;max-width:2040px;margin-left:auto;margin-right:auto}
@@ -326,11 +325,17 @@ const CSS = `
   input:focus,select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-tint);background:var(--field-focus)}
   select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236F7378' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
   .actions{display:flex;align-items:center;gap:16px;margin-top:var(--sp-5)}
-  .btn-gold{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:var(--gold-on);font-weight:600;border:0;padding:12px 24px;border-radius:var(--r-ctl);font-size:var(--fs-sec);cursor:pointer;font-family:${FONT}}
-  .btn-gold:hover{background:var(--gold-hover)}
-  .btn-gold:focus-visible,.btn-dark:focus-visible,.btn-toggle:focus-visible,.btn-link:focus-visible,.kebab:focus-visible,.nav a:focus-visible,.fchip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  /* Action buttons are a four-tier system (one gold primary per scope,
+     quiet secondary, text tertiary, destructive danger) plus the .btn-sm
+     row-action size. .btn-toggle is the stateful on/off chip, and bap/bsk/
+     bdel are the compact bulk/action-bar variants - both outside the tiers. */
+  .btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--gold);color:var(--gold-on);font-weight:600;border:0;padding:12px 24px;border-radius:var(--r-ctl);font-size:var(--fs-sec);cursor:pointer;font-family:${FONT}}
+  .btn-primary:hover{background:var(--gold-hover)}
+  .btn-sm{padding:8px 16px;font-size:var(--fs-sec)}
+  .btn-primary:focus-visible,.btn-secondary:focus-visible,.btn-tertiary:focus-visible,.btn-toggle:focus-visible,.bap:focus-visible,.bsk:focus-visible,.kebab:focus-visible,.nav a:focus-visible,.fchip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .btn-danger:focus-visible,.bdel:focus-visible{outline:2px solid var(--bad);outline-offset:2px}
   /* Shared button states: any button variant can carry disabled / .is-loading. */
-  .btn-gold:disabled,.btn-dark:disabled,.btn-del:disabled,.btn-notify:disabled,.bap:disabled,.bsk:disabled,.bdel:disabled{opacity:.55;cursor:default;pointer-events:none}
+  .btn-primary:disabled,.btn-secondary:disabled,.btn-tertiary:disabled,.btn-danger:disabled,.bap:disabled,.bsk:disabled,.bdel:disabled{opacity:.55;cursor:default;pointer-events:none}
   .is-loading{opacity:.7;pointer-events:none;position:relative}
   .help{color:var(--faint);font-size:var(--fs-sec)}
   table{width:100%;border-collapse:collapse;font-size:var(--fs-sec)}
@@ -338,14 +343,14 @@ const CSS = `
   td{padding:16px 8px;border-bottom:1px solid var(--hair-2);color:var(--t2);line-height:var(--lh-list)}
   .avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label);font-weight:600;vertical-align:middle;margin-right:8px}
   .yes{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:9999px;background:var(--soft);color:var(--t2);font-size:var(--fs-label)}
-  .btn-del{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);cursor:pointer;font-family:${FONT}}
-  .btn-del:hover{background:var(--bad-bg)}
+  .btn-danger{background:transparent;border:1px solid var(--bad-line);color:var(--bad);font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);cursor:pointer;font-family:${FONT}}
+  .btn-danger:hover{background:var(--bad-bg)}
   .btn-toggle{border:1px solid var(--hair);font-size:var(--fs-label);font-weight:600;padding:8px 12px;border-radius:9999px;cursor:pointer;background:transparent;color:var(--t2);font-family:${FONT}}
   .btn-toggle.on{background:var(--gold-tint);border-color:var(--gold);color:var(--gold-txt)}
   .btn-toggle.off{background:var(--soft);color:var(--t3)}
   .btn-toggle:hover{filter:brightness(0.98)}
-  .btn-link{background:transparent;border:0;color:var(--gold-txt);font-size:var(--fs-sec);font-weight:600;padding:8px;cursor:pointer;font-family:${FONT}}
-  .btn-link:hover{text-decoration:underline}
+  .btn-tertiary{background:transparent;border:0;color:var(--t3);font-size:var(--fs-sec);font-weight:600;padding:8px;cursor:pointer;font-family:${FONT}}
+  .btn-tertiary:hover{color:var(--ink)}
   /* ONE chip component. Neutral by default; tone classes carry the signal:
      chip-good / chip-warn / chip-bad = health and urgency,
      chip-info = engagement (viewed), chip-gold = member / brand only. */
@@ -433,9 +438,6 @@ const CSS = `
   .mfoot .who{flex:1;min-width:0}
   .mfoot .who .n{font-size:var(--fs-sec);font-weight:600;color:var(--ink)}
   .mfoot .who .w{font-size:var(--fs-label);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .btn-notify{background:var(--gold);color:var(--gold-on);font-weight:600;font-size:var(--fs-sec);padding:8px 16px;border-radius:var(--r-ctl);white-space:nowrap}
-  .btn-notify:hover{background:var(--gold-hover)}
-  .btn-skip{color:var(--t3);font-size:var(--fs-sec);padding:8px}
   .empty{color:var(--faint);padding:32px 0;text-align:center}
   .empty .rule{width:40px;height:1px;background:var(--hair);margin:0 auto 16px}
   .signout{display:block;text-align:center;color:var(--t3);font-size:var(--fs-sec);padding:8px;border-radius:var(--r-ctl)}
@@ -449,7 +451,7 @@ const CSS = `
   .login-card h1{font-size:20px;font-weight:600;margin:0 0 4px;text-align:center;letter-spacing:-0.01em}
   .login-card .login-sub{color:var(--t3);font-size:var(--fs-sec);text-align:center;margin:0 0 24px;line-height:1.45}
   .login-card label{margin-bottom:8px}
-  .login-card .btn-gold{width:100%;margin-top:16px;padding:12px;font-size:var(--fs-body);display:block}
+  .login-card .btn-primary{width:100%;margin-top:16px;padding:12px;font-size:var(--fs-body);display:block}
   .login-err{background:var(--bad-bg);border:1px solid var(--bad-line);color:var(--bad);font-size:var(--fs-sec);padding:8px 12px;border-radius:var(--r-ctl);margin-bottom:16px;text-align:center}
   /* Public request: bold success receipt + inline error (Fix 1 / Fix 7) */
   .reqok{border:1px solid var(--gold);border-left:4px solid var(--gold);background:linear-gradient(180deg,var(--gold-tint),var(--card))}
@@ -523,13 +525,13 @@ const CSS = `
     input,select,textarea{font-size:16px}
     /* M2: comfortable tap targets, full-width primary CTA */
     input,select,textarea{min-height:48px}
-    .btn-gold,.btn-dark,.btn-notify,.btn-skip,.btn-line,.btn-del,.btn-toggle,.bap,.bsk,.bdel,.rd-cta{min-height:44px}
+    .btn-primary,.btn-secondary,.btn-tertiary,.btn-danger,.btn-toggle,.bap,.bsk,.bdel,.rd-cta{min-height:44px}
     /* Action bars stack their buttons full width on phones (same rule the
        .bulkbar2 variant already has), so a pair of CTAs never clips. */
     .actionbar .bap,.actionbar .bsk{flex:1 1 auto}
     .cd-cta,.dw-cta-b,.mt-btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
     .actions{flex-wrap:wrap}
-    .actions .btn-gold{width:100%;min-height:48px;padding:12px 24px}
+    .actions .btn-primary{width:100%;min-height:48px;padding:12px 24px}
     /* Tables become card lists on the list-heavy views. */
     .mcl{display:flex;flex-direction:column;gap:8px}
     .tbl-desk{display:none}
@@ -722,8 +724,8 @@ const CSS = `
   .sec-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}
   .sec-h h2{font-size:var(--fs-sect);font-weight:600;letter-spacing:var(--ls-title);margin:0}
   .sec-h h2 .ct{color:var(--faint);font-weight:400}
-  .sec-h .btn-gold{display:inline-flex;align-items:center;gap:8px}
-  .sec-h .btn-gold svg{width:15px;height:15px}
+  .sec-h .btn-primary{display:inline-flex;align-items:center;gap:8px}
+  .sec-h .btn-primary svg{width:15px;height:15px}
   .dcols{display:grid;grid-template-columns:1fr;gap:8px 24px;align-items:start}
   @media(min-width:1100px){.dcols{grid-template-columns:1fr 1fr}}
   /* Card-list row: the ONE list row used by every dashboard and detail list. */
@@ -759,7 +761,7 @@ const CSS = `
   /* Motion: hover lift + button press, compositor-friendly transforms only. */
   .acard,.chart-card{transition:transform .16s ease,border-color .15s}
   .acard:hover,.chart-card:hover{transform:translateY(-2px)}
-  .btn-gold:active,.btn-notify:active,.btn-dark:active,.btn-search:active,.bap:active,.bsk:active,.sc-actions a:active{transform:translateY(1px) scale(.99)}
+  .btn-primary:active,.btn-secondary:active,.bap:active,.bsk:active,.sc-actions a:active{transform:translateY(1px) scale(.99)}
   @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
   /* --- Matches: Linear-register queue. Measured targets in ADMIN-REDESIGN.md:
      dense hairline rows inside one panel, quiet 13px type, colour only for
@@ -802,10 +804,10 @@ const CSS = `
   .scard .nocontact{margin:var(--sp-2) 0 0;padding:var(--sp-1) var(--sp-2)}
   .sc-actions{display:flex;gap:var(--sp-2);border:0;flex:0 0 auto}
   .sc-actions a{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sec);font-weight:600;line-height:1;border-radius:var(--r-ctl);white-space:nowrap;text-decoration:none}
-  .sc-actions .btn-skip{color:var(--t2);background:transparent;border:1px solid var(--field-line)}
-  .sc-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
-  .sc-actions .btn-notify{color:var(--gold-on);background:var(--gold);border:1px solid transparent}
-  .sc-actions .btn-notify:hover{background:var(--gold-hover)}
+  .sc-actions .btn-tertiary{color:var(--t2);background:transparent;border:1px solid var(--field-line)}
+  .sc-actions .btn-tertiary:hover{background:var(--hover);color:var(--ink)}
+  .sc-actions .btn-primary{color:var(--gold-on);background:var(--gold);border:1px solid transparent}
+  .sc-actions .btn-primary:hover{background:var(--gold-hover)}
   /* Snooze: the quiet third action. The summary reads like a text button; the
      open state reveals the two deferral options inline. */
   .sc-snz{display:inline-flex;align-items:center}
@@ -874,10 +876,10 @@ const CSS = `
   .ld-cl-b.over{color:var(--bad);font-weight:600}
   .ld-cl-w{font-size:var(--fs-label);color:var(--t3);margin-top:1px}
   .ld-actions{display:flex;gap:8px;margin:16px 0 var(--sp-4)}
-  .ld-actions .btn-skip{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:var(--r-ctl);color:var(--t2);font-weight:600;padding:12px}
-  .ld-actions .btn-skip:hover{background:var(--hover);color:var(--ink)}
-  .ld-actions .btn-notify{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:var(--r-ctl);padding:12px}
-  .ld-actions .btn-notify:hover{background:var(--gold-hover)}
+  .ld-actions .btn-tertiary{flex:1;display:flex;align-items:center;justify-content:center;border:1px solid var(--hair);border-radius:var(--r-ctl);color:var(--t2);font-weight:600;padding:12px}
+  .ld-actions .btn-tertiary:hover{background:var(--hover);color:var(--ink)}
+  .ld-actions .btn-primary{flex:2;display:flex;align-items:center;justify-content:center;background:var(--gold);color:var(--gold-on);font-weight:700;border-radius:var(--r-ctl);padding:12px}
+  .ld-actions .btn-primary:hover{background:var(--gold-hover)}
   .ld-status{margin-top:16px;padding:12px;background:var(--off);border:1px solid var(--hair);border-radius:var(--r-ctl);font-size:var(--fs-sec);color:var(--t2);text-align:center}
   .ld-similar{display:flex;justify-content:center;margin-top:12px;white-space:normal;text-align:center}
   .ld-notes{font-size:var(--fs-sec);color:var(--t2);line-height:1.6;margin:0 0 8px}
@@ -905,7 +907,7 @@ const CSS = `
   .ld-share-p{font-size:var(--fs-label);color:var(--t3);margin:4px 0 12px;line-height:1.5}
   .ld-share-row{display:flex;gap:8px;margin-bottom:8px}
   .ld-share-row input{flex:1;min-width:0;font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink)}
-  .ld-share-row .btn-dark{padding:8px 12px;font-size:var(--fs-sec)}
+  .ld-share-row .btn-secondary{padding:8px 12px;font-size:var(--fs-sec)}
   .ld-share-wa{display:block;text-align:center;width:100%}
 `;
 
@@ -983,7 +985,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${isAdmin ? item("settings", "Settings", "") : ""}
     </nav>
     <div class="side-foot">
-      <form method="POST" action="/run" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-search"><span class="dot"></span>Run Searches</button></form>
+      <form method="POST" action="/run" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-primary run-btn"><span class="dot"></span>Run Searches</button></form>
       <div class="whoami"><span class="who-name">${whoLabel}</span><span class="who-role">${whoSub}</span></div>
       <a class="signout" href="/logout">Sign out</a>
     </div>
@@ -1129,7 +1131,7 @@ export async function clientDrawerFragment(env, clientId, session = { role: "adm
   return `
     <div class="dw-head">
       <div class="dw-id">${avatar(c.name)}<div><div class="dw-name">${esc(c.name)}</div><div class="dw-sub">Customer #${c.id}</div></div></div>
-      <a class="btn-gold dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
+      <a class="btn-primary dw-open" href="/admin?view=client&id=${c.id}">Open full profile</a>
     </div>
     ${c.email || c.whatsapp ? `<div class="dw-cta">${c.whatsapp ? `<a class="dw-cta-b" data-clog="${c.id}:whatsapp" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a><a class="dw-cta-b" data-clog="${c.id}:call" href="tel:${esc(String(c.whatsapp).replace(/[^0-9+]/g, ""))}">Call</a>` : ""}${c.email ? `<a class="dw-cta-b" data-clog="${c.id}:email" href="mailto:${esc(c.email)}">Email</a>` : ""}</div>` : ""}
     ${info ? `<div class="dw-card">${info}</div>` : ""}
@@ -1338,10 +1340,10 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const counts = { clients: clients.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
   const h = HEADERS[view];
   const primary = view === "matches"
-    ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-dark">${esc(h.btn)}</button></form>`
+    ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-secondary">${esc(h.btn)}</button></form>`
     : ["agents", "dealers", "dealer-submissions", "settings", "payments", "auctions", "intake"].includes(view)
     ? ""
-    : h.btn ? `<a class="btn-dark" href="/admin?view=intake">${esc(h.btn)}</a>` : "";
+    : h.btn ? `<a class="btn-secondary" href="/admin?view=intake">${esc(h.btn)}</a>` : "";
 
   const makers = view === "intake" ? await distinctMakers(env) : [];
   let body = "";
@@ -1439,7 +1441,7 @@ function agentsView(agents, opts = {}) {
           <div><label for="ag-email">Email <span class="opt">(login + alerts)</span></label><input id="ag-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="agent@email.com" value="${vv("email")}" required></div>
           <div><label for="ag-company">Company <span class="opt">(optional)</span></label><input id="ag-company" name="company" maxlength="120" placeholder="e.g. Ofuka" value="${vv("company")}"></div>
         </div>
-        <div class="actions"><button class="btn-gold" type="submit">Create &amp; send invite</button>
+        <div class="actions"><button class="btn-primary" type="submit">Create &amp; send invite</button>
           <span class="help">They get an email to set their own password, then see only their own clients and matches.</span></div>
       </form>
     </details>`;
@@ -1490,7 +1492,7 @@ function settingsView(settings, opts = {}) {
             ${toggleRow("email_alerts", "Email me match alerts", "Send a digest email when new matches are found.", settingOn(s, "email_alerts"))}
             ${toggleRow("send_to_client", "Email matches to clients on approval", "Email the car to the client when you approve a match.", settingOn(s, "send_to_client"))}
           </div>
-          <div class="actions" style="margin-top:12px"><button class="btn-dark" type="submit" form="tsEmail">Send me a test email</button>
+          <div class="actions" style="margin-top:12px"><button class="btn-secondary" type="submit" form="tsEmail">Send me a test email</button>
             <span class="help">Verifies the channel end to end, to the alert email above (save first if you changed it).</span></div>
         </div>
       </div>
@@ -1512,7 +1514,7 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-wa-test">Test number <span class="opt">(yours, +61…)</span></label>
               <div style="display:flex;gap:8px">
                 <input id="set-wa-test" name="to" form="tsWa" type="tel" inputmode="tel" placeholder="+61 4XX XXX XXX" style="flex:1"${waConfigured ? "" : " disabled"}>
-                <button class="btn-dark" type="submit" form="tsWa" style="white-space:nowrap"${waConfigured ? "" : " disabled"}>Send a test WhatsApp</button>
+                <button class="btn-secondary" type="submit" form="tsWa" style="white-space:nowrap"${waConfigured ? "" : " disabled"}>Send a test WhatsApp</button>
               </div>
             </div>
           </div>
@@ -1611,7 +1613,7 @@ function settingsView(settings, opts = {}) {
         </div>
       </div>
 
-      <div class="actionbar actionbar-end"><button class="btn-gold" type="submit">Save settings</button></div>
+      <div class="actionbar actionbar-end"><button class="btn-primary" type="submit">Save settings</button></div>
     </form>
     <form id="tsEmail" method="POST" action="/settings/test-email"></form>
     <form id="tsWa" method="POST" action="/settings/test-whatsapp"></form>
@@ -1738,7 +1740,7 @@ export function loginPage(opts = {}) {
       <label for="lg-pass" style="margin-top:16px">Password</label>
       <input id="lg-pass" type="password" name="password" autocomplete="current-password" required maxlength="128">
       <p class="login-sub" style="margin:8px 0 0;text-align:right"><a href="/forgot-password" style="color:var(--gold-txt)">Forgot password?</a></p>
-      <button class="btn-gold" type="submit">Sign in</button>
+      <button class="btn-primary" type="submit">Sign in</button>
       <p class="login-sub" style="margin:16px 0 0">New here? <a href="/request" style="color:var(--gold-txt);font-weight:700;text-decoration:underline;text-underline-offset:3px">Sign up to start searching</a></p>
     </form>
   </div>`;
@@ -1761,7 +1763,7 @@ export function mfaPage(opts = {}) {
       ${err}
       <label for="lg-totp">Authenticator code</label>
       <input id="lg-totp" type="text" name="totp" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" spellcheck="false" required maxlength="6" autofocus>
-      <button class="btn-gold" type="submit">Verify and sign in</button>
+      <button class="btn-primary" type="submit">Verify and sign in</button>
       <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
     </form>
   </div>`;
@@ -1789,7 +1791,7 @@ export function setPasswordPage(opts = {}) {
       <input id="sp-pass" type="password" name="password" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}" title="${PW_MIN} to ${PW_MAX} characters, including a letter and a number. Long passphrases are welcome.">
       <label for="sp-confirm" style="margin-top:16px">Confirm password</label>
       <input id="sp-confirm" type="password" name="confirm" autocomplete="new-password" required minlength="${PW_MIN}" maxlength="${PW_MAX}">
-      <button class="btn-gold" type="submit">Set password and sign in</button>
+      <button class="btn-primary" type="submit">Set password and sign in</button>
     </form>`;
   }
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Set password - JDM Connect");
@@ -1809,7 +1811,7 @@ export function forgotPasswordPage(opts = {}) {
       <p class="login-sub">Enter the email you sign in with and we'll send you a link to choose a new password.</p>
       <label for="fp-email">Email</label>
       <input id="fp-email" type="email" name="email" autocomplete="username" spellcheck="false" placeholder="you@email.com" maxlength="${EMAIL_MAX}" required>
-      <button class="btn-gold" type="submit">Email me a reset link</button>
+      <button class="btn-primary" type="submit">Email me a reset link</button>
       <p class="login-sub" style="margin:16px 0 0"><a href="/login" style="color:var(--gold-txt)">Back to sign in</a></p>
     </form>`;
   return brandDoc(`<div class="login-screen">${risingSun({ size: 520, tone: "faint" })}${card}</div>`, "Reset password - JDM Connect");
@@ -2171,7 +2173,7 @@ function dashboardView(session, data) {
   const dsec = (head, list) => `<div class="dsec">${head}${list}</div>`;
   // Gold marks a primary action; a zero-count section has nothing to act on,
   // so its button drops to the quiet outline until the count returns.
-  const secBtn = (n, href, label) => `<a class="${Number(n) > 0 ? "btn-gold" : "btn-line"}" href="${href}">${label} ${ICONS.arrow}</a>`;
+  const secBtn = (n, href, label) => `<a class="${Number(n) > 0 ? "btn-primary" : "btn-secondary"}" href="${href}">${label} ${ICONS.arrow}</a>`;
   const tasksSection = dsec(`<div class="sec-h"><h2>My tasks <span class="ct">(${(data.tasksOverdue || 0) + (data.tasksToday || 0)})</span></h2>${secBtn((data.tasksOverdue || 0) + (data.tasksToday || 0), "/admin?view=tasks", "Open")}</div>`, `<div class="list">${taskRows}</div>`);
 
   // Stalled requests, no movement in 14 days.
@@ -2266,9 +2268,9 @@ const DASH2_CSS = `<style>
   .dsec{min-width:0}
   /* Quiet outline for a zero-count section button (gold is earned by a count;
      six identical gold Opens meant no primary at all). Same alias as the
-     record pages' btn-line. */
-  .sec-h a.btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
-  .sec-h a.btn-line:hover{border-color:var(--field-line);color:var(--ink)}
+     record pages' btn-secondary. */
+  .sec-h a.btn-secondary{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
+  .sec-h a.btn-secondary:hover{border-color:var(--field-line);color:var(--ink)}
   /* Snapshot roll-up now leads the dashboard; tighten the rhythm so it sits as
      a compact band above the attention cards instead of floating mid-page. */
   .dash .overview{margin-bottom:var(--sp-5)}
@@ -2345,7 +2347,7 @@ function intakeView(makers, opts = {}) {
           <div><label for="wl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="wl-grades" name="grades" multiple size="4"></select></div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this customer. Good for buyers who aren't ready yet, especially rare cars.</span></label>
-        <div class="actions"><button class="btn-gold" type="submit">Add request</button>
+        <div class="actions"><button class="btn-primary" type="submit">Add request</button>
           <span class="help">Name plus a way to reach them (email or WhatsApp) is required. The car can be filled in later.</span></div>
       </form>
     </div>
@@ -2487,9 +2489,9 @@ function clientsView(clients, wishlists, opts = {}) {
         <span class="bulk-label"><span id="bulkSel">0</span> selected:</span>
         <select name="action" class="share-pick">${agents.length ? `<option value="assign">Assign owner</option><option value="share">Share with</option>` : ""}<option value="${opts.showArchived ? "unarchive" : "archive"}">${opts.showArchived ? "Restore" : "Archive"}</option></select>
         ${agents.length ? `<select name="agent_id" class="share-pick"><option value="">JDM Connect</option>${agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>` : ""}
-        <button class="btn-gold" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
+        <button class="btn-primary" type="submit" name="do" value="apply" onclick="return jdmBulkApply(this)">Apply</button>
         <label class="bulk-inc" title="Off by default, customers owned by an agent are protected from a bulk delete. Tick this to remove them too."><input type="checkbox" name="confirm_agents" value="1"> Include agents' customers</label>
-        <button class="btn-del bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
+        <button class="btn-danger bulk-del" type="submit" name="do" value="delete" onclick="return jdmBulkDelete(this)">${ICONS.trash || ""}Delete selected</button>
       </form>
       <script>function jdmBulkTicked(f){var n=0,e=f.elements;for(var i=0;i<e.length;i++){if(e[i].name==='ids'&&e[i].checked)n++;}return n;}
       document.addEventListener('change',function(e){var t=e.target;if(!t||t.type!=='checkbox')return;setTimeout(function(){var f=document.getElementById('bulkform');if(!f)return;var n=jdmBulkTicked(f);f.classList.toggle('show',n>0);var s=document.getElementById('bulkSel');if(s)s.textContent=n;},0);});
@@ -3345,7 +3347,7 @@ export async function archiveClient(env, id, on, session) {
 export async function requestDetailPage(env, wishlistId, session = { role: "admin", id: 0 }, opts = {}) {
   const wid = Number(wishlistId);
   const notFound = () => shell(sidebar("requests", {}, session),
-    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Request</h1></div><a class="btn-dark" href="/admin?view=requests">Back to requests</a></div>
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Request</h1></div><a class="btn-secondary" href="/admin?view=requests">Back to requests</a></div>
      <div class="content"><div class="card"><div class="empty">Request not found, or you don't have access.</div></div></div>`,
     "Request - JDM Connect");
   if (!Number.isInteger(wid) || wid <= 0) return notFound();
@@ -3500,7 +3502,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
         <h1>${esc(veh)}</h1>
         <p class="subline">${esc(w.client_name)} &middot; REQ-${wid}</p>
       </div>
-      <a class="btn-dark" href="/admin?view=requests">Back to requests</a>
+      <a class="btn-secondary" href="/admin?view=requests">Back to requests</a>
     </div>
     <div class="content wide">${flash}
       ${RD_CSS}
@@ -3693,7 +3695,7 @@ function tasksView(rows, opts = {}) {
     <input class="tk-add-c" name="client_name" list="tkClients" placeholder="Client (optional)" aria-label="Client" autocomplete="off">
     <datalist id="tkClients">${(opts.clients || []).map((c) => `<option value="${esc(c.name)}">`).join("")}</datalist>
     <input class="tk-add-d" type="date" name="due_date" aria-label="Due date">
-    <button class="btn-gold" type="submit">Add task</button>
+    <button class="btn-primary" type="submit">Add task</button>
   </form>`;
   const chips = `<div class="fchips" style="margin:0 0 var(--sp-4)">
     <a class="fchip${mine ? "" : " on"}" href="/admin?view=tasks"${mine ? "" : ' aria-current="true"'}>${(opts.session && opts.session.role) === "admin" ? "Everyone" : "All my tasks"}</a>
@@ -3870,8 +3872,8 @@ function matchCard(q, cardOpts = {}) {
       </div>
       <div class="sc-actions">
         ${snoozeCtl(q, lot, ret)}
-        <a class="btn-skip" href="${skip}">Skip</a>
-        <a class="btn-notify" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
+        <a class="btn-tertiary" href="${skip}">Skip</a>
+        <a class="btn-primary btn-sm" href="${approve}">${lot._watch ? "Mark done" : "Approve &amp; send"}</a>
       </div>
     </div>
   </div>`;
@@ -4155,7 +4157,7 @@ function matchesView(pending, opts = {}) {
   const grid = `<div id="mGrid" data-group="${st.group}" data-qs="${esc(params({}))}">${gridInner}</div>`;
 
   const more = remaining > 0
-    ? `<div class="mmore"><a class="btn-dark" id="mMore" href="${linkTo({})}&shown=${st.shown + MATCH_PAGE}" data-offset="${st.shown}" data-total="${flat.length}" data-qs="${esc(params({}))}">Load ${Math.min(MATCH_PAGE, remaining)} more (${remaining} left)</a></div>`
+    ? `<div class="mmore"><a class="btn-secondary" id="mMore" href="${linkTo({})}&shown=${st.shown + MATCH_PAGE}" data-offset="${st.shown}" data-total="${flat.length}" data-qs="${esc(params({}))}">Load ${Math.min(MATCH_PAGE, remaining)} more (${remaining} left)</a></div>`
     : "";
 
   const css = `<style>
@@ -4451,9 +4453,9 @@ function matchesScript() {
 
   // Per-card Approve / Skip without leaving the page.
   grid.addEventListener('click',function(e){
-    var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
+    var a=e.target&&e.target.closest?e.target.closest('a.btn-primary, a.btn-tertiary'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
-    var approve=a.classList.contains('btn-notify'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
+    var approve=a.classList.contains('btn-primary'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       toast(approve?'Sent to client':'Skipped');
@@ -4471,9 +4473,9 @@ function matchesScript() {
 function matchActionScript() {
   return `<script>(function(){
   document.addEventListener('click',function(e){
-    var a=e.target&&e.target.closest?e.target.closest('a.btn-notify, a.btn-skip'):null; if(!a)return;
+    var a=e.target&&e.target.closest?e.target.closest('a.btn-primary, a.btn-tertiary'):null; if(!a)return;
     var card=a.closest('.mcard'); if(!card)return; e.preventDefault();
-    var approve=a.classList.contains('btn-notify'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
+    var approve=a.classList.contains('btn-primary'); a.classList.add('is-loading'); a.textContent=approve?'Sending…':'Skipping…';
     var u=new URL(a.getAttribute('href'),location.href),body=new URLSearchParams(u.search);body.set('ajax','1');
     fetch('/decide',{method:'POST',body:body}).then(function(r){ if(!r.ok)throw 0;
       card.style.transition='opacity .2s'; card.style.opacity='0';
@@ -4598,7 +4600,7 @@ function wishlistEditor(w, opts = {}) {
         if (w.price_max) p.set("priceMax", w.price_max);
         if (w.rate_min) p.set("gradeMin", w.rate_min);
         if (w.kuzov) p.set("kuzov", w.kuzov);
-        return `<a class="btn-gold wl-search" href="/admin?view=client&id=${w.client_id}&${p.toString()}#find">${ICONS.auctions}Search</a>`;
+        return `<a class="btn-primary wl-search" href="/admin?view=client&id=${w.client_id}&${p.toString()}#find">${ICONS.auctions}Search</a>`;
       })()
     : "";
   // V1.3 Phase C fold: on the staff client profile, each search IS a request, so
@@ -4611,9 +4613,9 @@ function wishlistEditor(w, opts = {}) {
         <span class="wlreq-k">Stage</span>${statusSelect(w.id, w.status, back)}
         <span class="wlreq-k">Deposit</span>${depositBadge(w.deposit_status)}
         ${(w.deposit_status || "none") === "none"
-          ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_requested"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-line wlreq-btn" type="submit">Request deposit</button></form>`
+          ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_requested"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-secondary wlreq-btn" type="submit">Request deposit</button></form>`
           : (w.deposit_status || "none") !== "paid"
-            ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-line wlreq-btn" type="submit">Mark paid</button></form>`
+            ? `<form method="POST" action="/request/status" style="display:inline"><input type="hidden" name="id" value="${w.id}"><input type="hidden" name="status" value="deposit_paid"><input type="hidden" name="back" value="${esc(back)}"><button class="btn-secondary wlreq-btn" type="submit">Mark paid</button></form>`
             : ""}
         ${w.next_action_date ? `<span class="wlreq-na" title="Next follow-up">Follow up ${esc(String(w.next_action_date).slice(0, 10))}${w.next_action_note ? " · " + esc(w.next_action_note) : ""}</span>` : ""}
       </div>`
@@ -4630,8 +4632,8 @@ function wishlistEditor(w, opts = {}) {
         <button type="button" class="btn-toggle wl-editbtn" onclick="var d=this.closest('.wlrow').querySelector('.wledit');d.open=!d.open;if(d.open)d.scrollIntoView({block:'nearest'})">Edit</button>
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
         ${opts.portal
-          ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`
-          : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-danger data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-del" type="submit">Delete</button></form>`}
+          ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-danger" type="submit">Delete</button></form>`
+          : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-danger data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-danger" type="submit">Delete</button></form>`}
       </div>
     </div>
     <details class="wledit"${opts.open ? " open" : ""}>
@@ -4654,7 +4656,7 @@ function wishlistEditor(w, opts = {}) {
           <div><label>Grades <span class="opt">(comma separated, any spelling matches)</span><input name="grades" value="${esc(gradesText(w.grades))}" placeholder="e.g. S450, S450 EXCLUSIVE"></label></div>
         </div>
         ${opts.portal ? "" : `<label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"${w.watch_only ? " checked" : ""}><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, never auto-email this client.</span></label>`}
-        <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
+        <div class="actions"><button class="btn-primary" type="submit">Save changes</button>
           <span class="help">Blank fields match anything.</span></div>
       </form>
     </details>
@@ -4723,7 +4725,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   // Honour a ?ret= path (same-app only) so the back link restores the exact
   // Matches filters, grouping and page the user came from.
   const retPath = (opts.ret && String(opts.ret).startsWith("/admin")) ? String(opts.ret) : "/admin?view=matches";
-  const back = `<a class="btn-dark" href="${esc(retPath)}">Back to matches</a>`;
+  const back = `<a class="btn-secondary" href="${esc(retPath)}">Back to matches</a>`;
   const notFound = () => shell(sidebar("matches", {}, session),
     `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Vehicle</h1></div>${back}</div>
      <div class="content"><div class="card"><div class="empty">This vehicle is no longer in your queue.</div></div></div>`,
@@ -4762,12 +4764,12 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const shareTitle = `${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""}`.replace(/\s+/g, " ").trim();
   const shareToken = await makeShareToken(env, q.id);
   const shareBtn = shareToken ? `<details class="ld-share">
-      <summary class="btn-dark">Share</summary>
+      <summary class="btn-secondary">Share</summary>
       <div class="ld-share-pop">
         <div class="ld-share-h">Share with a client</div>
         <p class="ld-share-p">A view-only link to this car. No login needed.</p>
-        <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-dark">Copy</button></div>
-        <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-gold ld-share-wa">Share on WhatsApp</a>
+        <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-secondary">Copy</button></div>
+        <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-primary ld-share-wa">Share on WhatsApp</a>
       </div>
     </details>` : "";
   const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
@@ -4855,7 +4857,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const info = String(lot.info || "").trim();
   const sheet = lot._sheet;
   const aiBtn = opts.aiEnabled
-    ? `<form method="POST" action="/lot/read-sheet" class="ld-ai-form" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Reading the sheet… (~10s)';"><input type="hidden" name="id" value="${q.id}"><button class="btn-dark" type="submit">${sheet ? "Re-read auction sheet with AI" : "Read auction sheet with AI"}</button></form>`
+    ? `<form method="POST" action="/lot/read-sheet" class="ld-ai-form" onsubmit="var b=this.querySelector('button');b.disabled=true;b.classList.add('is-loading');b.textContent='Reading the sheet… (~10s)';"><input type="hidden" name="id" value="${q.id}"><button class="btn-secondary" type="submit">${sheet ? "Re-read auction sheet with AI" : "Read auction sheet with AI"}</button></form>`
     : "";
   const aiBlock = sheet ? `<div class="ld-ai-read">
       <div class="ld-ai-head">AI reading of the inspection sheet${sheet.overall_grade ? ` &middot; grade ${esc(sheet.overall_grade)}` : ""}</div>
@@ -4893,13 +4895,13 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="reject">
           <input type="hidden" name="return" value="${esc(ret)}">
-          <button class="btn-skip" type="submit">Skip</button>
+          <button class="btn-tertiary" type="submit">Skip</button>
         </form>
         <form method="POST" action="/decide" data-confirm="${approveConfirm}" data-confirm-ok="${lot._watch ? "Mark done" : "Send it"}">
           <input type="hidden" name="token" value="${esc(q.token)}">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="return" value="${esc(ret)}">
-          <button class="btn-notify" type="submit">${lot._watch ? "Mark done" : "Approve &amp; send"}</button>
+          <button class="btn-primary btn-sm" type="submit">${lot._watch ? "Mark done" : "Approve &amp; send"}</button>
         </form>
       </div>`
     : `<div class="ld-status">This match is <strong>${esc(q.status || "filed")}</strong>.</div>`;
@@ -4912,7 +4914,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   if (lot.marka_name) simQs.set("make", String(lot.marka_name).trim());
   if (lot.model_name) simQs.set("model", String(lot.model_name).trim());
   if (lot.kuzov) simQs.set("kuzov", String(lot.kuzov).trim().split("-")[0]);
-  const findSimilar = `<a class="btn-line ld-similar" href="/admin?${simQs.toString()}#find">Find similar live cars for ${esc(firstNm)}</a>`;
+  const findSimilar = `<a class="btn-secondary ld-similar" href="/admin?${simQs.toString()}#find">Find similar live cars for ${esc(firstNm)}</a>`;
 
   const main = `
     <div class="topbar wide">
@@ -4983,7 +4985,7 @@ const CRM_CSS = `<style>
   .cd-lastc{margin-top:8px;font-size:var(--fs-sec);color:var(--t2)}
   .cd-lastc b{color:var(--ink);font-weight:600}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
-  /* cd-cta and btn-line alias the secondary button. */
+  /* cd-cta and btn-secondary alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
@@ -5003,8 +5005,8 @@ const CRM_CSS = `<style>
   .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
   .cd-stat-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
-  .btn-line{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
-  .btn-line:hover{border-color:var(--field-line);color:var(--ink);background:var(--hover)}
+  .btn-secondary{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
+  .btn-secondary:hover{border-color:var(--field-line);color:var(--ink);background:var(--hover)}
 </style>`;
 
 // Canned outreach templates (the Pipedrive/HubSpot template library, sized for
@@ -5051,7 +5053,7 @@ function quickMsgMenu(c, primaryWl) {
 export async function clientDetailPage(env, clientId, session = { role: "admin", id: 0 }, opts = {}) {
   const cid = Number(clientId);
   const notFound = () => shell(sidebar("clients", {}, session),
-    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-line" href="/admin?view=clients">Back to clients</a></div>
+    `<div class="topbar"><div><div class="kicker">Vehicle Finder</div><h1>Client</h1></div><a class="btn-secondary" href="/admin?view=clients">Back to clients</a></div>
      <div class="content"><div class="card"><div class="empty">Client not found.</div></div></div>${CRM_CSS}`,
     "Client - JDM Connect");
   if (!Number.isInteger(cid) || cid <= 0) return notFound();
@@ -5194,7 +5196,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
           <div><label for="ec-category">Category <span class="opt">(dealer = trade)</span></label>${categorySelect("ec-category", c.category)}</div>
         </div>
       </div>
-      <div class="actions"><button class="btn-gold" type="submit">Save changes</button>
+      <div class="actions"><button class="btn-primary" type="submit">Save changes</button>
         <span class="help">Updates this client's contact details across the app.</span></div>
     </form>
     <script>(function(){var d=document.getElementById('edit-details');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#edit-details"]');if(a)d.open=true;});if(location.hash==='#edit-details')d.open=true;})();</script>
@@ -5210,12 +5212,12 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <div class="pwrap">
         ${c.email
-          ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
+          ? `<form method="POST" action="/client/portal-invite" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-primary" type="submit">${c.portal_enabled ? "Resend set-password link" : "Give portal access"}</button></form>`
           : `<span class="help">Add an email to enable portal access.</span>`}
         ${session.role === "admin" && c.portal_enabled && c.pass_hash
           ? `<form method="POST" action="/send-reset" style="display:inline"><input type="hidden" name="kind" value="client"><input type="hidden" name="id" value="${c.id}"><button class="btn-toggle" type="submit">Send password reset</button></form>`
           : ""}
-        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Revoke</button></form>` : ""}
+        ${c.portal_enabled ? `<form method="POST" action="/client/portal-revoke" style="display:inline" data-confirm="Revoke this client's portal access? Their password is cleared and any signed-in session stops working." data-danger><input type="hidden" name="id" value="${c.id}"><button class="btn-danger" type="submit">Revoke</button></form>` : ""}
       </div>
     </div>
     ${c.portal_enabled ? `<div class="portal-acct" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hair)">
@@ -5225,7 +5227,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
       </div>
       <div class="pwrap">
         ${session.role === "admin"
-          ? `<form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-del" : "btn-gold"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>`
+          ? `<form method="POST" action="/client/member" style="display:inline"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="member" value="${c.member ? "0" : "1"}"><button class="${c.member ? "btn-danger" : "btn-primary"}" type="submit">${c.member ? "Remove member access" : "Make member"}</button></form>`
           : `<span class="help">Managed by JDM Connect (paid membership).</span>`}
       </div>
     </div>` : ""}
@@ -5241,9 +5243,9 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     <p class="help" style="margin:4px 0 12px">Archiving hides ${esc(c.name)} from the active list but keeps their history. Deleting removes them and all their searches for good.</p>
     <div class="pwrap">
       ${c.archived
-        ? `<form method="POST" action="/client/unarchive" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-gold" type="submit">Restore from archive</button></form>`
+        ? `<form method="POST" action="/client/unarchive" style="display:inline"><input type="hidden" name="id" value="${c.id}"><button class="btn-primary" type="submit">Restore from archive</button></form>`
         : `<form method="POST" action="/client/archive" style="display:inline" data-confirm="Archive ${esc(c.name)}? They move to the archive and drop out of the active list, matcher runs and dashboards. You can restore them any time." data-confirm-ok="Archive"><input type="hidden" name="id" value="${c.id}"><button class="btn-toggle" type="submit">Archive</button></form>`}
-      <form method="POST" action="/client/delete" style="display:inline" data-confirm="Delete ${esc(c.name)} and ALL their searches, matches and history? This cannot be undone." data-danger data-confirm-ok="Delete customer"><input type="hidden" name="id" value="${c.id}"><button class="btn-del" type="submit">Delete</button></form>
+      <form method="POST" action="/client/delete" style="display:inline" data-confirm="Delete ${esc(c.name)} and ALL their searches, matches and history? This cannot be undone." data-danger data-confirm-ok="Delete customer"><input type="hidden" name="id" value="${c.id}"><button class="btn-danger" type="submit">Delete</button></form>
     </div>
   </div>` : "";
 
@@ -5275,7 +5277,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label for="as-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="as-grades" name="grades" multiple size="4"></select></div>
       </div>
       <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this client.</span></label>
-      <div class="actions"><button class="btn-gold" type="submit">Add search</button>
+      <div class="actions"><button class="btn-primary" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis/model code.</span></div>
     </form>${modelScript("as-make", "as-model")}${codeGradeScript("as-make", "as-model", "as-code", "as-grades")}${presetScript()}
   </details>`;
@@ -5353,8 +5355,8 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <div><label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${fv("gradeMin")}" placeholder="e.g. 4"></label></div>
         <div><label>Chassis / model code <span class="opt">(contains)</span><input name="kuzov" value="${fv("kuzov")}" placeholder="e.g. GDB"></label></div>
       </div>
-      <div class="actions"><button class="btn-gold" type="submit">Search auctions</button>
-        <a class="btn-line" href="${esc(`/admin?view=auctions&tab=prices${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
+      <div class="actions"><button class="btn-primary" type="submit">Search auctions</button>
+        <a class="btn-secondary" href="${esc(`/admin?view=auctions&tab=prices${findPrefill.make ? `&make=${encodeURIComponent(findPrefill.make)}` : ""}${findPrefill.model ? `&model=${encodeURIComponent(findPrefill.model)}` : ""}`)}">Sold price history</a>
         <span class="help">Searches upcoming Japanese auctions live. Blank fields match anything.</span></div>
     </form>${foundFlash}${findResults}
     <script>(function(){var d=document.getElementById('find');if(!d)return;document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href="#find"]');if(a)d.open=true;});})();</script>
@@ -5387,7 +5389,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
         <h1>${esc(c.name)}</h1>
         <p class="subline">What they're chasing, and the lots that match.</p>
       </div>
-      <a class="btn-line" href="/admin?view=clients">&larr; Back to clients</a>
+      <a class="btn-secondary" href="/admin?view=clients">&larr; Back to clients</a>
     </div>
     <div class="content wide">${opts.dup ? `<div class="dupnote">A client with that email or phone already existed, so we opened <strong>${esc(c.name)}</strong> instead of creating a duplicate. Add the new search below, or check their details are right.</div>` : ""}${opts.saved ? `<div class="flash">Client details saved.</div>` : ""}${head}<div class="cd-grid"><div class="cd-main">${matchSection}${reqSection}${historyCard}${wlSection}${newWl}${findCard}</div><aside class="cd-rail">${feed.length ? feedCard + portalCard + editCard + manageCard : portalCard + editCard + manageCard + feedCard}</aside></div></div>${RD_CSS}${matchActionScript()}${(canManage && findHasQuery) ? staffSendBar({ mode: "fixed", clientId: c.id, clientName: firstName, hasContact: !!(c.email || c.whatsapp) }) : ""}${findHasQuery ? `<script>(function(){if(location.hash)return;var el=document.getElementById('find');if(el)el.scrollIntoView();})();</script>` : ""}`;
   return shell(sidebar("clients", { matches: matches.length }, session), main, esc(c.name) + " - JDM Connect");
@@ -5468,7 +5470,7 @@ export async function requestPage(env, opts = {}) {
           <div class="rk" style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px">Want the full picture?</div>
           <div style="font-size:18px;font-weight:800;color:#12131a;margin-bottom:6px">Unlock unlimited searches - A$${Number(opts.upsell.priceAud || 0).toLocaleString("en-AU")}/mo</div>
           <p class="ob-note-sm" style="margin:0 0 16px">Your free account starts you off with one example. Full access lets you search every live Japanese auction yourself and get every match we find, as soon as we've reviewed it.</p>
-          <a class="btn-gold" href="/login?next=subscribe">Get full access <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-primary" href="/login?next=subscribe">Get full access <span aria-hidden="true">&rarr;</span></a>
         </div>`
       : "";
     const successInner = `<div class="ob">
@@ -5491,7 +5493,7 @@ export async function requestPage(env, opts = {}) {
         ${successTimeline()}
         <p class="ob-note-sm">${acct}</p>
         <div class="ob-cta">
-          <a class="btn-gold" href="/request">Start another search <span aria-hidden="true">&rarr;</span></a>
+          <a class="btn-primary" href="/request">Start another search <span aria-hidden="true">&rarr;</span></a>
           <a class="btn-ghost" href="/">Browse recent imports</a>
         </div>
         ${supportBlock()}
@@ -5573,7 +5575,7 @@ export async function requestPage(env, opts = {}) {
             </details>
             ${recentExamplesShell()}
             <div class="ob-nav-btns ob-only">
-              <button type="button" class="btn-gold ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
+              <button type="button" class="btn-primary ob-next-btn" data-next>Next: your budget <span aria-hidden="true">&rarr;</span></button>
             </div>
           </section>
 
@@ -5600,7 +5602,7 @@ export async function requestPage(env, opts = {}) {
             </div>
             <div class="ob-nav-btns ob-only">
               <button type="button" class="btn-ghost ob-back" data-back><span aria-hidden="true">&larr;</span> Back</button>
-              <button type="button" class="btn-gold ob-next-btn" data-next>See my search summary <span aria-hidden="true">&rarr;</span></button>
+              <button type="button" class="btn-primary ob-next-btn" data-next>See my search summary <span aria-hidden="true">&rarr;</span></button>
             </div>
           </section>
 
@@ -5617,7 +5619,7 @@ export async function requestPage(env, opts = {}) {
             </div>
             <div class="ob-nav-btns ob-only">
               <button type="button" class="btn-ghost ob-back" data-back><span aria-hidden="true">&larr;</span> Back</button>
-              <button type="button" class="btn-gold ob-next-btn" data-next>Create my free account <span aria-hidden="true">&rarr;</span></button>
+              <button type="button" class="btn-primary ob-next-btn" data-next>Create my free account <span aria-hidden="true">&rarr;</span></button>
             </div>
           </section>
 
@@ -5644,7 +5646,7 @@ export async function requestPage(env, opts = {}) {
                 </div>
                 <div class="ob-cta-row">
                   <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
-                  <button class="btn-gold" type="submit">Start my search</button>
+                  <button class="btn-primary" type="submit">Start my search</button>
                 </div>
                 <p class="ob-note-sm">Not you? <a href="/logout" style="color:var(--gold-txt);font-weight:600">Sign out</a>.</p>
               </div>
@@ -5673,7 +5675,7 @@ export async function requestPage(env, opts = {}) {
                 </div>
                 <div class="ob-cta-row">
                   <button type="button" class="btn-ghost ob-back ob-only" data-back><span aria-hidden="true">&larr;</span> Back</button>
-                  <button class="btn-gold" type="submit">Start my search</button>
+                  <button class="btn-primary" type="submit">Start my search</button>
                 </div>
                 <p class="ob-note-sm">We collect your name and contact details only to search for and contact you about matching vehicles, and share them only with the providers needed to run the service (see our <a href="/privacy" style="color:var(--gold-txt);font-weight:600">Privacy Policy</a>). You can ask us to access, correct or delete your details any time.</p>
               </div>
@@ -5752,7 +5754,7 @@ export async function publicLotPage(env, queueId) {
         <aside class="plv-right">
           <div class="card plv-spec">
             <div class="plv-rows">${specRows}</div>
-            <a class="btn-gold plv-cta" href="${esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString())}">Enquire about this car</a>
+            <a class="btn-primary plv-cta" href="${esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString())}">Enquire about this car</a>
             <p class="plv-fine">Price shown is the Japanese auction price. Ask us for a full landed cost to your state.</p>
           </div>
         </aside>
@@ -5812,7 +5814,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     const copy = feedDown
       ? `We can't reach the live auction feed right now, so this lot can't be loaded. Please try again in a few minutes.`
       : `This lot may have closed or left the live feed.`;
-    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>${title}</h1></div>${member ? "" : `<a class="btn-line" href="${backHref}">&larr; Back to auctions</a>`}</div>
+    const notFoundBody = `<div class="topbar"><div class="topbar-in"><div class="kicker">Auction vehicle</div><h1>${title}</h1></div>${member ? "" : `<a class="btn-secondary" href="${backHref}">&larr; Back to auctions</a>`}</div>
        <div class="content"><div class="card"><div class="empty">${copy} <a href="${backHref}" style="color:var(--gold-txt);font-weight:600">Back to auction search</a>.</div></div></div>${CRM_CSS}`;
     return member
       ? brandShell(portalSidebar(client, "auctions"), notFoundBody, `${title} - JDM Connect`)
@@ -5868,12 +5870,12 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     // Already sold: no bid form, no watchlist heart. The record is a price
     // guide, so the action is finding the next one like it.
     const liveHref = `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`;
-    actions = `<a class="btn-gold plv-cta" href="${esc(liveHref)}">Find one like this live</a>
+    actions = `<a class="btn-primary plv-cta" href="${esc(liveHref)}">Find one like this live</a>
       <p class="plv-fine">This car has already sold at auction. Use its result as a price guide, then search the live feed and we'll chase the next one.</p>`;
   } else if (member) {
     const name = `${String(lot.marka_name || "").trim()} ${String(lot.model_name || "").trim()}`.replace(/\s+/g, " ").trim() || "Vehicle";
     const heartData = `data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(lot.kuzov || "")}" data-img="${esc(imageUrls(lot).medium || "")}" data-grade="${esc(fullGrade(lot))}" data-house="${esc(lot.auction || "")}" data-date="${esc((lot.auction_date || "").slice(0, 10))}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetBase ? sheetBase + "&w=1400" : "")}"`;
-    actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-gold plv-cta" type="submit">Request a bid on this car</button></form>
+    actions = `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-primary plv-cta" type="submit">Request a bid on this car</button></form>
       <button type="button" class="ac-fav plv-watch" ${heartData} aria-pressed="false">Save to watchlist</button>
       <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
   } else {
@@ -5885,7 +5887,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
     // The picker stays underneath for the "actually, this suits someone else"
     // case; without context it is the only action, as before.
     const oneTap = ctxClient
-      ? `<form method="POST" action="/client/find" style="margin:0 0 8px"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="client_id" value="${ctxClient.id}"><input type="hidden" name="back" value="${esc(backHref)}"><button class="btn-gold plv-cta" type="submit">Add to ${esc(ctxFirst)}'s queue</button></form>`
+      ? `<form method="POST" action="/client/find" style="margin:0 0 8px"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="client_id" value="${ctxClient.id}"><input type="hidden" name="back" value="${esc(backHref)}"><button class="btn-primary plv-cta" type="submit">Add to ${esc(ctxFirst)}'s queue</button></form>`
       : "";
     const pickerLabel = ctxClient ? "Or add to a different client..." : "Add to a client...";
     actions = clients.length
@@ -5894,7 +5896,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
       : `<p class="plv-fine">Add a client first to queue cars for them.</p>`;
   }
 
-  const topRight = member ? "" : `<a class="btn-line" href="${backHref}">&larr; ${backLabel}</a>`;
+  const topRight = member ? "" : `<a class="btn-secondary" href="${backHref}">&larr; ${backLabel}</a>`;
   const main = `
     <div class="topbar"><div class="topbar-in"><div class="kicker">${member ? "Members &middot; Auction vehicle" : "Vehicle Finder &middot; Auction vehicle"}</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div>${topRight}</div>
     <div class="content">
@@ -7342,7 +7344,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
   const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
-      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>
        <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
       "Auction search - JDM Connect");
   }
@@ -7387,7 +7389,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
   } else {
     const page = Math.max(1, parseInt(params.page, 10) || 1);
     const { lots, hasMore, ok } = await searchLots(env, { ...params, page });
-    const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-notify ac-req" type="submit">Request bid</button></form>`;
+    const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-primary btn-sm ac-req" type="submit">Request bid</button></form>`;
     const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), feedDown: !ok });
     let grid;
     if (lots.length) {
@@ -7398,8 +7400,8 @@ export async function portalAuctionsPage(env, session, params = {}) {
       const filtered = Object.keys(clean).some((k) => k !== "view");
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
     }
-    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
-    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
+    const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
+    const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
     const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
     body = `${tabs}${toolbar}${grid}${pager}`;
   }
@@ -7550,8 +7552,8 @@ function staffSendBar(opts = {}) {
   return `<div class="sendbar" id="sendBar" data-client="${opts.clientId || ""}" data-name="${esc(opts.clientName || "")}" data-contact="${opts.hasContact ? 1 : 0}">
     <span class="sb-count"><b id="sbN">0</b> selected</span>
     ${picker ? `<select id="sbClient" aria-label="Send the selected cars to which client"><option value="">Choose client…</option>${options}</select>` : ""}
-    <button type="button" class="btn-gold" id="sbSend">Send to ${esc(opts.clientName || "client")}</button>
-    <button type="button" class="btn-dark" id="sbQueue">Queue for review</button>
+    <button type="button" class="btn-primary" id="sbSend">Send to ${esc(opts.clientName || "client")}</button>
+    <button type="button" class="btn-secondary" id="sbQueue">Queue for review</button>
   </div>
   <style>
     .selcard{cursor:pointer;position:relative}
@@ -7689,11 +7691,11 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
     ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div>${eligChip}</div>
-      ${sheet ? `<a class="btn-skip" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}
-      <a class="btn-skip" href="${esc(detailHref)}">Details</a>
+      ${sheet ? `<a class="btn-tertiary" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}
+      <a class="btn-tertiary" href="${esc(detailHref)}">Details</a>
       ${(queueState === "pending" || queueState === "sent")
         ? queueStateBadge(queueState, firstName)
-        : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-notify" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
+        : `<form method="POST" action="/client/find" style="display:inline"><input type="hidden" name="client_id" value="${clientId}"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="q" value="${esc(qsBack)}"><button class="btn-primary btn-sm" type="submit">Add to ${esc(firstName || "queue")}</button></form>`}
     </div>
   </div>`;
 }
@@ -7787,7 +7789,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
           <div><label>Year to<input name="yearMax" type="number" min="1960" max="2100" value="${sv("yearMax")}" placeholder="2002"></label></div>
           <div><label>Sold within<select name="window">${windowOpts}</select></label></div>
         </div>
-        <div class="actions"><button class="btn-gold" type="submit">Show sold prices</button>
+        <div class="actions"><button class="btn-primary" type="submit">Show sold prices</button>
           <span class="help">Average, median, range and trend for the filters above, with every matching sold car below. Prices are JPY hammer prices.</span></div>
       </form>${datalists}
       <script>(function(){
@@ -7825,7 +7827,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     // The matching sold lots, newest first (site-wide latest on first load).
     const { lots, hasMore, ok } = soldRes;
     const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "prices", layout: mode }), label: hasQuery ? "Sold at auction" : "Latest sold results", feedDown: !ok });
-    const findLive = (lot) => `<a class="btn-notify ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
+    const findLive = (lot) => `<a class="btn-primary btn-sm ac-req" href="/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" }).toString()}">Find live</a>`;
     let grid;
     if (lots.length) {
       grid = `<div class="acgrid${layout === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { nowYear, soldPrice: Number(lot.finish) || 0, actions: findLive(lot), detailBase: "/admin?view=auctionlot&lot=" })).join("")}</div>`;
@@ -7834,8 +7836,8 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     } else {
       grid = `<div class="card"><div class="empty"><div class="rule"></div>${hasQuery ? "No individual sold lots match those filters. Try a wider year range or time window." : "No sold results to show right now. Check back shortly."}</div></div>`;
     }
-    const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "prices", page: page - 1 }))}">&larr; More recent</a>` : "";
-    const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "prices", page: page + 1 }))}">Older &rarr;</a>` : "";
+    const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "prices", page: page - 1 }))}">&larr; More recent</a>` : "";
+    const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "prices", page: page + 1 }))}">Older &rarr;</a>` : "";
     const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
     return `${tabs}${form}${chips}${intel}${toolbar}${grid}${pager}${AUCTION_CSS}`;
   }
@@ -7891,7 +7893,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
       ? queueStateBadge(q.status, String(q.client_name || "").trim().split(/\s+/)[0])
       : "";
     return clients.length
-      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-notify" type="submit">Add</button></form>`
+      ? `${badge}<form method="POST" action="/client/find" class="ac-picker"><input type="hidden" name="lot_id" value="${esc(lot.id)}"><input type="hidden" name="back" value="${esc(back)}"><select name="client_id" required aria-label="Add this car to a client"><option value="">Add to client...</option>${options}</select><button class="btn-primary btn-sm" type="submit">Add</button></form>`
       : `<span class="help">Add a client first to queue cars.</span>`;
   };
 
@@ -7918,8 +7920,8 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
     grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? "No upcoming lots match that search. Try fewer filters, or a broader make and model." : "No live lots in the feed right now. Check back shortly."}</div></div>`;
   }
-  const prev = page > 1 ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
-  const next = hasMore ? `<a class="btn-dark" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
+  const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
+  const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
   const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
@@ -7956,11 +7958,11 @@ function clientCarCard(q, opts = {}) {
     ? `<div class="mland"><span class="ml-k">Recent market avg</span><span class="ml-v">${yen(lot.avg_price)}${opts.fx > 0 ? ` <span style="font-weight:600;opacity:.65">≈ A$${Math.round(Number(lot.avg_price) / opts.fx).toLocaleString("en-AU")}</span>` : ""}</span></div>`
     : "";
   const payBtn = (opts.stripe && requested)
-    ? `<form method="POST" action="/portal/pay" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-dark" type="submit">Pay ${esc(opts.depositLabel)} deposit</button></form>`
+    ? `<form method="POST" action="/portal/pay" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-secondary" type="submit">Pay ${esc(opts.depositLabel)} deposit</button></form>`
     : "";
   const action = requested
     ? `<span class="reqbadge">&#10003; Requested - we're on it</span>`
-    : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-notify" type="submit">Ask us to get this</button></form>`;
+    : `<form method="POST" action="/portal/approve" style="display:inline"><input type="hidden" name="queue_id" value="${q.id}"><button class="btn-primary btn-sm" type="submit">Ask us to get this</button></form>`;
   return `<div class="mcard">
     <div class="mphoto" style="${img ? `background-image:url('${esc(img)}')` : ""}">
       ${q._href ? `<a href="${esc(q._href)}" aria-label="View this car's full listing" style="position:absolute;inset:0;z-index:1"></a>` : ""}
@@ -8012,7 +8014,7 @@ export async function portalPage(env, session, opts = {}) {
   const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
-      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-dark" href="/logout">Sign out</a></div>
+      `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>
        <div class="content"><div class="card"><div class="empty">Your portal access isn't active right now. Please contact JDM Connect.</div></div></div>`,
       "Portal - JDM Connect");
   }
@@ -8071,7 +8073,7 @@ export async function portalPage(env, session, opts = {}) {
         <div><label for="pl-code">Model code <span class="opt">(exact variant)</span></label><select id="pl-code" name="model_code"><option value="">Any model code</option></select></div>
         <div><label for="pl-grades">Grades <span class="opt">(pick every spelling)</span></label><select id="pl-grades" name="grades" multiple size="4"></select></div>
       </div>
-      <div class="actions"><button class="btn-gold" type="submit">Add search</button>
+      <div class="actions"><button class="btn-primary" type="submit">Add search</button>
         <span class="help">Add at least a make, model or chassis code so we know what to look for.</span></div>
     </form>${modelScript("pl-maker", "pl-models")}${codeGradeScript("pl-maker", "pl-models", "pl-code", "pl-grades")}${presetScript()}
   </details>`;
@@ -8086,12 +8088,12 @@ export async function portalPage(env, session, opts = {}) {
   const memberCard = c.member
     ? `<div class="memcard is-member">
         <div class="mem-main"><div class="mem-tag">Full access</div><div class="mem-h">You're a member</div><div class="mem-s">Unlimited searches and priority sourcing on every match. Thank you.</div></div>
-        ${c.stripe_customer_id ? `<form method="POST" action="/portal/billing"><button class="btn-dark" type="submit">Manage billing</button></form>` : ""}
+        ${c.stripe_customer_id ? `<form method="POST" action="/portal/billing"><button class="btn-secondary" type="submit">Manage billing</button></form>` : ""}
       </div>`
     : membershipOn
     ? `<div class="memcard">
         <div class="mem-main"><div class="mem-tag">Upgrade</div><div class="mem-h">Full access - ${memberPrice}/month</div><div class="mem-s">Unlimited active searches, priority sourcing, and a landed-cost estimate on every car. Cancel anytime.</div></div>
-        <form method="POST" action="/portal/subscribe"><button class="btn-gold" type="submit">Get full access</button></form>
+        <form method="POST" action="/portal/subscribe"><button class="btn-primary" type="submit">Get full access</button></form>
       </div>`
     : "";
   // At-a-glance summary, all counts scoped to this signed-in client.
@@ -8111,7 +8113,7 @@ export async function portalPage(env, session, opts = {}) {
         <h1>Welcome${c.name ? ", " + esc(String(c.name).trim().split(/\s+/)[0]) : ""}</h1>
         <p class="subline">The cars we've found for you, and the searches we're running.</p>
       </div>
-      <a class="btn-dark" href="/logout">Sign out</a>
+      <a class="btn-secondary" href="/logout">Sign out</a>
     </div>
     <div class="content">
       ${flash}
@@ -8509,7 +8511,7 @@ export async function dealerPortalPage(env, dealer, flash = "") {
       <div><label for="dealer-price">Price (AUD)</label><input id="dealer-price" name="price_aud" type="number" inputmode="numeric" min="1" max="${DEALER_VEHICLE_LIMITS.priceMax}" required></div>
       <div class="dealer-wide"><label for="dealer-location">Location <span class="opt">(optional)</span></label><input id="dealer-location" name="location" maxlength="${DEALER_VEHICLE_LIMITS.location}"></div>
       <div class="dealer-wide"><label for="dealer-description">Description <span class="opt">(optional)</span></label><textarea id="dealer-description" name="description" rows="4" maxlength="${DEALER_VEHICLE_LIMITS.description}"></textarea></div>
-      <div class="dealer-wide"><button type="submit" class="btn-gold">Submit for review</button></div>
+      <div class="dealer-wide"><button type="submit" class="btn-primary">Submit for review</button></div>
     </form></div><div class="psec"><h2>Your submissions <span class="ct">${submissions.length}</span></h2></div>${list}</div>
     <style>.dealer-submit{margin-bottom:var(--sp-5)}.dealer-submit h2{margin:0 0 var(--sp-4)}.dealer-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}.dealer-form-grid input,.dealer-form-grid textarea{width:100%}.dealer-wide{grid-column:1/-1}.dealer-flash{padding:12px 16px;margin-bottom:var(--sp-4);border:1px solid var(--ok-fg);background:var(--ok-bg);color:var(--ok-fg);border-radius:var(--r-card)}.dealer-flash.err{border-color:var(--bad-line);background:var(--bad-bg);color:var(--bad)}.dealer-own-card{margin-bottom:var(--sp-3)}.dealer-own-head{display:flex;justify-content:space-between;gap:var(--sp-3)}.dealer-own-head h3{margin:0}.dealer-own-head p{margin:4px 0 0;color:var(--t3);font-size:var(--fs-label)}.dealer-own-meta{display:flex;gap:var(--sp-4);flex-wrap:wrap;margin-top:var(--sp-3);font-size:var(--fs-sec);color:var(--t2)}@media(max-width:640px){.dealer-form-grid{grid-template-columns:1fr}.dealer-own-head{align-items:flex-start}}</style>`;
   return brandShell(side, main, "Dealer portal - JDM Connect");
@@ -8546,7 +8548,7 @@ export function dealersPage(list = []) {
       <div><label for="dealer-email">Email</label><input id="dealer-email" name="email" type="email" autocomplete="email" spellcheck="false" maxlength="254" required></div>
       <div><label for="dealer-company">Company <span class="opt">(optional)</span></label><input id="dealer-company" name="company" autocomplete="organization" maxlength="120"></div>
       <div><label for="dealer-state">State <span class="opt">(optional)</span></label><input id="dealer-state" name="state" maxlength="40"></div>
-      <div class="form-actions"><button type="submit" class="btn-gold">Add &amp; invite dealer</button></div>
+      <div class="form-actions"><button type="submit" class="btn-primary">Add &amp; invite dealer</button></div>
     </form></div>
     <div class="psec"><h2>Dealer accounts <span class="ct">${list.length}</span></h2><a class="btn-outline" href="/admin?view=dealer-submissions">Review submitted stock</a></div>
     ${list.length ? `<div class="card table-card tbl-desk"><table class="sortable"><thead><tr><th>Dealer</th><th>Company</th><th>State</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcl">${cards}</div>` : `<div class="card"><div class="empty">No dealer accounts yet. Add the first dealer above.</div></div>`}
@@ -8566,7 +8568,7 @@ export function dealerSubmissionsPage(submissions = [], status = "pending") {
     <dl class="dealer-stock-meta"><div><dt>Price</dt><dd>A$${Number(v.price_aud || 0).toLocaleString("en-AU")}</dd></div>${v.mileage_km ? `<div><dt>Mileage</dt><dd>${Number(v.mileage_km).toLocaleString("en-AU")} km</dd></div>` : ""}${v.grade ? `<div><dt>Grade</dt><dd>${esc(v.grade)}</dd></div>` : ""}${v.location ? `<div><dt>Location</dt><dd>${esc(v.location)}</dd></div>` : ""}</dl>
     ${v.description ? `<p class="dealer-stock-copy">${esc(v.description)}</p>` : ""}
     ${v.admin_notes ? `<p class="reqerr"><strong>Review note:</strong> ${esc(v.admin_notes)}</p>` : ""}
-    ${v.status === "pending" ? `<div class="dealer-stock-actions"><form method="POST" action="/dealer-vehicle/approve"><input type="hidden" name="id" value="${v.id}"><button type="submit" class="btn-gold">Approve</button></form><form method="POST" action="/dealer-vehicle/reject" class="dealer-reject"><input type="hidden" name="id" value="${v.id}"><label for="dealer-note-${v.id}">Rejection note <span class="opt">(optional)</span></label><div><textarea id="dealer-note-${v.id}" name="notes" rows="2" maxlength="500"></textarea><button type="submit" class="btn-del">Reject</button></div></form></div>` : ""}
+    ${v.status === "pending" ? `<div class="dealer-stock-actions"><form method="POST" action="/dealer-vehicle/approve"><input type="hidden" name="id" value="${v.id}"><button type="submit" class="btn-primary">Approve</button></form><form method="POST" action="/dealer-vehicle/reject" class="dealer-reject"><input type="hidden" name="id" value="${v.id}"><label for="dealer-note-${v.id}">Rejection note <span class="opt">(optional)</span></label><div><textarea id="dealer-note-${v.id}" name="notes" rows="2" maxlength="500"></textarea><button type="submit" class="btn-danger">Reject</button></div></form></div>` : ""}
   </article>`).join("");
   return `<div class="psec"><div>${filters}</div><a class="btn-outline" href="/admin?view=dealers">Manage dealers</a></div>${cards || `<div class="card"><div class="empty">No ${esc(status)} dealer submissions.</div></div>`}
   <style>.dealer-tabs{margin:0}.dealer-stock-card{margin-bottom:var(--sp-4)}.dealer-stock-head{display:flex;justify-content:space-between;gap:var(--sp-4);align-items:flex-start}.dealer-stock-head h2{margin:0;font-size:var(--fs-sect)}.dealer-stock-head p{margin:4px 0 0;color:var(--t3);font-size:var(--fs-sec)}.dealer-stock-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--sp-3);margin:var(--sp-4) 0}.dealer-stock-meta div{background:var(--off);padding:var(--sp-3);border-radius:var(--r-ctl)}.dealer-stock-meta dt{font-size:var(--fs-label);color:var(--t3)}.dealer-stock-meta dd{margin:4px 0 0;font-weight:700}.dealer-stock-copy{color:var(--t2);line-height:1.6}.dealer-stock-actions{display:flex;gap:var(--sp-4);align-items:flex-end;border-top:1px solid var(--hair);padding-top:var(--sp-4)}.dealer-reject{flex:1}.dealer-reject>div{display:flex;gap:var(--sp-2)}.dealer-reject textarea{flex:1;min-width:0}@media(max-width:640px){.dealer-stock-actions,.dealer-reject>div{flex-direction:column;align-items:stretch}.dealer-stock-actions form,.dealer-stock-actions button{width:100%}}</style>`;

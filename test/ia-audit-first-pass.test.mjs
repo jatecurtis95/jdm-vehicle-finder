@@ -94,8 +94,8 @@ test("dashboard section buttons are gold only when their count is non-zero", asy
   const html = await adminPage(env, "dashboard", ADMIN);
   // Seed has no follow-ups due: that section's button must be the quiet outline.
   const attn = html.slice(html.indexOf("Who needs attention today?"), html.indexOf("Who needs attention today?") + 300);
-  assert.match(attn, /btn-line/, "zero-count section uses the outline button");
-  assert.doesNotMatch(attn, /btn-gold/, "zero-count section shows no gold");
+  assert.match(attn, /btn-secondary/, "zero-count section uses the outline button");
+  assert.doesNotMatch(attn, /btn-primary/, "zero-count section shows no gold");
 });
 
 test("a due follow-up turns its dashboard section button gold", async () => {
@@ -106,7 +106,7 @@ test("a due follow-up turns its dashboard section button gold", async () => {
   ).run();
   const html = await adminPage(env, "dashboard", ADMIN);
   const attn = html.slice(html.indexOf("Who needs attention today?"), html.indexOf("Who needs attention today?") + 300);
-  assert.match(attn, /btn-gold/, "non-zero section earns the gold button");
+  assert.match(attn, /btn-primary/, "non-zero section earns the gold button");
 });
 
 // ---- Item 9: request detail mobile order, single backlink, compact stepper --

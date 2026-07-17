@@ -94,7 +94,7 @@ test("the Matches page renders the queue rows and keeps the bulk-select contract
   assert.match(html, /class="sc-for"/, "client attribution line on the row");
   // The filter/sort/bulk JS depends on these, so the redesign must preserve them.
   assert.match(html, /class="msel"/, "per-card select checkbox");
-  assert.match(html, /class="btn-notify"/, "approve link the JS binds to");
+  assert.match(html, /class="btn-primary btn-sm"/, "approve link the JS binds to");
   assert.match(html, /data-str=/, "strength data attr for filtering");
   assert.ok(!ALL_CAPS_LABEL.test(html), "no shouty <label> text");
 });
