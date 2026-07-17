@@ -39,6 +39,7 @@ test("Auctions live search lists lots with an Add-to-client picker", async () =>
   assert.match(html, /name="client_id"/);
   assert.match(html, /<option value="5">Buyer<\/option>/, "the staff's client is pickable");
   assert.match(html, /action="\/client\/find"/);
+  assert.match(html, /class="btn-secondary btn-sm" type="submit">Add</, "card Add stays quiet - the live tab's only gold is the search submit");
 });
 
 test("Auctions Sold prices tab shows a no-data message when there are no sold records", async () => {

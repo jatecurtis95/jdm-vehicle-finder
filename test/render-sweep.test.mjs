@@ -116,6 +116,11 @@ test("every admin view, portal page and public page renders free of rename and o
   }
 });
 
+test("legacy ?view=wishlists still lands on Customers, not the dashboard fallback", async () => {
+  const html = await render("/admin?view=wishlists", adminCookie, 200);
+  assert.match(html, /<title>Customers - JDM Connect<\/title>/);
+});
+
 test("the sidebar lists the daily six; Tasks and Agents live under Dashboard and Settings", async () => {
   const html = await render("/admin?view=dashboard", adminCookie, 200);
   const nav = html.match(/<nav class="nav">[\s\S]*?<\/nav>/)[0];

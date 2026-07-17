@@ -1194,8 +1194,8 @@ export async function snoozeMatch(env, queueId, until, session = {}) {
 
 export async function adminPage(env, view = "dashboard", session = { role: "admin", id: 0 }, opts = {}) {
   const isAgent = session.role === "agent";
+  if (view === "wishlists") view = "clients"; // legacy URL: searches now live inside the client
   if (!HEADERS[view]) view = "dashboard";
-  if (view === "wishlists") view = "clients"; // searches now live inside the client
   if (["agents", "dealers", "dealer-submissions", "settings", "payments"].includes(view) && isAgent) view = "dashboard"; // admin-only areas
 
   // Launch audit: the dealer feature ships hidden until it's finished (approved
@@ -1331,15 +1331,11 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     session = { ...session, name: me ? me.name : "Agent" };
   }
 
-  const agentTotal = !isAgent ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0) : 0;
-  // Sidebar Tasks badge: open tasks that are overdue or due today, scoped.
-  const tsc = taskScope(session);
-  const taskBadge = ((await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date <= date('now') AND ${tsc.sql}`
-  ).bind(...tsc.binds).first())?.n) || 0;
+  // Tasks and Agents left the sidebar (they live under Dashboard / Settings
+  // now), so their old badge queries are gone with their nav items.
   const dealerTotal = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealers WHERE active = 1").first())?.n || 0) : 0;
   const dealerPending = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
-  const counts = { clients: clients.length, requests: wishlists.length, matches: pending.length, agents: agentTotal, dealers: dealerTotal, dealerSubmissions: dealerPending, tasks: taskBadge, dealersOn };
+  const counts = { clients: clients.length, requests: wishlists.length, matches: pending.length, dealers: dealerTotal, dealerSubmissions: dealerPending, dealersOn };
   const h = HEADERS[view];
   const primary = view === "matches"
     ? `<form method="POST" action="/run" style="display:inline" data-confirm="Run the auction search for every active customer search now? New matches on auto-notify searches are emailed or WhatsApped to clients immediately."><button type="submit" class="btn-secondary">${esc(h.btn)}</button></form>`
@@ -5001,7 +4997,6 @@ const CRM_CSS = `<style>
   .cd-lastc{margin-top:8px;font-size:var(--fs-sec);color:var(--t2)}
   .cd-lastc b{color:var(--ink);font-weight:600}
   .cd-chips{display:flex;flex-wrap:wrap;gap:8px}
-  /* cd-cta and btn-secondary alias the secondary button. */
   .cd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
   .cd-cta{text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 12px;border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--hair);color:var(--ink)}
   .cd-cta:hover{border-color:var(--field-line);background:var(--hover)}
@@ -5021,8 +5016,6 @@ const CRM_CSS = `<style>
   .cd-stat-n{font-size:20px;font-weight:700;letter-spacing:var(--ls-num);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
   .cd-stat-n.cd-stat-sm{font-size:var(--fs-body);font-weight:700}
   .cd-stat-l{font-size:var(--fs-label);color:var(--t3);margin-top:8px}
-  .btn-secondary{display:inline-flex;align-items:center;text-decoration:none;font-size:var(--fs-sec);font-weight:600;padding:8px 16px;border-radius:var(--r-ctl);background:transparent;border:1px solid var(--hair);color:var(--t2);white-space:nowrap}
-  .btn-secondary:hover{border-color:var(--field-line);color:var(--ink);background:var(--hover)}
 </style>`;
 
 // Canned outreach templates (the Pipedrive/HubSpot template library, sized for

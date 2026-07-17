@@ -642,8 +642,10 @@ export function notFoundPage() {
 // Branded single-message page (used for the email approve / skip confirmations
 // and other simple outcomes). `opts.cta` is an optional { href, label }.
 export function infoPage(title, message, opts = {}) {
+  // cta.secondary renders the link quiet, for pages whose real primary action
+  // already lives in the message body (one gold per page).
   const cta = opts.cta
-    ? `<a class="btn-primary" href="${escHtml(opts.cta.href)}">${escHtml(opts.cta.label)}</a>`
+    ? `<a class="${opts.cta.secondary ? "btn-secondary" : "btn-primary"}" href="${escHtml(opts.cta.href)}">${escHtml(opts.cta.label)}</a>`
     : `<a class="btn-secondary" href="/request">Back to JDM Connect</a>`;
   const inner = `<div class="infowrap">
     ${risingSun({ size: 460, tone: "faint" })}

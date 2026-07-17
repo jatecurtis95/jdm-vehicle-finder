@@ -65,3 +65,9 @@ test("'Search again' is renamed so search means only one thing on this page", as
   const empty = await adminPage(makeEnv(""), "matches", ADMIN);
   assert.doesNotMatch(empty, /Search again/, "empty state uses the new name too");
 });
+
+test("the empty matches queue carries one inline primary CTA that runs the search", async () => {
+  const html = await adminPage(makeEnv(""), "matches", ADMIN);
+  assert.match(html, /<form method="POST" action="\/run"[^>]*data-confirm="Run the auction search for every active customer search now\?/, "empty state posts /run with the consequence spelled out");
+  assert.match(html, /class="btn-primary"[^>]*>Run the auction search</, "the empty state's CTA is the page's gold primary");
+});

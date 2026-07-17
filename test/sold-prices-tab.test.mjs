@@ -115,6 +115,7 @@ test("Sold prices shows the averages panel AND the sold lots for one filter set"
   assert.match(html, /¥12,850,000/);
   assert.match(html, /Sold at auction/);          // lots toolbar label
   assert.match(html, /Find live/, "cards link back to the live search");
+  assert.match(html, /class="btn-secondary btn-sm ac-req"[^>]*>Find live</, "Find live stays quiet - the tab's only gold is the search submit");
   // The shell's inline scripts mention "A$" in comments; the rendered markup
   // is what must stay conversion-free.
   assert.doesNotMatch(html.replace(/<script[\s\S]*?<\/script>/g, ""), /A\$/, "the whole tab stays pure JPY");

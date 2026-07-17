@@ -425,7 +425,7 @@ export const AUCTION_CSS = `<style>
   .ac-sheet{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:8px 12px;font-size:var(--fs-sec,13px);font-weight:600;cursor:pointer}
   .ac-sheet:hover{border-color:var(--field-line);background:var(--hover,rgba(0,0,0,.04))}
   .ac-sheet.dis{opacity:.42;pointer-events:none}
-  .ac-req,.acard .btn-primary{flex:0 0 auto;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
+  .ac-req,.acard .btn-primary,.acard .btn-secondary{flex:0 0 auto;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
   .ac-picker{display:flex;gap:8px;width:100%;margin-top:2px}
   .ac-picker select{flex:1;min-width:0}
 

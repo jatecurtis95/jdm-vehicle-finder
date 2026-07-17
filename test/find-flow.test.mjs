@@ -44,6 +44,7 @@ test("the auction lot page in client context offers a one-tap add and a back-to-
   const html = await auctionLotPage(env, ADMIN, "fx-1", { clientId: 7, back });
   assert.match(html, /Add to Ben's queue/, "primary action is one tap for the context client");
   assert.match(html, /Or add to a different client\.\.\./, "the generic picker stays available");
+  assert.match(html, /class="btn-secondary" type="submit">Add</, "the fallback picker's Add steps down when the one-tap gold exists");
   assert.match(html, /Back to Ben's search/, "back points at the search, not the auctions workspace");
   assert.match(html, new RegExp(back.replace(/[?#&]/g, "\\$&")), "back href preserved verbatim");
 });
@@ -53,6 +54,7 @@ test("without client context the lot page keeps the plain picker", async () => {
   const html = await auctionLotPage(env, ADMIN, "fx-1", {});
   assert.doesNotMatch(html, /Add to Ben's queue/);
   assert.match(html, />Add to a client\.\.\.</);
+  assert.match(html, /class="btn-primary" type="submit">Add</, "without context the picker's Add is the page primary");
   assert.match(html, /Back to auctions/);
 });
 
