@@ -36,6 +36,40 @@ function gradeMix(rows) {
 
 const RECENT_COLS = "marka_name,model_name,year,grade,rate,auction_date,finish,mileage,kuzov";
 
+// Price tiers by auction condition score, so repaired (R) sales never read as
+// clean-car money: excellent (4.5, 5, 6, S), everyday clean (3 - 4) and
+// repaired (R / RA). Scores below 3, blanks and unscored lots (***) join no
+// tier. 4.5 sits in the top band deliberately - those cars hammer with the 5s.
+const TIER_DEFS = [
+  { key: "top", label: "Grade 4.5 - S" },
+  { key: "mid", label: "Grade 3 - 4" },
+  { key: "rep", label: "Grade R (repaired)" },
+];
+export function gradeTier(rate) {
+  const g = String(rate || "").trim().toUpperCase();
+  if (!g) return "";
+  if (g[0] === "R") return "rep";
+  if (g[0] === "S") return "top"; // S / SA: like-new
+  const n = parseFloat(g);
+  if (!Number.isFinite(n)) return "";
+  if (n >= 4.5) return "top";
+  if (n >= 3) return "mid";
+  return "";
+}
+// Rows are the same recent sold sample the median uses ({ finish, rate }).
+export function priceTiers(rows) {
+  const by = { top: [], mid: [], rep: [] };
+  for (const r of rows) {
+    const p = sqlInt(r.finish);
+    const t = gradeTier(r.rate);
+    if (t && p > 0) by[t].push(p);
+  }
+  return TIER_DEFS.filter((d) => by[d.key].length).map((d) => {
+    const ps = by[d.key];
+    return { key: d.key, label: d.label, count: ps.length, median: median(ps), low: Math.min(...ps), high: Math.max(...ps) };
+  });
+}
+
 // V1.3 Phase 4: rank comparables inside the matched similarity tier by
 // closeness to the subject car - a year apart counts like ~25,000 km of
 // mileage difference (typical JDM annual use). Rows arrive newest-sold-first
@@ -180,6 +214,7 @@ export async function marketIntel(env, make, model, nowMs = Date.now(), opts = {
       high: sqlInt(a.tag3) || 0,
       bars,
       gradeMix: gradeMix(raw),
+      tiers: priceTiers(raw),
       recent: rankRecent(recent.map(mapRecent), subjYear, subjKm),
     };
     _cache.set(key, { data, exp: nowMs + CACHE_TTL });
@@ -292,6 +327,13 @@ export function marketPanel(m) {
   const trendHigh = barAvgs.length ? Math.max(...barAvgs) : 0;
   const trendLabel = `Price trend over the last ${m.bars.length} weeks, low ${yen(trendLow)} to high ${yen(trendHigh)}`;
   const mix = (m.gradeMix || []).map((g) => `<span class="mktp-chip"><b>${esc(g.grade)}</b> ${g.count}</span>`).join("");
+  // Condition tiers: a repaired car's hammer price is not a clean car's. Ranges
+  // only render once a tier has 3+ sales; thinner tiers say so instead.
+  const tiers = (m.tiers || []).map((t) => `<div class="mktp-tier">
+      <span class="mktp-tier-l">${esc(t.label)}</span>
+      <span class="mktp-tier-v">${yen(t.median)}</span>
+      <span class="mktp-tier-s">${t.count === 1 ? "1 sale" : `${t.count} sales`}${t.count >= 3 ? ` &middot; ${yen(t.low)} - ${yen(t.high)}` : " &middot; small sample"}</span>
+    </div>`).join("");
   // V1.3 Phase B: each comparable row carries make, model, the auction score
   // (rate, full string), the variant grade (trim), mileage and auction date.
   const comps = (m.recent || []).map((r) => `<div class="mktp-comp">
@@ -319,6 +361,7 @@ export function marketPanel(m) {
       <div class="mktp-stat"><div class="mktp-k">Range</div><div class="mktp-v sm">${yen(m.low)} - ${yen(m.high)}</div></div>
       ${m.bars.some((b) => b.avg > 0) ? `<div class="mktp-trend"><div class="mktp-k">Price trend</div><div class="mktp-bars" role="img" aria-label="${esc(trendLabel)}">${trend}</div></div>` : ""}
     </div>
+    ${tiers ? `<div class="mktp-tiers"><div class="mktp-k">Median by condition</div><div class="mktp-tier-rows">${tiers}</div></div>` : ""}
     ${mix ? `<div class="mktp-mix"><span class="mktp-k">Grade mix</span>${mix}</div>` : ""}
     ${comps ? `<div class="mktp-comps"><div class="mktp-k" style="margin-bottom:6px">Recent comparable sales${m.similarity ? " (" + esc(m.similarity) + ")" : ""}</div>${comps}</div>` : ""}
     ${MKT_CSS}
@@ -350,6 +393,12 @@ const MKT_CSS = `<style>
   .mktp-bar.empty{background:rgba(0,0,0,.06)}
   .mktp-bar.on{background:#CAA34C}
   .mktp-fallbk{font-size:12px;color:#8a5e10;background:rgba(201,138,0,.07);border:1px solid rgba(201,138,0,.25);border-radius:8px;padding:8px 12px;margin:0 0 14px}
+  .mktp-tiers{margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,0,0,.06)}
+  .mktp-tier-rows{display:flex;flex-wrap:wrap;gap:12px 32px;margin-top:8px}
+  .mktp-tier{display:flex;flex-direction:column;gap:2px}
+  .mktp-tier-l{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6e727b}
+  .mktp-tier-v{font-size:16px;font-weight:700;color:#1b1c1e;line-height:1.2;font-variant-numeric:tabular-nums}
+  .mktp-tier-s{font-size:11.5px;color:#6e727b}
   .mktp-mix{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,0,0,.06)}
   .mktp-chip{font-size:11.5px;color:#5b606a;background:#f4f3ef;border:1px solid rgba(0,0,0,.07);border-radius:999px;padding:3px 10px}
   .mktp-chip b{color:#1b1c1e;font-weight:700}
