@@ -8,7 +8,7 @@ import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
 import worker from "../src/index.js";
-import { sessionCookie } from "../src/auth.js";
+import { sessionCookie, makeShareToken } from "../src/auth.js";
 
 const HOST = "https://jdmfinder.com.au";
 const FEED_ROW = `<row><id>L1</id><marka_name>NISSAN</marka_name><model_name>SKYLINE</model_name><year>1999</year><rate>4</rate><start>1000000</start><finish>2500000</finish><auction>USS Tokyo</auction><auction_date>2027-01-01T00:00:00</auction_date><kuzov>BNR34</kuzov><kpp>MT</kpp><priv>4WD</priv><eng_v>2600</eng_v><color>white</color><images>https://img.test/a.jpg</images></row>`;
@@ -75,7 +75,11 @@ async function render(path, cookie, want) {
 }
 
 test("every admin view, portal page and public page renders free of rename and output defects", async () => {
+  // The public share page is token-gated; mint a real token for seeded row 10
+  // so the sweep covers it like any other route.
+  const shareTok = await makeShareToken(env, 10);
   const ROUTES = [
+    [`/v?t=${encodeURIComponent(shareTok)}`, () => null, 200],
     ["/admin?view=dashboard", () => adminCookie, 200],
     ["/admin?view=requests", () => adminCookie, 200],
     ["/admin?view=requests&layout=board", () => adminCookie, 200],

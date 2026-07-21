@@ -909,6 +909,11 @@ const CSS = `
   .ld-share-row input{flex:1;min-width:0;font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink)}
   .ld-share-row .btn-secondary{padding:8px 12px;font-size:var(--fs-sec)}
   .ld-share-wa{display:block;text-align:center;width:100%}
+  .ld-share-form{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--hair)}
+  .ld-share-form label{font-size:var(--fs-label);font-weight:600;color:var(--t3)}
+  .ld-share-form label .opt{font-weight:400}
+  .ld-share-form input,.ld-share-form textarea{font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink);font-family:inherit;resize:vertical}
+  .ld-share-form .btn-primary{margin-top:4px}
 `;
 
 function initials(name) {
@@ -3346,6 +3351,40 @@ export async function setMatchResponse(env, queueId, response, session) {
   return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
 }
 
+// --- Share-link management (staff) ------------------------------------------
+// The staff-authored content on a public share page (suggested price band +
+// plain-English condition notes) and the link lifecycle. Every entry point
+// re-checks the caller can see the row's client (same gate as the lot page).
+const SHARE_PRICE_MAX = 200;
+const SHARE_NOTES_MAX = 2000;
+async function shareRowFor(env, queueId, session) {
+  const qid = Number(queueId);
+  if (!Number.isInteger(qid) || qid <= 0) return null;
+  const q = await env.DB.prepare("SELECT id, client_id FROM queue WHERE id = ?").bind(qid).first();
+  if (!q || !(await clientAccessibleBy(env, q.client_id, session))) return null;
+  return q;
+}
+export async function updateShareDetails(env, queueId, { priceNote, conditionNotes }, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  const price = String(priceNote || "").trim().slice(0, SHARE_PRICE_MAX);
+  const notes = String(conditionNotes || "").trim().slice(0, SHARE_NOTES_MAX);
+  await env.DB.prepare("UPDATE queue SET share_price_note = ?, share_condition_notes = ? WHERE id = ?")
+    .bind(price || null, notes || null, q.id).run();
+}
+export async function setShareRevoked(env, queueId, revoked, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  await env.DB.prepare(`UPDATE queue SET share_revoked_at = ${revoked ? "datetime('now')" : "NULL"} WHERE id = ?`).bind(q.id).run();
+}
+// A fresh nonce invalidates every previously issued link for this row (legacy
+// nonce-less ones included) and re-enables a revoked link in the same action.
+export async function regenerateShareLink(env, queueId, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  await env.DB.prepare("UPDATE queue SET share_nonce = ?, share_revoked_at = NULL WHERE id = ?").bind(randomToken(), q.id).run();
+}
+
 // Soft-archive / restore a customer (Phase 1 deferred item, now wired).
 export async function archiveClient(env, id, on, session) {
   const cid = Number(id);
@@ -4772,19 +4811,50 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
   // Share: a signed, view-only public link to this car (no login), with copy +
-  // WhatsApp. The token can only VIEW, never approve/skip.
+  // WhatsApp. The token can only VIEW, never approve/skip. Staff author the
+  // page's suggested price + condition notes here (notes pre-fill from the AI
+  // sheet read), and can revoke or regenerate the link per car.
   const shareTitle = `${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""}`.replace(/\s+/g, " ").trim();
-  const shareToken = await makeShareToken(env, q.id);
-  const shareBtn = shareToken ? `<details class="ld-share">
-      <summary class="btn-secondary">Share</summary>
-      <div class="ld-share-pop">
-        <div class="ld-share-h">Share with a client</div>
-        <p class="ld-share-p">A view-only link to this car. No login needed.</p>
-        <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-secondary">Copy</button></div>
-        <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-primary ld-share-wa">Share on WhatsApp</a>
-      </div>
-    </details>` : "";
-  const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
+  const shareRevoked = !!q.share_revoked_at;
+  const shareToken = shareRevoked ? null : await makeShareToken(env, q.id, q.share_nonce || null);
+  const sheetPrefill = lot._sheet
+    ? [lot._sheet.notes_en, (lot._sheet.repairs || []).length ? "Marks: " + lot._sheet.repairs.join("; ") + "." : ""].filter(Boolean).join(" ")
+    : "";
+  const shareNotesVal = String(q.share_condition_notes || sheetPrefill || "").slice(0, 2000);
+  const shareWaText = [shareTitle, q.share_price_note ? String(q.share_price_note) : ""].filter(Boolean).join(" - ");
+  const shareViews = Number(q.share_view_count) > 0
+    ? `<p class="ld-share-p" style="margin-top:8px">Opened ${q.share_view_count} time${Number(q.share_view_count) === 1 ? "" : "s"}${q.share_last_viewed_at ? " &middot; last " + esc(relTime(q.share_last_viewed_at)) : ""}</p>`
+    : "";
+  const shareLifecycle = `<div class="ld-share-row" style="margin:8px 0 0">
+        ${shareRevoked ? "" : `<form method="POST" action="/share/revoke" style="flex:1;display:flex"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}"><button class="btn-secondary" type="submit" style="flex:1">Revoke link</button></form>`}
+        <form method="POST" action="/share/regenerate" style="flex:1;display:flex"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}"><button class="btn-secondary" type="submit" style="flex:1">${shareRevoked ? "Issue a new link" : "New link"}</button></form>
+      </div>`;
+  const shareBody = shareRevoked
+    ? `<div class="ld-share-h">Link revoked</div>
+       <p class="ld-share-p">Anyone opening an old link sees an &ldquo;expired&rdquo; page. Issue a new link to share this car again.</p>
+       ${shareLifecycle}`
+    : `<div class="ld-share-h">Share with a client</div>
+       <p class="ld-share-p">A view-only link to this car. No login needed.</p>
+       <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken || "")}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-secondary">Copy</button></div>
+       <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareWaText + " - /v?t=" + encodeURIComponent(shareToken || ""))}" target="_blank" rel="noopener" class="btn-primary ld-share-wa">Share on WhatsApp</a>
+       ${shareViews}
+       <form method="POST" action="/share/details" class="ld-share-form">
+         <input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}">
+         <label for="sharePrice">Suggested price <span class="opt">(shown on the page)</span></label>
+         <input id="sharePrice" name="price_note" maxlength="200" placeholder="e.g. Suggest 16-17k landed" value="${esc(q.share_price_note || "")}">
+         <label for="shareNotes">Condition notes <span class="opt">(pre-filled from the sheet read)</span></label>
+         <textarea id="shareNotes" name="condition_notes" rows="4" maxlength="2000" placeholder="Plain-English condition summary for the client">${esc(shareNotesVal)}</textarea>
+         <button class="btn-primary" type="submit">Save to share page</button>
+       </form>
+       ${shareLifecycle}`;
+  const shareBtn = `<details class="ld-share">
+      <summary class="btn-secondary">Share${shareRevoked ? " (revoked)" : ""}</summary>
+      <div class="ld-share-pop">${shareBody}</div>
+    </details>`;
+  // JSON.stringify doesn't escape "<", so a "</script>" in the staff-entered
+  // price note could otherwise break out of this inline script.
+  const scriptJson = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+  const shareScript = shareToken ? `<script>(function(){var t=${scriptJson(shareToken)},ti=${scriptJson(shareWaText)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
 
   // Images. The inspection sheet (first image, by feed convention) goes in its
   // own box; the rest are the car-photo gallery. Shared with the cards/emails via
@@ -5708,7 +5778,7 @@ export async function requestPage(env, opts = {}) {
 // (optionally) the market panel, with an enquiry CTA. Self-contained styles so
 // it renders on the public brand shell. Access is the signed token alone, so
 // the caller must verify it before calling this.
-export async function publicLotPage(env, queueId) {
+export async function publicLotPage(env, queueId, opts = {}) {
   const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
     <nav class="nav">
       <span class="active" aria-current="page"><span class="bar"></span><span class="lbl">Vehicle</span></span>
@@ -5716,8 +5786,12 @@ export async function publicLotPage(env, queueId) {
     </nav>
     <div class="side-foot"><a class="signout" href="/">JDM Connect</a></div>
     </aside>`;
-  const q = await env.DB.prepare("SELECT lot_json FROM queue WHERE id = ?").bind(queueId).first();
-  if (!q) {
+  const q = await env.DB.prepare(
+    "SELECT id, lot_json, response, share_price_note, share_condition_notes, share_nonce, share_revoked_at FROM queue WHERE id = ?"
+  ).bind(queueId).first();
+  // A revoked link renders exactly like an unknown one (defence in depth - the
+  // route's token check already refuses revoked rows before we get here).
+  if (!q || q.share_revoked_at) {
     return brandShell(sb,
       `<div class="topbar"><div class="topbar-in"><div class="kicker">Vehicle Finder</div><h1>Car not found</h1></div></div>
        <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you&rsquo;re after</a> and we&rsquo;ll source it for you.</div></div></div>`,
@@ -5725,6 +5799,23 @@ export async function publicLotPage(env, queueId) {
   }
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  // Heal the cached image set from the live feed (upcoming lots usually gain
+  // their inspection sheet closer to sale day), same as the staff lot page, so
+  // a link shared early still shows the full gallery + sheet later. Only worth
+  // an outbound feed call when something is actually missing - a complete lot
+  // (sheet + photos) never triggers a fetch, so a repeatedly-opened link doesn't
+  // amplify feed traffic. opts.skipRefresh hard-disables it when the caller is
+  // over its per-IP view budget.
+  const pre = splitImages(lot);
+  if (!opts.skipRefresh && (!pre.sheet || !pre.photos.length)) {
+    if (await refreshLotImages(env, lot)) {
+      // Persist ONLY the healed images field with json_set, never the whole
+      // blob: the AI sheet reader writes lot_json._sheet on its own schedule,
+      // and a full-blob overwrite from this public path could clobber a read
+      // that landed between our SELECT and this UPDATE.
+      try { await env.DB.prepare("UPDATE queue SET lot_json = json_set(lot_json, '$.images', ?) WHERE id = ?").bind(String(lot.images || ""), q.id).run(); } catch (e) {}
+    }
+  }
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const [market, fx] = settingOn(settings, "market_for_clients")
@@ -5732,54 +5823,276 @@ export async function publicLotPage(env, queueId) {
     : [null, 0];
 
   const title = `${esc(lot.year || "")} ${esc(lot.marka_name || "")} ${esc(lot.model_name || "")}`.replace(/\s+/g, " ").trim() || "Vehicle";
-  const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
-  const th = (u) => `${u}&w=320`;
-  const gallery = photos.length
-    ? `<div class="plv-hero" id="plvHero" role="img" aria-label="${title}" style="background-image:url('${esc(photos[0])}')"></div>
-       ${photos.length > 1 ? `<div class="plv-thumbs">${photos.map((u, i) => `<button type="button" class="plv-th${i === 0 ? " on" : ""}" data-full="${esc(u)}" style="background-image:url('${esc(th(u))}')" aria-label="Photo ${i + 1}"></button>`).join("")}</div>` : ""}`
-    : `<div class="plv-hero plv-noimg">Photos coming soon</div>`;
-  const sheetBox = sheetBase
-    ? `<div class="card plv-sheet"><h2>Auction inspection sheet</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
-    : "";
+  const subBits = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean);
+  const sub = subBits.join(" &middot; ");
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const cs = conditionScores(lot);
+  const grade = esc(fullGrade(lot));
+  const th = (u) => `${u}&w=320`;
+
+  // Dynamic gallery: a real <img> lead (good LCP), a thumbnail strip, and a
+  // full-screen lightbox with swipe + arrow-key + prev/next navigation. Falls
+  // back to a static first image if JS never runs.
+  const gallery = photos.length
+    ? `<div class="clv-gallery" id="clvG">
+        <div class="clv-stage">
+          <img id="clvMain" class="clv-main" src="${esc(photos[0])}" alt="${title}" fetchpriority="high" decoding="async">
+          ${photos.length > 1 ? `<button type="button" class="clv-nav clv-prev" data-dir="-1" aria-label="Previous photo">&lsaquo;</button>
+          <button type="button" class="clv-nav clv-next" data-dir="1" aria-label="Next photo">&rsaquo;</button>
+          <span class="clv-count"><span id="clvIdx">1</span> / ${photos.length}</span>` : ""}
+          <button type="button" class="clv-zoom" id="clvZoom" aria-label="View full screen">${EXPAND_ICON}</button>
+        </div>
+        ${photos.length > 1 ? `<div class="clv-strip" role="listbox" aria-label="Photos">${photos.map((u, i) => `<button type="button" role="option" class="clv-th${i === 0 ? " on" : ""}" data-i="${i}" data-full="${esc(u)}" aria-label="Photo ${i + 1}"${i === 0 ? ' aria-selected="true"' : ""}><img src="${esc(th(u))}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div>` : ""}
+      </div>`
+    : `<div class="clv-gallery"><div class="clv-noimg">Photos coming soon</div></div>`;
+
+  const sheetBox = sheetBase
+    ? `<section class="clv-card clv-sheet"><h2>Auction inspection sheet</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener noreferrer" class="clv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy" decoding="async"><span class="clv-sheet-open">${EXPAND_ICON} Open full</span></a><p class="clv-fine">The original Japanese auction house grading, exactly as issued.</p></section>`
+    : "";
+
+  // Bento key-facts: the four numbers a buyer scans first, big and glanceable.
+  const tiles = [
+    ["Year", esc(lot.year || "") || "&mdash;"],
+    ["Odometer", kmTxt ? esc(String(Math.round(Number(lot.mileage) / 1000)) + "k km") : "&mdash;"],
+    ["Auction grade", grade || "&mdash;"],
+    ["Transmission", esc(lot.kpp || lot.kpp_type || "") || "&mdash;"],
+  ].map(([k, v]) => `<div class="clv-tile"><div class="clv-tile-v">${v}</div><div class="clv-tile-k">${k}</div></div>`).join("");
+
   const specRows = [
-    ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
-    ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
+    ["Chassis", esc(lot.kuzov || "")], ["Grade / trim", esc(lot.grade || "")],
+    ["Exterior", cs && cs.ext ? esc(cs.ext) : ""], ["Interior", cs && cs.int ? esc(cs.int) : ""],
+    ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""], ["Mileage", esc(kmTxt)],
+    ["Colour", esc(lot.color || "")], ["Drivetrain", esc(lot.priv || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
     ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
-  ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
+  ].filter(([, v]) => v).map(([k, v]) => `<div class="clv-row"><span class="clv-k">${k}</span><span class="clv-v">${v}</span></div>`).join("");
 
-  const main = `
-    <div class="topbar"><div class="topbar-in"><div class="kicker">JDM Connect &middot; Auction vehicle</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div></div>
-    <div class="content">
-      <div class="plv-grid">
-        <div class="plv-left">
-          <div class="plv-gallery">${gallery}</div>
+  // Staff-authored guidance: the price band + condition notes that used to be
+  // hand-typed into WhatsApp next to the link now live ON the page.
+  const priceNote = String(q.share_price_note || "").trim();
+  const priceBox = priceNote
+    ? `<div class="clv-price"><span class="clv-price-k">Our price guidance</span><span class="clv-price-v">${esc(priceNote)}</span></div>`
+    : "";
+  const condNotes = String(q.share_condition_notes || "").trim();
+  const notesBox = condNotes
+    ? `<section class="clv-card clv-notes"><h2>Condition notes</h2>${condNotes.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join("")}<p class="clv-fine">Written by JDM Connect from the auction inspection sheet.</p></section>`
+    : "";
+
+  // "I'm interested" one-tap. The share token itself is the capability - the
+  // POST re-verifies it, so the form never exposes the raw queue id.
+  const interested = q.response === "interested" || !!opts.thanks;
+  const shareTok = await makeShareToken(env, q.id, q.share_nonce || null);
+  const enquireHref = esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString());
+  const interestForm = (cls) => interested
+    ? `<div class="clv-thanks">&#10003; JDM Connect knows you&rsquo;re interested</div>`
+    : shareTok
+      ? `<form method="POST" action="/v/interest" class="${cls}"><input type="hidden" name="t" value="${esc(shareTok)}"><button class="btn-secondary" type="submit">I&rsquo;m interested</button></form>`
+      : "";
+  // Primary actions, rendered twice: in the desktop info rail, and in the
+  // mobile sticky bar (CSS shows exactly one set per breakpoint).
+  const ctaBlock = (ctx) => `<a class="btn-primary clv-enquire" href="${enquireHref}">Enquire about this car</a>${interestForm("clv-int-" + ctx)}`;
+
+  const gradeBadge = grade ? `<span class="clv-badge" title="Auction grade">Grade ${grade}</span>` : "";
+  const importLine = `<div class="clv-trust">${SHIELD_ICON}<span>Sourced &amp; imported to Australia by JDM Connect &mdash; we handle bidding, purchase, shipping and compliance.</span></div>`;
+
+  const nav = `<header class="clv-top"><div class="clv-top-in"><a class="clv-logo" href="/" aria-label="JDM Connect home">${LOGO}</a><nav class="clv-topnav" aria-label="Primary"><span class="clv-cur" aria-current="page">Vehicle</span><a href="/request">Request a car</a></nav></div></header>`;
+
+  const inner = `<div class="clv-page">${nav}
+    <main id="main" class="clv-wrap">
+      ${opts.thanks ? `<div class="clv-flash" role="status">Thanks &mdash; we&rsquo;ve let JDM Connect know you&rsquo;re interested. We&rsquo;ll be in touch shortly.</div>` : ""}
+      <div class="clv-head">
+        <div class="clv-head-l"><div class="clv-kicker">JDM Connect &middot; Auction vehicle</div><h1 class="clv-title">${title}</h1>${sub ? `<p class="clv-sub">${sub}</p>` : ""}</div>
+        ${gradeBadge}
+      </div>
+      <div class="plv-grid clv-grid">
+        <div class="clv-left">
+          ${gallery}
+          <div class="clv-tiles">${tiles}</div>
+          ${notesBox}
           ${sheetBox}
           ${marketPanel(market)}
+          ${importLine}
         </div>
-        <aside class="plv-right">
-          <div class="card plv-spec">
-            <div class="plv-rows">${specRows}</div>
-            <a class="btn-primary plv-cta" href="${esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString())}">Enquire about this car</a>
-            <p class="plv-fine">Price shown is the Japanese auction price. Ask us for a full landed cost to your state.</p>
+        <aside class="clv-right">
+          <div class="clv-card clv-info">
+            ${priceBox}
+            <div class="clv-rows">${specRows}</div>
+            <div class="clv-cta">${ctaBlock("d")}</div>
+            <p class="clv-fine">Start price shown is the Japanese auction price. Ask us for a full landed cost to your state &mdash; on-road, all-in.</p>
           </div>
         </aside>
       </div>
-    </div>
-    ${PLV_STYLE}${plvGalleryScript()}`;
-  // Shared links unfurl with the actual car (launch audit: social meta).
-  return brandShell(sb, main, title + " - JDM Connect", {
-    description: [`${title} at Japanese auction`, lot.kuzov ? `chassis ${lot.kuzov}` : "", lot.auction ? `via ${lot.auction}` : ""].filter(Boolean).join(", ") + ". Sourced and imported to Australia by JDM Connect.",
+    </main>
+    <footer class="clv-foot"><div class="clv-foot-in"><div>${LOGO}</div><nav class="clv-foot-nav" aria-label="Footer"><a href="/request">Request a car</a><a href="/finds">Recent finds</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav><p class="clv-foot-fine">&copy; JDM Connect. Japanese vehicle sourcing &amp; import to Australia.</p></div></footer>
+    <div class="clv-bar" aria-hidden="false">${ctaBlock("m")}</div></div>
+    ${CLV_STYLE}${clvGalleryScript()}`;
+
+  // Shared links unfurl with the actual car (launch audit: social meta). Grade,
+  // mileage and the staff price guidance ride along, so a WhatsApp / LINE
+  // preview already answers "what is it, how good, how much".
+  const ogBits = [grade ? `Grade ${grade}` : "", kmTxt].filter(Boolean).join(" — ");
+  return brandDoc(inner, title + (ogBits ? " — " + ogBits : "") + " - JDM Connect", {
+    analytics: true,
+    description: [
+      priceNote,
+      [`${title} at Japanese auction`, lot.kuzov ? `chassis ${lot.kuzov}` : "", lot.auction ? `via ${lot.auction}` : ""].filter(Boolean).join(", ") + ".",
+      "Sourced and imported to Australia by JDM Connect.",
+    ].filter(Boolean).join(" "),
     ogImage: photos[0] || undefined,
   });
 }
 
-function plvGalleryScript() {
-  return `<script>(function(){var hero=document.getElementById('plvHero');if(!hero)return;document.querySelectorAll('.plv-th').forEach(function(b){b.addEventListener('click',function(){hero.style.backgroundImage="url('"+b.getAttribute('data-full')+"')";document.querySelectorAll('.plv-th').forEach(function(x){x.classList.remove('on');});b.classList.add('on');});});})();</script>`;
+// Dynamic gallery for the client share page: thumb/arrow/keyboard/swipe photo
+// switching plus a full-screen lightbox. Dependency-free; if it never runs the
+// server-rendered lead image and thumbnail links still show every photo.
+function clvGalleryScript() {
+  return `<script>(function(){
+  var g=document.getElementById('clvG');if(!g)return;
+  var main=document.getElementById('clvMain'),idxEl=document.getElementById('clvIdx');
+  var ths=[].slice.call(g.querySelectorAll('.clv-th'));
+  var urls=ths.map(function(b){return b.getAttribute('data-full');});
+  if(!urls.length&&main)urls=[main.getAttribute('src')];
+  var i=0;
+  function show(n){if(!urls.length)return;i=(n+urls.length)%urls.length;if(main)main.src=urls[i];if(idxEl)idxEl.textContent=(i+1);ths.forEach(function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-selected',k===i?'true':'false');});if(lbImg)lbImg.src=urls[i];}
+  ths.forEach(function(b){b.addEventListener('click',function(){show(+b.getAttribute('data-i'));});});
+  g.querySelectorAll('.clv-nav').forEach(function(b){b.addEventListener('click',function(){show(i+ +b.getAttribute('data-dir'));});});
+  // Lightbox
+  var lb=document.createElement('div');lb.className='clv-lb';lb.setAttribute('role','dialog');lb.setAttribute('aria-modal','true');lb.setAttribute('aria-label','Photo viewer');
+  lb.innerHTML='<button class="clv-lb-x" aria-label="Close">&times;</button><button class="clv-lb-nav clv-lb-prev" aria-label="Previous">&lsaquo;</button><img class="clv-lb-img" alt=""><button class="clv-lb-nav clv-lb-next" aria-label="Next">&rsaquo;</button>';
+  document.body.appendChild(lb);
+  var lbImg=lb.querySelector('.clv-lb-img');
+  function open(){if(!urls.length)return;lbImg.src=urls[i];lb.classList.add('on');document.body.style.overflow='hidden';}
+  function close(){lb.classList.remove('on');document.body.style.overflow='';}
+  var zoom=document.getElementById('clvZoom');if(zoom)zoom.addEventListener('click',open);
+  if(main)main.addEventListener('click',open);
+  lb.querySelector('.clv-lb-x').addEventListener('click',close);
+  lb.addEventListener('click',function(e){if(e.target===lb)close();});
+  lb.querySelector('.clv-lb-prev').addEventListener('click',function(){show(i-1);});
+  lb.querySelector('.clv-lb-next').addEventListener('click',function(){show(i+1);});
+  document.addEventListener('keydown',function(e){if(!lb.classList.contains('on'))return;if(e.key==='Escape')close();else if(e.key==='ArrowLeft')show(i-1);else if(e.key==='ArrowRight')show(i+1);});
+  // Swipe (stage + lightbox)
+  function swipe(el){var x=0,active=false;el.addEventListener('touchstart',function(e){x=e.touches[0].clientX;active=true;},{passive:true});el.addEventListener('touchend',function(e){if(!active)return;active=false;var dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>40)show(i+(dx<0?1:-1));});}
+  swipe(g.querySelector('.clv-stage'));swipe(lb);
+  })();</script>`;
 }
+
+const EXPAND_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`;
+const SHIELD_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`;
+
+// Client-facing share page styles (light-luxury listing). Scoped to .clv-* so
+// it is fully independent of the staff PLV_STYLE it replaced. The whole surface
+// re-defines the theme tokens to a warm-white palette on .clv-page, so every
+// var(--ink)/(--card)/(--hair) below resolves light without touching the dark
+// :root the rest of the app uses.
+const CLV_STYLE = `<style>
+  body{background:#f2f0ea}
+  .clv-page{
+    --ink:#1c1a15;--t2:#514d45;--t3:#6f6a60;--faint:#938d81;
+    --bg:#f2f0ea;--bg-2:#ffffff;--card:#ffffff;--off:#eae6dd;
+    --hair:rgba(28,24,14,0.11);--hair-2:rgba(28,24,14,0.06);
+    --field:#fbfaf7;--field-line:rgba(28,24,14,0.16);
+    --gold:#C39A3D;--gold-hover:#B08A31;--gold-txt:#7a5e1c;
+    --gold-tint:rgba(195,154,61,0.13);--gold-line:rgba(195,154,61,0.36);
+    --good-bg:#e7f4ec;--good-line:rgba(31,122,77,0.32);
+    --shadow-card:0 1px 2px rgba(28,24,14,.05),0 10px 30px rgba(28,24,14,.07);
+    background:var(--bg);min-height:100vh;color:var(--ink)}
+  /* Logo art defaults to black fill; on this light ground tint it to ink. */
+  .clv-logo svg path,.clv-logo svg polygon,.clv-foot-in svg path,.clv-foot-in svg polygon{fill:var(--ink)}
+  /* Secondary button needs a solid light face here (its dark-theme base is a
+     near-transparent white that vanishes on white). */
+  .clv-page .btn-secondary{background:#fff;border:1px solid var(--hair);color:var(--ink)}
+  .clv-page .btn-secondary:hover{background:#faf8f3;border-color:var(--gold-line)}
+  .clv-card,.clv-tile{box-shadow:var(--shadow-card)}
+  .clv-top{position:sticky;top:0;z-index:40;background:rgba(250,248,243,.82);backdrop-filter:saturate(140%) blur(12px);border-bottom:1px solid var(--hair)}
+  .clv-top-in{max-width:1180px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .clv-logo svg{width:150px}
+  .clv-topnav{display:flex;align-items:center;gap:20px;font-size:14px;font-weight:600}
+  .clv-cur{color:var(--gold-txt)}
+  .clv-topnav a{color:var(--t2);text-decoration:none;transition:color .15s}
+  .clv-topnav a:hover{color:var(--ink)}
+  .clv-wrap{max-width:1180px;margin:0 auto;padding:24px 20px 40px}
+  .clv-flash{display:flex;gap:10px;margin-bottom:20px;padding:14px 18px;background:var(--good-bg);border:1px solid var(--good-line);border-radius:12px;color:var(--ink);font-size:14px;font-weight:500}
+  .clv-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
+  .clv-kicker{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-txt);margin-bottom:8px}
+  .clv-title{font-size:clamp(26px,3.4vw,42px);font-weight:800;line-height:1.05;letter-spacing:-.02em;color:var(--ink);margin:0}
+  .clv-sub{margin:8px 0 0;color:var(--t3);font-size:14px}
+  .clv-badge{flex:none;align-self:center;display:inline-flex;align-items:center;padding:8px 16px;border-radius:999px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);font-weight:700;font-size:15px;white-space:nowrap}
+  .clv-grid{display:grid;grid-template-columns:1fr;gap:24px}
+  @media(min-width:920px){.clv-grid{grid-template-columns:minmax(0,1fr) 380px;align-items:start}}
+  .clv-left{min-width:0;display:flex;flex-direction:column;gap:20px}
+  .clv-gallery{display:flex;flex-direction:column;gap:10px}
+  .clv-stage{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--hair);background:var(--off);aspect-ratio:4/3}
+  .clv-main{display:block;width:100%;height:100%;object-fit:cover;cursor:zoom-in}
+  .clv-noimg{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;border-radius:16px;border:1px solid var(--hair);background:var(--off);color:var(--faint);font-size:14px}
+  .clv-nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(10,12,15,.55);color:#fff;font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;backdrop-filter:blur(4px)}
+  .clv-nav:hover{background:rgba(10,12,15,.8)}
+  .clv-prev{left:12px}.clv-next{right:12px}
+  .clv-count{position:absolute;left:14px;bottom:12px;padding:5px 11px;border-radius:999px;background:rgba(10,12,15,.6);color:#fff;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;backdrop-filter:blur(4px)}
+  .clv-zoom{position:absolute;right:12px;bottom:12px;width:38px;height:38px;border-radius:10px;border:0;background:rgba(10,12,15,.6);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);transition:background .15s}
+  .clv-zoom:hover{background:rgba(10,12,15,.85)}
+  .clv-strip{display:grid;grid-auto-flow:column;grid-auto-columns:88px;gap:8px;overflow-x:auto;scrollbar-width:thin;padding-bottom:4px;scroll-snap-type:x proximity}
+  .clv-th{scroll-snap-align:start;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:var(--off);cursor:pointer;aspect-ratio:4/3;opacity:.62;transition:opacity .15s,border-color .15s}
+  .clv-th img{width:100%;height:100%;object-fit:cover;display:block}
+  .clv-th:hover{opacity:1}
+  .clv-th.on{opacity:1;border-color:var(--gold)}
+  .clv-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:560px){.clv-tiles{grid-template-columns:repeat(2,1fr)}}
+  .clv-tile{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:16px 14px;text-align:center}
+  .clv-tile-v{font-size:clamp(18px,2.2vw,24px);font-weight:800;color:var(--ink);letter-spacing:-.01em;line-height:1.1}
+  .clv-tile-k{margin-top:6px;font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .clv-card{background:var(--card);border:1px solid var(--hair);border-radius:16px;padding:22px}
+  .clv-card h2{font-size:16px;font-weight:700;color:var(--ink);margin:0 0 14px}
+  .clv-notes p{font-size:15px;line-height:1.65;color:var(--t2);margin:0 0 12px}
+  .clv-notes p:last-of-type{margin-bottom:0}
+  .clv-fine{font-size:12.5px;color:var(--faint);line-height:1.5;margin:8px 0 0}
+  .clv-sheet-link{display:block;position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--hair);background:var(--off);line-height:0}
+  .clv-sheet-link img{width:100%;height:auto;display:block}
+  .clv-sheet-open{position:absolute;right:12px;bottom:12px;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;background:rgba(10,12,15,.7);color:#fff;font-size:12.5px;font-weight:600;backdrop-filter:blur(4px)}
+  .clv-trust{display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:14px;background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--gold-txt);font-size:13.5px;line-height:1.5;font-weight:500}
+  .clv-trust svg{flex:none}
+  .clv-right{min-width:0}
+  @media(min-width:920px){.clv-right{position:sticky;top:80px}}
+  .clv-info{padding:20px}
+  .clv-price{display:flex;flex-direction:column;gap:4px;background:linear-gradient(135deg,var(--gold-tint),transparent);border:1px solid var(--gold-line);border-radius:12px;padding:14px 16px;margin-bottom:18px}
+  .clv-price-k{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold-txt)}
+  .clv-price-v{font-size:19px;font-weight:800;color:var(--gold-txt);line-height:1.25}
+  .clv-rows{display:flex;flex-direction:column}
+  .clv-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--hair-2);font-size:14px}
+  .clv-row:last-child{border-bottom:0}
+  .clv-k{color:var(--t3)}
+  .clv-v{font-weight:700;color:var(--ink);text-align:right}
+  .clv-cta{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+  .clv-cta .btn-primary,.clv-cta .btn-secondary,.clv-cta form{width:100%}
+  .clv-cta form{display:flex}
+  .clv-cta .btn-secondary{width:100%;justify-content:center}
+  .clv-enquire{justify-content:center}
+  .clv-thanks{margin-top:4px;padding:12px 14px;border-radius:10px;background:var(--good-bg);border:1px solid var(--good-line);color:var(--ink);font-size:13.5px;font-weight:600;text-align:center}
+  .clv-foot{border-top:1px solid var(--hair);margin-top:16px}
+  .clv-foot-in{max-width:1180px;margin:0 auto;padding:32px 20px calc(32px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px}
+  .clv-foot-in svg{width:140px;opacity:.85}
+  .clv-foot-nav{display:flex;flex-wrap:wrap;gap:18px;font-size:13.5px}
+  .clv-foot-nav a{color:var(--t3);text-decoration:none}
+  .clv-foot-nav a:hover{color:var(--ink)}
+  .clv-foot-fine{font-size:12.5px;color:var(--faint);margin:0}
+  .clv-bar{display:none}
+  @media(max-width:919px){
+    .clv-cta{display:none}
+    .clv-bar{display:flex;gap:10px;position:fixed;left:0;right:0;bottom:0;z-index:45;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--hair);box-shadow:0 -6px 24px rgba(28,24,14,.08)}
+    .clv-bar .btn-primary{flex:1;justify-content:center}
+    .clv-bar form{flex:1;display:flex}
+    .clv-bar .btn-secondary{flex:1;justify-content:center}
+    .clv-wrap{padding-bottom:96px}
+  }
+  .clv-lb{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(5,6,8,.94);padding:20px}
+  .clv-lb.on{display:flex}
+  .clv-lb-img{max-width:96vw;max-height:90vh;object-fit:contain;border-radius:8px}
+  .clv-lb-x{position:absolute;top:16px;right:18px;width:44px;height:44px;border:0;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:28px;line-height:1;cursor:pointer}
+  .clv-lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border:0;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:32px;line-height:1;cursor:pointer}
+  .clv-lb-prev{left:18px}.clv-lb-next{right:18px}
+  .clv-lb-x:hover,.clv-lb-nav:hover{background:rgba(255,255,255,.22)}
+  @media(prefers-reduced-motion:reduce){.clv-nav,.clv-zoom,.clv-topnav a{transition:none}}
+</style>`;
 
 // Full detail page for a single LIVE-feed auction lot, reached by clicking a
 // card on the staff Auctions workspace or the member Auction search. Reuses the
@@ -5957,6 +6270,12 @@ const ALOT_CSS = `<style>
   .plv-watch.on{border-color:var(--field-line);color:var(--ink)}
   .plv-fine{font-size:var(--fs-label);color:var(--t3);margin:2px 0 0;line-height:1.45}
 </style>`;
+
+// Simple thumb-swap gallery for the staff/member lot page (auctionLotPage). The
+// client share page has its own richer clvGalleryScript.
+function plvGalleryScript() {
+  return `<script>(function(){var hero=document.getElementById('plvHero');if(!hero)return;document.querySelectorAll('.plv-th').forEach(function(b){b.addEventListener('click',function(){hero.style.backgroundImage="url('"+b.getAttribute('data-full')+"')";document.querySelectorAll('.plv-th').forEach(function(x){x.classList.remove('on');});b.classList.add('on');});});})();</script>`;
+}
 
 const PLV_STYLE = `<style>
   .plv-grid{display:grid;grid-template-columns:1fr;gap:var(--gap-grid,20px)}
@@ -7990,6 +8309,7 @@ function clientCarCard(q, opts = {}) {
     ${mktAvg}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(q.wlabel || "Your search")}</div></div>
+      ${q._href ? `<button type="button" class="btn-tertiary btn-sm mshare" data-href="${esc(q._href)}" data-title="${esc(title)}">Share</button>` : ""}
       ${payBtn}${action}
     </div>
   </div>`;
@@ -8052,12 +8372,18 @@ export async function portalPage(env, session, opts = {}) {
 
   // V1.3 Phase C: every match card links through to the read-only listing
   // detail (the same signed view-only page the Share button produces), so a
-  // buyer can open the full gallery and specs from their garage.
+  // buyer can open the full gallery and specs from their garage. A revoked
+  // share link gets no href at all (the card still renders, just not linked).
   for (const q of cars) {
-    try { q._href = `/v?t=${await makeShareToken(env, q.id)}`; } catch (e) { /* card still renders */ }
+    if (q.share_revoked_at) continue;
+    try { q._href = `/v?t=${await makeShareToken(env, q.id, q.share_nonce || null)}`; } catch (e) { /* card still renders */ }
   }
+  // Members can pass their matched car around (partner, mate, group chat) with
+  // the same view-only link staff share: native share sheet where available,
+  // clipboard copy otherwise.
+  const memberShareScript = `<script>(function(){document.querySelectorAll('.mshare').forEach(function(b){b.addEventListener('click',function(){var url=location.origin+b.getAttribute('data-href');var title=b.getAttribute('data-title')||'Vehicle';if(navigator.share){navigator.share({title:title,text:title,url:url}).catch(function(){});}else if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){var t=b.textContent;b.textContent='Link copied';setTimeout(function(){b.textContent=t;},1500);});}});});})();</script>`;
   const carsBody = cars.length
-    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>`
+    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>${memberShareScript}`
     : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
 
   const wlBody = wls.length
