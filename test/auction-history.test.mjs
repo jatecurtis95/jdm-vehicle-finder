@@ -115,6 +115,92 @@ test("all thirteen filters map to their stats columns", () => {
   assert.ok(w.includes(`year <= ${2026 - 26}`), "eligible = 26+ years old, boundary year excluded");
 });
 
+// --- V1.4 filters: year, chassis code, auction grade, price, mileage floor,
+// --- variant keyword ---------------------------------------------------------
+
+test("year, mileage and price ranges are bounded and swap when inverted", () => {
+  const p = validateHistoryParams({ yearMin: "2005", yearMax: "1998", mileageMin: "90000", mileageMax: "40000", priceMin: "5000000", priceMax: "1000000" });
+  assert.equal(p.yearMin, 1998);
+  assert.equal(p.yearMax, 2005);
+  assert.equal(p.mileageMin, 40000);
+  assert.equal(p.mileageMax, 90000);
+  assert.equal(p.priceMin, 1000000);
+  assert.equal(p.priceMax, 5000000);
+  const junk = validateHistoryParams({ yearMin: "1800", yearMax: "3000", mileageMin: "0", priceMin: "-5", priceMax: "chicken" });
+  assert.equal(junk.yearMin, null);
+  assert.equal(junk.yearMax, null);
+  assert.equal(junk.mileageMin, null);
+  assert.equal(junk.priceMin, null);
+  assert.equal(junk.priceMax, null);
+});
+
+test("auction grade accepts only whitelisted scores, from string or repeats", () => {
+  assert.equal(validateHistoryParams({ rates: "4,4.5,evil,;DROP" }).rates, "4,4.5");
+  assert.equal(validateHistoryParams({ rates: ["4.5", "R", "junk"] }).rates, "4.5,r");
+  assert.equal(validateHistoryParams({ rates: "RA" }).rates, "ra");
+  assert.equal(validateHistoryParams({ rates: "4.5,4.5,4" }).rates, "4,4.5", "deduped and canonical order");
+  assert.equal(validateHistoryParams({}).rates, "");
+});
+
+test("the new filters map to their stats columns", () => {
+  const p = validateHistoryParams({
+    yearMin: "1995", yearMax: "2002", kuzov: "BNR34", rates: "4.5,r",
+    mileageMin: "20000", priceMin: "1000000", priceMax: "15000000", variant: "V-SPEC",
+  });
+  const w = buildHistoryWhere(p).join(" AND ");
+  assert.match(w, /year >= 1995/);
+  assert.match(w, /\(year > 0 AND year <= 2002\)/, "unknown build years excluded under a ceiling");
+  assert.match(w, /UPPER\(kuzov\) LIKE '%BNR34%'/);
+  assert.match(w, /UPPER\(rate\) IN \('4\.5', 'R'\)/);
+  assert.match(w, /mileage >= 20000/);
+  assert.match(w, /finish >= 1000000/);
+  assert.match(w, /finish <= 15000000/);
+  assert.match(w, /UPPER\(grade\) LIKE '%V-SPEC%'/);
+});
+
+test("hostile chassis-code and variant values stay inside the SQL literal", () => {
+  const p = validateHistoryParams({ kuzov: "BNR'; DROP--", variant: "GT'R; --" });
+  const w = buildHistoryWhere(p).join(" AND ");
+  assert.ok(!w.includes(";"), "no statement separator survives");
+  assert.ok(!w.includes("--"), "no SQL comment survives");
+  assert.match(w, /BNR''/);
+  assert.match(w, /GT''R/);
+});
+
+test("the form exposes the new filters and the grade multi-select", async () => {
+  stubFeed();
+  const html = await auctionHistoryPage(env(), MEMBER, {});
+  for (const name of ["yearMin", "yearMax", "kuzov", "mileageMin", "priceMin", "priceMax", "variant"]) {
+    assert.match(html, new RegExp(`name="${name}"`), `${name} filter is available`);
+  }
+  assert.match(html, /type="checkbox" name="rates" value="4\.5"/, "grade scores are multi-select");
+  assert.match(html, /type="checkbox" name="rates" value="ra"/i);
+});
+
+test("the new filters render as removable chips", async () => {
+  stubFeed();
+  const html = await auctionHistoryPage(env(), MEMBER, {
+    yearMin: "1995", yearMax: "2002", kuzov: "BNR34", rates: "4.5,r", priceMax: "15000000", variant: "V-SPEC",
+  });
+  assert.match(html, /aria-label="Remove From 1995 filter"/);
+  assert.match(html, /aria-label="Remove To 2002 filter"/);
+  assert.match(html, /aria-label="Remove BNR34 filter"/);
+  assert.match(html, /aria-label="Remove Grade 4.5, R filter"/);
+  assert.match(html, /aria-label="Remove Under ¥15,000,000 filter"/);
+  assert.match(html, /aria-label="Remove &quot;V-SPEC&quot; filter"/);
+});
+
+test("repeated rates params survive the member route", async () => {
+  const e = env();
+  const seen = stubFeed();
+  const cookie = (await sessionCookie(e, "client", 1)).split(";")[0];
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/portal/history?rates=4.5&rates=r", {
+    headers: { Cookie: cookie },
+  }), e, {});
+  assert.equal(res.status, 200);
+  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('4\.5', 'R'\)/.test(s)), "both scores reach the query");
+});
+
 test("petrol means none of the listed fuel keywords; 2WD means not-4WD or blank", () => {
   const w = buildHistoryWhere(validateHistoryParams({ fuel: "petrol", drivetrain: "2wd" })).join(" AND ");
   assert.match(w, /UPPER\(grade\) NOT LIKE '%DIESEL%'/);
@@ -389,4 +475,65 @@ test("the staff history tab needs no membership and other tabs are unchanged", a
   assert.doesNotMatch(html, /members feature/i);
   const live = await adminAuctionsPage(env(), { role: "admin", id: 0 }, {});
   assert.match(live, /Search live Japanese auctions/, "the live tab still renders its own search header");
+});
+
+// --- Dealer surface (V1.4: /dealer/history in the dealer portal) -------------
+
+function dealerEnv() {
+  const e = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active)
+    VALUES (9, 'd@x', 'Dealer Dan', 'Dan Motors', 's', 'h', 1);`);
+  e.API_BASE = "http://feed/api";
+  e.AVTONET_CODE = "c";
+  e.ADMIN_TOKEN = "unit-test-signing-key";
+  return e;
+}
+
+test("dealers reach Auction history at /dealer/history with filters applied", async () => {
+  const e = dealerEnv();
+  const seen = stubFeed();
+  const cookie = (await sessionCookie(e, "dealer", 9)).split(";")[0];
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/dealer/history?make=NISSAN&rates=4.5&rates=r", {
+    headers: { Cookie: cookie },
+  }), e, {});
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /<h1>Auction history<\/h1>/);
+  assert.match(html, /1999 Nissan Skyline/);
+  assert.match(html, /¥12,850,000/);
+  assert.ok(statsSql(seen).some((s) => /UPPER\(marka_name\) LIKE '%NISSAN%'/.test(s)));
+  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('4\.5', 'R'\)/.test(s)), "the multi-select survives the dealer route");
+});
+
+test("the dealer surface offers no staff or member record links", async () => {
+  const e = dealerEnv();
+  stubFeed();
+  const cookie = (await sessionCookie(e, "dealer", 9)).split(";")[0];
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/dealer/history", { headers: { Cookie: cookie } }), e, {});
+  const html = await res.text();
+  assert.doesNotMatch(html, /portal\/auctions\/lot/, "no member links");
+  assert.doesNotMatch(html, /view=auctionlot/, "no staff links");
+  assert.doesNotMatch(html, /View record/);
+  assert.doesNotMatch(html, /Find live/);
+  assert.match(html, /action="\/dealer\/history"/, "the form posts back to the dealer route");
+});
+
+test("the dealer sidebar links both portal pages and marks history active", async () => {
+  const e = dealerEnv();
+  stubFeed();
+  const cookie = (await sessionCookie(e, "dealer", 9)).split(";")[0];
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/dealer/history", { headers: { Cookie: cookie } }), e, {});
+  const html = await res.text();
+  assert.match(html, /href="\/dealer\/portal"[^>]*>.*Submitted stock/s);
+  assert.match(html, /class="active"[^>]*href="\/dealer\/history"/);
+  assert.match(html, /Sold prices/, "the item says what it shows");
+});
+
+test("clients and staff cannot reach the dealer history route", async () => {
+  const e = dealerEnv();
+  stubFeed();
+  const anon = await worker.fetch(new Request("https://jdmfinder.com.au/dealer/history"), e, {});
+  assert.equal(anon.status, 303, "anonymous is sent to login");
+  const clientCookie = (await sessionCookie(e, "client", 1)).split(";")[0];
+  const asClient = await worker.fetch(new Request("https://jdmfinder.com.au/dealer/history", { headers: { Cookie: clientCookie } }), e, {});
+  assert.notEqual(asClient.status, 200, "a client session is redirected away");
 });

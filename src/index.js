@@ -21,7 +21,7 @@ import { logoPngBytes } from "./assets.js";
 import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalSession, verifyAndParseEvent, applyStripeEvent, stripeConfigured } from "./stripe.js";
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
 import { landingPage, findsPage } from "./landing.js";
-import { auctionHistoryPage } from "./auction-history.js";
+import { auctionHistoryPage, dealerHistoryPage } from "./auction-history.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
@@ -781,7 +781,7 @@ export default {
     const protectedPage = path === "/logout" || path === "/run" ||
       path === "/admin" || path.startsWith("/admin/") ||
       path === "/portal" || path.startsWith("/portal/") ||
-      path === "/dealer/portal";
+      path === "/dealer/portal" || path === "/dealer/history";
     if ((request.method === "GET" || request.method === "HEAD") && !protectedPage) {
       return doc(notFoundPage(), 404);
     }
@@ -968,7 +968,8 @@ export default {
         adminOpts.found = sp.get("found") || "";
         // The history tab validates its own params (validateHistoryParams),
         // so it gets the raw query rather than the live-search whitelist.
-        adminOpts.rawQuery = Object.fromEntries(sp);
+        // rates is a checkbox multi-select: getAll() keeps every ticked score.
+        adminOpts.rawQuery = { ...Object.fromEntries(sp), rates: sp.getAll("rates").join(",") };
         adminOpts.search = {
           q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
           house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
@@ -1623,7 +1624,9 @@ async function handleClientPortal(request, env, url, path, session, here) {
   // (docs/auction-history.md). Params come straight off the URL; every value
   // is validated inside validateHistoryParams before it can reach SQL.
   if (path === "/portal/history" && request.method === "GET") {
-    return doc(await auctionHistoryPage(env, session, Object.fromEntries(url.searchParams)));
+    // rates is a checkbox multi-select: getAll() keeps every ticked score
+    // where Object.fromEntries would keep only the last repeated param.
+    return doc(await auctionHistoryPage(env, session, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") }));
   }
   if (path === "/portal/sold" && request.method === "GET") {
     // Superseded by Auction History: one destination for sold-price data.
@@ -1992,7 +1995,9 @@ async function handleDealerPortal(request, env, url, path, session, here) {
   const back = (q = "") => Response.redirect(here("/dealer/portal" + q), 303);
 
   if (path === "/dealer/portal" && request.method === "GET") {
-    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ?").bind(session.id).first();
+    // active = 1: a deactivated dealer's still-valid cookie must not keep
+    // working (same guard as /dealer/history below).
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return Response.redirect(here("/login"), 303);
     let flash = "";
     if (url.searchParams.get("ok") === "submitted") {
@@ -2003,6 +2008,16 @@ async function handleDealerPortal(request, env, url, path, session, here) {
       flash = `Error: ${err}`;
     }
     const html = await dealerPortalPage(env, dealer, flash);
+    return doc(html, 200);
+  }
+
+  // Auction history / sold prices, read-only for dealers. Params are raw off
+  // the URL; validateHistoryParams coerces everything before SQL. rates is a
+  // checkbox multi-select: getAll() keeps every ticked score.
+  if (path === "/dealer/history" && request.method === "GET") {
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    if (!dealer) return Response.redirect(here("/login"), 303);
+    const html = await dealerHistoryPage(env, dealer, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") });
     return doc(html, 200);
   }
 

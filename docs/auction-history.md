@@ -45,9 +45,9 @@ rendered through `fetchLot`/`auctionLotPage` with these fields):
 | `priv`         | drivetrain as listed (4WD, ...)  | drivetrain filter              |
 | `mileage`      | odometer (km, 0 = unknown)       | max-mileage filter, sort       |
 | `color`        | colour as listed                 | colour filter                  |
-| `rate`         | auction condition score          | display ("Grade 4.5")          |
-| `finish`       | hammer price JPY (>0 = sold)     | sold price, price sort         |
-| `kuzov`        | chassis / model code             | display                        |
+| `rate`         | auction condition score          | grade multi-select, display    |
+| `finish`       | hammer price JPY (>0 = sold)     | sold price filter + sort       |
+| `kuzov`        | chassis / model code             | chassis-code filter, display   |
 | `images`       | "#"-joined CDN photo URLs        | thumbnail                      |
 
 QA / offline: setting `AUCTION_FIXTURE` (feed XML) bypasses the relay
@@ -60,7 +60,11 @@ deterministically with no network.
 expected in `stats` (the single-lot fetch already `SELECT *`s stats rows and
 renders transmission/engine/colour). Because a WHERE on a missing column
 would error the whole query, run one probe per column on the live relay
-(`select count(*) from stats where kpp <> ''` etc.) before launch. If a
+(`select count(*) from stats where kpp <> ''` etc.) before launch. The V1.4
+filters lean on `rate` and `kuzov` the same way; both are already rendered
+from stats rows, but the exact `rate` spellings (is "4" ever "4.0"?) deserve
+one live probe, and `HISTORY_RATES` in `src/auction-history-query.js` is the
+single tunable if they differ. If a
 column is missing from `stats`, remove the clause that references it in
 `buildHistoryWhere` (`src/auction-history-query.js`) and drop the matching
 select from the form in `src/auction-history.js`.
@@ -76,7 +80,9 @@ conversation about DISTINCT query cost first.
 One server-rendered endpoint (the app is fully server-rendered; there is no
 separate JSON API surface for members):
 
-    GET /portal/history?<filters>   -> text/html (portal shell)
+    GET /portal/history?<filters>                    -> text/html (member portal shell)
+    GET /admin?view=auctions&tab=history&<filters>   -> staff surface (own sidebar item)
+    GET /dealer/history?<filters>                    -> dealer surface (read-only: no record/live links)
 
 Because the form submits with GET, every search is a bookmarkable,
 shareable URL (requirement 10).
@@ -91,8 +97,13 @@ validated/coerced server-side (`validateHistoryParams`):
 | `range`        | whitelist: `4w` `6w` `3m` `6m` `12m`                     |
 | `transmission` | whitelist: `manual` `automatic` `cvt`                    |
 | `drivetrain`   | whitelist: `4wd` `2wd`                                   |
-| `mileageMax`   | int, 1..1,000,000                                        |
+| `kuzov`        | string <= 20 chars, SQL-escaped (chassis code LIKE)      |
+| `variant`      | string <= 60 chars, SQL-escaped (trim keyword LIKE)      |
+| `rates`        | whitelist: `3` `3.5` `4` `4.5` `5` `r` `ra`; comma string or repeated checkbox params, deduped to canonical order |
+| `yearMin/Max`  | int, 1950..2100; swapped if min > max (0 = unknown build year never matches a ceiling) |
+| `mileageMin/Max`| int, 1..1,000,000; swapped if min > max                 |
 | `engineMin/Max`| int cc, 1..20,000; swapped if min > max                  |
+| `priceMin/Max` | int JPY on `finish`, 1..999,999,999; swapped if min > max |
 | `house`        | string <= 40 chars, SQL-escaped                          |
 | `body`         | whitelist: `coupe` `sedan` `hatch` `wagon` `van` `suv` `truck` `convertible` |
 | `fuel`         | whitelist: `petrol` `diesel` `hybrid` `electric`         |

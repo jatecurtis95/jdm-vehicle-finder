@@ -9,13 +9,14 @@
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
 import { esc, yen, fullGrade } from "./render.js";
-import { imageUrls, distinctMakers, distinctModels, distinctHouses } from "./avtonet.js";
+import { imageUrls, distinctMakers, distinctModels, distinctModelCodes, distinctHouses } from "./avtonet.js";
+import { labelForCode } from "./model-codes.js";
 import { getLiveFx, carAudToLanded } from "./calc.js";
 import { auctionEligibility, displayMaker, feedDownCard } from "./auction-ui.js";
 import { brandShell } from "./theme.js";
-import { portalSidebar } from "./portal-shell.js";
+import { portalSidebar, dealerSidebar } from "./portal-shell.js";
 import {
-  validateHistoryParams, searchHistory, HISTORY_RANGES, HISTORY_SORTS,
+  validateHistoryParams, searchHistory, HISTORY_RANGES, HISTORY_SORTS, HISTORY_RATES,
   KPP_GROUPS, FUEL_KEYWORDS, BODY_KEYWORDS, HISTORY_COLOURS,
 } from "./auction-history-query.js";
 
@@ -46,9 +47,9 @@ function kppDisplay(kpp) {
 }
 
 // The advanced filters live behind "More filters"; any active one re-opens it.
-const ADVANCED_KEYS = ["transmission", "drivetrain", "mileageMax", "engineMin", "engineMax", "house", "body", "fuel", "colour", "eligibility"];
+const ADVANCED_KEYS = ["transmission", "drivetrain", "mileageMin", "mileageMax", "engineMin", "engineMax", "priceMin", "priceMax", "variant", "house", "body", "fuel", "colour", "eligibility"];
 // Everything that belongs in a shareable URL, in canonical order.
-const URL_KEYS = ["make", "model", "range", ...ADVANCED_KEYS, "sort", "page"];
+const URL_KEYS = ["make", "model", "kuzov", "yearMin", "yearMax", "rates", "range", ...ADVANCED_KEYS, "sort", "page"];
 
 // The same history experience renders on two surfaces. A surface says where
 // the form posts back to (basePath + baseParams carried on every URL) and
@@ -65,6 +66,14 @@ export const HISTORY_SURFACES = {
     baseParams: { view: "auctions", tab: "history" },
     detailBase: "/admin?view=auctionlot&lot=",
     liveSearch: (lot) => `/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" })}`,
+  },
+  // Dealers get the sold results read-only: the record and live-search pages
+  // live behind staff/member sessions, so this surface renders no links.
+  dealer: {
+    basePath: "/dealer/history",
+    baseParams: {},
+    detailBase: null,
+    liveSearch: null,
   },
 };
 
@@ -99,13 +108,23 @@ const opt = (value, label, selected) =>
 const optTable = (table, selected) =>
   Object.entries(table).map(([k, v]) => opt(k, v.label, selected)).join("");
 
-function filterForm(p, { makers, models, houses }, surface) {
+// A model code renders as "BNR34 · Skyline GT-R" when the reviewed
+// association knows the car, plain "BNR34" otherwise.
+const codeText = (code) => {
+  const label = labelForCode(code);
+  return label ? `${code} · ${label}` : code;
+};
+
+function filterForm(p, { makers, models, codes, houses }, surface) {
   const makerOpts = opt("", "All makes", p.make) +
     makers.map((m) => opt(m, displayMaker(m), p.make)).join("") +
     (p.make && !makers.includes(p.make) ? opt(p.make, displayMaker(p.make), p.make) : "");
   const modelOpts = opt("", "All models", p.model) +
     models.map((m) => opt(m, displayMaker(m), p.model)).join("") +
     (p.model && !models.includes(p.model) ? opt(p.model, displayMaker(p.model), p.model) : "");
+  const codeOpts = opt("", "Any chassis code", p.kuzov) +
+    codes.map((c) => opt(c, codeText(c), p.kuzov)).join("") +
+    (p.kuzov && !codes.includes(p.kuzov) ? opt(p.kuzov, codeText(p.kuzov), p.kuzov) : "");
   const houseOpts = opt("", "All auction houses", p.house) +
     houses.map((h) => opt(h, h, p.house)).join("") +
     (p.house && !houses.includes(p.house) ? opt(p.house, p.house, p.house) : "");
@@ -114,6 +133,12 @@ function filterForm(p, { makers, models, houses }, surface) {
     `<label><input type="radio" name="range" value="${value}"${p.range === value ? " checked" : ""}><span>${label}</span></label>`;
   const pills = rangePill("", "Any time") +
     Object.entries(HISTORY_RANGES).map(([k, r]) => rangePill(k, r.label)).join("");
+
+  // Auction grade scores multi-select, so "4.5 and up" is two ticks, not a
+  // dropdown dance. Checkboxes reuse the range-pill styling.
+  const rateSet = new Set(p.rates ? p.rates.split(",") : []);
+  const ratePills = Object.entries(HISTORY_RATES).map(([k, label]) =>
+    `<label><input type="checkbox" name="rates" value="${k}"${rateSet.has(k) ? " checked" : ""}><span>${label}</span></label>`).join("");
 
   const advancedOpen = ADVANCED_KEYS.some((k) => p[k] !== "" && p[k] !== null);
   const numVal = (v) => (v === null ? "" : String(v));
@@ -125,17 +150,25 @@ function filterForm(p, { makers, models, houses }, surface) {
     <div class="ahx-frow">
       <label><span>Make</span><select name="make" data-ahx-make>${makerOpts}</select></label>
       <label><span>Model</span><select name="model" data-ahx-model>${modelOpts}</select></label>
+      <label><span>Chassis code</span><select name="kuzov" data-ahx-code>${codeOpts}</select></label>
+      <label><span>Year from</span><input type="number" name="yearMin" min="1950" max="2100" value="${numVal(p.yearMin)}" placeholder="1995"></label>
+      <label><span>Year to</span><input type="number" name="yearMax" min="1950" max="2100" value="${numVal(p.yearMax)}" placeholder="2002"></label>
       <button class="btn-primary ahx-go" type="submit" data-ahx-go>Search history</button>
     </div>
     <fieldset class="ahx-range"><legend>Auction held within</legend>${pills}</fieldset>
+    <fieldset class="ahx-range ahx-rates"><legend>Auction grade</legend>${ratePills}</fieldset>
     <details class="ahx-more"${advancedOpen ? " open" : ""}>
-      <summary><span>More filters</span><small>Transmission, drivetrain, mileage, engine, auction house, body, fuel, colour, eligibility</small></summary>
+      <summary><span>More filters</span><small>Transmission, drivetrain, mileage, engine, price, variant, auction house, body, fuel, colour, eligibility</small></summary>
       <div class="ahx-more-grid">
         <label><span>Transmission</span><select name="transmission">${opt("", "Any transmission", p.transmission)}${optTable(KPP_GROUPS, p.transmission)}</select></label>
         <label><span>Drivetrain</span><select name="drivetrain">${opt("", "Any drivetrain", p.drivetrain)}${opt("4wd", "4WD / AWD", p.drivetrain)}${opt("2wd", "2WD", p.drivetrain)}</select></label>
-        <label><span>Maximum mileage (km)</span><input type="number" name="mileageMax" min="1" max="1000000" step="1000" value="${numVal(p.mileageMax)}" placeholder="100,000"></label>
+        <label><span>Mileage from (km)</span><input type="number" name="mileageMin" min="1" max="1000000" step="1000" value="${numVal(p.mileageMin)}" placeholder="20,000"></label>
+        <label><span>Mileage to (km)</span><input type="number" name="mileageMax" min="1" max="1000000" step="1000" value="${numVal(p.mileageMax)}" placeholder="100,000"></label>
         <label><span>Engine from (cc)</span><input type="number" name="engineMin" min="1" max="20000" step="100" value="${numVal(p.engineMin)}" placeholder="1,500"></label>
         <label><span>Engine to (cc)</span><input type="number" name="engineMax" min="1" max="20000" step="100" value="${numVal(p.engineMax)}" placeholder="3,000"></label>
+        <label><span>Sold price from (JPY)</span><input type="number" name="priceMin" min="1" max="999999999" step="50000" value="${numVal(p.priceMin)}" placeholder="500,000"></label>
+        <label><span>Sold price to (JPY)</span><input type="number" name="priceMax" min="1" max="999999999" step="50000" value="${numVal(p.priceMax)}" placeholder="3,000,000"></label>
+        <label><span>Variant / trim</span><input type="text" name="variant" maxlength="60" value="${esc(p.variant)}" placeholder="e.g. GT-R, HIGHWAY STAR"></label>
         <label><span>Auction house</span><select name="house">${houseOpts}</select></label>
         <label><span>Body type</span><select name="body">${opt("", "Any body", p.body)}${optTable(BODY_KEYWORDS, p.body)}</select></label>
         <label><span>Fuel</span><select name="fuel">${opt("", "Any fuel", p.fuel)}${optTable(FUEL_KEYWORDS, p.fuel)}</select></label>
@@ -146,16 +179,28 @@ function filterForm(p, { makers, models, houses }, surface) {
     </details>
     <script>(function(){
       var f=document.currentScript.closest("form");if(!f)return;
-      var mk=f.querySelector("[data-ahx-make]"),md=f.querySelector("[data-ahx-model]");
+      var mk=f.querySelector("[data-ahx-make]"),md=f.querySelector("[data-ahx-model]"),cd=f.querySelector("[data-ahx-code]");
       if(!mk||!md)return;
+      function loadCodes(){
+        if(!cd)return;
+        var cur=cd.value;cd.innerHTML='<option value="">Any chassis code</option>';
+        if(!mk.value)return;
+        fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent(md.value)).then(function(r){return r.json();}).then(function(list){
+          (list||[]).forEach(function(x){var o=document.createElement("option");o.value=x.code;o.textContent=x.label?x.code+" \\u00b7 "+x.label:x.code;cd.appendChild(o);});
+          for(var i=0;i<cd.options.length;i++){if(cd.options[i].value===cur){cd.value=cur;break;}}
+        }).catch(function(){});
+      }
       mk.addEventListener("change",function(){
         var cur=md.value;md.innerHTML='<option value="">All models</option>';
-        if(!mk.value)return;
-        fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(list){
-          (list||[]).forEach(function(x){var o=document.createElement("option");o.value=x;o.textContent=x;md.appendChild(o);});
-          for(var i=0;i<md.options.length;i++){if(md.options[i].value===cur){md.value=cur;break;}}
-        }).catch(function(){});
+        if(mk.value){
+          fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(list){
+            (list||[]).forEach(function(x){var o=document.createElement("option");o.value=x;o.textContent=x;md.appendChild(o);});
+            for(var i=0;i<md.options.length;i++){if(md.options[i].value===cur){md.value=cur;break;}}
+          }).catch(function(){});
+        }
+        loadCodes();
       });
+      md.addEventListener("change",loadCodes);
     })();</script>
   </form>`;
 }
@@ -169,12 +214,20 @@ function chipLabels(p) {
   const add = (key, label) => labels.push([key, label]);
   if (p.make) add("make", displayMaker(p.make));
   if (p.model) add("model", displayMaker(p.model));
+  if (p.kuzov) add("kuzov", p.kuzov);
+  if (p.yearMin !== null) add("yearMin", `From ${p.yearMin}`);
+  if (p.yearMax !== null) add("yearMax", `To ${p.yearMax}`);
+  if (p.rates) add("rates", "Grade " + p.rates.split(",").map((k) => HISTORY_RATES[k]).join(", "));
   if (p.range) add("range", "Last " + HISTORY_RANGES[p.range].label);
   if (p.transmission) add("transmission", KPP_GROUPS[p.transmission].label);
   if (p.drivetrain) add("drivetrain", p.drivetrain === "4wd" ? "4WD / AWD" : "2WD");
+  if (p.mileageMin !== null) add("mileageMin", `Over ${num(p.mileageMin)} km`);
   if (p.mileageMax !== null) add("mileageMax", `Under ${num(p.mileageMax)} km`);
   if (p.engineMin !== null) add("engineMin", `Engine from ${num(p.engineMin)} cc`);
   if (p.engineMax !== null) add("engineMax", `Engine to ${num(p.engineMax)} cc`);
+  if (p.priceMin !== null) add("priceMin", `Over ${yen(p.priceMin)}`);
+  if (p.priceMax !== null) add("priceMax", `Under ${yen(p.priceMax)}`);
+  if (p.variant) add("variant", `"${p.variant}"`);
   if (p.house) add("house", p.house);
   if (p.body) add("body", BODY_KEYWORDS[p.body].label);
   if (p.fuel) add("fuel", FUEL_KEYWORDS[p.fuel].label);
@@ -219,23 +272,27 @@ function lotView(lot, fx, nowYear, surface) {
     aud: audVal > 0 ? "≈ " + audFmt(audVal) : "",
     landed: landed ? audFmt(landed) : "",
     elig,
-    detailHref: `${surface.detailBase}${encodeURIComponent(lot.id)}`,
-    liveHref: surface.liveSearch(lot),
+    detailHref: surface.detailBase ? `${surface.detailBase}${encodeURIComponent(lot.id)}` : "",
+    liveHref: surface.liveSearch ? surface.liveSearch(lot) : "",
   };
 }
 
 function resultRow(v) {
+  const actions = [
+    v.detailHref ? `<a href="${esc(v.detailHref)}">View record</a>` : "",
+    v.liveHref ? `<a href="${esc(v.liveHref)}">Find live</a>` : "",
+  ].join("");
   return `<tr>
     <td><div class="ahx-car">
       ${v.img ? `<img src="${esc(v.img)}" width="112" height="76" loading="lazy" alt="${esc(v.title)}">` : `<span class="ahx-noimg" aria-hidden="true">No photo</span>`}
-      <div><a class="ahx-car-t" href="${esc(v.detailHref)}">${esc(v.title)}</a><span>${[esc(v.code), esc(v.variant)].filter(Boolean).join(" · ")}</span><small class="ahx-elig ${v.elig.cls}">${esc(v.elig.label)}</small></div>
+      <div>${v.detailHref ? `<a class="ahx-car-t" href="${esc(v.detailHref)}">${esc(v.title)}</a>` : `<span class="ahx-car-t">${esc(v.title)}</span>`}<span>${[esc(v.code), esc(v.variant)].filter(Boolean).join(" · ")}</span><small class="ahx-elig ${v.elig.cls}">${esc(v.elig.label)}</small></div>
     </div></td>
     <td><strong>${esc(v.gearbox)}</strong><span>${esc(v.engine)}</span></td>
     <td><strong>${esc(v.mileage)}</strong><span>Grade ${esc(v.grade)}</span></td>
     <td><strong>${esc(v.house)}</strong><span>${[v.lotNo ? "Lot " + esc(v.lotNo) : "", esc(v.date)].filter(Boolean).join(" · ")}</span></td>
     <td><span class="ahx-sold">Sold</span><strong class="ahx-price">${esc(v.jpy)}</strong>${v.aud ? `<span>${esc(v.aud)}</span>` : ""}</td>
     <td>${v.landed ? `<strong class="ahx-landed">${esc(v.landed)}</strong><span>Est. landed</span>` : "-"}</td>
-    <td class="ahx-act"><a href="${esc(v.detailHref)}">View record</a><a href="${esc(v.liveHref)}">Find live</a></td>
+    ${actions ? `<td class="ahx-act">${actions}</td>` : ""}
   </tr>`;
 }
 
@@ -248,7 +305,7 @@ function resultCard(v) {
     ${v.img ? `<img src="${esc(v.img)}" width="640" height="420" loading="lazy" alt="${esc(v.title)}">` : `<div class="ahx-noimg-card" aria-hidden="true">No photo</div>`}
     <div class="ahx-rc-body">
       <div class="ahx-rc-head">
-        <div>${v.code ? `<span>${esc(v.code)}</span>` : ""}<h3><a href="${esc(v.detailHref)}">${esc(v.title)}</a></h3>${v.variant ? `<p>${esc(v.variant)}</p>` : ""}</div>
+        <div>${v.code ? `<span>${esc(v.code)}</span>` : ""}<h3>${v.detailHref ? `<a href="${esc(v.detailHref)}">${esc(v.title)}</a>` : esc(v.title)}</h3>${v.variant ? `<p>${esc(v.variant)}</p>` : ""}</div>
         <b aria-label="Auction grade ${esc(v.grade)}">${esc(v.grade)}</b>
       </div>
       <dl>
@@ -260,7 +317,7 @@ function resultCard(v) {
         ${dd("Auction", [esc(v.house), v.lotNo ? "Lot " + esc(v.lotNo) : ""].filter(Boolean).join(" · "))}
         ${dd("Sold on", esc(v.date) || "-")}
       </dl>
-      <div class="ahx-rc-foot"><span class="ahx-elig ${v.elig.cls}">${esc(v.elig.label)}</span><a href="${esc(v.detailHref)}">View record &rarr;</a></div>
+      <div class="ahx-rc-foot"><span class="ahx-elig ${v.elig.cls}">${esc(v.elig.label)}</span>${v.detailHref ? `<a href="${esc(v.detailHref)}">View record &rarr;</a>` : ""}</div>
     </div>
   </article>`;
 }
@@ -325,7 +382,9 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     getLiveFx(env).catch(() => 0),
     searchHistory(env, p),
   ]);
-  const models = p.make ? await distinctModels(env, p.make) : [];
+  const [models, codes] = p.make
+    ? await Promise.all([distinctModels(env, p.make), distinctModelCodes(env, p.make, p.model)])
+    : [[], []];
 
   const filtered = chipLabels(p).length > 0;
   const countTxt = !r.ok
@@ -348,8 +407,9 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
       : "No sold results to show right now. Check back shortly."}</div></div>`;
   } else {
     const views = r.lots.map((lot) => lotView(lot, fx, nowYear, surface));
+    const actionsTh = surface.detailBase || surface.liveSearch ? `<th><span class="sr-only">Actions</span></th>` : "";
     results = `<div class="ahx-table"><table>
-        <thead><tr><th>Vehicle</th><th>Gearbox / drive</th><th>Condition</th><th>Auction</th><th>Sold price</th><th>Est. landed</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th>Vehicle</th><th>Gearbox / drive</th><th>Condition</th><th>Auction</th><th>Sold price</th><th>Est. landed</th>${actionsTh}</tr></thead>
         <tbody>${views.map(resultRow).join("")}</tbody>
       </table></div>
       <div class="ahx-mobile">${views.map(resultCard).join("")}</div>`;
@@ -359,7 +419,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     ? `<p class="ahx-note">Sold prices are auction hammer prices. A$ conversion uses today's indicative rate (¥${Math.round(fx)} = A$1). Est. landed adds typical shipping, compliance and on-value taxes - a guide, not a quote.</p>`
     : "";
 
-  return `${filterForm(p, { makers, models, houses }, surface)}
+  return `${filterForm(p, { makers, models, codes, houses }, surface)}
       ${chipsRow(p, clean, surface)}
       <section id="ahxResults" class="ahx-results" aria-label="Sold auction results">
         ${sortRow(p, clean, countTxt, surface)}
@@ -400,11 +460,29 @@ export async function auctionHistoryPage(env, session, rawParams = {}) {
   return brandShell(portalSidebar(c, "history"), main, "Auction history - JDM Connect");
 }
 
+// The dealer-portal rendering of the same experience. The caller
+// (handleDealerPortal in index.js) owns the session gate: only a signed-in,
+// active dealer reaches this.
+export async function dealerHistoryPage(env, dealer, rawParams = {}) {
+  const main = `
+    <div class="topbar">
+      <div class="topbar-in">
+        <div class="kicker">Dealer portal</div>
+        <h1>Auction history</h1>
+        <p class="subline">See what comparable cars actually sold for at Japanese auction.</p>
+      </div>
+    </div>
+    <div class="content">
+      ${await auctionHistoryContent(env, rawParams, HISTORY_SURFACES.dealer)}
+    </div>`;
+  return brandShell(dealerSidebar(dealer, "history"), main, "Auction history - JDM Connect");
+}
+
 const AHX_CSS = `<style>
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
   .ahx-filter{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:18px;margin-bottom:16px}
   .ahx-filter label span{display:block;font-size:11px;font-weight:700;color:var(--t2);margin:0 0 7px}
-  .ahx-frow{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end}
+  .ahx-frow{display:grid;grid-template-columns:1.2fr 1.2fr 1.1fr .7fr .7fr auto;gap:12px;align-items:end}
   .ahx-go{height:46px;white-space:nowrap}
   .ahx-range{border:0;border-top:1px solid var(--hair);margin:16px 0 0;padding:14px 0 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .ahx-range legend{float:left;margin:7px 14px 0 0;font-size:11px;font-weight:700;color:var(--t2)}
@@ -465,6 +543,8 @@ const AHX_CSS = `<style>
   .ahx-pg-label{width:100%;text-align:center;font-size:11px;color:var(--t3);margin-top:8px}
   .ahx-note{font-size:11px;color:var(--t3);max-width:760px;margin:16px 2px 0}
   @media(max-width:1050px){
+    .ahx-frow{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ahx-frow .ahx-go{grid-column:1/-1;width:100%}
     .ahx-more-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
     .ahx-table{display:none}
     .ahx-mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:16px}

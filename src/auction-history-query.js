@@ -78,6 +78,19 @@ export const HISTORY_COLOURS = {
   pink: { tokens: ["PINK"], label: "Pink" },
 };
 
+// Auction grade (`rate`) scores, multi-selectable. Key = URL token, value =
+// the exact feed spelling matched with UPPER(rate) IN (...). Ordered; the
+// order is canonical for the `rates` param and the pill row.
+export const HISTORY_RATES = {
+  "3": "3",
+  "3.5": "3.5",
+  "4": "4",
+  "4.5": "4.5",
+  "5": "5",
+  r: "R",
+  ra: "RA",
+};
+
 // Sort whitelist -> ORDER BY. Anything else falls back to `newest`.
 export const HISTORY_SORTS = {
   newest: { orderBy: "auction_date DESC", label: "Newest" },
@@ -94,6 +107,18 @@ export const ELIGIBLE_MIN_AGE_YEARS = 26;
 
 const ENGINE_CC_MAX = 20000;
 const MILEAGE_MAX_CAP = 1000000;
+const YEAR_MIN_CAP = 1950;
+const YEAR_MAX_CAP = 2100;
+const PRICE_JPY_CAP = 999999999;
+
+// `rates` arrives as one comma-separated value (our URLs) or a repeated-param
+// array (native checkbox submits, joined by the routes). Unknown scores drop;
+// the result is deduped in the canonical HISTORY_RATES order.
+function normalizeRates(raw) {
+  const picked = (Array.isArray(raw) ? raw : String(raw ?? "").split(","))
+    .map((v) => String(v).trim().toLowerCase());
+  return Object.keys(HISTORY_RATES).filter((k) => picked.includes(k)).join(",");
+}
 
 // Coerce one raw query-string bag into a fully validated filter object. Every
 // key is whitelisted or bounds-checked; anything unrecognised is dropped, so
@@ -108,16 +133,32 @@ export function validateHistoryParams(raw = {}) {
     const n = sqlInt(v);
     return n !== null && n >= lo && n <= hi ? n : null;
   };
-  let engineMin = bounded(raw.engineMin, 1, ENGINE_CC_MAX);
-  let engineMax = bounded(raw.engineMax, 1, ENGINE_CC_MAX);
-  if (engineMin !== null && engineMax !== null && engineMin > engineMax) {
-    [engineMin, engineMax] = [engineMax, engineMin];
-  }
+  // Range pairs share one rule: both ends bounded, swapped when inverted.
+  const range2 = (loRaw, hiRaw, lo, hi) => {
+    let a = bounded(loRaw, lo, hi);
+    let b = bounded(hiRaw, lo, hi);
+    if (a !== null && b !== null && a > b) [a, b] = [b, a];
+    return [a, b];
+  };
+  const [engineMin, engineMax] = range2(raw.engineMin, raw.engineMax, 1, ENGINE_CC_MAX);
+  const [yearMin, yearMax] = range2(raw.yearMin, raw.yearMax, YEAR_MIN_CAP, YEAR_MAX_CAP);
+  const [mileageMin, mileageMax] = range2(raw.mileageMin, raw.mileageMax, 1, MILEAGE_MAX_CAP);
+  const [priceMin, priceMax] = range2(raw.priceMin, raw.priceMax, 1, PRICE_JPY_CAP);
   const pageRaw = sqlInt(raw.page);
   return {
     make: str(raw.make, 40),
     model: str(raw.model, 60),
     house: str(raw.house, 40),
+    // Upper-cased so it compares cleanly against distinctModelCodes() output
+    // (always upper) in the form's select and chip labels.
+    kuzov: str(raw.kuzov, 20).toUpperCase(),
+    variant: str(raw.variant, 60),
+    rates: normalizeRates(raw.rates),
+    yearMin,
+    yearMax,
+    mileageMin,
+    priceMin,
+    priceMax,
     range: pick(raw.range, HISTORY_RANGES),
     transmission: pick(raw.transmission, KPP_GROUPS),
     drivetrain: ["4wd", "2wd"].includes(String(raw.drivetrain ?? "").trim().toLowerCase())
@@ -126,7 +167,7 @@ export function validateHistoryParams(raw = {}) {
     fuel: pick(raw.fuel, FUEL_KEYWORDS),
     colour: pick(raw.colour, HISTORY_COLOURS),
     eligibility: String(raw.eligibility ?? "").trim().toLowerCase() === "eligible" ? "eligible" : "",
-    mileageMax: bounded(raw.mileageMax, 1, MILEAGE_MAX_CAP),
+    mileageMax,
     engineMin,
     engineMax,
     sort: pick(raw.sort, HISTORY_SORTS) || "newest",
@@ -172,6 +213,18 @@ export function buildHistoryWhere(p, nowMs = Date.now()) {
     if (mk) where.push(`UPPER(marka_name) LIKE '%${mk}%'`);
   }
   if (p.model) where.push(`UPPER(model_name) LIKE '%${sqlLike(p.model).toUpperCase()}%'`);
+  if (p.kuzov) where.push(`UPPER(kuzov) LIKE '%${sqlLike(p.kuzov).toUpperCase()}%'`);
+  if (p.variant) where.push(`UPPER(grade) LIKE '%${sqlLike(p.variant).toUpperCase()}%'`);
+  if (p.rates) {
+    const tokens = p.rates.split(",").map((k) => `'${HISTORY_RATES[k]}'`);
+    where.push(`UPPER(rate) IN (${tokens.join(", ")})`);
+  }
+  if (p.yearMin !== null) where.push(`year >= ${p.yearMin}`);
+  // Feed encodes an unknown build year as 0; a ceiling must not sweep those in.
+  if (p.yearMax !== null) where.push(`(year > 0 AND year <= ${p.yearMax})`);
+  if (p.priceMin !== null) where.push(`finish >= ${p.priceMin}`);
+  if (p.priceMax !== null) where.push(`finish <= ${p.priceMax}`);
+  if (p.mileageMin !== null) where.push(`mileage >= ${p.mileageMin}`);
   if (p.range) {
     const cutoff = new Date(nowMs - HISTORY_RANGES[p.range].days * 86400000).toISOString().slice(0, 10);
     where.push(`auction_date >= '${cutoff}'`);

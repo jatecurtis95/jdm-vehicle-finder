@@ -14,7 +14,7 @@ import { googleConfigured } from "./oauth.js";
 import { brandDoc, brandShell, risingSun } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
-import { portalSidebar } from "./portal-shell.js";
+import { portalSidebar, dealerSidebar } from "./portal-shell.js";
 import { auctionHistoryContent, HISTORY_SURFACES } from "./auction-history.js";
 export { portalSidebar };
 
@@ -948,6 +948,7 @@ const ICONS = {
   tasks: svgIcon(`<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1.2 1.2L7.5 5"/><path d="M4 12l1.2 1.2L7.5 11"/><path d="M4 18l1.2 1.2L7.5 17"/>`),
   matches: svgIcon(`<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 13l1.6-7a2 2 0 0 1 2-1.6h6.8a2 2 0 0 1 2 1.6L19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/>`),
   auctions: svgIcon(`<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>`),
+  "auction-history": svgIcon(`<path d="M12.6 3H20v7.4L11.4 19a2 2 0 0 1-2.8 0L4 14.4a2 2 0 0 1 0-2.8Z"/><circle cx="15.5" cy="7.5" r="1.5"/>`),
   trash: svgIcon(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>`),
   agents: svgIcon(`<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/>`),
   dealers: svgIcon(`<path d="M3 9h18l-2-5H5L3 9Z"/><path d="M5 9v11h14V9M9 20v-6h6v6"/>`),
@@ -968,8 +969,8 @@ function sidebar(active, counts, session = { role: "admin" }) {
   // views stay routable, so highlight the nav item they now live under.
   if (active === "tasks") active = "dashboard";
   if (active === "agents") active = "settings";
-  const item = (id, label, count) =>
-    `<a class="${active === id ? "active" : ""}" href="/admin?view=${id}">
+  const item = (id, label, count, href = `/admin?view=${id}`) =>
+    `<a class="${active === id ? "active" : ""}" href="${esc(href)}">
       ${ICONS[id] || ""}<span class="lbl">${label}</span><span class="ct">${count ?? ""}</span></a>`;
   const whoLabel = isAdmin ? "JDM Connect" : esc(session.name || "Agent");
   const whoSub = isAdmin ? "Admin" : "Agent";
@@ -986,6 +987,7 @@ function sidebar(active, counts, session = { role: "admin" }) {
       ${item("matches", "Matches", counts.matches || "")}
       ${item("clients", "Customers", counts.clients)}
       ${item("auctions", "Auctions", "")}
+      ${item("auction-history", "Auction history", "", "/admin?view=auctions&tab=history")}
       ${isAdmin && counts.dealersOn ? item("dealers", "Dealers", counts.dealers || "") : ""}
       ${isAdmin && counts.dealersOn ? item("dealer-submissions", "Dealer stock", counts.dealerSubmissions || "") : ""}
       ${isAdmin ? item("payments", "Payments", counts.payments || "") : ""}
@@ -1403,7 +1405,11 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     </div>
     <div class="content${wide ? " wide" : ""}">${body}</div>`;
 
-  return shell(sidebar(view, counts, session), main, esc(h.title) + " - JDM Connect");
+  // The sold-data tabs (history / prices, plus the old "sold" alias) belong
+  // to the dedicated Auction history sidebar item; live/watch stay Auctions.
+  const sideActive = view === "auctions" && ["history", "prices", "sold"].includes(opts.tab)
+    ? "auction-history" : view;
+  return shell(sidebar(sideActive, counts, session), main, esc(h.title) + " - JDM Connect");
 }
 
 // Admin-only: manage agent logins.
@@ -8830,7 +8836,7 @@ export async function getDealerVehicles(env, dealerId, status = "pending") {
 export async function dealerPortalPage(env, dealer, flash = "") {
   const submissions = await getDealerVehicles(env, dealer.id, "all");
   const first = (dealer.name || "").split(/\s+/)[0];
-  const side = `<aside class="side"><div class="brand">${LOGO}</div><nav class="nav"><a class="active" aria-current="page" href="/dealer/portal"><span class="bar" aria-hidden="true"></span><span class="lbl">Submitted stock</span></a></nav><div class="side-foot"><div class="whoami"><span class="who-name">${esc(dealer.name || "Dealer")}</span><span class="who-role">${esc(dealer.company || "Dealer account")}</span></div><a class="signout" href="/logout">Sign out</a></div></aside>`;
+  const side = dealerSidebar(dealer, "stock");
   const badge = (status) => status === "approved" ? `<span class="chip chip-good">Approved</span>`
     : status === "rejected" ? `<span class="chip chip-bad">Rejected</span>`
     : `<span class="chip chip-warn">Pending review</span>`;

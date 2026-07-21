@@ -4,6 +4,20 @@
 import { esc } from "./render.js";
 import { LOGO } from "./theme.js";
 
+// Dealer-portal sidebar, shared by the dealer stock page (admin.js) and the
+// dealer Auction History page (auction-history.js).
+export function dealerSidebar(dealer, active = "stock") {
+  const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ""} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
+  return `<aside class="side">
+    <div class="brand">${LOGO}</div>
+    <nav class="nav">${item("stock", "/dealer/portal", "Submitted stock")}${item("history", "/dealer/history", "Auction history / Sold prices")}</nav>
+    <div class="side-foot">
+      <div class="whoami"><span class="who-name">${esc(dealer?.name || "Dealer")}</span><span class="who-role">${esc(dealer?.company || "Dealer account")}</span></div>
+      <a class="signout" href="/logout">Sign out</a>
+    </div>
+  </aside>`;
+}
+
 export function portalSidebar(c, active = "garage") {
   const item = (id, href, label) => `<a class="${active === id ? "active" : ""}"${active === id ? ' aria-current="page"' : ''} href="${href}"><span class="bar" aria-hidden="true"></span><span class="lbl">${label}</span></a>`;
   // The auction search page is a paid-member perk, gated on clients.member.

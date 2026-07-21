@@ -59,3 +59,33 @@ test("the old Sold auctions tab folds into Sold prices (alias keeps bookmarks wo
   assert.match(html, /¥2,500,000/);           // the sold lots still browse
   assert.match(html, /Latest sold results/);  // first-load framing
 });
+
+// --- V1.4: Auction history / Sold prices as its own sidebar destination ------
+
+test("Auction history / Sold prices gets its own sidebar item beneath Auctions", async () => {
+  const env = makeEnv(); stub(lotXml());
+  const html = await adminPage(env, "dashboard", ADMIN);
+  const nav = html.match(/<nav class="nav">[\s\S]*?<\/nav>/)[0];
+  assert.match(nav, /href="\/admin\?view=auctions&(amp;)?tab=history"/, "the item deep-links to the history tab");
+  assert.match(nav, /Auction history/);
+  assert.ok(nav.indexOf("view=auctions\"") < nav.indexOf("tab=history"), "it sits beneath Auctions");
+});
+
+test("agents see the Auction history sidebar item too", async () => {
+  const env = makeEnv(`INSERT INTO agents (id,name,email,pass_salt,pass_hash,active) VALUES (7,'Agent Amy','a@x','s','h',1);`);
+  stub(lotXml());
+  const html = await adminPage(env, "dashboard", { role: "agent", id: 7, name: "Agent Amy" });
+  assert.match(html, /href="\/admin\?view=auctions&(amp;)?tab=history"/);
+});
+
+test("the history and prices tabs highlight the new item, the live tab highlights Auctions", async () => {
+  const env = makeEnv(); stub(lotXml());
+  const onHistory = await adminPage(env, "auctions", ADMIN, { tab: "history", rawQuery: {}, search: {} });
+  assert.match(onHistory, /class="active" href="\/admin\?view=auctions&(amp;)?tab=history"/);
+  assert.doesNotMatch(onHistory, /class="active" href="\/admin\?view=auctions"/, "Auctions itself is not highlighted");
+  const onPrices = await adminPage(env, "auctions", ADMIN, { tab: "prices", search: {} });
+  assert.match(onPrices, /class="active" href="\/admin\?view=auctions&(amp;)?tab=history"/);
+  const onLive = await adminPage(env, "auctions", ADMIN, { tab: "live", search: {} });
+  assert.match(onLive, /class="active" href="\/admin\?view=auctions"/);
+  assert.doesNotMatch(onLive, /class="active" href="\/admin\?view=auctions&(amp;)?tab=history"/);
+});
