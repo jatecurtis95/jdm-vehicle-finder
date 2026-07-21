@@ -85,7 +85,8 @@ test("staff price guidance and condition notes render on the public page, escape
     conditionNotes: "Small scratches & dents.\nInterior slightly dirty.",
   }, admin);
   const html = await publicLotPage(e, row.id);
-  assert.match(html, /Our guidance/);
+  assert.match(html, /Our price guidance/);
+  assert.match(html, /clv-grid/, "renders the client listing layout");
   assert.match(html, /Suggest 16-17k landed &lt;b&gt;/, "price note must be escaped");
   assert.match(html, /Condition notes/);
   assert.match(html, /Small scratches &amp; dents\./);
@@ -100,7 +101,7 @@ test("page without staff guidance renders no empty price/notes shells", async ()
   const e = env();
   const row = await e.DB.prepare("SELECT id FROM queue WHERE status = 'pending' AND share_price_note IS NULL LIMIT 1").first();
   const html = await publicLotPage(e, row.id);
-  assert.doesNotMatch(html, /Our guidance/);
+  assert.doesNotMatch(html, /Our price guidance/);
   assert.doesNotMatch(html, /Condition notes/);
 });
 
