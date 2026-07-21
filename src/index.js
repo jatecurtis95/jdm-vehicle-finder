@@ -8,8 +8,8 @@
 import { runAll, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
-import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage } from "./admin.js";
-import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, readShareToken, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX, adminMfaEnabled, verifyAdminTotp, mfaPendingCookie, clearMfaCookie, readMfaPending } from "./auth.js";
+import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage, updateShareDetails, setShareRevoked, regenerateShareLink } from "./admin.js";
+import { getSession, authenticate, sessionCookie, clearCookie, agentByInviteToken, setAgentPassword, clientByInviteToken, setClientPassword, dealerByInviteToken, setDealerPassword, verifyShareLink, beginPasswordReset, beginPasswordResetFor, EMAIL_MAX, adminMfaEnabled, verifyAdminTotp, mfaPendingCookie, clearMfaCookie, readMfaPending } from "./auth.js";
 import { googleConfigured, beginGoogle, completeGoogle, clearNonceCookie } from "./oauth.js";
 import { getSettings, settingOn, settingNum, digestRecipient, saveSettings } from "./settings.js";
 import { sendWhatsApp } from "./whatsapp.js";
@@ -184,6 +184,24 @@ async function resetRateLimited(env, ip, email) {
   return false;
 }
 
+// Push a "client is interested" alert when someone taps the CTA on a shared
+// vehicle page. Best-effort: the response is already recorded by the caller.
+async function notifyShareInterest(env, queueId) {
+  try {
+    const q = await env.DB.prepare(
+      "SELECT q.lot_json, q.client_id, c.name AS client_name FROM queue q LEFT JOIN clients c ON c.id = q.client_id WHERE q.id = ?"
+    ).bind(Number(queueId)).first();
+    if (!q) return;
+    let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
+    const veh = [lot.year, lot.marka_name, lot.model_name].filter(Boolean).join(" ") || `Lot ${lot.lot || queueId}`;
+    await sendPush(env, {
+      title: "Interested via share link",
+      message: `${q.client_name || "A client"} tapped I'm interested on ${veh}`,
+      url: `${env.PUBLIC_URL}/admin?view=client&id=${q.client_id}`,
+    });
+  } catch (e) { console.error("notifyShareInterest failed:", e.message); }
+}
+
 // Stamp an account's most recent successful login - drives the CRM "Last login".
 // Admin (id 0) has no DB row; only agents/clients/dealers do. Best-effort, never blocks.
 async function touchLastSeen(env, role, id) {
@@ -290,13 +308,57 @@ export default {
     }
 
     // Public, read-only shared vehicle view (the "Share" link). Token-gated and
-    // view-only - it can never trigger approve/skip. No login required.
+    // view-only - it can never trigger approve/skip. No login required. The
+    // token is verified against the row's current nonce + revocation state, so
+    // a revoked or regenerated link lands on the same neutral expired page as
+    // a forged one.
     if (path === "/v") {
-      const sharedId = await readShareToken(env, url.searchParams.get("t"));
+      const sharedId = await verifyShareLink(env, url.searchParams.get("t"));
       if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
-      // Track the first time the customer opens their sent vehicle (best-effort).
-      ctx.waitUntil(stampMatchViewed(env, sharedId));
-      return doc(await publicLotPage(env, sharedId));
+      // The page ALWAYS renders (a shared link must never rate-limit to a wall).
+      // But the per-view side-effects - the outbound feed refresh inside
+      // publicLotPage and the view-counter write - are capped per IP, so a
+      // token holder can't hammer /v to amplify feed traffic, pollute the
+      // "opened N times" stat, or spin D1 writes. Over the cap we still render,
+      // just without the counter bump or the live image heal.
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      const hot = await apiRateLimited(env, ip);
+      const viewerSession = await getSession(request, url, env).catch(() => null);
+      // Only a genuine, un-throttled CUSTOMER open counts. A signed-in viewer is
+      // staff previewing the link before sending (or a member opening their own
+      // portal card) - it must not stamp viewed_at / log "Customer viewed X" /
+      // bump the counter, or the real first customer view is lost and the
+      // engagement signal is a staff artefact.
+      if (!hot && !viewerSession) {
+        ctx.waitUntil(stampMatchViewed(env, sharedId));
+        ctx.waitUntil(env.DB.prepare(
+          "UPDATE queue SET share_view_count = share_view_count + 1, share_last_viewed_at = datetime('now') WHERE id = ?"
+        ).bind(sharedId).run());
+      }
+      return doc(await publicLotPage(env, sharedId, { thanks: url.searchParams.get("ok") === "1", skipRefresh: hot }));
+    }
+
+    // Public "I'm interested" tap from a shared vehicle page. The share token
+    // (POST body, never the raw queue id) is re-verified, so only someone
+    // holding a live link can record interest, and only for that one car.
+    // Same-origin is not required: possessing the token IS the capability.
+    if (path === "/v/interest" && request.method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      if (await apiRateLimited(env, ip)) {
+        return doc(infoPage("Too many requests", "Please wait a moment and try again."), 429);
+      }
+      const f = await request.formData();
+      const token = String(f.get("t") || "");
+      const sharedId = await verifyShareLink(env, token);
+      if (!sharedId) return doc(infoPage("Link expired", "This share link is invalid or has expired. Ask JDM Connect for a fresh one.", { cta: { href: "/request", label: "Request a vehicle" } }), 404);
+      const r = await setMatchResponse(env, sharedId, "interested", null).catch((e) => {
+        console.error("/v/interest failed:", e.message);
+        return { ok: false };
+      });
+      if (r && r.ok) {
+        ctx.waitUntil(notifyShareInterest(env, sharedId));
+      }
+      return Response.redirect(new URL(`/v?t=${encodeURIComponent(token)}&ok=1`, url).toString(), 303);
     }
 
     // Public "Recent finds" gallery: importer-style social proof built from
@@ -994,6 +1056,21 @@ export default {
     if (path === "/match/response" && request.method === "POST") {
       const f = await request.formData();
       return act(() => setMatchResponse(env, f.get("id"), f.get("response"), session), crmBack(f), "Response recorded");
+    }
+
+    // Share-link management (staff): the price band + condition notes shown on
+    // the public page, and the link lifecycle (revoke / regenerate).
+    if (path === "/share/details" && request.method === "POST") {
+      const f = await request.formData();
+      return act(() => updateShareDetails(env, f.get("id"), { priceNote: f.get("price_note"), conditionNotes: f.get("condition_notes") }, session), crmBack(f), "Share page updated");
+    }
+    if (path === "/share/revoke" && request.method === "POST") {
+      const f = await request.formData();
+      return act(() => setShareRevoked(env, f.get("id"), true, session), crmBack(f), "Share link revoked");
+    }
+    if (path === "/share/regenerate" && request.method === "POST") {
+      const f = await request.formData();
+      return act(() => regenerateShareLink(env, f.get("id"), session), crmBack(f), "New share link issued. Old links no longer work.");
     }
 
     // Soft-archive / restore a customer.

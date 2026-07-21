@@ -94,19 +94,39 @@ export async function readOauthState(env, token) {
 }
 
 // --- Public share tokens -----------------------------------------------------
-// A stateless, signed token for the read-only public lot view ("Share" button).
-// Distinct from the queue row's `token` (which drives approve/skip), so a shared
-// link can only VIEW a car - it can never trigger an action. No DB column needed.
-export async function makeShareToken(env, queueId) {
+// A signed token for the read-only public lot view ("Share" button). Distinct
+// from the queue row's `token` (which drives approve/skip), so a shared link can
+// only VIEW a car - it can never trigger approve/skip. The row's `share_nonce`
+// is folded into the signature so ONE link can be revoked or regenerated
+// without rotating ADMIN_TOKEN (which would log everyone out app-wide). A NULL
+// nonce signs the legacy shape, so links minted before the nonce existed keep
+// working until staff regenerate.
+function shareSigningInput(id, nonce) {
+  return nonce ? `share:${id}:${nonce}` : `share:${id}`;
+}
+export async function makeShareToken(env, queueId, nonce = null) {
   const id = Number(queueId);
   if (!Number.isInteger(id) || id <= 0) return null;
-  return `${id}.${await sign(env, `share:${id}`)}`;
+  return `${id}.${await sign(env, shareSigningInput(id, nonce))}`;
 }
-export async function readShareToken(env, token) {
+export async function readShareToken(env, token, nonce = null) {
   const [idStr, sig] = String(token || "").split(".");
   const id = Number(idStr);
   if (!Number.isInteger(id) || id <= 0 || !sig) return null;
-  return safeEqual(sig, await sign(env, `share:${id}`)) ? id : null;
+  return safeEqual(sig, await sign(env, shareSigningInput(id, nonce))) ? id : null;
+}
+// Full verification for a public share link: signature (against the row's
+// current nonce), row existence, and revocation - the one gate every public
+// share surface goes through. Returns the queue id, or null for anything
+// invalid; callers show the same "link expired" page for every failure so a
+// probe can't tell a revoked link from a forged one.
+export async function verifyShareLink(env, token) {
+  const idStr = String(token || "").split(".")[0];
+  const id = Number(idStr);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const row = await env.DB.prepare("SELECT id, share_nonce, share_revoked_at FROM queue WHERE id = ?").bind(id).first();
+  if (!row || row.share_revoked_at) return null;
+  return readShareToken(env, token, row.share_nonce || null);
 }
 
 // --- Password hashing (PBKDF2-SHA256) ---------------------------------------

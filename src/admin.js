@@ -909,6 +909,11 @@ const CSS = `
   .ld-share-row input{flex:1;min-width:0;font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink)}
   .ld-share-row .btn-secondary{padding:8px 12px;font-size:var(--fs-sec)}
   .ld-share-wa{display:block;text-align:center;width:100%}
+  .ld-share-form{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--hair)}
+  .ld-share-form label{font-size:var(--fs-label);font-weight:600;color:var(--t3)}
+  .ld-share-form label .opt{font-weight:400}
+  .ld-share-form input,.ld-share-form textarea{font-size:var(--fs-label);padding:8px;border:1px solid var(--field-line);border-radius:var(--r-ctl);background:var(--field);color:var(--ink);font-family:inherit;resize:vertical}
+  .ld-share-form .btn-primary{margin-top:4px}
 `;
 
 function initials(name) {
@@ -3346,6 +3351,40 @@ export async function setMatchResponse(env, queueId, response, session) {
   return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
 }
 
+// --- Share-link management (staff) ------------------------------------------
+// The staff-authored content on a public share page (suggested price band +
+// plain-English condition notes) and the link lifecycle. Every entry point
+// re-checks the caller can see the row's client (same gate as the lot page).
+const SHARE_PRICE_MAX = 200;
+const SHARE_NOTES_MAX = 2000;
+async function shareRowFor(env, queueId, session) {
+  const qid = Number(queueId);
+  if (!Number.isInteger(qid) || qid <= 0) return null;
+  const q = await env.DB.prepare("SELECT id, client_id FROM queue WHERE id = ?").bind(qid).first();
+  if (!q || !(await clientAccessibleBy(env, q.client_id, session))) return null;
+  return q;
+}
+export async function updateShareDetails(env, queueId, { priceNote, conditionNotes }, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  const price = String(priceNote || "").trim().slice(0, SHARE_PRICE_MAX);
+  const notes = String(conditionNotes || "").trim().slice(0, SHARE_NOTES_MAX);
+  await env.DB.prepare("UPDATE queue SET share_price_note = ?, share_condition_notes = ? WHERE id = ?")
+    .bind(price || null, notes || null, q.id).run();
+}
+export async function setShareRevoked(env, queueId, revoked, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  await env.DB.prepare(`UPDATE queue SET share_revoked_at = ${revoked ? "datetime('now')" : "NULL"} WHERE id = ?`).bind(q.id).run();
+}
+// A fresh nonce invalidates every previously issued link for this row (legacy
+// nonce-less ones included) and re-enables a revoked link in the same action.
+export async function regenerateShareLink(env, queueId, session) {
+  const q = await shareRowFor(env, queueId, session);
+  if (!q) throw new Error("share row not accessible");
+  await env.DB.prepare("UPDATE queue SET share_nonce = ?, share_revoked_at = NULL WHERE id = ?").bind(randomToken(), q.id).run();
+}
+
 // Soft-archive / restore a customer (Phase 1 deferred item, now wired).
 export async function archiveClient(env, id, on, session) {
   const cid = Number(id);
@@ -4772,19 +4811,50 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
   const sub = [lot.kuzov ? "Chassis " + esc(lot.kuzov) : "", lot.lot ? "Lot " + esc(lot.lot) : "", esc(lot.auction || "")].filter(Boolean).join(" &middot; ");
 
   // Share: a signed, view-only public link to this car (no login), with copy +
-  // WhatsApp. The token can only VIEW, never approve/skip.
+  // WhatsApp. The token can only VIEW, never approve/skip. Staff author the
+  // page's suggested price + condition notes here (notes pre-fill from the AI
+  // sheet read), and can revoke or regenerate the link per car.
   const shareTitle = `${lot.year || ""} ${lot.marka_name || ""} ${lot.model_name || ""}`.replace(/\s+/g, " ").trim();
-  const shareToken = await makeShareToken(env, q.id);
-  const shareBtn = shareToken ? `<details class="ld-share">
-      <summary class="btn-secondary">Share</summary>
-      <div class="ld-share-pop">
-        <div class="ld-share-h">Share with a client</div>
-        <p class="ld-share-p">A view-only link to this car. No login needed.</p>
-        <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken)}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-secondary">Copy</button></div>
-        <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareTitle + " - /v?t=" + encodeURIComponent(shareToken))}" target="_blank" rel="noopener" class="btn-primary ld-share-wa">Share on WhatsApp</a>
-      </div>
-    </details>` : "";
-  const shareScript = shareToken ? `<script>(function(){var t=${JSON.stringify(shareToken)},ti=${JSON.stringify(shareTitle)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
+  const shareRevoked = !!q.share_revoked_at;
+  const shareToken = shareRevoked ? null : await makeShareToken(env, q.id, q.share_nonce || null);
+  const sheetPrefill = lot._sheet
+    ? [lot._sheet.notes_en, (lot._sheet.repairs || []).length ? "Marks: " + lot._sheet.repairs.join("; ") + "." : ""].filter(Boolean).join(" ")
+    : "";
+  const shareNotesVal = String(q.share_condition_notes || sheetPrefill || "").slice(0, 2000);
+  const shareWaText = [shareTitle, q.share_price_note ? String(q.share_price_note) : ""].filter(Boolean).join(" - ");
+  const shareViews = Number(q.share_view_count) > 0
+    ? `<p class="ld-share-p" style="margin-top:8px">Opened ${q.share_view_count} time${Number(q.share_view_count) === 1 ? "" : "s"}${q.share_last_viewed_at ? " &middot; last " + esc(relTime(q.share_last_viewed_at)) : ""}</p>`
+    : "";
+  const shareLifecycle = `<div class="ld-share-row" style="margin:8px 0 0">
+        ${shareRevoked ? "" : `<form method="POST" action="/share/revoke" style="flex:1;display:flex"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}"><button class="btn-secondary" type="submit" style="flex:1">Revoke link</button></form>`}
+        <form method="POST" action="/share/regenerate" style="flex:1;display:flex"><input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}"><button class="btn-secondary" type="submit" style="flex:1">${shareRevoked ? "Issue a new link" : "New link"}</button></form>
+      </div>`;
+  const shareBody = shareRevoked
+    ? `<div class="ld-share-h">Link revoked</div>
+       <p class="ld-share-p">Anyone opening an old link sees an &ldquo;expired&rdquo; page. Issue a new link to share this car again.</p>
+       ${shareLifecycle}`
+    : `<div class="ld-share-h">Share with a client</div>
+       <p class="ld-share-p">A view-only link to this car. No login needed.</p>
+       <div class="ld-share-row"><input id="shareUrl" readonly value="${esc(`/v?t=${encodeURIComponent(shareToken || "")}`)}" aria-label="Share link"><button type="button" id="shareCopy" class="btn-secondary">Copy</button></div>
+       <a id="shareWa" href="https://wa.me/?text=${encodeURIComponent(shareWaText + " - /v?t=" + encodeURIComponent(shareToken || ""))}" target="_blank" rel="noopener" class="btn-primary ld-share-wa">Share on WhatsApp</a>
+       ${shareViews}
+       <form method="POST" action="/share/details" class="ld-share-form">
+         <input type="hidden" name="id" value="${q.id}"><input type="hidden" name="back" value="${esc(retPath)}">
+         <label for="sharePrice">Suggested price <span class="opt">(shown on the page)</span></label>
+         <input id="sharePrice" name="price_note" maxlength="200" placeholder="e.g. Suggest 16-17k landed" value="${esc(q.share_price_note || "")}">
+         <label for="shareNotes">Condition notes <span class="opt">(pre-filled from the sheet read)</span></label>
+         <textarea id="shareNotes" name="condition_notes" rows="4" maxlength="2000" placeholder="Plain-English condition summary for the client">${esc(shareNotesVal)}</textarea>
+         <button class="btn-primary" type="submit">Save to share page</button>
+       </form>
+       ${shareLifecycle}`;
+  const shareBtn = `<details class="ld-share">
+      <summary class="btn-secondary">Share${shareRevoked ? " (revoked)" : ""}</summary>
+      <div class="ld-share-pop">${shareBody}</div>
+    </details>`;
+  // JSON.stringify doesn't escape "<", so a "</script>" in the staff-entered
+  // price note could otherwise break out of this inline script.
+  const scriptJson = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+  const shareScript = shareToken ? `<script>(function(){var t=${scriptJson(shareToken)},ti=${scriptJson(shareWaText)};var url=location.origin+"/v?t="+encodeURIComponent(t);var i=document.getElementById('shareUrl');if(i)i.value=url;var w=document.getElementById('shareWa');if(w)w.href="https://wa.me/?text="+encodeURIComponent(ti+" - "+url);var c=document.getElementById('shareCopy');if(c)c.addEventListener('click',function(){if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy';},1500);});}else{var el=document.getElementById('shareUrl');el.focus();el.select();try{document.execCommand('copy');}catch(e){}}});})();</script>` : "";
 
   // Images. The inspection sheet (first image, by feed convention) goes in its
   // own box; the rest are the car-photo gallery. Shared with the cards/emails via
@@ -5708,7 +5778,7 @@ export async function requestPage(env, opts = {}) {
 // (optionally) the market panel, with an enquiry CTA. Self-contained styles so
 // it renders on the public brand shell. Access is the signed token alone, so
 // the caller must verify it before calling this.
-export async function publicLotPage(env, queueId) {
+export async function publicLotPage(env, queueId, opts = {}) {
   const sb = `<aside class="side"><div class="brand"><a href="/" aria-label="JDM Connect home">${LOGO}</a></div>
     <nav class="nav">
       <span class="active" aria-current="page"><span class="bar"></span><span class="lbl">Vehicle</span></span>
@@ -5716,8 +5786,12 @@ export async function publicLotPage(env, queueId) {
     </nav>
     <div class="side-foot"><a class="signout" href="/">JDM Connect</a></div>
     </aside>`;
-  const q = await env.DB.prepare("SELECT lot_json FROM queue WHERE id = ?").bind(queueId).first();
-  if (!q) {
+  const q = await env.DB.prepare(
+    "SELECT id, lot_json, response, share_price_note, share_condition_notes, share_nonce, share_revoked_at FROM queue WHERE id = ?"
+  ).bind(queueId).first();
+  // A revoked link renders exactly like an unknown one (defence in depth - the
+  // route's token check already refuses revoked rows before we get here).
+  if (!q || q.share_revoked_at) {
     return brandShell(sb,
       `<div class="topbar"><div class="topbar-in"><div class="kicker">Vehicle Finder</div><h1>Car not found</h1></div></div>
        <div class="content"><div class="card"><div class="empty">This link may have expired. <a href="/request" style="color:var(--gold-txt);font-weight:600">Tell us what you&rsquo;re after</a> and we&rsquo;ll source it for you.</div></div></div>`,
@@ -5725,6 +5799,23 @@ export async function publicLotPage(env, queueId) {
   }
   let lot = {};
   try { lot = JSON.parse(q.lot_json); } catch (e) {}
+  // Heal the cached image set from the live feed (upcoming lots usually gain
+  // their inspection sheet closer to sale day), same as the staff lot page, so
+  // a link shared early still shows the full gallery + sheet later. Only worth
+  // an outbound feed call when something is actually missing - a complete lot
+  // (sheet + photos) never triggers a fetch, so a repeatedly-opened link doesn't
+  // amplify feed traffic. opts.skipRefresh hard-disables it when the caller is
+  // over its per-IP view budget.
+  const pre = splitImages(lot);
+  if (!opts.skipRefresh && (!pre.sheet || !pre.photos.length)) {
+    if (await refreshLotImages(env, lot)) {
+      // Persist ONLY the healed images field with json_set, never the whole
+      // blob: the AI sheet reader writes lot_json._sheet on its own schedule,
+      // and a full-blob overwrite from this public path could clobber a read
+      // that landed between our SELECT and this UPDATE.
+      try { await env.DB.prepare("UPDATE queue SET lot_json = json_set(lot_json, '$.images', ?) WHERE id = ?").bind(String(lot.images || ""), q.id).run(); } catch (e) {}
+    }
+  }
   const { sheet: sheetBase, photos } = splitImages(lot);
   const settings = await getSettings(env).catch(() => ({}));
   const [market, fx] = settingOn(settings, "market_for_clients")
@@ -5742,37 +5833,72 @@ export async function publicLotPage(env, queueId) {
     ? `<div class="card plv-sheet"><h2>Auction inspection sheet</h2><a href="${esc(sheetBase)}" target="_blank" rel="noopener" class="plv-sheet-link"><img src="${esc(sheetBase)}" alt="Auction inspection sheet" loading="lazy"></a></div>`
     : "";
   const kmTxt = lot.mileage ? Number(lot.mileage).toLocaleString("en-US") + " km" : "";
+  const cs = conditionScores(lot);
   const specRows = [
     ["Year", esc(lot.year || "")], ["Chassis", esc(lot.kuzov || "")], ["Grade", esc(lot.grade || "")],
-    ["Auction grade", esc(fullGrade(lot))], ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
+    ["Auction grade", esc(fullGrade(lot))],
+    ["Exterior", cs && cs.ext ? esc(cs.ext) : ""], ["Interior", cs && cs.int ? esc(cs.int) : ""],
+    ["Engine", lot.eng_v ? esc(lot.eng_v) + "cc" : ""],
     ["Transmission", esc(lot.kpp || lot.kpp_type || "")], ["Mileage", esc(kmTxt)], ["Colour", esc(lot.color || "")],
     ["Auction house", esc(lot.auction || "")], ["Lot number", esc(lot.lot || "")],
     ["Auction date", esc((lot.auction_date || "").slice(0, 16).replace("T", " "))],
     ["Start price", Number(lot.start) > 0 ? yen(lot.start) : ""],
   ].filter(([, v]) => v).map(([k, v]) => `<div class="plv-row"><span class="plv-k">${k}</span><span class="plv-v">${v}</span></div>`).join("");
 
+  // Staff-authored guidance: the price band + condition notes that used to be
+  // hand-typed into WhatsApp next to the link now live ON the page.
+  const priceNote = String(q.share_price_note || "").trim();
+  const priceBox = priceNote
+    ? `<div class="plv-pricenote"><span class="pn-k">Our guidance</span><span class="pn-v">${esc(priceNote)}</span></div>`
+    : "";
+  const condNotes = String(q.share_condition_notes || "").trim();
+  const notesBox = condNotes
+    ? `<div class="card plv-notes"><h2>Condition notes</h2>${condNotes.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join("")}<p class="plv-fine" style="text-align:left">Written by JDM Connect from the auction inspection sheet.</p></div>`
+    : "";
+
+  // "I'm interested" one-tap. The share token itself is the capability - the
+  // POST re-verifies it, so the form never exposes the raw queue id.
+  const interested = q.response === "interested" || !!opts.thanks;
+  const shareTok = await makeShareToken(env, q.id, q.share_nonce || null);
+  const interestCta = interested
+    ? `<div class="plv-thanks">&#10003; Noted &mdash; JDM Connect knows you&rsquo;re interested in this car.</div>`
+    : shareTok
+      ? `<form method="POST" action="/v/interest" style="margin:0"><input type="hidden" name="t" value="${esc(shareTok)}"><button class="btn-secondary plv-cta" type="submit" style="margin-top:8px">I&rsquo;m interested &mdash; let JDM Connect know</button></form>`
+      : "";
+
   const main = `
     <div class="topbar"><div class="topbar-in"><div class="kicker">JDM Connect &middot; Auction vehicle</div><h1>${title}</h1>${sub ? `<p class="subline">${sub}</p>` : ""}</div></div>
     <div class="content">
+      ${opts.thanks ? `<div class="flash">Thanks &mdash; we&rsquo;ve let JDM Connect know you&rsquo;re interested. We&rsquo;ll be in touch.</div>` : ""}
       <div class="plv-grid">
         <div class="plv-left">
           <div class="plv-gallery">${gallery}</div>
+          ${notesBox}
           ${sheetBox}
           ${marketPanel(market)}
         </div>
         <aside class="plv-right">
           <div class="card plv-spec">
+            ${priceBox}
             <div class="plv-rows">${specRows}</div>
             <a class="btn-primary plv-cta" href="${esc("/request?" + new URLSearchParams({ make: String(lot.marka_name || "").trim(), model: String(lot.model_name || "").trim(), year: String(lot.year || ""), chassis: String(lot.kuzov || "").trim() }).toString())}">Enquire about this car</a>
+            ${interestCta}
             <p class="plv-fine">Price shown is the Japanese auction price. Ask us for a full landed cost to your state.</p>
           </div>
         </aside>
       </div>
     </div>
     ${PLV_STYLE}${plvGalleryScript()}`;
-  // Shared links unfurl with the actual car (launch audit: social meta).
-  return brandShell(sb, main, title + " - JDM Connect", {
-    description: [`${title} at Japanese auction`, lot.kuzov ? `chassis ${lot.kuzov}` : "", lot.auction ? `via ${lot.auction}` : ""].filter(Boolean).join(", ") + ". Sourced and imported to Australia by JDM Connect.",
+  // Shared links unfurl with the actual car (launch audit: social meta). Grade,
+  // mileage and the staff price guidance ride along, so a WhatsApp / LINE
+  // preview already answers "what is it, how good, how much".
+  const ogBits = [fullGrade(lot) ? `Grade ${fullGrade(lot)}` : "", kmTxt].filter(Boolean).join(" — ");
+  return brandShell(sb, main, title + (ogBits ? " — " + ogBits : "") + " - JDM Connect", {
+    description: [
+      priceNote,
+      [`${title} at Japanese auction`, lot.kuzov ? `chassis ${lot.kuzov}` : "", lot.auction ? `via ${lot.auction}` : ""].filter(Boolean).join(", ") + ".",
+      "Sourced and imported to Australia by JDM Connect.",
+    ].filter(Boolean).join(" "),
     ogImage: photos[0] || undefined,
   });
 }
@@ -5981,6 +6107,13 @@ const PLV_STYLE = `<style>
   .plv-v{font-weight:700;color:var(--ink);text-align:right}
   .plv-cta{display:flex;width:100%;margin-top:16px}
   .plv-fine{font-size:var(--fs-label,12px);color:var(--t3);margin-top:12px;line-height:1.5;text-align:center}
+  .plv-pricenote{display:flex;flex-direction:column;gap:4px;background:var(--gold-tint);border-radius:var(--r-ctl,8px);padding:12px 14px;margin-bottom:16px}
+  .plv-pricenote .pn-k{font-size:var(--fs-label,12px);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--gold-txt)}
+  .plv-pricenote .pn-v{font-size:16px;font-weight:700;color:var(--gold-txt);line-height:1.4}
+  .plv-notes{margin-bottom:24px}
+  .plv-notes h2{font-size:var(--fs-body,15px);margin-bottom:12px}
+  .plv-notes p{font-size:var(--fs-sec,13px);color:var(--ink);line-height:1.6;margin:0 0 10px}
+  .plv-thanks{margin-top:12px;padding:12px 14px;background:var(--good-bg,rgba(46,160,67,.12));border:1px solid var(--good-line,rgba(46,160,67,.4));border-radius:var(--r-ctl,8px);color:var(--ink);font-size:var(--fs-sec,13px);font-weight:600;text-align:center}
   @media(max-width:920px){.plv-right{position:static}.plv-hero{height:300px}}
 </style>`;
 
@@ -7990,6 +8123,7 @@ function clientCarCard(q, opts = {}) {
     ${mktAvg}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(q.wlabel || "Your search")}</div></div>
+      ${q._href ? `<button type="button" class="btn-tertiary btn-sm mshare" data-href="${esc(q._href)}" data-title="${esc(title)}">Share</button>` : ""}
       ${payBtn}${action}
     </div>
   </div>`;
@@ -8052,12 +8186,18 @@ export async function portalPage(env, session, opts = {}) {
 
   // V1.3 Phase C: every match card links through to the read-only listing
   // detail (the same signed view-only page the Share button produces), so a
-  // buyer can open the full gallery and specs from their garage.
+  // buyer can open the full gallery and specs from their garage. A revoked
+  // share link gets no href at all (the card still renders, just not linked).
   for (const q of cars) {
-    try { q._href = `/v?t=${await makeShareToken(env, q.id)}`; } catch (e) { /* card still renders */ }
+    if (q.share_revoked_at) continue;
+    try { q._href = `/v?t=${await makeShareToken(env, q.id, q.share_nonce || null)}`; } catch (e) { /* card still renders */ }
   }
+  // Members can pass their matched car around (partner, mate, group chat) with
+  // the same view-only link staff share: native share sheet where available,
+  // clipboard copy otherwise.
+  const memberShareScript = `<script>(function(){document.querySelectorAll('.mshare').forEach(function(b){b.addEventListener('click',function(){var url=location.origin+b.getAttribute('data-href');var title=b.getAttribute('data-title')||'Vehicle';if(navigator.share){navigator.share({title:title,text:title,url:url}).catch(function(){});}else if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){var t=b.textContent;b.textContent='Link copied';setTimeout(function(){b.textContent=t;},1500);});}});});})();</script>`;
   const carsBody = cars.length
-    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>`
+    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>${memberShareScript}`
     : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
 
   const wlBody = wls.length
