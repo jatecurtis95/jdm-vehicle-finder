@@ -5898,7 +5898,7 @@ export async function publicLotPage(env, queueId, opts = {}) {
 
   const nav = `<header class="clv-top"><div class="clv-top-in"><a class="clv-logo" href="/" aria-label="JDM Connect home">${LOGO}</a><nav class="clv-topnav" aria-label="Primary"><span class="clv-cur" aria-current="page">Vehicle</span><a href="/request">Request a car</a></nav></div></header>`;
 
-  const inner = `${nav}
+  const inner = `<div class="clv-page">${nav}
     <main id="main" class="clv-wrap">
       ${opts.thanks ? `<div class="clv-flash" role="status">Thanks &mdash; we&rsquo;ve let JDM Connect know you&rsquo;re interested. We&rsquo;ll be in touch shortly.</div>` : ""}
       <div class="clv-head">
@@ -5925,7 +5925,7 @@ export async function publicLotPage(env, queueId, opts = {}) {
       </div>
     </main>
     <footer class="clv-foot"><div class="clv-foot-in"><div>${LOGO}</div><nav class="clv-foot-nav" aria-label="Footer"><a href="/request">Request a car</a><a href="/finds">Recent finds</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav><p class="clv-foot-fine">&copy; JDM Connect. Japanese vehicle sourcing &amp; import to Australia.</p></div></footer>
-    <div class="clv-bar" aria-hidden="false">${ctaBlock("m")}</div>
+    <div class="clv-bar" aria-hidden="false">${ctaBlock("m")}</div></div>
     ${CLV_STYLE}${clvGalleryScript()}`;
 
   // Shared links unfurl with the actual car (launch audit: social meta). Grade,
@@ -5980,10 +5980,31 @@ function clvGalleryScript() {
 const EXPAND_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`;
 const SHIELD_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`;
 
-// Client-facing share page styles (dark luxury listing). Scoped to .clv-* so it
-// is fully independent of the staff PLV_STYLE it replaced on the public page.
+// Client-facing share page styles (light-luxury listing). Scoped to .clv-* so
+// it is fully independent of the staff PLV_STYLE it replaced. The whole surface
+// re-defines the theme tokens to a warm-white palette on .clv-page, so every
+// var(--ink)/(--card)/(--hair) below resolves light without touching the dark
+// :root the rest of the app uses.
 const CLV_STYLE = `<style>
-  .clv-top{position:sticky;top:0;z-index:40;background:rgba(15,17,21,.82);backdrop-filter:saturate(140%) blur(12px);border-bottom:1px solid var(--hair)}
+  body{background:#f2f0ea}
+  .clv-page{
+    --ink:#1c1a15;--t2:#514d45;--t3:#6f6a60;--faint:#938d81;
+    --bg:#f2f0ea;--bg-2:#ffffff;--card:#ffffff;--off:#eae6dd;
+    --hair:rgba(28,24,14,0.11);--hair-2:rgba(28,24,14,0.06);
+    --field:#fbfaf7;--field-line:rgba(28,24,14,0.16);
+    --gold:#C39A3D;--gold-hover:#B08A31;--gold-txt:#7a5e1c;
+    --gold-tint:rgba(195,154,61,0.13);--gold-line:rgba(195,154,61,0.36);
+    --good-bg:#e7f4ec;--good-line:rgba(31,122,77,0.32);
+    --shadow-card:0 1px 2px rgba(28,24,14,.05),0 10px 30px rgba(28,24,14,.07);
+    background:var(--bg);min-height:100vh;color:var(--ink)}
+  /* Logo art defaults to black fill; on this light ground tint it to ink. */
+  .clv-logo svg path,.clv-logo svg polygon,.clv-foot-in svg path,.clv-foot-in svg polygon{fill:var(--ink)}
+  /* Secondary button needs a solid light face here (its dark-theme base is a
+     near-transparent white that vanishes on white). */
+  .clv-page .btn-secondary{background:#fff;border:1px solid var(--hair);color:var(--ink)}
+  .clv-page .btn-secondary:hover{background:#faf8f3;border-color:var(--gold-line)}
+  .clv-card,.clv-tile{box-shadow:var(--shadow-card)}
+  .clv-top{position:sticky;top:0;z-index:40;background:rgba(250,248,243,.82);backdrop-filter:saturate(140%) blur(12px);border-bottom:1px solid var(--hair)}
   .clv-top-in{max-width:1180px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}
   .clv-logo svg{width:150px}
   .clv-topnav{display:flex;align-items:center;gap:20px;font-size:14px;font-weight:600}
@@ -6057,7 +6078,7 @@ const CLV_STYLE = `<style>
   .clv-bar{display:none}
   @media(max-width:919px){
     .clv-cta{display:none}
-    .clv-bar{display:flex;gap:10px;position:fixed;left:0;right:0;bottom:0;z-index:45;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(15,17,21,.92);backdrop-filter:blur(12px);border-top:1px solid var(--hair)}
+    .clv-bar{display:flex;gap:10px;position:fixed;left:0;right:0;bottom:0;z-index:45;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--hair);box-shadow:0 -6px 24px rgba(28,24,14,.08)}
     .clv-bar .btn-primary{flex:1;justify-content:center}
     .clv-bar form{flex:1;display:flex}
     .clv-bar .btn-secondary{flex:1;justify-content:center}
