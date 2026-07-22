@@ -966,10 +966,16 @@ export default {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
         adminOpts.found = sp.get("found") || "";
-        // The history tab validates its own params (validateHistoryParams),
-        // so it gets the raw query rather than the live-search whitelist.
-        // rates is a checkbox multi-select: getAll() keeps every ticked score.
-        adminOpts.rawQuery = { ...Object.fromEntries(sp), rates: sp.getAll("rates").join(",") };
+        // The history and live tabs validate their own params (the shared
+        // engine in auction-history-query.js), so they get the raw query
+        // rather than a whitelist. rates / houses / unspec are checkbox
+        // multi-selects: getAll() keeps every ticked value.
+        adminOpts.rawQuery = {
+          ...Object.fromEntries(sp),
+          rates: sp.getAll("rates").join(","),
+          houses: sp.getAll("houses").join(","),
+          unspec: sp.getAll("unspec"),
+        };
         adminOpts.search = {
           q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
           house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
@@ -1603,14 +1609,18 @@ async function handleClientPortal(request, env, url, path, session, here) {
     return doc(await portalPage(env, session, { flash }));
   }
 
-  // Member-only auction search page + request-a-lot action.
+  // Member-only auction search page + request-a-lot action. The full query
+  // bag goes through: every filter is validated inside validateLiveParams
+  // (shared engine) before it can reach SQL. rates / houses / unspec are
+  // checkbox multi-selects, so getAll() keeps every ticked value where
+  // Object.fromEntries would keep only the last repeated param.
   if (path === "/portal/auctions" && request.method === "GET") {
     const sp = url.searchParams;
     const params = {
-      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
-      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
-      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1",
+      ...Object.fromEntries(sp),
+      rates: sp.getAll("rates").join(","),
+      houses: sp.getAll("houses").join(","),
+      unspec: sp.getAll("unspec"),
       tab: sp.get("tab") || "live", view: sp.get("view") || "grid",
       _flash: sp.get("_flash") || "",
     };
@@ -1626,7 +1636,12 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/history" && request.method === "GET") {
     // rates is a checkbox multi-select: getAll() keeps every ticked score
     // where Object.fromEntries would keep only the last repeated param.
-    return doc(await auctionHistoryPage(env, session, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") }));
+    return doc(await auctionHistoryPage(env, session, {
+      ...Object.fromEntries(url.searchParams),
+      rates: url.searchParams.getAll("rates").join(","),
+      houses: url.searchParams.getAll("houses").join(","),
+      unspec: url.searchParams.getAll("unspec"),
+    }));
   }
   if (path === "/portal/sold" && request.method === "GET") {
     // Superseded by Auction History: one destination for sold-price data.
@@ -2017,7 +2032,12 @@ async function handleDealerPortal(request, env, url, path, session, here) {
   if (path === "/dealer/history" && request.method === "GET") {
     const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return Response.redirect(here("/login"), 303);
-    const html = await dealerHistoryPage(env, dealer, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") });
+    const html = await dealerHistoryPage(env, dealer, {
+      ...Object.fromEntries(url.searchParams),
+      rates: url.searchParams.getAll("rates").join(","),
+      houses: url.searchParams.getAll("houses").join(","),
+      unspec: url.searchParams.getAll("unspec"),
+    });
     return doc(html, 200);
   }
 
