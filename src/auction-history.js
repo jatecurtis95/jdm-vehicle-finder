@@ -67,12 +67,14 @@ export const HISTORY_SURFACES = {
     baseParams: {},
     detailBase: "/portal/auctions/lot?id=",
     liveSearch: (lot) => `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`,
+    landedEndpoint: "/portal/landed-batch",
   },
   staff: {
     basePath: "/admin",
     baseParams: { view: "auctions", tab: "history" },
     detailBase: "/admin?view=auctionlot&lot=",
     liveSearch: (lot) => `/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" })}`,
+    landedEndpoint: "/admin/landed-batch",
   },
   // Dealers get the sold results read-only: the record and live-search pages
   // live behind staff/member sessions, so this surface renders no links.
@@ -81,14 +83,15 @@ export const HISTORY_SURFACES = {
     baseParams: {},
     detailBase: null,
     liveSearch: null,
+    landedEndpoint: "/dealer/landed-batch",
   },
 };
 
 // The Live Auctions surfaces share the panel and engine with History. Result
 // cards, tabs and per-surface actions stay with the callers in admin.js.
 export const LIVE_SURFACES = {
-  member: { basePath: "/portal/auctions", baseParams: {} },
-  staff: { basePath: "/admin", baseParams: { view: "auctions", tab: "live" } },
+  member: { basePath: "/portal/auctions", baseParams: {}, landedEndpoint: "/portal/landed-batch" },
+  staff: { basePath: "/admin", baseParams: { view: "auctions", tab: "live" }, landedEndpoint: "/admin/landed-batch" },
 };
 
 // Compact param bag for URL building: only non-defaults are carried.
@@ -314,10 +317,18 @@ function lotView(lot, fx, nowYear, surface) {
   const title = `${lot.year || ""} ${displayMaker(lot.marka_name)} ${displayMaker(lot.model_name)}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const jpy = Number(lot.finish) || 0;
   const audVal = jpy > 0 && fx > 0 ? Math.round(jpy / fx) : 0;
+  // The rough figure (x1.13 + overhead) is only the instant placeholder now
+  // (Phase 2): the deferred fill script swaps in the real calculator estimate
+  // via the data attributes below, one batched call per page.
   const landed = audVal > 0 ? carAudToLanded(audVal) : null;
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const landedAttrs = jpy > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpy))}" data-cc="${esc(String(cc))}"`
+    : "";
   const gearbox = [kppDisplay(lot.kpp || lot.kpp_type), String(lot.priv || "").trim()].filter(Boolean).join(" · ") || "-";
   const elig = auctionEligibility(lot, nowYear);
   return {
+    landedAttrs,
     title,
     img: imageUrls(lot).medium || "",
     code: String(lot.kuzov || "").trim(),
@@ -352,7 +363,7 @@ function resultRow(v) {
     <td><strong>${esc(v.mileage)}</strong><span>Grade ${esc(v.grade)}</span></td>
     <td><strong>${esc(v.house)}</strong><span>${[v.lotNo ? "Lot " + esc(v.lotNo) : "", esc(v.date)].filter(Boolean).join(" · ")}</span></td>
     <td><span class="ahx-sold">Sold</span><strong class="ahx-price">${esc(v.jpy)}</strong>${v.aud ? `<span>${esc(v.aud)}</span>` : ""}</td>
-    <td>${v.landed ? `<strong class="ahx-landed">${esc(v.landed)}</strong><span>Est. landed</span>` : "-"}</td>
+    <td>${v.landedAttrs ? `<strong class="ahx-landed"${v.landedAttrs}>${esc(v.landed || "-")}</strong><span>Est. landed</span>` : "-"}</td>
     ${actions ? `<td class="ahx-act">${actions}</td>` : ""}
   </tr>`;
 }
@@ -371,7 +382,7 @@ function resultCard(v) {
       </div>
       <dl>
         ${dd("Sold price", `<span class="ahx-sold">Sold</span> ${esc(v.jpy)}${v.aud ? ` <small>${esc(v.aud)}</small>` : ""}`, "ahx-price")}
-        ${dd("Est. landed", v.landed ? esc(v.landed) : "-", "ahx-landed")}
+        ${dd("Est. landed", v.landedAttrs ? `<span${v.landedAttrs}>${esc(v.landed || "-")}</span>` : "-", "ahx-landed")}
         ${dd("Odometer", esc(v.mileage))}
         ${dd("Gearbox / drive", esc(v.gearbox))}
         ${dd("Engine", esc(v.engine))}
@@ -428,6 +439,33 @@ const LOADING_SCRIPT = `<script>(function(){
   });
 })();</script>`;
 
+// Deferred landed-cost fill (Phase 2): the page renders instantly with the
+// rough placeholder figures, then ONE batched POST swaps in real calculator
+// estimates for every [data-landed-slot] on the page. A failed call leaves
+// the placeholders standing - the page never blocks on the calculator.
+export function landedFillScript(endpoint) {
+  if (!endpoint) return "";
+  return `<script>(function(){
+  var els=[].slice.call(document.querySelectorAll('[data-landed-slot]'));
+  if(!els.length)return;
+  var items=[],seen={};
+  els.forEach(function(el){
+    var id=el.getAttribute('data-lot'),jpy=Number(el.getAttribute('data-jpy')),cc=Number(el.getAttribute('data-cc'))||0;
+    if(!id||!(jpy>0)||seen[id])return;seen[id]=1;items.push({id:id,jpy:jpy,cc:cc});
+  });
+  if(!items.length)return;
+  fetch(${JSON.stringify(endpoint)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:items.slice(0,24)})})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      var est=data&&data.estimates;if(!est)return;
+      els.forEach(function(el){
+        var v=Number(est[el.getAttribute('data-lot')]);
+        if(v>0){el.textContent='A$'+Math.round(v).toLocaleString('en-AU');el.setAttribute('title','Live calculator estimate');}
+      });
+    }).catch(function(){});
+})();</script>`;
+}
+
 // ---------------------------------------------------------------------------
 // Live Auctions building block
 // ---------------------------------------------------------------------------
@@ -468,8 +506,9 @@ export async function liveSearchBlock(env, rawParams = {}, surfaceKey = "member"
   const form = filterForm(p, { makers, models, codes, houses, grades }, surface, {
     topBar: (opts.topBar || "") + extraHidden,
   });
+  const pageScripts = LOADING_SCRIPT + landedFillScript(base.landedEndpoint);
   if (!r) {
-    return { p, clean, r: null, form, chips: "", resultsBar: "", pagerHtml: "", urlFor, clearUrl: historyUrl(surface, {}), loading: LOADING_SCRIPT, css: AHX_CSS };
+    return { p, clean, r: null, form, chips: "", resultsBar: "", pagerHtml: "", urlFor, clearUrl: historyUrl(surface, {}), loading: pageScripts, css: AHX_CSS };
   }
 
   const countTxt = !r.ok
@@ -490,7 +529,7 @@ export async function liveSearchBlock(env, rawParams = {}, surfaceKey = "member"
     pagerHtml: r.ok && r.lots.length ? pager(r, clean, surface) : "",
     urlFor,
     clearUrl: historyUrl(surface, {}),
-    loading: LOADING_SCRIPT,
+    loading: pageScripts,
     css: AHX_CSS,
   };
 }
@@ -563,7 +602,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
         ${r.ok && r.lots.length ? pager(r, clean, surface) : ""}
       </section>
       ${fine}
-      ${LOADING_SCRIPT}${AHX_CSS}`;
+      ${LOADING_SCRIPT}${landedFillScript(surface.landedEndpoint)}${AHX_CSS}`;
 }
 
 export async function auctionHistoryPage(env, session, rawParams = {}) {

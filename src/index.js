@@ -22,6 +22,7 @@ import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalS
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
 import { landingPage, findsPage } from "./landing.js";
 import { auctionHistoryPage, dealerHistoryPage } from "./auction-history.js";
+import { estimateLandedBatch, LANDED_BATCH_MAX } from "./calc.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
@@ -92,6 +93,55 @@ async function apiRateLimited(env, ip) {
     await env.RL.put(k, String(n + 1), { expirationTtl: API_RL_WINDOW_S });
   } catch (_) { /* fail open */ }
   return false;
+}
+
+// --- Deferred landed-cost fill (Phase 2) -------------------------------------
+// The landed-batch endpoints proxy the external calculator for a page of lots
+// at a time, behind a session. Per-session limiter (the batch itself is capped
+// at LANDED_BATCH_MAX, so this caps page loads, not lots) - fail-open KV like
+// the other limiters.
+const LANDED_RL_MAX = 30;        // batches
+const LANDED_RL_WINDOW_S = 300;  // per 5 minutes
+async function landedRateLimited(env, who) {
+  if (!env.RL || !who) return false;
+  const k = `landrl:${who}`;
+  try {
+    const n = parseInt((await env.RL.get(k)) || "0", 10);
+    if (n >= LANDED_RL_MAX) return true;
+    await env.RL.put(k, String(n + 1), { expirationTtl: LANDED_RL_WINDOW_S });
+  } catch (_) { /* fail open */ }
+  return false;
+}
+
+// Validate one landed-batch body: items -> [{ id, jpy, cc }], everything
+// coerced and bounded, junk dropped. Prices are display inputs for an
+// estimate, never persisted, so client-supplied values are acceptable within
+// bounds.
+function parseLandedItems(body) {
+  const raw = Array.isArray(body?.items) ? body.items.slice(0, LANDED_BATCH_MAX) : [];
+  const out = [];
+  for (const it of raw) {
+    const id = String(it?.id ?? "").trim().slice(0, 64);
+    const jpy = Math.floor(Number(it?.jpy));
+    const cc = Math.floor(Number(it?.cc));
+    if (!id || !Number.isFinite(jpy) || jpy <= 0 || jpy > 999999999) continue;
+    out.push({ id, jpy, cc: Number.isFinite(cc) && cc > 0 && cc <= 20000 ? cc : 0 });
+  }
+  return out;
+}
+
+const jsonResponse = (obj, status = 200) =>
+  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+
+// Shared handler body for the three landed-batch routes; `who` scopes the
+// rate limit, `state` picks the destination assumptions.
+async function landedBatchResponse(env, request, who, state) {
+  if (await landedRateLimited(env, who)) return jsonResponse({ error: "rate_limited" }, 429);
+  let body = {}; try { body = await request.json(); } catch (e) {}
+  const items = parseLandedItems(body);
+  if (!items.length) return jsonResponse({ estimates: {} });
+  const estimates = await estimateLandedBatch(env, items, state);
+  return jsonResponse({ estimates });
 }
 
 // --- Login brute-force protection (KV-backed) --------------------------------
@@ -810,6 +860,12 @@ export default {
     }
 
     const adminOnly = () => Response.redirect(here("/admin"), 303);
+
+    // Deferred landed-cost fill for the staff Auctions pages (Phase 2). Any
+    // staff session (admin or agent); estimates use the default state.
+    if (path === "/admin/landed-batch" && request.method === "POST") {
+      return landedBatchResponse(env, request, `s:${session.role}:${session.id}`, null);
+    }
 
     // Append a one-shot outcome message to a redirect destination. The admin
     // shell renders ?notice= as a success toast and ?notice_err= as an error
@@ -1659,6 +1715,13 @@ async function handleClientPortal(request, env, url, path, session, here) {
   // GET returns the member's saved lots as {lotId: snapshot}; POST accepts
   // {add:[snapshot...], remove:[lotId...]} from the shared watch script. The
   // client keeps localStorage as its cache, so this degrades gracefully.
+  // Deferred landed-cost fill for the member auction pages (Phase 2). Gated
+  // like the pages themselves: active portal + paid member. JSON in/out.
+  if (path === "/portal/landed-batch" && request.method === "POST") {
+    const c = await env.DB.prepare("SELECT state, member FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    if (!c || !c.member) return jsonResponse({ error: "forbidden" }, 403);
+    return landedBatchResponse(env, request, `c:${session.id}`, c.state);
+  }
   if (path === "/portal/watchlist" && request.method === "GET") {
     const rows = (await env.DB.prepare("SELECT lot_id, snapshot FROM watchlist_items WHERE client_id = ? ORDER BY id").bind(Number(session.id)).all()).results || [];
     const map = {};
@@ -2024,6 +2087,14 @@ async function handleDealerPortal(request, env, url, path, session, here) {
     }
     const html = await dealerPortalPage(env, dealer, flash);
     return doc(html, 200);
+  }
+
+  // Deferred landed-cost fill for the dealer history page (Phase 2). Same
+  // active-dealer guard as the page; estimates use the default state.
+  if (path === "/dealer/landed-batch" && request.method === "POST") {
+    const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    if (!dealer) return jsonResponse({ error: "forbidden" }, 403);
+    return landedBatchResponse(env, request, `d:${session.id}`, null);
   }
 
   // Auction history / sold prices, read-only for dealers. Params are raw off

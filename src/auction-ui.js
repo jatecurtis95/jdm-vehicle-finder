@@ -13,6 +13,7 @@
 
 import { esc, yen, fullGrade } from "./render.js";
 import { imageUrls, splitImages } from "./avtonet.js";
+import { lotJpy, carAudToLanded } from "./calc.js";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
@@ -99,13 +100,26 @@ export function auctionCardV2(lot, opts = {}) {
   const trans = [lot.kpp || lot.kpp_type, lot.priv].map((s) => String(s || "").trim()).filter(Boolean).join(" · ") || "-";
   const lotNo = String(lot.lot || "").trim() || "-";
   const elig = auctionEligibility(lot, opts.nowYear);
+  // Phase 2 information pass: engine size and an Est. landed figure bring the
+  // live card up to the History table's density. The landed value renders as
+  // the instant rough placeholder (x1.13 + overhead); the page's deferred
+  // fill script (landedFillScript) swaps in the real calculator figure via
+  // the data attributes. Sold cards show the hammer price instead.
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const engine = cc > 0 ? cc.toLocaleString("en-US") + " cc" : "-";
+  const jpyWorking = lotJpy(lot);
+  const roughLanded = !sold && jpyWorking > 0 && fx > 0 ? carAudToLanded(Math.round(jpyWorking / fx)) : null;
+  const landedAttrs = !sold && jpyWorking > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpyWorking))}" data-cc="${esc(String(cc))}"`
+    : "";
+  const landedTxt = roughLanded ? "≈ A$" + roughLanded.toLocaleString("en-AU") : "-";
   const pr = sold
     ? { pk: "Sold price", price: yen(opts.soldPrice), aud: fx > 0 ? "≈ A$" + Math.round(opts.soldPrice / fx).toLocaleString("en-AU") : "" }
     : priceLine(lot, fx);
   const sheet = splitImages(lot).sheet;
   const sheetUrl = sheet ? `${sheet}&w=1400` : "";
 
-  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}" data-trans="${esc(trans)}" data-lotno="${esc(lotNo)}"` : "";
+  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}" data-trans="${esc(trans)}" data-lotno="${esc(lotNo)}" data-engine="${esc(engine)}"` : "";
   const heart = fav ? `<button type="button" class="ac-fav"${favData} aria-pressed="false" aria-label="Save to watchlist">${HEART}</button>` : "";
   // When a detail route is supplied, the card opens a full lot page (gallery,
   // inspection report, specs, actions). The link is a stretched overlay UNDER
@@ -134,6 +148,8 @@ export function auctionCardV2(lot, opts = {}) {
       <div class="st"><div class="k">Mileage</div><div class="v">${esc(mileage)}</div></div>
       <div class="st"><div class="k">Transmission</div><div class="v">${esc(trans)}</div></div>
       <div class="st"><div class="k">Lot</div><div class="v">${esc(lotNo)}</div></div>
+      <div class="st"><div class="k">Engine</div><div class="v">${esc(engine)}</div></div>
+      ${sold ? "" : `<div class="st"><div class="k">Est. landed</div><div class="v ac-landed"${landedAttrs}>${esc(landedTxt)}</div></div>`}
     </div>
     <div class="ac-foot">
       <div class="ac-price"><div class="pk">${esc(pr.pk)}</div><div class="pv">${esc(pr.price)}</div>${pr.aud ? `<div class="pa">${esc(pr.aud)}</div>` : ""}</div>
@@ -231,8 +247,8 @@ export function auctionWatchScript(opts = {}) {
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
   function paint(){var n=Object.keys(load()).length,e=document.querySelectorAll('[data-watch-count]');for(var i=0;i<e.length;i++){e[i].textContent=n;}}
   function mark(){var m=load(),b=document.querySelectorAll('.ac-fav[data-id]');for(var i=0;i<b.length;i++){var on=!!m[b[i].getAttribute('data-id')];b[i].classList.toggle('on',on);b[i].setAttribute('aria-pressed',on?'true':'false');b[i].setAttribute('aria-label',on?'Remove from watchlist':'Save to watchlist');}}
-  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet,trans:d.trans,lotno:d.lotno};}
-  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
+  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet,trans:d.trans,lotno:d.lotno,engine:d.engine};}
+  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno','engine'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
   var HEART='${HEART}';
   function card(v){
     var h='<div class="acard"><div class="ac-photo" data-bg="'+esc(v.img)+'">';
@@ -245,7 +261,8 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="st"><div class="k">Eligibility</div><div class="v"><span class="ac-elig '+(v.eligcls==='ok'?'ok':'check')+'"><span class="dot"></span>'+esc(v.elig)+'</span></div></div>';
     h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div>';
     h+='<div class="st"><div class="k">Transmission</div><div class="v">'+(esc(v.trans)||'-')+'</div></div>';
-    h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div></div>';
+    h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div>';
+    h+='<div class="st"><div class="k">Engine</div><div class="v">'+(esc(v.engine)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
     h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
     if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-primary btn-sm ac-req" type="submit">Request bid</button></form>';}
@@ -319,6 +336,7 @@ export const AUCTION_CSS = `<style>
   .ac-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:12px 16px;margin-top:12px;border-top:1px solid var(--hair)}
   .ac-stats .k{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
   .ac-stats .v{font-size:var(--fs-label,12px);font-weight:600;margin-top:4px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ac-landed{color:var(--gold-txt)!important;font-variant-numeric:tabular-nums}
   .ac-elig{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-label,12px);font-weight:600}
   .ac-elig .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
   .ac-elig.ok{color:var(--good,#1F7A4D)}.ac-elig.ok .dot{background:var(--good,#1F7A4D)}
