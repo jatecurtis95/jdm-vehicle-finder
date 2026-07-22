@@ -39,10 +39,23 @@ test("auction page is gated to members", async () => {
 test("a member search renders one card per live lot", async () => {
   stub();
   const html = await portalAuctionsPage(env2(), { role: "client", id: 1 }, { make: "NISSAN", model: "SKYLINE" });
-  assert.match(html, /Live auction feed/);
+  assert.match(html, /live lots/, "the results bar shows the live count");
   assert.equal(acards(html), 2);
   assert.match(html, /class="ac-fav"/, "cards carry a watchlist heart");
   assert.match(html, /Request bid/, "buyer cards can request a bid");
+});
+
+test("the member live tab shares the History filter panel (Phase 1)", async () => {
+  stub();
+  const html = await portalAuctionsPage(env2(), { role: "client", id: 1 }, {});
+  const form = html.match(/<form class="ahx-filter"[\s\S]*?<\/form>/)[0];
+  assert.doesNotMatch(form, /<details/, "nothing collapsed, no More filters");
+  const rateOrder = [...form.matchAll(/name="rates" value="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(rateOrder, ["r", "ra", "2", "3", "3.5", "4", "4.5", "5", "6", "s"], "grade pills replace the min-grade input");
+  assert.doesNotMatch(form, /name="gradeMin"/);
+  assert.match(form, /name="variant"[^>]*list="ahx-grades"/, "the trim selector is wired to the grades datalist");
+  assert.match(form, /Start price from \(JPY\)/, "live prices are start prices");
+  assert.match(html, /Closing soonest/, "the default sort is stated on the results bar");
 });
 
 test("the Watchlist tab renders the client-side grid container, not the feed", async () => {
