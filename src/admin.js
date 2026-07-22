@@ -1603,8 +1603,9 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-compliance">Compliance <span class="opt">(A$, SEVS/RAWS)</span></label><input id="set-compliance" name="calc_compliance_aud" type="number" min="0" step="any" value="${esc(s.calc_compliance_aud || "")}" placeholder="4,000"></div>
             <div><label for="set-agency">Agency fee <span class="opt">(A$, per import)</span></label><input id="set-agency" name="calc_agency_aud" type="number" min="0" step="any" value="${esc(s.calc_agency_aud || "")}" placeholder="0"></div>
             <div><label for="set-fx">FX override <span class="opt">(JPY per A$1, blank = live rate)</span></label><input id="set-fx" name="calc_fx_jpy_aud" type="number" min="0" step="any" value="${esc(s.calc_fx_jpy_aud || "")}" placeholder="live"></div>
+            <div><label for="set-bias">Estimate bias <span class="opt">(%, negative aims under actuals)</span></label><input id="set-bias" name="calc_bias_pct" type="number" min="-50" max="50" step="any" value="${esc(s.calc_bias_pct || "")}" placeholder="0"></div>
           </div>
-          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed.</p>
+          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed. Bias adjusts the final figure by a percentage: after back-testing against real invoices, set it so estimates aim 5 to 10% under actuals (e.g. -8).</p>
         </div>
       </div>
 

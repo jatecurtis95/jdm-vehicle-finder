@@ -6,6 +6,8 @@
 // The API is CORS-locked to JDM domains, so we send an allowed Origin header
 // on the server-to-server call. All figures are indicative estimates.
 
+import { getSettings } from "./settings.js";
+
 // Australian state -> shipping port the calculator supports.
 const STATE_TO_PORT = {
   WA: "FREMANTLE",
@@ -124,6 +126,17 @@ function vehicleSizeIdx(lot) {
   return 1;                          // Sedan/Coupe default
 }
 
+// Per-isolate estimate cache (Phase 2). One calculator POST per distinct
+// (lot, price, state, assumptions) per isolate lifetime: repeat page loads,
+// the deferred page fill, the matcher and notify all reuse the same figure
+// instead of re-asking the calculator. Bounded so a busy isolate can't grow
+// without limit; entries expire with the FX cache horizon.
+const EST_TTL_MS = 6 * 60 * 60 * 1000;
+const EST_CACHE_MAX = 500;
+const _estCache = new Map(); // key -> { est, exp }
+const cfgKey = (cfg) => cfg ? `${cfg.compliance ?? ""}|${cfg.agency ?? ""}|${cfg.fx ?? ""}|${cfg.bias ?? ""}` : "d";
+export function _resetLandedCache() { _estCache.clear(); } // test hook
+
 // Estimate the full landed + on-road cost (AUD) for one lot, for a client in a
 // given state. Returns null if there's no price or the calculator is
 // unreachable - callers treat null as "no estimate available" and degrade.
@@ -134,6 +147,12 @@ export async function estimateLanded(env, lot, client, cfg = null) {
   const state = normalizeState(client?.state) || normalizeState(env.CALC_DEFAULT_STATE) || "VIC";
   const port = STATE_TO_PORT[state] || "MELBOURNE";
   const fx = (cfg && cfg.fx) || await getLiveFx(env);
+
+  const cacheKey = lot?.id ? `${lot.id}|${jpy}|${state}|${cfgKey(cfg)}` : null;
+  if (cacheKey) {
+    const hit = _estCache.get(cacheKey);
+    if (hit && Date.now() < hit.exp) return hit.est;
+  }
 
   const payload = {
     jpyPrice: jpy,
@@ -164,9 +183,14 @@ export async function estimateLanded(env, lot, client, cfg = null) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const gt = Number(data?.calc?.grandTotal);
+    let gt = Number(data?.calc?.grandTotal);
     if (!Number.isFinite(gt) || gt <= 0) return null; // guard against A$NaN
-    return {
+    // Settings-tunable bias (Phase 2): a signed percentage on the headline
+    // figure so estimates can be aimed 5 to 10% under (or over) actuals once
+    // back-testing says which way the raw calculator runs.
+    const bias = Number(cfg?.bias);
+    if (Number.isFinite(bias) && bias !== 0) gt = Math.round(gt * (1 + bias / 100));
+    const est = {
       grandTotal: gt,                                  // landed + on-road, AUD
       landedAtPort: Number(data.calc.landedAtPort) || null,
       purchaseAUD: Number(data.calc.purchaseAUD) || null,
@@ -174,6 +198,14 @@ export async function estimateLanded(env, lot, client, cfg = null) {
       port,
       state,
     };
+    if (cacheKey) {
+      if (_estCache.size >= EST_CACHE_MAX) {
+        // Drop the oldest insertion; Map preserves insertion order.
+        _estCache.delete(_estCache.keys().next().value);
+      }
+      _estCache.set(cacheKey, { est, exp: Date.now() + EST_TTL_MS });
+    }
+    return est;
   } catch (e) {
     console.error("Landed estimate failed:", e.message);
     return null;
@@ -190,7 +222,13 @@ export async function landedConfig(env) {
       const n = Number(v);
       return v && Number.isFinite(n) && n >= 0 ? n : null;
     };
-    return { compliance: numOrNull("calc_compliance_aud"), agency: numOrNull("calc_agency_aud"), fx: numOrNull("calc_fx_jpy_aud") };
+    // Bias is the one signed field: negative aims under actuals.
+    const bias = (() => {
+      const v = String(s.calc_bias_pct ?? "").trim();
+      const n = Number(v);
+      return v && Number.isFinite(n) && n >= -50 && n <= 50 ? n : null;
+    })();
+    return { compliance: numOrNull("calc_compliance_aud"), agency: numOrNull("calc_agency_aud"), fx: numOrNull("calc_fx_jpy_aud"), bias };
   } catch (e) {
     return null;
   }
@@ -212,4 +250,26 @@ export async function attachLanded(env, pairs, concurrency = 6) {
   }
   const n = Math.max(1, Math.min(concurrency, pairs.length));
   await Promise.all(Array.from({ length: n }, () => worker()));
+}
+
+// One deferred page fill (Phase 2): real landed figures for up to a page of
+// lots in a single call from the browser, after first paint. `items` is
+// [{ id, jpy, cc }] (already validated by the route); returns
+// { [lotId]: grandTotalAUD } with misses simply absent. Estimates only - the
+// pseudo-lot carries just the fields estimateLanded reads (price + engine
+// size), and the per-isolate cache absorbs repeats across page loads.
+export const LANDED_BATCH_MAX = 24; // one results page
+export async function estimateLandedBatch(env, items, state) {
+  const lots = (items || []).slice(0, LANDED_BATCH_MAX).map((it) => ({
+    id: String(it.id),
+    avg_price: Number(it.jpy),
+    eng_v: Number(it.cc) || 0,
+  }));
+  const client = { state: state || null };
+  await attachLanded(env, lots.map((lot) => ({ lot, client })));
+  const out = {};
+  for (const lot of lots) {
+    if (lot._landed && Number(lot._landed.grandTotal) > 0) out[lot.id] = lot._landed.grandTotal;
+  }
+  return out;
 }
