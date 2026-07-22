@@ -1,12 +1,13 @@
-// Auction search UI (Stage 2 redesign).
+// Auction search UI (Stage 2 redesign; Phase 1 moved the filter panel to
+// auction-history.js so Live and History share one engine).
 //
-// The app-style search experience shared by the member Auction search page and
-// the staff Auctions workspace: a search-bar-first header with make / model /
-// house filters, Live / Watchlist tabs, a results toolbar with a grid/list
-// toggle, and richer result cards (grade badge, favourite heart, date, chassis,
-// a 2x2 spec grid with auction house + import eligibility, and a Recent-avg
-// price with a Sheet + primary action). The Watchlist is client-side only
-// (localStorage), so it needs no schema and works identically on both surfaces.
+// The app-style pieces shared by the member Auction search page and the staff
+// Auctions workspace: Live / Watchlist tabs, a results toolbar with a
+// grid/list toggle, and richer result cards (grade badge, favourite heart,
+// date, chassis, a 2x2 spec grid with auction house + import eligibility, and
+// a Recent-avg price with a Sheet + primary action). The Watchlist is
+// client-side only (localStorage), so it needs no schema and works
+// identically on both surfaces.
 //
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
@@ -142,84 +143,17 @@ export function auctionCardV2(lot, opts = {}) {
   </div>`;
 }
 
-// The search card: label + live counts, a big search bar, and make / model /
-// house selects with a "More filters" dropdown for year, price and grade.
-//   action   form GET target ("/portal/auctions" or "/admin")
-//   hidden   extra hidden inputs (e.g. view=auctions for the staff route)
-//   p        the current search params (echoed back into the fields)
-//   makers/models/houses  option lists (models only when a make is chosen)
-//   bidCount / showBid    the member's live bid-request count
-export function auctionSearchHeader(o = {}) {
-  const p = o.p || {};
-  const v = (k) => esc(p[k] ?? "");
-  const opt = (list, sel, tc) => (list || []).map((x) =>
-    `<option value="${esc(x)}"${String(x) === String(sel) ? " selected" : ""}>${esc(tc ? displayMaker(x) : x)}</option>`).join("");
-  const advOpen = ["yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
-  const counts = `<span class="asrch-counts">Watchlist <b data-watch-count>0</b>${o.showBid ? ` <span class="sep">&middot;</span> Bid requests <b>${Number(o.bidCount) || 0}</b>` : ""}</span>`;
-  // IA-AUDIT item 15: once a search has run, the form folds to a one-line
-  // criteria summary (the flight-search pattern) so the first result card
-  // starts inside the fold. Before any search, the form IS the page.
-  const hasQuery = ["q", "make", "model", "house", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
-  const digest = [
-    p.q, displayMaker(p.make), displayMaker(p.model), p.house,
-    (p.yearMin || p.yearMax) ? `${p.yearMin || "any"} to ${p.yearMax || "any"}` : "",
-    p.priceMax ? `to ${yen(Number(p.priceMax))}` : "",
-    p.gradeMin ? `grade ${p.gradeMin}+` : "",
-    p.kuzov,
-  ].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
-  // V1.3 Phase A: no free-text smart bar (parked, see FINDER-V13-FIXES.md),
-  // no auto-submit on select change (the panel stays open while refining;
-  // model and model-code option lists refill in the background instead), and
-  // one obvious explicit trigger: "Run Searches".
-  const codeOpt = (list, sel) => (list || []).map((c) => {
-    const code = typeof c === "string" ? c : c.code;
-    const label = typeof c === "string" ? c : (c.label || c.code);
-    return `<option value="${esc(code)}"${String(code).toUpperCase() === String(sel || "").toUpperCase() ? " selected" : ""}>${esc(label)}</option>`;
-  }).join("");
-  const kuzovSel = String(p.kuzov || "").trim();
-  const formHtml = `<form class="asrch-form" method="GET" action="${esc(o.action || "")}" role="search">
-      ${o.hidden || ""}
-      <div class="asrch-filters">
-        <select name="make" aria-label="Make" data-asrch-make><option value="">All makes</option>${opt(o.makers, p.make, true)}</select>
-        <select name="model" aria-label="Model" data-asrch-model><option value="">All models</option>${opt(o.models, p.model, true)}</select>
-        <select name="kuzov" aria-label="Model code" data-asrch-code><option value="">All model codes</option>${codeOpt(o.codes, kuzovSel)}${kuzovSel && !(o.codes || []).some((c) => String(typeof c === "string" ? c : c.code).toUpperCase() === kuzovSel.toUpperCase()) ? `<option value="${v("kuzov")}" selected>${v("kuzov")}</option>` : ""}</select>
-        <select name="house" aria-label="Auction house"><option value="">All houses</option>${opt(o.houses, p.house)}</select>
-        <button class="asrch-go" type="submit">Search</button>
-        <details class="asrch-more"${advOpen ? " open" : ""}>
-          <summary>More filters</summary>
-          <div class="asrch-adv">
-            <div class="asrch-adv-grid">
-              <label>Year from<input name="yearMin" type="number" min="1960" value="${v("yearMin")}" placeholder="1990"></label>
-              <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
-              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
-              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
-            </div>
-            <div class="asrch-adv-act"><button class="btn-primary" type="submit">Search</button></div>
-          </div>
-        </details>
-      </div>
-      <script>(function(){
-        var f=document.currentScript.closest("form");if(!f)return;
-        var mk=f.querySelector("[data-asrch-make]"),md=f.querySelector("[data-asrch-model]"),cd=f.querySelector("[data-asrch-code]");
-        function refill(sel,items,none,valKey,txtKey){
-          if(!sel)return;var cur=sel.value;sel.innerHTML='<option value="">'+none+'</option>';
-          (items||[]).forEach(function(x){var o=document.createElement("option");o.value=valKey?x[valKey]:x;o.textContent=txtKey?x[txtKey]:x;sel.appendChild(o);});
-          for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===cur){sel.value=cur;break;}}
-        }
-        function loadModels(){if(!mk||!mk.value){refill(md,[],"All models");loadCodes();return;}
-          fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){refill(md,l,"All models");loadCodes();}).catch(function(){});}
-        function loadCodes(){if(!cd)return;if(!mk||!mk.value){refill(cd,[],"All model codes");return;}
-          fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||"")).then(function(r){return r.json();}).then(function(l){refill(cd,l,"All model codes","code","label");}).catch(function(){});}
-        if(mk)mk.addEventListener("change",loadModels);
-        if(md)md.addEventListener("change",loadCodes);
-      })();</script>
-    </form>`;
-  return `<div class="asrch">
-    <div class="asrch-top"><span class="asrch-label">${esc(o.label || "Search live Japanese auctions")}</span>${counts}</div>
-    ${hasQuery
-      ? `<details class="asrch-fold"><summary><span class="asrch-sum">${esc(digest || "Current search")}</span><span class="asrch-edit">Edit search</span></summary>${formHtml}</details>`
-      : formHtml}
-  </div>`;
+// The old auctionSearchHeader (make/model/house selects + a "More filters"
+// details fold) is gone (Phase 1): both Live tabs now share the Auction
+// History filter panel via liveSearchBlock() in auction-history.js, so
+// filters and results match everywhere and nothing hides behind a fold.
+
+// The grid/list view toggle, shared by the results bars. `hrefFor(mode)`
+// builds a URL that swaps only the view.
+export function viewToggle(view, hrefFor) {
+  const av = (mode, ic, lbl) =>
+    `<a class="av${view === mode ? " on" : ""}" href="${esc(hrefFor(mode))}" title="${lbl}" aria-label="${lbl}">${ic}</a>`;
+  return `<div class="aview">${av("grid", GRID_IC, "Grid view")}${av("list", LIST_IC, "List view")}</div>`;
 }
 
 // IA-AUDIT item 15: watched lots entering their final 24h page the staff.
@@ -340,34 +274,6 @@ export function auctionWatchScript(opts = {}) {
 // which share design-token variable names. Eligibility colours are hardcoded for
 // the light content area both surfaces use.
 export const AUCTION_CSS = `<style>
-  .asrch{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:20px;margin-bottom:20px}
-  .asrch-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-  /* Post-search fold: one-line criteria summary, the form behind it. */
-  .asrch-fold>summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;min-height:44px;padding:10px 14px;border:1px solid var(--hair,rgba(0,0,0,.08));border-radius:var(--r-ctl,8px);background:var(--off,#F8F9FA)}
-  .asrch-fold>summary::-webkit-details-marker{display:none}
-  .asrch-sum{flex:1;min-width:0;font-size:var(--fs-sec,13px);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .asrch-edit{font-size:var(--fs-label,12px);font-weight:600;color:var(--gold-txt,#7A5E1C);white-space:nowrap}
-  .asrch-fold[open]>summary{margin-bottom:12px}
-  .asrch-label{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
-  .asrch-counts{font-size:var(--fs-label,12px);color:var(--t3)}
-  .asrch-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
-  .asrch-counts .sep{opacity:.5;margin:0 2px}
-  .asrch-go{flex:0 0 auto;background:var(--gold);color:var(--gold-on,#15120A);font-weight:700;border:0;padding:11px 24px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);cursor:pointer;font-family:inherit}
-  .asrch-go:hover{background:var(--gold-hover)}
-  .asrch-filters{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-  .asrch-filters select{flex:1 1 170px;min-width:0;padding:12px 32px 12px 12px;border-radius:var(--r-ctl,8px)}
-  .asrch-more{flex:0 0 auto;position:static}
-  .asrch-more>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;background:var(--soft,rgba(0,0,0,0.04));color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:12px 16px;font-size:var(--fs-sec,13px);font-weight:600}
-  .asrch-more>summary::-webkit-details-marker{display:none}
-  .asrch-more>summary:after{content:"+";color:var(--gold);font-weight:700;font-size:16px;line-height:1}
-  .asrch-more[open]>summary:after{content:"-"}
-  .asrch-adv{position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:8;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:16px;box-shadow:0 20px 55px rgba(0,0,0,.16)}
-  .asrch-adv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
-  .asrch-adv-grid label{display:block;font-size:var(--fs-label,12px);color:var(--t2);font-weight:600;margin:0}
-  .asrch-adv-grid label .opt{color:var(--faint);font-weight:400}
-  .asrch-adv-grid input{margin-top:8px;padding:12px;border-radius:var(--r-ctl,8px)}
-  .asrch-adv-act{display:flex;justify-content:flex-end;margin-top:16px}
-
   .atabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:4px;margin-bottom:16px}
   /* Four pill tabs run 388px wide at a 375 viewport; scroll the strip instead
      of overflowing the page. */
@@ -447,13 +353,5 @@ export const AUCTION_CSS = `<style>
 
   @media(max-width:640px){
     .acgrid{grid-template-columns:1fr}
-    .asrch{padding:16px}
-    .asrch-go{padding:16px}
-    /* 2-up filter selects (not full-width-stacked) so the search header stays
-       compact and results are visible without a long scroll. */
-    .asrch-filters{gap:8px}
-    .asrch-filters select{flex:1 1 calc(50% - 4px);min-width:0}
-    .asrch-more{flex-basis:100%}
-    .asrch-more>summary{width:100%;justify-content:center}
   }
 </style>`;
