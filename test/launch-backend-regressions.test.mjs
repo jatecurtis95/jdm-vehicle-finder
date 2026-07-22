@@ -277,6 +277,65 @@ test("runAll excludes archived clients even when their wishlists remain active",
   );
 });
 
+test("bounded matcher runs checkpoint the last wishlist and rotate through the remaining work", async () => {
+  const env = matcherEnv();
+  env.MATCHER_WISHLIST_CAP = "2";
+  env.db.exec(`
+    INSERT INTO clients (id, name, email, state, archived) VALUES
+      (2, 'Buyer two', 'two@example.com', 'VIC', 0),
+      (3, 'Buyer three', 'three@example.com', 'VIC', 0);
+    INSERT INTO wishlists (id, client_id, marka_name, model_name, active) VALUES
+      (2, 2, 'NISSAN', 'SKYLINE', 1),
+      (3, 3, 'NISSAN', 'SKYLINE', 1);
+  `);
+
+  await runAll(env, { role: "admin", id: 0 });
+  const firstClients = env.db.prepare("SELECT client_id FROM queue ORDER BY client_id").all().map((r) => r.client_id);
+  const firstCursor = env.db.prepare("SELECT value FROM settings WHERE key = 'matcher_cursor_admin'").get()?.value;
+  await runAll(env, { role: "admin", id: 0 });
+  const secondClients = env.db.prepare("SELECT client_id FROM queue ORDER BY client_id").all().map((r) => r.client_id);
+
+  assert.deepEqual({ firstClients, firstCursor, secondClients }, {
+    firstClients: [1, 2],
+    firstCursor: "2",
+    secondClients: [1, 2, 3],
+  });
+});
+
+test("matcher stops between wishlists when its execution deadline is exhausted", async () => {
+  const env = makeEnv(`
+    INSERT INTO clients (id, name, email, state, archived) VALUES
+      (1, 'Buyer one', 'one@example.com', 'VIC', 0),
+      (2, 'Buyer two', 'two@example.com', 'VIC', 0),
+      (3, 'Buyer three', 'three@example.com', 'VIC', 0);
+    INSERT INTO wishlists (id, client_id, marka_name, model_name, active) VALUES
+      (1, 1, 'NISSAN', 'SKYLINE', 1),
+      (2, 2, 'NISSAN', 'SKYLINE', 1),
+      (3, 3, 'NISSAN', 'SKYLINE', 1);
+    INSERT INTO settings (key, value) VALUES ('budget_filter', '0'), ('email_alerts', '0');
+  `);
+  env.API_BASE = "https://auction.test";
+  env.AVTONET_CODE = "test";
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return {
+      ok: true,
+      status: 200,
+      text: async () => `<aj><row><id>DEADLINE-LOT</id><marka_name>NISSAN</marka_name>
+        <model_name>SKYLINE</model_name><year>1999</year><auction_date>2099-01-01 10:00:00</auction_date>
+        <start>0</start><avg_price>0</avg_price><lhdrive>0</lhdrive></row></aj>`,
+    };
+  };
+  try {
+    await runAll(env, { role: "admin", id: 0 }, { deadlineMs: 5, maxWishlists: 100 });
+    const queued = env.db.prepare("SELECT COUNT(*) AS n FROM queue").get().n;
+    assert.equal(queued, 1, "the current wishlist finishes, then the run yields before starting another");
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+});
+
 test("auction search exposes a typed provider-unavailable state instead of a legitimate empty result", async () => {
   const savedFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => "maintenance" });

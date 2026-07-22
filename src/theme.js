@@ -16,7 +16,7 @@ export const FONT = `"Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",H
 
 // Official JDM Connect horizontal lockup (inline SVG). The paths carry no fill,
 // so on a dark surface we tint them to the cream ink via CSS (.brand svg path).
-export const LOGO = `<svg viewBox="0 0 431.98 45.66" style="width:190px;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" aria-label="JDM Connect">
+export const LOGO = `<svg viewBox="0 0 431.98 45.66" width="190" height="20" style="max-width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JDM Connect">
 <polygon points="133.86 45.51 150.93 .54 169.49 .54 182.2 31.95 215.18 .55 232.49 .54 215.4 45.5 201.57 45.51 213.16 14.41 181.27 45.51 172.35 45.51 159.78 13.79 147.44 45.51 133.86 45.51"></polygon>
 <path d="M60.77,45.5L77.84.52h47.87c8.59,0,15.68.61,11.7,11.11-1.04,2.73-5.67,15.91-9.97,23.88-5.23,9.69-10.58,10.02-21.73,10.02l-44.94-.02ZM78.98,37.5h27.61c4.47,0,6.88-1.65,8.81-3.84,2.14-2.43,7.07-14.79,7.97-18.27,1.24-4.84-1.45-6.83-10.08-6.83h-23.43l-.14.44-10.74,28.5Z"></path>
 <path d="M68.56.52c-2.18,5.74-4.3,11.29-6.59,17.33-6.74,17.77-8.86,27.67-29.03,27.67H-.05l3.15-7.98,28.65-.03c5.98-.43,8.57-2.77,11.03-8.22,2.93-6.47,4.88-13.89,7.73-20.45h-15.96c.96-2.78,1.76-5.94,3.4-8.32h30.61Z"></path>
@@ -326,22 +326,27 @@ export const themeCss = `
   .infocard p{color:var(--t2);font-size:15px;line-height:1.6;margin:0 0 22px}
   .infocard .ref{display:inline-block;font-weight:700;color:var(--gold-txt);letter-spacing:.02em}
 
-  /* Mobile nav: off-canvas drawer toggled by a CSS checkbox (no JS; a link
-     click loads a new page and resets it). Mirrors the staff admin shell. */
-  .nav-cb{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  /* Mobile nav: a real button controls an off-canvas drawer. At phone widths
+     the closed rail is visibility:hidden as well as translated, so its links
+     cannot receive keyboard focus before the controller synchronises inert. */
   .nav-burger{display:none}
+  .nav-close{display:none}
   .nav-scrim{display:none}
   @media(max-width:920px){
     .wrap{flex-direction:column}
-    .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;height:52px;padding:0 16px;background:var(--bg-2);border-bottom:1px solid var(--hair);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .nav-burger{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50;width:100%;height:52px;padding:0 16px;background:var(--bg-2);border:0;border-bottom:1px solid var(--hair);color:var(--ink);font-family:${FONT};font-weight:600;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+    .nav-burger:focus-visible{outline:2px solid var(--gold);outline-offset:-3px}
     .nav-burger svg{width:22px;height:22px}
-    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.7,.3,1);z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto;overscroll-behavior:contain}
+    .nav-close{display:flex;align-items:center;justify-content:center;position:absolute;top:12px;right:12px;z-index:2;width:44px;height:44px;border:1px solid var(--hair);border-radius:8px;background:var(--card);color:var(--ink);font:400 28px/1 ${FONT};cursor:pointer;touch-action:manipulation}
+    .nav-close:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+    .side{position:fixed;top:0;left:0;height:100dvh;width:min(82vw,300px);transform:translateX(-100%);visibility:hidden;transition:transform .28s cubic-bezier(.2,.7,.3,1),visibility 0s linear .28s;z-index:60;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow-y:auto;overscroll-behavior:contain}
     .nav{flex-direction:column}
     .side-foot{flex-direction:column;margin-top:auto;padding-top:20px}
-    .nav-cb:checked ~ .wrap .side{transform:none}
-    .nav-scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .28s;z-index:55}
-    .nav-cb:checked ~ .wrap .nav-scrim{opacity:1;visibility:visible}
+    .side.is-open{transform:none;visibility:visible;transition-delay:0s}
+    .nav-scrim{display:block;position:fixed;inset:0;width:100%;height:100%;padding:0;border:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .28s,visibility 0s linear .28s;z-index:55;cursor:pointer}
+    .nav-scrim.is-open{opacity:1;visibility:visible;transition-delay:0s}
   }
+  @media(prefers-reduced-motion:reduce){.side,.nav-scrim{transition:none!important}}
   @media(max-width:640px){
     .grid{grid-template-columns:1fr}
     /* Buyer garage + auction results: the minmax(320px) track overflowed a
@@ -374,8 +379,11 @@ export function escHtml(s) {
 // pollutes ad audiences or conversion data.
 const GTM_ID = "GTM-5QX9JQ4H";
 const FB_PIXEL_ID = "438613762049767";
-const ANALYTICS_HEAD = `<!-- Google Tag Manager --><script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${GTM_ID}');</script><!-- End Google Tag Manager --><!-- Meta Pixel --><script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${FB_PIXEL_ID}');fbq('track','PageView');</script><!-- End Meta Pixel -->`;
-const ANALYTICS_BODY = `<!-- Google Tag Manager (noscript) --><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><!-- End Google Tag Manager (noscript) --><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${FB_PIXEL_ID}&ev=PageView&noscript=1"/></noscript>`;
+// Queue measurements immediately, but fetch the two third-party bundles only
+// after the page load event. This preserves PageView/Lead events (the stubs
+// queue them) without making either vendor compete with the LCP image.
+const ANALYTICS_HEAD = `<script>(function(w){var n=w.navigator||{},c=n.connection||n.mozConnection||n.webkitConnection;w.__jdmAnalyticsDisabled=n.doNotTrack==='1'||w.doNotTrack==='1'||n.globalPrivacyControl===true||!!(c&&c.saveData);if(w.__jdmAnalyticsDisabled)return;w.dataLayer=w.dataLayer||[];w.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});if(!w.fbq){var q=w.fbq=function(){q.callMethod?q.callMethod.apply(q,arguments):q.queue.push(arguments)};q.queue=[];q.loaded=false;q.version='2.0';w._fbq=q;}w.fbq('init','${FB_PIXEL_ID}');w.fbq('track','PageView');})(window);</script>`;
+const ANALYTICS_BODY = `<!-- Analytics fallbacks --><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}" height="0" width="0" title="" style="display:none;visibility:hidden"></iframe><img alt="" height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${FB_PIXEL_ID}&ev=PageView&noscript=1"></noscript><script>(function(w,d){var done=false;function load(){if(done||w.__jdmAnalyticsDisabled)return;done=true;var first=d.scripts[0]||d.head.firstChild;var g=d.createElement('script');g.async=true;g.src='https://www.googletagmanager.com/gtm.js?id=${GTM_ID}';first.parentNode.insertBefore(g,first);var m=d.createElement('script');m.async=true;m.src='https://connect.facebook.net/en_US/fbevents.js';first.parentNode.insertBefore(m,first);if(w.fbq)w.fbq.loaded=true;}if(d.readyState==='complete')setTimeout(load,0);else w.addEventListener('load',function(){setTimeout(load,0);},{once:true});})(window,document);</script>`;
 
 // Floating "Chat with us on WhatsApp" button for customer-facing pages only
 // (brandDoc - never the staff admin). The status dot/label is computed live in
@@ -390,7 +398,7 @@ const WA_TZ = "Australia/Perth";       // AWST
 const WA_PREFILL = "Hi JDM Connect, I'd like to ask about importing a car.";
 const WA_ICON = `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 .4C7.4.4.5 7.3.5 15.9c0 2.8.7 5.5 2.1 7.9L.4 31.6l8-2.1c2.3 1.3 4.9 1.9 7.6 1.9 8.6 0 15.5-6.9 15.5-15.5S24.6.4 16 .4zm0 28.3c-2.4 0-4.7-.6-6.7-1.8l-.5-.3-4.8 1.3 1.3-4.6-.3-.5c-1.3-2.1-2-4.5-2-7 0-7.2 5.8-13 13-13s13 5.8 13 13-5.8 13-13 13zm7.1-9.7c-.4-.2-2.3-1.1-2.6-1.3-.3-.1-.6-.2-.8.2-.2.4-.9 1.3-1.1 1.5-.2.2-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.3-2.1-2.7-.2-.4 0-.6.2-.8.2-.2.4-.4.5-.6.2-.2.2-.4.4-.6.1-.2.1-.5 0-.7-.1-.2-.8-2-1.1-2.7-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4-.3.4-1.2 1.2-1.2 2.9 0 1.7 1.2 3.3 1.4 3.6.2.2 2.4 3.7 5.9 5.2.8.4 1.5.6 2 .7.8.3 1.6.2 2.2.1.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.6.2-1.8-.1-.1-.3-.2-.7-.4z"/></svg>`;
 const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(WA_PREFILL)}" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp"><span class="wa-ic">${WA_ICON}</span><span class="wa-tx"><span class="wa-t1">Chat with us</span><span class="wa-t2" id="waStatus">WhatsApp us</span></span><span class="wa-dot" id="waDot" aria-hidden="true"></span></a>
-<style>.wa-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:9998;touch-action:manipulation;display:flex;align-items:center;gap:11px;padding:11px 16px 11px 12px;background:#25D366;color:#0b1f14;border-radius:999px;text-decoration:none;box-shadow:0 10px 28px rgba(0,0,0,.28);font-family:Inter,system-ui,-apple-system,sans-serif;transition:transform .16s ease,box-shadow .16s ease}.wa-fab:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.34)}.wa-fab:active{transform:translateY(0)}.wa-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px}.wa-ic svg{width:26px;height:26px}.wa-tx{display:flex;flex-direction:column;line-height:1.15}.wa-t1{font-weight:700;font-size:14px}.wa-t2{font-size:11.5px;opacity:.82;font-weight:500}.wa-dot{width:9px;height:9px;border-radius:50%;background:#9aa3a0;margin-left:2px;box-shadow:0 0 0 3px rgba(255,255,255,.35)}.wa-fab.is-online .wa-dot{background:#0a3;box-shadow:0 0 0 3px rgba(0,190,75,.3)}@media(max-width:560px){.wa-fab .wa-tx{display:none}.wa-fab{padding:13px;gap:0}.wa-ic{width:26px;height:26px}}@media(prefers-reduced-motion:reduce){.wa-fab{transition:none}}</style>
+<style>.wa-fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:9998;touch-action:manipulation;display:flex;align-items:center;gap:11px;padding:11px 16px 11px 12px;background:#25D366;color:#0b1f14;border-radius:999px;text-decoration:none;box-shadow:0 10px 28px rgba(0,0,0,.28);font-family:Inter,system-ui,-apple-system,sans-serif;transition:transform .16s ease,box-shadow .16s ease}.wa-fab:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.34)}.wa-fab:focus-visible{outline:3px solid #fff;outline-offset:3px}.wa-fab:active{transform:translateY(0)}.wa-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px}.wa-ic svg{width:26px;height:26px}.wa-tx{display:flex;flex-direction:column;line-height:1.15}.wa-t1{font-weight:700;font-size:14px}.wa-t2{font-size:11.5px;opacity:.82;font-weight:500}.wa-dot{width:9px;height:9px;border-radius:50%;background:#9aa3a0;margin-left:2px;box-shadow:0 0 0 3px rgba(255,255,255,.35)}.wa-fab.is-online .wa-dot{background:#0a3;box-shadow:0 0 0 3px rgba(0,190,75,.3)}@media(max-width:560px){.wa-fab .wa-tx{display:none}.wa-fab{padding:13px;gap:0}.request-page .wa-fab{bottom:calc(96px + env(safe-area-inset-bottom))}.wa-ic{width:26px;height:26px}}@media(prefers-reduced-motion:reduce){.wa-fab{transition:none}}</style>
 <script>(function(){var fab=document.getElementById('waFab');if(!fab)return;var st=document.getElementById('waStatus');var days=[${WA_OPEN_DAYS.join(",")}],sH=${WA_OPEN_START},eH=${WA_OPEN_END},tz=${JSON.stringify(WA_TZ)};function parts(){try{var f=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',hour:'numeric',hour12:false});var wd='',hr=0;f.formatToParts(new Date()).forEach(function(p){if(p.type==='weekday')wd=p.value;if(p.type==='hour')hr=parseInt(p.value,10);});if(hr===24)hr=0;var m={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};return{day:m[wd],hour:hr};}catch(e){return null;}}function isOpen(){var p=parts();if(!p)return true;return days.indexOf(p.day)>=0&&p.hour>=sH&&p.hour<eH;}function apply(){var on=isOpen();fab.classList.toggle('is-online',on);if(st)st.textContent=on?"We're online now":"Away - leave a message";}apply();setInterval(apply,60000);})();</script>`;
 
 // Full branded HTML document for standalone (no sidebar) pages: login,
@@ -405,30 +413,67 @@ const CONTACT_WIDGET = `<a id="waFab" class="wa-fab" href="https://wa.me/${WA_NU
 // 404, public lot share) opt in with { analytics: true }.
 export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
   const head = opts.analytics ? ANALYTICS_HEAD : "";
-  const body = opts.analytics ? ANALYTICS_BODY : "";
+  const analytics = opts.analytics ? ANALYTICS_BODY : "";
   const content = /\bid=["']main["']/.test(bodyInner)
     ? bodyInner
     : `<main id="main">${bodyInner}</main>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"><style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
+  const description = String(opts.description || "").trim();
+  const canonical = String(opts.canonical || "").trim();
+  const ogTitle = String(opts.ogTitle || title).trim();
+  const ogDescription = String(opts.ogDescription || description).trim();
+  const ogUrl = String(opts.ogUrl || canonical).trim();
+  const social = description
+    ? `<meta name="description" content="${escHtml(description)}"><meta property="og:title" content="${escHtml(ogTitle)}"><meta property="og:description" content="${escHtml(ogDescription)}"><meta property="og:type" content="${escHtml(opts.ogType || "website")}">${ogUrl ? `<meta property="og:url" content="${escHtml(ogUrl)}">` : ""}${opts.ogImage ? `<meta property="og:image" content="${escHtml(opts.ogImage)}">` : ""}`
+    : "";
+  const canonicalTag = canonical ? `<link rel="canonical" href="${escHtml(canonical)}">` : "";
+  const preload = opts.preloadImage
+    ? `<link rel="preload" as="image" href="${escHtml(opts.preloadImage.href || "")}"${opts.preloadImage.srcset ? ` imagesrcset="${escHtml(opts.preloadImage.srcset)}"` : ""}${opts.preloadImage.sizes ? ` imagesizes="${escHtml(opts.preloadImage.sizes)}"` : ""}>`
+    : "";
+  const bodyClass = String(opts.bodyClass || "").split(/\s+/).filter((x) => /^[a-zA-Z0-9_-]+$/.test(x)).join(" ");
+  const fontUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap";
+  const font = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="preload" as="style" href="${fontUrl}" onload="this.onload=null;this.rel='stylesheet'"><noscript><link rel="stylesheet" href="${fontUrl}"></noscript>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${social}${canonicalTag}${preload}${font}<style>${themeCss}</style></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><a class="skip-link" href="#main">Skip to content</a>${content}${CONTACT_WIDGET}${analytics}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
 // so portal markup can move over without restructuring. Analytics stays OFF by
 // default (the portal is authenticated); public callers pass { analytics: true }.
 export function brandShell(side, main, title = "JDM Connect", opts = {}) {
+  const existingId = side.match(/<aside\b[^>]*\bid=["']([a-zA-Z][\w-]*)["']/i)?.[1];
+  const navId = existingId || "portalNav";
+  let mobileSide = existingId ? side : side.replace(/<aside\b/i, `<aside id="${navId}"`);
+  mobileSide = mobileSide.replace(/(<aside\b[^>]*>)/i, `$1<button class="nav-close" type="button" aria-label="Close menu"><span aria-hidden="true">&times;</span></button>`);
+  const shellScript = `<script>(function(){var b=document.querySelector('.nav-burger'),n=document.getElementById(${JSON.stringify(navId)}),s=document.querySelector('.nav-scrim'),x=n&&n.querySelector('.nav-close'),m=document.querySelector('.main'),mq=window.matchMedia&&window.matchMedia('(max-width:920px)');if(!b||!n||!s)return;var open=false;function focusables(){return [].slice.call(n.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.hidden;});}function apply(next,restore){open=!!next&&!!(mq&&mq.matches);n.classList.toggle('is-open',open);s.classList.toggle('is-open',open);b.setAttribute('aria-expanded',open?'true':'false');s.setAttribute('aria-hidden',open?'false':'true');if(m)m.inert=open;if(mq&&mq.matches){n.inert=!open;n.setAttribute('aria-hidden',open?'false':'true');}else{n.inert=false;n.removeAttribute('aria-hidden');}if(open){var f=focusables()[0];if(f)f.focus();}else if(restore){b.focus();}}b.addEventListener('click',function(){apply(!open,false);});s.addEventListener('click',function(){apply(false,true);});if(x)x.addEventListener('click',function(){apply(false,true);});n.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('a[href]'))apply(false,false);});document.addEventListener('keydown',function(e){if(!open)return;if(e.key==='Escape'){e.preventDefault();apply(false,true);return;}if(e.key==='Tab'){var fs=focusables();if(!fs.length)return;var first=fs[0],last=fs[fs.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});if(mq){if(mq.addEventListener)mq.addEventListener('change',function(){apply(false,false);});else if(mq.addListener)mq.addListener(function(){apply(false,false);});}apply(false,false);})();</script>`;
   return brandDoc(
-    `<input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" id="main" role="main"><label for="navToggle" class="nav-burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>`,
+    `<div class="wrap">${mobileSide}<button type="button" class="nav-scrim" aria-label="Close menu" aria-hidden="true" tabindex="-1"></button><div class="main" id="main" role="main"><button type="button" class="nav-burger" aria-label="Open menu" aria-controls="${navId}" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>${main}</div></div>${shellScript}`,
     title,
     opts
   );
 }
+
+const LEGAL_STYLE = `<style>
+  .legal{max-width:760px;margin:0 auto;padding:48px 22px 90px;color:var(--ink)}
+  .lg-back{display:inline-block;color:var(--gold-txt);font-weight:600;text-decoration:none;font-size:14px;margin-bottom:26px}
+  .legal h1{font-size:clamp(30px,6vw,44px);font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+  .lg-updated{color:var(--faint);font-size:13px;margin:0 0 26px}
+  .lg-lead{font-size:17px;line-height:1.6;color:var(--t2);margin:0 0 12px}
+  .lg-s{padding:22px 0;border-top:1px solid var(--hair)}
+  .lg-s h2{font-size:19px;font-weight:700;margin:0 0 12px}
+  .legal p{font-size:15px;line-height:1.65;color:var(--t2);margin:0 0 12px}
+  .legal ul{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+  .legal li{font-size:15px;line-height:1.6;color:var(--t2)}
+  .legal strong{color:var(--ink)}
+  .legal a{color:var(--gold-txt)}
+  .legal a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+  .lg-cta{display:inline-block;margin-top:30px}
+</style>`;
 
 // Public privacy policy (Australian Privacy Act, APP 5 collection notice + how
 // data is handled). Linked from every email footer and the request form. The
 // business should have this reviewed by their own adviser; it is written to be
 // accurate to how the app actually handles data today.
 export function privacyPage() {
-  const updated = "2 July 2026";
+  const updated = "13 July 2026";
   const s = (h, body) => `<section class="lg-s"><h2>${h}</h2>${body}</section>`;
   const inner = `<div class="legal">
     <a class="lg-back" href="/">&larr; JDM Connect</a>
@@ -460,6 +505,9 @@ export function privacyPage() {
         <li><strong>Stripe</strong> - payment processing (deposits and membership).</li>
         <li><strong>Resend</strong> - sending you email.</li>
         <li><strong>Google</strong> - only if you choose "Continue with Google" to sign in.</li>
+        <li><strong>Meta or Twilio</strong> - if WhatsApp delivery is enabled, to deliver the messages you ask us to send about your search.</li>
+        <li><strong>ntfy or Pushover</strong> - if enabled, to alert our team about a new enquiry or payment so we can respond promptly.</li>
+        <li><strong>Our auction-data provider</strong> - to retrieve vehicle and auction information. We do not send it your account password or payment-card details.</li>
         <li>Our <strong>auction agents in Japan</strong> - to source and bid on the vehicle you request.</li>
       </ul>
       <p>Some of these providers store data outside Australia (for example, the United States). By using the
@@ -492,25 +540,47 @@ export function privacyPage() {
       above shows when it last changed.</p>`)}
 
     <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
-  </div>
-  <style>
-    .legal{max-width:760px;margin:0 auto;padding:48px 22px 90px;color:var(--ink)}
-    .lg-back{display:inline-block;color:var(--gold-txt);font-weight:600;text-decoration:none;font-size:14px;margin-bottom:26px}
-    .legal h1{font-size:clamp(30px,6vw,44px);font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
-    .lg-updated{color:var(--faint);font-size:13px;margin:0 0 26px}
-    .lg-lead{font-size:17px;line-height:1.6;color:var(--t2);margin:0 0 12px}
-    .lg-s{padding:22px 0;border-top:1px solid var(--hair)}
-    .lg-s h2{font-size:19px;font-weight:700;margin:0 0 12px}
-    .legal p{font-size:15px;line-height:1.65;color:var(--t2);margin:0 0 12px}
-    .legal ul{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
-    .legal li{font-size:15px;line-height:1.6;color:var(--t2)}
-    .legal strong{color:var(--ink)}
-    .legal a{color:var(--gold-txt)}
-    .lg-cta{display:inline-block;margin-top:30px}
-  </style>`;
+  </div>${LEGAL_STYLE}`;
   // Public page: keep analytics OFF here (a privacy page loading trackers is a
   // bad look, and it is not part of the conversion funnel).
-  return brandDoc(inner, "Privacy Policy - JDM Connect");
+  return brandDoc(inner, "Privacy Policy - JDM Connect", {
+    description: "How JDM Connect collects, uses, stores and shares information when you use JDM Finder.",
+    canonical: "https://jdmfinder.com.au/privacy",
+  });
+}
+
+// Plain-English customer terms for the public Finder and optional membership.
+// Transaction-specific vehicle purchase/import agreements still govern an
+// actual purchase; these terms describe browsing, requests and membership.
+export function termsPage() {
+  const updated = "13 July 2026";
+  const s = (h, body) => `<section class="lg-s"><h2>${h}</h2>${body}</section>`;
+  const inner = `<div class="legal">
+    <a class="lg-back" href="/">&larr; JDM Connect</a>
+    <h1>Customer Terms</h1>
+    <p class="lg-updated">Last updated: ${updated}</p>
+    <p class="lg-lead">These terms cover JDM Finder vehicle searches and the optional monthly membership offered by JDM Connect. They do not replace the separate written quote or agreement you receive before we buy, import or deliver a vehicle for you.</p>
+
+    ${s("Using JDM Finder", `<p>You must provide accurate contact and vehicle-search details and use the service lawfully. Auction listings, translations, eligibility indicators, sold prices and landed-cost figures are guides only. Vehicle condition, build date, import eligibility, exchange rates and final costs must be confirmed before you commit.</p>`)}
+
+    ${s("Free searches", `<p>A free request lets our team review your criteria and share suitable examples when available. It does not guarantee that a matching car will be listed, that we will bid, or that a vehicle can be imported. A button asking us to chase a lot sends a request to our team; it is not a bid or purchase instruction.</p>`)}
+
+    ${s("Membership", `<p>Membership renews monthly at the price shown before checkout. It gives the account holder access to the member features shown on the site while the subscription remains active. You can cancel future renewals at any time from the billing portal. Cancellation takes effect at the end of the paid billing period unless we state otherwise.</p>`)}
+
+    ${s("Credits, cancellation and refunds", `<p>If the membership offer says eligible payments can be credited toward a later JDM Connect import fee, the displayed limit and conditions apply. Except where Australian Consumer Law requires a refund or another remedy, a change of mind does not automatically refund a membership period already supplied. If a feature was not provided as described, contact us and we will assess a refund or other remedy promptly. Cancelling stops future renewal charges.</p>`)}
+
+    ${s("Vehicle transactions", `<p>Do not treat a listing, estimate or request confirmation as a binding offer to buy a vehicle. Before any bid or purchase, JDM Connect will confirm the vehicle, authority, fees, deposit and transaction terms with you. Auction deposits and import-service payments are handled under that transaction's written terms and Australian Consumer Law.</p>`)}
+
+    ${s("Availability and accounts", `<p>We may pause the service for maintenance, provider outages, safety or misuse. Keep your sign-in details private and tell us promptly if you believe someone else has used your account. We may restrict an account that is used unlawfully or to interfere with the service.</p>`)}
+
+    ${s("Contact", `<p>Questions, cancellations or refund requests: <a href="mailto:jate@jdmconnect.com.au">jate@jdmconnect.com.au</a>. JDM Connect is based in Perth, Western Australia and serves customers Australia-wide. See our <a href="/privacy">Privacy Policy</a> for how we handle personal information.</p>`)}
+
+    <a class="btn-gold lg-cta" href="/request">Start a vehicle request</a>
+  </div>${LEGAL_STYLE}`;
+  return brandDoc(inner, "Customer Terms - JDM Connect", {
+    description: "Terms for JDM Finder vehicle searches, memberships, cancellations, credits and refunds.",
+    canonical: "https://jdmfinder.com.au/terms",
+  });
 }
 
 // Branded "not found" page. Replaces the bare text 404.

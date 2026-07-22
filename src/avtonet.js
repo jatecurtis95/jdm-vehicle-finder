@@ -19,6 +19,38 @@ export const MAIN_COLUMNS = [
   "lhdrive", "images", "serial", "info",
 ];
 
+// A provider outage is operationally different from a valid query with zero
+// rows. Callers that render a search page can use `unavailable`/`code` to show
+// an honest retry state, while matcher callers may let the typed error bubble to
+// their per-wishlist failure handling.
+export class AuctionProviderError extends Error {
+  constructor(message, { status = null, code = "AUCTION_PROVIDER_UNAVAILABLE", cause = null } = {}) {
+    super(message);
+    this.name = "AuctionProviderError";
+    this.code = code;
+    this.status = status;
+    this.unavailable = true;
+    this.retryable = status === null || status === 408 || status === 429 || status >= 500;
+    if (cause) this.cause = cause;
+  }
+}
+
+function providerTimeoutMs(env) {
+  const configured = Number(env && env.AVTONET_TIMEOUT_MS);
+  return Number.isFinite(configured)
+    ? Math.max(1000, Math.min(60000, Math.trunc(configured)))
+    : 12000;
+}
+
+function providerLog(event, error) {
+  console.error(JSON.stringify({
+    event,
+    code: error && error.code || "AUCTION_PROVIDER_UNAVAILABLE",
+    status: error && error.status != null ? Number(error.status) : null,
+    retryable: error && typeof error.retryable === "boolean" ? error.retryable : true,
+  }));
+}
+
 // Escape a string value for safe inclusion in a single-quoted SQL literal.
 // Doubles single quotes and strips characters that could break out of the
 // SELECT context. The gateway only allows SELECT on main/stats, but we keep
@@ -70,19 +102,37 @@ export async function query(env, sql) {
   }
   const q = btoa(sql);
   const url = `${env.API_BASE}?code=${encodeURIComponent(env.AVTONET_CODE)}&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    // Include the body so we can see *why* (e.g. firewall block vs IP block).
-    throw new Error(`AVTONET API HTTP ${res.status}: ${text.slice(0, 300)}`);
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(providerTimeoutMs(env)),
+    });
+  } catch (cause) {
+    const timedOut = cause && (cause.name === "TimeoutError" || cause.name === "AbortError");
+    throw new AuctionProviderError(
+      timedOut ? "AVTONET API timed out" : "AVTONET API network request failed",
+      { code: timedOut ? "AUCTION_PROVIDER_TIMEOUT" : "AUCTION_PROVIDER_UNAVAILABLE", cause },
+    );
   }
-  return parseRows(text);
+  let text;
+  try {
+    text = await res.text();
+  } catch (cause) {
+    throw new AuctionProviderError("AVTONET API response could not be read", { status: res.status, cause });
+  }
+  if (!res.ok) {
+    throw new AuctionProviderError(`AVTONET API HTTP ${res.status}`, { status: res.status });
+  }
+  try {
+    return parseRows(text);
+  } catch (cause) {
+    throw new AuctionProviderError("AVTONET API returned an invalid response", { status: res.status, cause });
+  }
 }
 
 // Parse the <aj><row>...</row></aj> XML into plain objects.
@@ -220,12 +270,16 @@ export async function searchLots(env, p = {}) {
   const offset = (page - 1) * perPage;
   const sql = `SELECT * FROM main WHERE ${where.join(" AND ")} ORDER BY auction_date ASC LIMIT ${offset}, ${perPage}`;
   let lots = [];
+  let unavailable = false;
+  let error = null;
   try {
     lots = await query(env, sql);
   } catch (e) {
-    console.error("searchLots failed:", e.message);
+    unavailable = true;
+    error = { code: e.code || "AUCTION_PROVIDER_UNAVAILABLE", status: e.status ?? null };
+    providerLog("auction_search_failed", e);
   }
-  return { lots, page, perPage, hasMore: lots.length === perPage };
+  return { lots, page, perPage, hasMore: lots.length === perPage, unavailable, error };
 }
 
 // Browse the historical `stats` table (sold auction results) for the member
@@ -263,12 +317,16 @@ export async function searchSold(env, p = {}) {
   const offset = (page - 1) * perPage;
   const sql = `SELECT * FROM stats WHERE ${where.join(" AND ")} ORDER BY auction_date DESC LIMIT ${offset}, ${perPage}`;
   let lots = [];
+  let unavailable = false;
+  let error = null;
   try {
     lots = await query(env, sql);
   } catch (e) {
-    console.error("searchSold failed:", e.message);
+    unavailable = true;
+    error = { code: e.code || "AUCTION_PROVIDER_UNAVAILABLE", status: e.status ?? null };
+    providerLog("auction_sold_search_failed", e);
   }
-  return { lots, page, perPage, hasMore: lots.length === perPage };
+  return { lots, page, perPage, hasMore: lots.length === perPage, unavailable, error };
 }
 
 // Re-fetch a single lot's live row from the feed: live `main` first, then the
@@ -297,7 +355,7 @@ export async function refreshLotImages(env, lot) {
       return true;
     }
   } catch (e) {
-    console.error("refreshLotImages failed:", e.message);
+    providerLog("auction_image_refresh_failed", e);
   }
   return false;
 }
@@ -322,7 +380,7 @@ export async function distinctMakers(env) {
       return list;
     }
   } catch (e) {
-    console.error("distinctMakers failed:", e.message);
+    providerLog("auction_makers_lookup_failed", e);
   }
   return _makersCache.list || [];
 }
@@ -343,7 +401,7 @@ export async function distinctModels(env, maker) {
     _modelsCache.set(key, { list, exp: now + LOOKUP_TTL });
     return list;
   } catch (e) {
-    console.error("distinctModels failed:", e.message);
+    providerLog("auction_models_lookup_failed", e);
     return (cached && cached.list) || [];
   }
 }
@@ -367,7 +425,7 @@ export async function distinctModelCodes(env, maker, model) {
     _codesCache.set(key, { list, exp: now + LOOKUP_TTL });
     return list;
   } catch (e) {
-    console.error("distinctModelCodes failed:", e.message);
+    providerLog("auction_model_codes_lookup_failed", e);
     return (cached && cached.list) || [];
   }
 }
@@ -401,7 +459,7 @@ export async function distinctGrades(env, maker, model, code) {
     _gradesCache.set(key, { list, exp: now + LOOKUP_TTL });
     return list;
   } catch (e) {
-    console.error("distinctGrades failed:", e.message);
+    providerLog("auction_grades_lookup_failed", e);
     return (cached && cached.list) || [];
   }
 }
@@ -423,7 +481,7 @@ export async function distinctHouses(env) {
       return list;
     }
   } catch (e) {
-    console.error("distinctHouses failed:", e.message);
+    providerLog("auction_houses_lookup_failed", e);
   }
   return _housesCache.list || [];
 }

@@ -225,7 +225,10 @@ export const onboardingCss = `
   .ob-pop-nm{font-size:14.5px;font-weight:700;color:var(--ink);padding:14px 14px 2px}
   .ob-pop-desc{font-size:12.5px;color:var(--t3);padding:0 14px 14px}
   @media(max-width:640px){
-    .ob-pop{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;margin:0 -28px 30px;padding:0 28px 6px}
+    .ob-pop{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;margin:0 -28px 30px;padding:0 28px 10px;scrollbar-width:thin;scrollbar-color:var(--gold-line) transparent}
+    .ob-pop::-webkit-scrollbar{height:5px}
+    .ob-pop::-webkit-scrollbar-track{background:transparent}
+    .ob-pop::-webkit-scrollbar-thumb{background:var(--gold-line);border-radius:999px}
     .ob-pop-card{flex:0 0 62%;scroll-snap-align:start}
   }
 
@@ -318,6 +321,13 @@ export const onboardingCss = `
        permanently covering at phone widths (the primary submit button). */
     .ob~.wa-fab{bottom:calc(96px + env(safe-area-inset-bottom))}
   }
+  @media(max-width:360px){
+    .ob-nav-in{padding:13px 14px;gap:12px}
+    .ob-brand .tag{display:none}
+    .ob-brand svg{height:14px;max-width:154px}
+    .ob-signin{font-size:13px}
+    .ob-main{padding-left:16px;padding-right:16px}
+  }
 
   /* Success page */
   .ob-success{max-width:760px;margin:0 auto}
@@ -369,6 +379,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     var stepper=document.getElementById('obSteps');
     var dots=stepper?[].slice.call(stepper.querySelectorAll('li')):[];
     var DRAFT='jdmReqDraft';
+    var DRAFT_TTL=7*24*60*60*1000;
     // Signed-in visitors confirm on step 4 with no email/password fields, so the
     // account validation is skipped for them.
     var SIGNEDIN=${signedIn ? "true" : "false"};
@@ -384,12 +395,14 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
       'rq-vehicle-error':['marka_name','model_name'],
       'rq-year-error':['year_min','year_max'],
       'rq-budget-error':['budget_aud'],
+      'rq-name-error':['name'],
       'rq-email-error':['email'],
       'rq-pass-error':['portal_password'],
       'rq-whatsapp-error':['whatsapp']
     };
     function setInvalid(id,on){(ERR_FIELDS[id]||[]).forEach(function(n){var f=el(n);if(f)f.setAttribute('aria-invalid',on?'true':'false');});}
     function showErr(id,on){var e=errEl(id); if(e) e.style.display=on?'block':'none'; setInvalid(id,!!on);}
+    function nameBad(){return !val('name');}
     function emailBad(){var v=val('email');return !v||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v);}
     function pwBad(){var e=el('portal_password');var v=e?e.value:'';return v.length<PMIN||v.length>PMAX||!ALLOWED.test(v)||!/[A-Za-z]/.test(v)||!/[0-9]/.test(v);}
     function whatsappBad(){var e=el('whatsapp');if(!e)return false;var d=String(e.value||'').replace(/\\D/g,'');return d.length<8;}
@@ -399,7 +412,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     function badField(n){
       if(n===1){var vb=vehicleBad(),yb=yearBad();showErr('rq-vehicle-error',vb);showErr('rq-year-error',yb);return vb?'rq-vehicle-error':(yb?'rq-year-error':null);}
       if(n===2){var bb=budgetBad();showErr('rq-budget-error',bb);return bb?'rq-budget-error':null;}
-      if(n===4){var wb=whatsappBad();showErr('rq-whatsapp-error',wb);if(SIGNEDIN)return wb?'rq-whatsapp-error':null;var eb=emailBad(),pb=pwBad();showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return eb?'rq-email-error':(pb?'rq-pass-error':(wb?'rq-whatsapp-error':null));}
+      if(n===4){var wb=whatsappBad();showErr('rq-whatsapp-error',wb);if(SIGNEDIN)return wb?'rq-whatsapp-error':null;var nb=nameBad(),eb=emailBad(),pb=pwBad();showErr('rq-name-error',nb);showErr('rq-email-error',eb);showErr('rq-pass-error',pb);return nb?'rq-name-error':(eb?'rq-email-error':(pb?'rq-pass-error':(wb?'rq-whatsapp-error':null)));}
       return null;
     }
 
@@ -451,6 +464,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     }
 
     function focusFirst(sec){var f=sec.querySelector('input:not([type=hidden]):not([tabindex="-1"]),select,textarea,button.ob-pop-card');if(f){try{f.focus({preventScroll:true});}catch(e){try{f.focus();}catch(e2){}}}}
+    function focusError(id){var names=ERR_FIELDS[id]||[],f=null;for(var i=0;i<names.length;i++){var x=el(names[i]);if(x&&x.getAttribute('aria-invalid')==='true'){f=x;break;}}if(!f&&names.length)f=el(names[0]);if(f){try{f.focus({preventScroll:true});}catch(e){f.focus();}}}
     function render(shouldScroll){
       steps.forEach(function(s){s.classList.toggle('is-active',parseInt(s.getAttribute('data-step'),10)===cur);});
       dots.forEach(function(d,i){var n=i+1;d.classList.toggle('is-active',n===cur);d.classList.toggle('is-done',n<cur);});
@@ -460,7 +474,7 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
       if(a){ if(shouldScroll&&a.scrollIntoView) a.scrollIntoView({behavior:'smooth',block:'start'}); focusFirst(a); }
     }
     function go(n){ if(n<1||n>max) return; cur=n; render(true); save(); }
-    function next(){ var bad=badField(cur); if(bad){var e=errEl(bad); if(e&&e.scrollIntoView)e.scrollIntoView({behavior:'smooth',block:'center'}); return;} go(cur+1); }
+    function next(){ var bad=badField(cur); if(bad){var e=errEl(bad); if(e&&e.scrollIntoView)e.scrollIntoView({behavior:'smooth',block:'center'}); focusError(bad); return;} go(cur+1); }
     function back(){ go(cur-1); }
 
     // Popular cards fill make + model, then refresh market data.
@@ -500,22 +514,29 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
     var mdEl=el('model_name'); if(mdEl) mdEl.addEventListener('change',function(){ recKey=''; loadRecent(); });
 
     // ---- autosave / resume ----
-    var NAMES=['name','email','whatsapp','state','marka_name','model_name','year_min','year_max','budget_aud','mileage_max','rate_min','kuzov','label'];
+    var NAMES=['name','email','whatsapp','state','destination_country','marka_name','model_name','year_min','year_max','budget_aud','mileage_max','rate_min','kuzov','label','model_code','grades'];
     var t;
-    function save(){ try{var d={step:cur,f:{}};NAMES.forEach(function(n){var e=el(n);if(e&&e.value)d.f[n]=e.value;});localStorage.setItem(DRAFT,JSON.stringify(d));}catch(e){} }
+    function draftValue(e){if(e&&e.multiple)return [].slice.call(e.selectedOptions||e.options).filter(function(o){return o.selected;}).map(function(o){return o.value;});return e&&e.value||'';}
+    function restoreValue(e,v){if(!e||v==null)return;if(e.multiple){var chosen=Array.isArray(v)?v:String(v).split(',');[].slice.call(e.options).forEach(function(o){o.selected=chosen.indexOf(o.value)>-1;});e.setAttribute('data-want',chosen.join(','));}else if(!e.value){e.value=String(v);if(e.tagName==='SELECT')e.setAttribute('data-want',String(v));}}
+    function clearDraft(){try{localStorage.removeItem(DRAFT);}catch(e){}}
+    function save(){ try{var d={savedAt:Date.now(),step:cur,f:{}};NAMES.forEach(function(n){var e=el(n),v=draftValue(e);if(Array.isArray(v)?v.length:v)d.f[n]=v;});localStorage.setItem(DRAFT,JSON.stringify(d));}catch(e){} }
     function saveSoon(){ clearTimeout(t); t=setTimeout(save,400); }
     function restore(){
       var raw; try{raw=localStorage.getItem(DRAFT);}catch(e){return 1;}
       if(!raw) return 1;
-      var d; try{d=JSON.parse(raw);}catch(e){return 1;}
+      var d; try{d=JSON.parse(raw);}catch(e){clearDraft();return 1;}
+      if(!d.savedAt||Date.now()-d.savedAt>DRAFT_TTL){clearDraft();return 1;}
       var f=d&&d.f||{};
-      NAMES.forEach(function(n){var e=el(n);if(e&&!e.value&&f[n]!=null){e.value=f[n];}});
+      NAMES.forEach(function(n){restoreValue(el(n),f[n]);});
+      var code=el('model_code'),grades=el('grades');if(code&&f.model_code)code.setAttribute('data-want',String(f.model_code));if(grades&&f.grades)grades.setAttribute('data-want',(Array.isArray(f.grades)?f.grades:[f.grades]).join(','));
       if(f.marka_name&&window.jdmLoadModels){window.jdmLoadModels(f.model_name||'');}
       var want=Math.min(max,Math.max(1,parseInt(d.step,10)||1)), reach=1;
       while(reach<want && !badField(reach)) reach++;
-      ['rq-vehicle-error','rq-year-error','rq-budget-error','rq-email-error','rq-pass-error','rq-whatsapp-error'].forEach(function(id){showErr(id,false);});
+      ['rq-vehicle-error','rq-year-error','rq-budget-error','rq-name-error','rq-email-error','rq-pass-error','rq-whatsapp-error'].forEach(function(id){showErr(id,false);});
       return reach;
     }
+
+    [].slice.call(form.querySelectorAll('[data-clear-draft]')).forEach(function(b){b.addEventListener('click',function(){clearDraft();form.reset();cur=1;['rq-vehicle-error','rq-year-error','rq-budget-error','rq-name-error','rq-email-error','rq-pass-error','rq-whatsapp-error'].forEach(function(id){showErr(id,false);});render(true);});});
 
     form.querySelectorAll('[data-next]').forEach(function(b){b.addEventListener('click',next);});
     form.querySelectorAll('[data-back]').forEach(function(b){b.addEventListener('click',back);});
@@ -526,18 +547,21 @@ export function wizardScript({ pwMin, pwMax, budgetMin, signedIn, fx, overheadAu
       e.addEventListener('blur',function(){var b=badFn();e.classList.toggle('bad',!!(e.value&&b));showErr(errId,!!(e.value&&b));});
       e.addEventListener('input',function(){if(!badFn()){e.classList.remove('bad');showErr(errId,false);}});
     }
+    liveField('name','rq-name-error',nameBad);
     liveField('email','rq-email-error',emailBad);
     liveField('portal_password','rq-pass-error',pwBad);
     liveField('whatsapp','rq-whatsapp-error',whatsappBad);
     liveField('budget_aud','rq-budget-error',budgetBad);
+    liveField('year_min','rq-year-error',yearBad);
+    liveField('year_max','rq-year-error',yearBad);
+    ['marka_name','model_name'].forEach(function(n){var e=el(n);if(e)e.addEventListener('change',function(){if(!vehicleBad())showErr('rq-vehicle-error',false);});});
 
     form.addEventListener('input',saveSoon);
     form.addEventListener('change',save);
     form.addEventListener('submit',function(e){
       var order=[1,2,4], firstBad=0;
       for(var i=0;i<order.length;i++){ if(badField(order[i])){ firstBad=order[i]; break; } }
-      if(firstBad){ e.preventDefault(); if(cur!==firstBad) go(firstBad); var b=badField(firstBad); var el2=b&&errEl(b); if(el2&&el2.scrollIntoView) el2.scrollIntoView({behavior:'smooth',block:'center'}); return; }
-      try{localStorage.removeItem(DRAFT);}catch(err){}
+      if(firstBad){ e.preventDefault(); if(cur!==firstBad) go(firstBad); var b=badField(firstBad); var el2=b&&errEl(b); if(el2&&el2.scrollIntoView) el2.scrollIntoView({behavior:'smooth',block:'center'});var ns=ERR_FIELDS[b]||[],target=null;for(var j=0;j<ns.length;j++){var candidate=el(ns[j]);if(candidate&&candidate.getAttribute('aria-invalid')==='true'){target=candidate;break;}}if(target){try{target.focus({preventScroll:true});}catch(err){target.focus();}} return; }
       var btn=form.querySelector('button[type=submit]'); if(btn){btn.disabled=true;btn.textContent='Starting your search\\u2026';}
     });
 

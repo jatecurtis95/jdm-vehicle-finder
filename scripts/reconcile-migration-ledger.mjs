@@ -143,7 +143,9 @@ function main() {
   console.log(`Production backup written outside the repository: ${backup}`);
   const firstId = ledger.length + 1;
   const values = pending.map((name, offset) => `(${firstId + offset}, ${quoteSql(name)})`).join(",\n  ");
-  const sql = `BEGIN TRANSACTION;\nINSERT OR IGNORE INTO d1_migrations (id, name) VALUES\n  ${values};\nCOMMIT;`;
+  // D1 remote SQL rejects explicit BEGIN/COMMIT. A single multi-row INSERT is
+  // itself atomic in SQLite, so either every ledger row lands or none do.
+  const sql = `INSERT OR IGNORE INTO d1_migrations (id, name) VALUES\n  ${values};`;
   wrangler(["d1", "execute", DB_NAME, "--remote", "--yes", "--command", sql], false);
 
   const verified = remoteRows("SELECT id, name, applied_at FROM d1_migrations ORDER BY id");

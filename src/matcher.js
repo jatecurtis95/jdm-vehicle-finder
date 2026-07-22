@@ -254,8 +254,49 @@ async function getSeen(env, wishlistId) {
   return set;
 }
 
-// Run every active wishlist. Returns a summary for logging/the digest.
-export async function runAll(env, session) {
+const MATCHER_DEFAULT_DEADLINE_MS = 12 * 60 * 1000; // leave headroom under the 15-minute Cron wall limit
+const MATCHER_DEFAULT_WISHLIST_CAP = 40;
+
+function matcherFailure(event, error, fields = {}) {
+  console.error(JSON.stringify({
+    event,
+    ...fields,
+    error: String(error && (error.code || error.name) || "Error").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 64),
+  }));
+}
+
+function boundedRunNumber(value, fallback, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.trunc(n))) : fallback;
+}
+
+function matcherCursorKey(session) {
+  return session && session.role === "agent" && Number(session.id) > 0
+    ? `matcher_cursor_agent_${Number(session.id)}`
+    : "matcher_cursor_admin";
+}
+
+async function saveMatcherCursor(env, key, wishlistId) {
+  await env.DB.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).bind(key, String(Number(wishlistId) || 0)).run();
+}
+
+async function loadMatcherCursor(env, key) {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+    return Math.max(0, Number(row && row.value) || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Run a bounded, rotating slice of active wishlists. The cursor is checkpointed
+// after every attempted wishlist, so the next cron continues around the list
+// instead of repeatedly starving higher ids. A deadline is checked between
+// wishlists; provider and calculator calls also have their own request timeouts.
+// Returns the historical summary array used by digest generation.
+export async function runAll(env, session, opts = {}) {
   const isAgent = session && session.role === "agent";
   // V1.3 (decided): Run Searches covers free-tier customers' searches by
   // default (run_includes_free = "1"). Set it to "0" in Settings to run
@@ -264,26 +305,66 @@ export async function runAll(env, session) {
   let membersOnly = false;
   let budgetFilter = true;
   let budgetHeadroom = 10;
+  let settings = {};
   try {
-    const s = await getSettings(env);
-    membersOnly = s.run_includes_free === "0";
-    budgetFilter = s.budget_filter !== "0";
-    budgetHeadroom = settingNum(s, "budget_headroom_pct", 10);
+    settings = await getSettings(env);
+    membersOnly = settings.run_includes_free === "0";
+    budgetFilter = settings.budget_filter !== "0";
+    budgetHeadroom = settingNum(settings, "budget_headroom_pct", 10);
   } catch (e) { /* defaults: include free, filter on, 10% headroom */ }
+
+  const cursorKey = matcherCursorKey(session);
+  const cursor = await loadMatcherCursor(env, cursorKey);
+  const maxWishlists = boundedRunNumber(
+    opts.maxWishlists ?? env.MATCHER_WISHLIST_CAP,
+    MATCHER_DEFAULT_WISHLIST_CAP,
+    1,
+    100,
+  );
+  const deadlineMs = boundedRunNumber(
+    opts.deadlineMs ?? env.MATCHER_RUN_DEADLINE_MS,
+    MATCHER_DEFAULT_DEADLINE_MS,
+    1,
+    14 * 60 * 1000,
+  );
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + deadlineMs;
+
+  const filters = ["w.active = 1", "c.archived = 0"];
+  const binds = [];
+  if (membersOnly) filters.push("c.member = 1");
+  if (isAgent) {
+    filters.push("(c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))");
+    binds.push(session.id, session.id);
+  }
   const stmt = env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
             c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
      FROM wishlists w JOIN clients c ON c.id = w.client_id
      LEFT JOIN agents ag ON ag.id = c.agent_id
-     WHERE w.active = 1${membersOnly ? " AND c.member = 1" : ""}${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
+     WHERE ${filters.join(" AND ")}
+     ORDER BY CASE WHEN w.id > ? THEN 0 ELSE 1 END, w.id
+     LIMIT ?`
   );
-  const wl = await (isAgent ? stmt.bind(session.id, session.id) : stmt).all();
+  const wl = await stmt.bind(...binds, cursor, maxWishlists).all();
 
   const summary = [];
+  let attempted = 0;
+  let queuedCount = 0;
+  let failures = 0;
+  let stoppedForDeadline = false;
   for (const w of wl.results || []) {
+    // Always allow one wishlist to finish, even when a deliberately tiny test
+    // deadline is supplied. Thereafter, yield before beginning more work.
+    if (attempted > 0 && Date.now() >= deadlineAt) {
+      stoppedForDeadline = true;
+      break;
+    }
+    attempted++;
     try {
       const queued = await runWishlist(env, w, { budgetFilter, budgetHeadroom });
       if (!queued.length) continue;
+      queuedCount += queued.length;
       // auto_notify wishlists (e.g. a dealer who opted out of review) get their
       // matches delivered immediately and skip the digest. Everything else lands
       // in the manual approval queue, as before.
@@ -293,9 +374,34 @@ export async function runAll(env, session) {
         summary.push({ wishlist: w, queued });
       }
     } catch (err) {
-      console.error(`Wishlist ${w.id} failed:`, err.message);
+      failures++;
+      matcherFailure("matcher_wishlist_failed", err, {
+        wishlist_id: Number(w.id),
+        client_id: Number(w.client_id),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    } finally {
+      // Checkpoint failures as well as successes: a permanently bad wishlist
+      // must not pin every future cron run to the same place.
+      try {
+        await saveMatcherCursor(env, cursorKey, w.id);
+      } catch (err) {
+        matcherFailure("matcher_checkpoint_failed", err, {
+          wishlist_id: Number(w.id),
+        });
+      }
     }
   }
+  console.log(JSON.stringify({
+    event: "matcher_run_complete",
+    role: session && session.role || "cron",
+    attempted,
+    selected: (wl.results || []).length,
+    queued: queuedCount,
+    failures,
+    stopped_for_deadline: stoppedForDeadline,
+    elapsed_ms: Date.now() - startedAt,
+  }));
   return summary;
 }
 
@@ -358,7 +464,9 @@ export async function sendWelcomeMatch(env, wishlistId) {
         const r = await deliverToClient(env, client, lot, w);
         sent = !!(r && r.email);
       } catch (e) {
-        console.error(`Welcome match send failed (wishlist ${w.id}, lot ${lot.id}):`, e.message);
+        matcherFailure("matcher_welcome_delivery_failed", e, {
+          wishlist_id: Number(w.id), lot_id: String(lot.id || "").slice(0, 80),
+        });
       }
       // Mark sent only if it actually went out; otherwise it stays 'pending' in
       // the normal staff review queue so the lead is never lost.
@@ -369,7 +477,7 @@ export async function sendWelcomeMatch(env, wishlistId) {
     }
     return { found: true, emailed: emailed > 0, count: picks.length, lot: picks[0] };
   } catch (e) {
-    console.error(`sendWelcomeMatch failed (wishlist ${wishlistId}):`, e.message);
+    matcherFailure("matcher_welcome_failed", e, { wishlist_id: Number(wishlistId) || null });
     return none;
   }
 }
@@ -385,7 +493,9 @@ async function autoDeliver(env, w, queued) {
         "UPDATE queue SET status = 'sent', decided_at = datetime('now') WHERE token = ?"
       ).bind(token).run();
     } catch (err) {
-      console.error(`Auto-notify delivery failed (wishlist ${w.id}, lot ${lot.id}):`, err.message);
+      matcherFailure("matcher_auto_delivery_failed", err, {
+        wishlist_id: Number(w.id), lot_id: String(lot.id || "").slice(0, 80),
+      });
       await env.DB.prepare(
         "UPDATE queue SET status = 'failed', decided_at = datetime('now') WHERE token = ?"
       ).bind(token).run();

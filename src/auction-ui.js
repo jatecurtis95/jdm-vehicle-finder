@@ -29,13 +29,16 @@ function shortDate(d) {
   return `${m[3]} ${MONTHS[mi] || ""}`.trim();
 }
 
-// Import eligibility signal for a lot. The 25-year age rule is clear-cut and
-// needs no register lookup; anything newer is "Check eligibility" (may still be
-// SEVS-listed). Deliberately honest, not a guarantee. Returns { cls, label }.
+// Import eligibility signal for a lot. A feed model-year is not a build date:
+// at the 25-year boundary some cars are old enough and some are not. Only a
+// model year that is wholly more than 25 years old gets the positive signal,
+// and even that remains "likely" because the final import pathway/documentation
+// still needs checking. Returns { cls, label }.
 export function auctionEligibility(lot, nowYear) {
   const yr = parseInt(lot && lot.year, 10);
   const year = nowYear || new Date().getFullYear();
-  if (Number.isFinite(yr) && yr > 1950 && (year - yr) >= 25) return { cls: "ok", label: "Eligible" };
+  if (Number.isFinite(yr) && yr > 1950 && (year - yr) > 25) return { cls: "ok", label: "Likely eligible" };
+  if (Number.isFinite(yr) && yr > 1950 && (year - yr) === 25) return { cls: "check", label: "Check build date" };
   return { cls: "check", label: "Check eligibility" };
 }
 
@@ -139,16 +142,16 @@ export function auctionSearchHeader(o = {}) {
   const v = (k) => esc(p[k] ?? "");
   const opt = (list, sel, tc) => (list || []).map((x) =>
     `<option value="${esc(x)}"${String(x) === String(sel) ? " selected" : ""}>${esc(tc ? displayMaker(x) : x)}</option>`).join("");
-  const advOpen = ["yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
+  const advOpen = ["yearMin", "yearMax", "budgetAud", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
   const counts = `<span class="asrch-counts">Watchlist <b data-watch-count>0</b>${o.showBid ? ` <span class="sep">&middot;</span> Bid requests <b>${Number(o.bidCount) || 0}</b>` : ""}</span>`;
   // IA-AUDIT item 15: once a search has run, the form folds to a one-line
   // criteria summary (the flight-search pattern) so the first result card
   // starts inside the fold. Before any search, the form IS the page.
-  const hasQuery = ["q", "make", "model", "house", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
+  const hasQuery = ["q", "make", "model", "house", "yearMin", "yearMax", "budgetAud", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
   const digest = [
     p.q, displayMaker(p.make), displayMaker(p.model), p.house,
     (p.yearMin || p.yearMax) ? `${p.yearMin || "any"} to ${p.yearMax || "any"}` : "",
-    p.priceMax ? `to ${yen(Number(p.priceMax))}` : "",
+    p.budgetAud ? `landed budget A$${Number(p.budgetAud).toLocaleString("en-AU")}` : "",
     p.gradeMin ? `grade ${p.gradeMin}+` : "",
     p.kuzov,
   ].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
@@ -176,7 +179,7 @@ export function auctionSearchHeader(o = {}) {
             <div class="asrch-adv-grid">
               <label>Year from<input name="yearMin" type="number" min="1960" value="${v("yearMin")}" placeholder="1990"></label>
               <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
-              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
+              <label>Max landed budget <span class="opt">(AUD)</span><input name="budgetAud" type="number" min="5000" max="1000000" step="any" value="${v("budgetAud")}" placeholder="55,000"></label>
               <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
             </div>
             <div class="asrch-adv-act"><button class="btn-gold" type="submit">Search</button></div>
@@ -260,8 +263,11 @@ export function auctionToolbar({ count = 0, hasMore = false, page = 1, view = "g
 // lots into #watchGrid. opts.request => include a Request form on watch cards.
 export function auctionWatchScript(opts = {}) {
   const REQUEST = opts.request ? "true" : "false";
+  // Browser-local favourites still need an account boundary on a shared
+  // computer. Callers pass a role/id-derived key; the fallback is guest-only.
+  const STORAGE_KEY = JSON.stringify(String(opts.storageKey || "jdmWatch:guest"));
   return `<script>(function(){
-  var REQUEST=${REQUEST},KEY='jdmWatch';
+  var REQUEST=${REQUEST},KEY=${STORAGE_KEY};
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
   function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){return {};}}
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
@@ -282,7 +288,7 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
     h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
-    if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-notify ac-req" type="submit">Request bid</button></form>';}
+    if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-notify ac-req" type="submit">Ask JDM Connect to chase this lot</button></form>';}
     h+='</div></div>';return h;
   }
   function renderWatch(){var g=document.getElementById('watchGrid');if(!g)return;var m=load(),ids=Object.keys(m);
@@ -331,7 +337,7 @@ export const AUCTION_CSS = `<style>
   /* Four pill tabs run 388px wide at a 375 viewport; scroll the strip instead
      of overflowing the page. */
   @media(max-width:480px){.atabs{display:flex;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}.atabs::-webkit-scrollbar{display:none}.atab{flex:0 0 auto;white-space:nowrap}}
-  .atab{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);font-weight:600;color:var(--t2)}
+  .atab{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 16px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);font-weight:600;color:var(--t2)}
   .atab:hover{color:var(--ink)}
   .atab.on{background:var(--ink);color:var(--bg-2)}
   .atab b{font-weight:700;font-variant-numeric:tabular-nums;opacity:.75}
@@ -343,7 +349,7 @@ export const AUCTION_CSS = `<style>
   .atbar-r{display:flex;align-items:center;gap:16px}
   .atbar-count{font-size:var(--fs-sec,13px);font-weight:600;color:var(--t2);font-variant-numeric:tabular-nums}
   .aview{display:inline-flex;gap:3px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:3px}
-  .av{display:inline-flex;align-items:center;justify-content:center;width:32px;height:30px;border-radius:6px;color:var(--faint)}
+  .av{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;color:var(--faint)}
   .av svg{width:17px;height:17px}
   .av:hover{color:var(--ink)}
   .av.on{background:var(--soft,rgba(0,0,0,0.06));color:var(--ink)}
@@ -357,7 +363,7 @@ export const AUCTION_CSS = `<style>
   .ac-name-link{color:inherit;text-decoration:none}
   .ac-name-link:hover{text-decoration:underline;text-underline-offset:2px}
   .ac-grade{position:absolute;top:8px;left:8px;z-index:2;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);color:var(--on-solid,#F7F8F8);font-size:var(--fs-label,12px);font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 8px;border-radius:9999px}
-  .ac-fav{position:absolute;top:8px;right:8px;z-index:2;width:33px;height:33px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:0;border-radius:var(--r-ctl,8px);color:#fff;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s,transform .1s}
+  .ac-fav{position:absolute;top:8px;right:8px;z-index:2;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:0;border-radius:var(--r-ctl,8px);color:#fff;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s,transform .1s}
   .ac-fav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}
   .ac-fav:hover{background:rgba(0,0,0,.68)}
   .ac-fav:active{transform:scale(.9)}
@@ -381,10 +387,10 @@ export const AUCTION_CSS = `<style>
   .ac-price .pk{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
   .ac-price .pv{font-size:var(--fs-body,15px);font-weight:700;color:var(--gold-txt);margin-top:2px;font-variant-numeric:tabular-nums}
   .ac-price .pa{font-size:var(--fs-label,12px);color:var(--t3)}
-  .ac-sheet{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:8px 12px;font-size:var(--fs-sec,13px);font-weight:600;cursor:pointer}
+  .ac-sheet{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:transparent;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:8px 12px;font-size:var(--fs-sec,13px);font-weight:600;cursor:pointer}
   .ac-sheet:hover{border-color:var(--field-line);background:var(--hover,rgba(0,0,0,.04))}
   .ac-sheet.dis{opacity:.42;pointer-events:none}
-  .ac-req,.acard .btn-notify{flex:0 0 auto;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
+  .ac-req,.acard .btn-notify{flex:0 0 auto;min-height:44px;font-size:var(--fs-sec,13px);padding:8px 16px;border-radius:var(--r-ctl,8px)}
   .ac-picker{display:flex;gap:8px;width:100%;margin-top:2px}
   .ac-picker select{flex:1;min-width:0}
 

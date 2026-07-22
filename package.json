@@ -16,6 +16,7 @@
     "db:check:local": "node scripts/check-remote-schema.mjs --local",
     "db:seed:local": "wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-dev.sql",
     "qa:reset": "node scripts/qa-reset.mjs",
+    "avg": "node scripts/avg-sold.mjs",
     "test": "node --test",
     "test:e2e": "node --test e2e/smoke.mjs",
     "test:prod:smoke": "node scripts/production-smoke.mjs",

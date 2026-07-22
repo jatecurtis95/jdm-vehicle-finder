@@ -41,9 +41,13 @@ import {
 // JDM Connect's licensed auction photography, served at the edge from /public
 // (see wrangler.toml [assets]). Treatment (cool, deep-shadow) is applied in CSS.
 const IMG = "/assets/photo/web";
+const HERO_SRC = `${IMG}/hero_r32_garage.jpg`;
+const HERO_SRCSET = [640, 960, 1280]
+  .map((w) => `${IMG}/hero_r32_garage-${w}.jpg ${w}w`)
+  .concat(`${HERO_SRC} 1600w`).join(", ");
 const photo = (file, alt, { id = "", eager = false } = {}) =>
   `<img src="${IMG}/${file}" alt="${alt}" width="1600" height="1067"${id ? ` id="${id}"` : ""} ${
-    eager ? `fetchpriority="high" decoding="async"` : `loading="lazy" decoding="async"`
+    eager ? `srcset="${HERO_SRCSET}" sizes="100vw" fetchpriority="high" decoding="async"` : `loading="lazy" decoding="async"`
   }>`;
 
 const eyebrow = (label, extra = "") =>
@@ -185,7 +189,7 @@ const numberStat = (m) => `
   </div>`;
 
 const reviewEl = (r) =>
-  `<figure class="review rv"><div class="q">&ldquo;</div><blockquote>${r.quote}</blockquote><figcaption>${r.who}</figcaption></figure>`;
+  `<figure class="review rv"><div class="q">&ldquo;</div><blockquote>${r.quote}</blockquote><figcaption><span>JDM Connect customer</span>${r.who}</figcaption></figure>`;
 
 const faqEl = (q, a) =>
   `<details class="faq rv"><summary>${q}<span class="sign">+</span></summary><p>${a}</p></details>`;
@@ -224,12 +228,12 @@ export async function landingPage(env) {
         <div class="jf-nav-right">
           <nav class="jf-nav-links" aria-label="Primary">${navLinks}</nav>
           <a class="jf-gold" href="/request">Start free</a>
-          <button id="navBurger" class="nav-burger" type="button" aria-label="Open menu" aria-expanded="false">
+          <button id="navBurger" class="nav-burger" type="button" aria-label="Open menu" aria-controls="navMenu" aria-expanded="false">
             <span></span><span></span><span></span>
           </button>
         </div>
       </div>
-      <div class="nav-menu" id="navMenu">${menuLinks}<a href="/request">Start free</a></div>
+      <div class="nav-menu" id="navMenu" hidden inert>${menuLinks}<a href="/request">Start free</a></div>
     </header>
 
     <main id="main">
@@ -246,7 +250,7 @@ export async function landingPage(env) {
           <p class="hero-sub rv in rv-d2">Tell us what you&rsquo;re after and start free. Or unlock full auction access for ${price} a month and watch the floor yourself, with the real landed price and import eligibility on every lot.</p>
           <div class="hero-btns rv in rv-d3">
             <a class="jf-gold" href="/request">Start your search, free <span class="ar">&rarr;</span></a>
-            <a class="jf-dark" href="#lineup">See what&rsquo;s landing</a>
+            <a class="jf-dark" href="${lineupCards.length ? "#lineup" : "#how"}">${lineupCards.length ? "See what&rsquo;s landing" : "See how it works"}</a>
           </div>
           <div class="hero-fine rv in rv-d4">No card to start &middot; Cancel anytime &middot; Membership credits toward your import fee</div>
         </div>
@@ -415,7 +419,7 @@ export async function landingPage(env) {
               <li><span class="tk">&#10003;</span>More matches every scan</li>
               <li><span class="tk">&#10003;</span>Priority sourcing</li>
             </ul>
-            <a class="jf-gold" href="/request">Start membership</a>
+            <a class="jf-gold" href="/request?plan=membership">Start membership</a>
           </div>
         </div>
         <div class="price-callout rv">
@@ -459,12 +463,24 @@ export async function landingPage(env) {
       <div class="jf-foot-in">
         <a class="jf-brand" href="/" aria-label="JDM Connect home">${LOGO}<span class="jf-tag">Finder</span></a>
         <div class="fmid">Connecting JDM &middot; ジェー・ディー・エムをつなぐ</div>
-        <div class="fcopy">&copy; 2026 JDM Connect. Find it. We&rsquo;ll handle the rest.</div>
+        <nav class="flinks" aria-label="Legal and contact"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:jate@jdmconnect.com.au">Contact</a></nav>
+        <div class="fcopy">&copy; 2026 JDM Connect &middot; Perth, WA &middot; Australia-wide.<br>Find it. We&rsquo;ll handle the rest.</div>
       </div>
     </footer>
 
   </div>
   ${landingMotionScript(COST_TOTAL)}`;
 
-  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", { analytics: true });
+  const description = "Search live Japanese car auctions with JDM Connect, see indicative landed costs, and start a free vehicle request before you commit.";
+  return brandDoc(body, "JDMFinder, find your dream JDM car at Japanese auction", {
+    analytics: true,
+    description,
+    canonical: "https://jdmfinder.com.au/",
+    ogTitle: "JDMFinder, live Japanese auction access",
+    ogDescription: description,
+    ogUrl: "https://jdmfinder.com.au/",
+    ogType: "website",
+    ogImage: "https://jdmfinder.com.au/assets/photo/web/hero_r32_garage.jpg",
+    preloadImage: { href: HERO_SRC, srcset: HERO_SRCSET, sizes: "100vw" },
+  });
 }

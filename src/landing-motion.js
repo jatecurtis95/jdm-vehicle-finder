@@ -30,17 +30,26 @@ export function landingMotionScript(costTotal) {
     }
 
     if(reduce){ revealEls.forEach(function(el){el.classList.add('in');}); countEls.forEach(runCount); }
+    var useObservers=!reduce&&'IntersectionObserver' in window;
+    if(useObservers){
+      var revealObserver=new IntersectionObserver(function(entries){entries.forEach(function(entry){if(entry.isIntersecting){entry.target.classList.add('in');revealObserver.unobserve(entry.target);}});},{rootMargin:'0px 0px -10% 0px'});
+      revealEls.forEach(function(el){if(!el.classList.contains('in'))revealObserver.observe(el);});
+      var countObserver=new IntersectionObserver(function(entries){entries.forEach(function(entry){if(entry.isIntersecting){runCount(entry.target);countObserver.unobserve(entry.target);}});},{rootMargin:'0px 0px -15% 0px'});
+      countEls.forEach(function(el){countObserver.observe(el);});
+    }
 
     // mobile nav
     var burger=document.getElementById('navBurger'), menu=document.getElementById('navMenu');
     if(burger&&menu){
-      var close=function(){ menu.style.display='none'; burger.setAttribute('aria-expanded','false'); };
+      var menuOpen=false;
+      var close=function(restore){ menuOpen=false;menu.hidden=true;menu.inert=true;burger.setAttribute('aria-expanded','false');burger.setAttribute('aria-label','Open menu');if(restore)burger.focus(); };
+      var open=function(){menuOpen=true;menu.hidden=false;menu.inert=false;burger.setAttribute('aria-expanded','true');burger.setAttribute('aria-label','Close menu');var first=menu.querySelector('a[href]');if(first)first.focus();};
       burger.addEventListener('click',function(){
-        var open=menu.style.display==='flex';
-        menu.style.display=open?'none':'flex';
-        burger.setAttribute('aria-expanded',open?'false':'true');
+        if(menuOpen)close(false);else open();
       });
-      menu.querySelectorAll('a').forEach(function(a){ a.addEventListener('click',close); });
+      menu.querySelectorAll('a').forEach(function(a){ a.addEventListener('click',function(){close(false);}); });
+      document.addEventListener('keydown',function(e){if(e.key==='Escape'&&menuOpen){e.preventDefault();close(true);}});
+      close(false);
     }
 
     var nav=document.getElementById('jdmNav');
@@ -65,8 +74,9 @@ export function landingMotionScript(costTotal) {
 
     var vh=function(){ return window.innerHeight||document.documentElement.clientHeight||800; };
     function onScroll(){
+      frame=0;
       if(nav){ if(window.scrollY>36) nav.setAttribute('data-scrolled','1'); else nav.removeAttribute('data-scrolled'); }
-      if(!reduce){
+      if(!reduce&&!useObservers){
         // Batch reads before writes to avoid forced reflow: read every reveal
         // rect first, collect the hits, then flip the classes in one pass.
         var trg=vh()*0.9, toReveal=[];
@@ -98,8 +108,10 @@ export function landingMotionScript(costTotal) {
       updatePin();
     }
 
-    window.addEventListener('scroll',onScroll,{passive:true});
-    window.addEventListener('resize',onScroll,{passive:true});
+    var frame=0;
+    function scheduleScroll(){if(frame)return;frame=requestAnimationFrame(onScroll);}
+    window.addEventListener('scroll',scheduleScroll,{passive:true});
+    window.addEventListener('resize',scheduleScroll,{passive:true});
     onScroll(); requestAnimationFrame(onScroll); setTimeout(onScroll,250);
   }
   if(document.readyState!=='loading') init(); else document.addEventListener('DOMContentLoaded',init);

@@ -53,99 +53,131 @@ function isSameOriginRequest(request, url) {
   return false;                                     // neither header → refuse
 }
 
-// Best-effort sliding-window limiter for the public request form. Limits per IP
-// AND per contact (email / normalized phone) so IP rotation can't flood one
-// client's searches. Fails open (no KV, or KV errors -> allowed) and only
-// increments a key when the submission is being allowed.
-export async function requestRateLimited(env, { ip, email, whatsapp }) {
-  if (!env.RL) return false;
-  const keys = [];
-  if (ip) keys.push({ k: `reqrl:ip:${ip}`, cap: REQ_RL_IP });
-  const e = String(email || "").trim().toLowerCase();
-  if (e) keys.push({ k: `reqrl:e:${e}`, cap: REQ_RL_CONTACT });
-  const pk = phoneKey(whatsapp);
-  if (pk.length >= 8) keys.push({ k: `reqrl:p:${pk}`, cap: REQ_RL_CONTACT });
-  const seen = [];
-  for (const { k, cap } of keys) {
-    try {
-      const n = parseInt((await env.RL.get(k)) || "0", 10);
-      if (n >= cap) return true;
-      seen.push({ k, n });
-    } catch (_) { /* fail open for this key */ }
-  }
-  for (const { k, n } of seen) {
-    try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
-  }
-  return false;
+function errorKind(err) {
+  return String(err && (err.code || err.name) || "Error").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 64);
+}
+function structuredLog(level, event, fields = {}) {
+  const fn = console[level] || console.error;
+  fn.call(console, JSON.stringify({ event, ...fields }));
 }
 
-// Sliding-window limiter for the public /api/* JSON endpoints (per IP).
-// Same fail-open KV pattern as the request-form limiter above.
+// D1-backed fixed-window counters. The UPSERT increments/resets a bucket in one
+// SQLite statement, so concurrent isolates cannot lose updates as KV read-
+// modify-write did. Bucket identifiers are SHA-256 hashes: IPs, emails and phone
+// numbers are never stored or logged in plaintext. Any limiter/database error
+// fails closed (limited=true).
+const RATE_HOUR_MS = 60 * 60 * 1000;
+async function rateBucket(namespace, raw) {
+  const bytes = new TextEncoder().encode(String(raw || ""));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  let hex = "";
+  for (const b of digest) hex += b.toString(16).padStart(2, "0");
+  return `${namespace}:${hex}`;
+}
+async function consumeRateLimit(env, bucket, cap, windowMs) {
+  if (!env || !env.DB) {
+    structuredLog("error", "rate_limit_failed_closed", { reason: "db_unavailable" });
+    return true;
+  }
+  const now = Date.now();
+  const resetAt = now + windowMs;
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO rate_limits (bucket, count, reset_at) VALUES (?, 1, ?)
+       ON CONFLICT(bucket) DO UPDATE SET
+         count = CASE WHEN rate_limits.reset_at <= ? THEN 1 ELSE rate_limits.count + 1 END,
+         reset_at = CASE WHEN rate_limits.reset_at <= ? THEN excluded.reset_at ELSE rate_limits.reset_at END
+       RETURNING count, reset_at`
+    ).bind(bucket, resetAt, now, now).first();
+    return !row || Number(row.count) > cap;
+  } catch (err) {
+    structuredLog("error", "rate_limit_failed_closed", { reason: "db_error", error: errorKind(err) });
+    return true;
+  }
+}
+async function rateLimitReached(env, bucket, cap) {
+  if (!env || !env.DB) {
+    structuredLog("error", "rate_limit_failed_closed", { reason: "db_unavailable" });
+    return true;
+  }
+  try {
+    const row = await env.DB.prepare("SELECT count, reset_at FROM rate_limits WHERE bucket = ?").bind(bucket).first();
+    return !!(row && Number(row.reset_at) > Date.now() && Number(row.count) >= cap);
+  } catch (err) {
+    structuredLog("error", "rate_limit_failed_closed", { reason: "db_error", error: errorKind(err) });
+    return true;
+  }
+}
+
+// Public request form: limit per IP AND per contact so IP rotation cannot flood
+// one buyer. Every applicable bucket is consumed even when another is already
+// over its cap, keeping the dimensions consistent under abuse.
+export async function requestRateLimited(env, { ip, email, whatsapp }) {
+  const keys = [];
+  if (ip) keys.push({ k: await rateBucket("request:ip", ip), cap: REQ_RL_IP });
+  const e = String(email || "").trim().toLowerCase();
+  if (e) keys.push({ k: await rateBucket("request:email", e), cap: REQ_RL_CONTACT });
+  const pk = phoneKey(whatsapp);
+  if (pk.length >= 8) keys.push({ k: await rateBucket("request:phone", pk), cap: REQ_RL_CONTACT });
+  let limited = false;
+  for (const { k, cap } of keys) if (await consumeRateLimit(env, k, cap, RATE_HOUR_MS)) limited = true;
+  return limited;
+}
+
+// Fixed-window limiter for the public /api/* JSON endpoints (per IP).
 const API_RL_MAX = 60;          // calls
 const API_RL_WINDOW_S = 300;    // per 5 minutes
 async function apiRateLimited(env, ip) {
-  if (!env.RL || !ip) return false;
-  const k = `apirl:ip:${ip}`;
-  try {
-    const n = parseInt((await env.RL.get(k)) || "0", 10);
-    if (n >= API_RL_MAX) return true;
-    await env.RL.put(k, String(n + 1), { expirationTtl: API_RL_WINDOW_S });
-  } catch (_) { /* fail open */ }
-  return false;
+  if (!ip) return false;
+  return consumeRateLimit(env, await rateBucket("api:ip", ip), API_RL_MAX, API_RL_WINDOW_S * 1000);
 }
 
-// --- Login brute-force protection (KV-backed) --------------------------------
+// --- Login brute-force protection (D1-backed) --------------------------------
 // Tracks failed sign-ins per IP and per email. After the key's cap within the
 // window the source is locked out, and every failed attempt also costs a fixed
 // delay so automated guessing is slow. Fails open if KV is unavailable.
 //
 // Two extra fixed dimensions an attacker cannot rotate away from:
-//  * loginfail:admin  - a blank email targets the admin account (that IS the
+//  * login:admin  - a blank email targets the admin account (that IS the
 //    admin login shape), so those attempts always count here too. Rotating IPs
 //    no longer buys fresh unthrottled guesses at ADMIN_PASSWORD.
-//  * loginfail:global - every failure from any source. Generous cap that only
+//  * login:global - every failure from any source. Generous cap that only
 //    a distributed attack would hit; makes email+IP rotation ineffective.
 const LOGIN_MAX_FAILS = 10;
 const LOGIN_ADMIN_MAX_FAILS = 10;
 const LOGIN_GLOBAL_MAX_FAILS = 50;
 const LOGIN_LOCK_SECONDS = 15 * 60;
 const LOGIN_FAIL_DELAY_MS = 1500;
-const LOGIN_GLOBAL_KEY = "loginfail:global";
-function loginFailKeys(ip, email) {
+const LOGIN_GLOBAL_KEY = "login:global";
+async function loginFailKeys(ip, email) {
   const keys = [];
-  if (ip) keys.push({ k: `loginfail:ip:${ip}`, cap: LOGIN_MAX_FAILS });
+  if (ip) keys.push({ k: await rateBucket("login:ip", ip), cap: LOGIN_MAX_FAILS });
   const e = String(email || "").trim().toLowerCase();
-  if (e) keys.push({ k: `loginfail:e:${e}`, cap: LOGIN_MAX_FAILS });
-  else keys.push({ k: "loginfail:admin", cap: LOGIN_ADMIN_MAX_FAILS });
+  if (e) keys.push({ k: await rateBucket("login:email", e), cap: LOGIN_MAX_FAILS });
+  else keys.push({ k: "login:admin", cap: LOGIN_ADMIN_MAX_FAILS });
   keys.push({ k: LOGIN_GLOBAL_KEY, cap: LOGIN_GLOBAL_MAX_FAILS });
   return keys;
 }
 async function loginLocked(env, ip, email) {
-  if (!env.RL) return false;
-  for (const { k, cap } of loginFailKeys(ip, email)) {
-    try {
-      const n = parseInt((await env.RL.get(k)) || "0", 10);
-      if (n >= cap) return true;
-    } catch (_) { /* fail open */ }
-  }
+  for (const { k, cap } of await loginFailKeys(ip, email)) if (await rateLimitReached(env, k, cap)) return true;
   return false;
 }
 async function recordLoginFail(env, ip, email) {
-  if (!env.RL) return;
-  for (const { k } of loginFailKeys(ip, email)) {
-    try {
-      const n = parseInt((await env.RL.get(k)) || "0", 10);
-      await env.RL.put(k, String(n + 1), { expirationTtl: LOGIN_LOCK_SECONDS });
-    } catch (_) { /* best effort */ }
+  for (const { k, cap } of await loginFailKeys(ip, email)) {
+    await consumeRateLimit(env, k, cap, LOGIN_LOCK_SECONDS * 1000);
   }
 }
 async function clearLoginFails(env, ip, email) {
-  if (!env.RL) return;
-  for (const { k } of loginFailKeys(ip, email)) {
+  if (!env || !env.DB) return;
+  for (const { k } of await loginFailKeys(ip, email)) {
     // Never reset the fleet-wide counter on a success: an attacker with any
     // one valid account could otherwise launder their global failure count.
     if (k === LOGIN_GLOBAL_KEY) continue;
-    try { await env.RL.delete(k); } catch (_) { /* best effort */ }
+    try {
+      await env.DB.prepare("DELETE FROM rate_limits WHERE bucket = ?").bind(k).run();
+    } catch (err) {
+      structuredLog("error", "rate_limit_clear_failed", { error: errorKind(err) });
+    }
   }
 }
 
@@ -154,34 +186,75 @@ async function clearLoginFails(env, ip, email) {
 // before parsing. Missing Content-Length (rare for form posts) passes through -
 // the field-level length caps behind this still hold.
 const AUTH_BODY_MAX = 4096;
+const PUBLIC_REQUEST_BODY_MAX = 64 * 1024;
+const STRIPE_WEBHOOK_BODY_MAX = 1024 * 1024;
+function bodyTooLarge(request, maxBytes) {
+  const raw = request.headers.get("Content-Length");
+  // A malformed or negative length is not useful for enforcing a limit, so it
+  // continues to the field-level validation just like a chunked request.
+  if (!raw || !/^\d+$/.test(raw.trim())) return false;
+  const len = Number(raw);
+  return Number.isSafeInteger(len) && len > maxBytes;
+}
+class BodyTooLargeError extends Error {
+  constructor() { super("request body too large"); this.name = "BodyTooLargeError"; }
+}
+async function readBodyLimited(request, maxBytes) {
+  if (bodyTooLarge(request, maxBytes)) throw new BodyTooLargeError();
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+    total += chunk.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch (_) { /* already closed */ }
+      throw new BodyTooLargeError();
+    }
+    chunks.push(chunk);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
+  return out;
+}
+async function formDataLimited(request, maxBytes) {
+  const bytes = await readBodyLimited(request, maxBytes);
+  const type = request.headers.get("Content-Type") || "application/x-www-form-urlencoded";
+  return new Response(bytes, { headers: { "Content-Type": type } }).formData();
+}
+async function textLimited(request, maxBytes) {
+  return new TextDecoder().decode(await readBodyLimited(request, maxBytes));
+}
 function authBodyTooLarge(request) {
-  const len = Number(request.headers.get("Content-Length") || 0);
-  return Number.isFinite(len) && len > AUTH_BODY_MAX;
+  return bodyTooLarge(request, AUTH_BODY_MAX);
 }
 
-// "Forgot password?" limiter: same fail-open KV pattern as the login limiter.
+// "Forgot password?" limiter: same atomic/fail-closed D1 primitive.
 // Caps reset EMAILS, not page views - per IP and per target address - so the
 // form can't be used to bomb an inbox or probe addresses at volume.
 const RESET_RL_IP = 5;      // requests per IP per hour
 const RESET_RL_EMAIL = 3;   // requests per target email per hour
 async function resetRateLimited(env, ip, email) {
-  if (!env.RL) return false;
   const keys = [];
-  if (ip) keys.push({ k: `resetrl:ip:${ip}`, cap: RESET_RL_IP });
+  if (ip) keys.push({ k: await rateBucket("reset:ip", ip), cap: RESET_RL_IP });
   const e = String(email || "").trim().toLowerCase();
-  if (e) keys.push({ k: `resetrl:e:${e}`, cap: RESET_RL_EMAIL });
-  const seen = [];
-  for (const { k, cap } of keys) {
-    try {
-      const n = parseInt((await env.RL.get(k)) || "0", 10);
-      if (n >= cap) return true;
-      seen.push({ k, n });
-    } catch (_) { /* fail open for this key */ }
+  if (e) keys.push({ k: await rateBucket("reset:email", e), cap: RESET_RL_EMAIL });
+  let limited = false;
+  for (const { k, cap } of keys) if (await consumeRateLimit(env, k, cap, RATE_HOUR_MS)) limited = true;
+  return limited;
+}
+
+async function cleanupExpiredRateLimits(env) {
+  if (!env || !env.DB) return;
+  try {
+    await env.DB.prepare("DELETE FROM rate_limits WHERE reset_at <= ?").bind(Date.now()).run();
+  } catch (err) {
+    structuredLog("error", "rate_limit_cleanup_failed", { error: errorKind(err) });
   }
-  for (const { k, n } of seen) {
-    try { await env.RL.put(k, String(n + 1), { expirationTtl: 3600 }); } catch (_) { /* best effort */ }
-  }
-  return false;
 }
 
 // Stamp an account's most recent successful login - drives the CRM "Last login".
@@ -199,7 +272,12 @@ async function touchLastSeen(env, role, id) {
 export default {
   // -------- Scheduled matcher --------
   async scheduled(event, env, ctx) {
-    ctx.waitUntil((async () => { await expirePast(env); await autoFollowUps(env); await runMatcher(env); })());
+    ctx.waitUntil((async () => {
+      await cleanupExpiredRateLimits(env);
+      await expirePast(env);
+      await autoFollowUps(env);
+      await runMatcher(env);
+    })());
   },
 
   // -------- HTTP routes --------
@@ -315,11 +393,22 @@ export default {
         if (c) signedIn = { name: c.name || "", email: c.email || "", whatsapp: c.whatsapp || "" };
       }
       if (request.method === "POST") {
+        if (bodyTooLarge(request, PUBLIC_REQUEST_BODY_MAX)) {
+          return doc(infoPage("Request too large", "That request was too large to process. Please shorten the details and try again."), 413);
+        }
         // Rate limit (best-effort; fails open if KV is unavailable). Over the
         // limit we return the normal confirmation without storing anything, so
         // bots get no signal. Limited per IP AND per contact (email/phone) so IP
         // rotation can't spam one client's searches.
-        const form = await request.formData();
+        let form;
+        try {
+          form = await formDataLimited(request, PUBLIC_REQUEST_BODY_MAX);
+        } catch (err) {
+          if (err instanceof BodyTooLargeError) {
+            return doc(infoPage("Request too large", "That request was too large to process. Please shorten the details and try again."), 413);
+          }
+          throw err;
+        }
         const limited = await requestRateLimited(env, {
           ip: request.headers.get("CF-Connecting-IP") || "",
           email: form.get("email"),
@@ -622,12 +711,21 @@ export default {
 
     // Stripe webhook (public; verified by signature). Marks deposits paid.
     if (path === "/webhooks/stripe" && request.method === "POST") {
-      const raw = await request.text();
+      if (bodyTooLarge(request, STRIPE_WEBHOOK_BODY_MAX)) {
+        return new Response("payload too large", { status: 413 });
+      }
+      let raw;
+      try {
+        raw = await textLimited(request, STRIPE_WEBHOOK_BODY_MAX);
+      } catch (err) {
+        if (err instanceof BodyTooLargeError) return new Response("payload too large", { status: 413 });
+        throw err;
+      }
       // No signing secret configured: we cannot verify, so do not 400 (which
       // would make Stripe exhaust retries). Acknowledge with 503 so it retries
       // later, once the secret is set, and log it loudly.
       if (!env.STRIPE_WEBHOOK_SECRET) {
-        console.warn("Stripe webhook hit but STRIPE_WEBHOOK_SECRET is not set; ignoring.");
+        structuredLog("warn", "stripe_webhook_unconfigured");
         return new Response("webhook not configured", { status: 503 });
       }
       const event = await verifyAndParseEvent(env, raw, request.headers.get("Stripe-Signature"));
@@ -641,7 +739,7 @@ export default {
         const chime = paymentChime(event, status, env.PUBLIC_URL);
         if (chime) await sendPush(env, chime);
       } catch (err) {
-        console.error("Stripe event failed:", err.message);
+        structuredLog("error", "stripe_event_processing_failed", { error: errorKind(err) });
         return new Response("processing error", { status: 500 });
       }
       return new Response("ok", { status: 200 });
@@ -675,6 +773,16 @@ export default {
       return Response.redirect(here("/login"), 303);
     }
 
+    // Running every active customer search is a mutation, even though the
+    // result is a redirect. GET/HEAD must stay inert so link scanners, browser
+    // prefetching and cross-site navigation can never enqueue matches.
+    if (path === "/run" && request.method !== "POST") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { Allow: "POST", "Cache-Control": "no-store", ...SECURITY_HEADERS },
+      });
+    }
+
     // CSRF guard: reject any state-changing request on an authenticated session
     // that didn't come from one of our own pages (missing/foreign Origin/Referer).
     if (MUTATING_METHODS.has(request.method) && !isSameOriginRequest(request, url)) {
@@ -705,7 +813,16 @@ export default {
     // `dest` may be a (possibly async) function when it depends on the outcome.
     const act = async (fn, dest, okMsg) => {
       let failed = false;
-      try { await fn(); } catch (e) { failed = true; console.error(`${path} failed:`, e.message); }
+      try {
+        const result = await fn();
+        if (result && result.ok === false) {
+          failed = true;
+          console.error(`${path} rejected:`, result.error || "handler returned ok:false");
+        }
+      } catch (e) {
+        failed = true;
+        console.error(`${path} failed:`, e.message);
+      }
       const d = typeof dest === "function" ? await dest() : dest;
       return Response.redirect(here(failed
         ? withNotice(d, "Sorry, that did not save. Please try again.", true)
@@ -948,7 +1065,7 @@ export default {
       return new Response(frag, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY_HEADERS } });
     }
 
-    if (path === "/run") {
+    if (path === "/run" && request.method === "POST") {
       const ran = await runMatcher(env, session);
       // If auto sheet-reading is on (strong/all), catch up on a capped batch of
       // unread matches in the background so /run still redirects immediately.
@@ -1369,6 +1486,10 @@ async function handleClientPortal(request, env, url, path, session, here) {
       code === "saved" ? "Saved." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
       err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." :
+      err === "paypending" ? "We're still confirming that payment. Refresh in a moment; access updates as soon as Stripe confirms it." :
+      err === "subpending" ? "Stripe returned you safely, but Full access is still being confirmed. Refresh in a moment." :
+      err === "term" ? "Add at least a make, model, chassis code or grade keyword so the search has something to match on." :
+      err === "save" ? "Sorry, that search did not save. Please review it and try again." :
       err === "freelimit" ? "Free accounts run one active search at a time. Pause or delete your current search to swap it, or upgrade to Full access for unlimited searches." :
       err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." : "";
     return doc(await portalPage(env, session, { flash }));
@@ -1417,10 +1538,28 @@ async function handleClientPortal(request, env, url, path, session, here) {
     const r = await portalAddWishlist(env, await request.formData(), session);
     if (r && r.error === "free_limit") return back("?err=freelimit");
     if (r && r.error === "limit") return back("?err=searchcap");
+    if (r && r.error === "term") return back("?err=term");
+    if (!r || r.ok !== true) return back("?err=save");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/edit" && request.method === "POST") {
-    await portalEditWishlist(env, await request.formData(), session);
+    const f = await request.formData();
+    const hasTerm = ["marka_name", "model_name", "kuzov", "grade_kw", "model_code"]
+      .some((key) => String(f.get(key) || "").trim());
+    if (!hasTerm) return back("?err=term");
+    // portalEditWishlist historically returned undefined for both success and
+    // refusal. Verify ownership before calling it so a missing/foreign id can
+    // never be reported as Saved; also honour the explicit result contract as
+    // handlers migrate to {ok,error}.
+    const id = Number(f.get("id"));
+    const owned = Number.isInteger(id) && id > 0
+      ? await env.DB.prepare(
+          "SELECT w.id FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ? AND w.client_id = ? AND c.portal_enabled = 1"
+        ).bind(id, Number(session.id)).first()
+      : null;
+    if (!owned) return back("?err=save");
+    const r = await portalEditWishlist(env, f, session);
+    if (r && r.ok === false) return back(r.error === "term" ? "?err=term" : "?err=save");
     return back("?ok=saved");
   }
   if (path === "/portal/wishlist/toggle" && request.method === "POST") {
@@ -1445,7 +1584,19 @@ async function handleClientPortal(request, env, url, path, session, here) {
     const queueId = Number((await request.formData()).get("queue_id")) || null;
     return startDepositCheckout(env, session, queueId, here);
   }
-  if (path === "/portal/pay/success") return back("?ok=paid");
+  if (path === "/portal/pay/success") {
+    const paymentId = Number(url.searchParams.get("payment_id"));
+    const sessionId = String(url.searchParams.get("session_id") || "").trim().slice(0, 255);
+    let payment = null;
+    if (Number.isInteger(paymentId) && paymentId > 0) {
+      payment = await env.DB.prepare("SELECT status FROM payments WHERE id = ? AND client_id = ?")
+        .bind(paymentId, Number(session.id)).first();
+    } else if (sessionId) {
+      payment = await env.DB.prepare("SELECT status FROM payments WHERE stripe_session = ? AND client_id = ?")
+        .bind(sessionId, Number(session.id)).first();
+    }
+    return back(payment && payment.status === "paid" ? "?ok=paid" : "?err=paypending");
+  }
   if (path === "/portal/pay/cancel") return back();
 
   // Start (or manage) the Full access monthly membership.
@@ -1473,7 +1624,11 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/billing" && request.method === "POST") {
     return startBillingPortal(env, session, here);
   }
-  if (path === "/portal/subscribe/success") return back("?ok=member");
+  if (path === "/portal/subscribe/success") {
+    const me = await env.DB.prepare("SELECT member, sub_status FROM clients WHERE id = ? AND portal_enabled = 1")
+      .bind(Number(session.id)).first();
+    return back(me && Number(me.member) === 1 ? "?ok=member" : "?err=subpending");
+  }
   if (path === "/portal/subscribe/cancel") return back();
 
   // Anything else for a client → their dashboard.
@@ -1501,7 +1656,7 @@ async function startSubscriptionCheckout(env, session, here) {
     });
     return Response.redirect(url, 303);
   } catch (err) {
-    console.error("Stripe subscription checkout failed:", err.message);
+    structuredLog("error", "stripe_subscription_checkout_failed", { error: errorKind(err) });
     return Response.redirect(here("/portal?err=sub"), 303);
   }
 }
@@ -1519,7 +1674,7 @@ async function startBillingPortal(env, session, here) {
     });
     return Response.redirect(url, 303);
   } catch (err) {
-    console.error("Stripe billing portal failed:", err.message);
+    structuredLog("error", "stripe_billing_portal_failed", { error: errorKind(err) });
     return Response.redirect(here("/portal?err=sub"), 303);
   }
 }
@@ -1547,12 +1702,15 @@ async function startDepositCheckout(env, session, queueId, here) {
       amountCents: Math.round(depositAud * 100),
       currency: (settings.stripe_currency || "aud").toLowerCase(),
       description: `JDM Connect deposit${queueId ? " (ref " + queueId + ")" : ""}`,
-      successUrl: here("/portal/pay/success"),
+      // Stripe replaces this literal placeholder before redirecting back. The
+      // success route resolves the exact payment row and trusts only webhook-
+      // confirmed `paid` state, never the browser redirect by itself.
+      successUrl: here("/portal/pay/success") + "?session_id={CHECKOUT_SESSION_ID}",
       cancelUrl: here("/portal/pay/cancel"),
     });
     return Response.redirect(checkoutUrl, 303);
   } catch (err) {
-    console.error("Stripe checkout failed:", err.message);
+    structuredLog("error", "stripe_deposit_checkout_failed", { error: errorKind(err) });
     return Response.redirect(here("/portal?err=pay"), 303);
   }
 }
@@ -1696,7 +1854,11 @@ async function runMatcher(env, session) {
         html: digestHtml(entries, env.PUBLIC_URL),
       });
     } catch (err) {
-      console.error(`Digest email failed (${to}):`, err.message);
+      structuredLog("error", "matcher_digest_delivery_failed", {
+        target: agent ? "agent" : "admin",
+        match_count: n,
+        error: errorKind(err),
+      });
     }
   }
   return total;
@@ -1740,6 +1902,7 @@ async function handleDealerPortal(request, env, url, path, session, here) {
 // Handle an approve/skip click from the digest or the in-app cards. When called
 // with &ajax=1 (an in-app fetch), it returns a tiny 200/4xx instead of
 // redirecting, so the card is removed in place with no full-page reload.
+const DECISION_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 async function handleDecision(request, env, url) {
   if (request.method !== "POST") {
     return new Response("method not allowed", { status: 405, headers: { Allow: "POST" } });
@@ -1767,13 +1930,29 @@ async function handleDecision(request, env, url) {
   // falling back to the Matches view. Email links (no session) get a simple
   // confirmation page instead.
   const session = await getSession(request, url, env);
-  const backToApp = !!session;
+  const signedInStaff = !!(session && (session.role === "admin" || session.role === "agent"));
+  const backToApp = signedInStaff;
   const ret = param("return");
   const dest = (typeof ret === "string" && ret.startsWith("/admin")) ? ret : "/admin?view=matches";
   const toMatches = () => Response.redirect(new URL(dest, url).toString(), 303);
 
   const item = await env.DB.prepare("SELECT * FROM queue WHERE token = ?").bind(token).first();
   if (!item) return ajax ? ok200() : doc(infoPage("Item not found", "This match no longer exists."), 404);
+  // Email action tokens are bearer capabilities. Bound them to the useful life
+  // of an auction digest; an old forwarded/leaked email must not mutate a live
+  // queue row indefinitely. Staff who are currently authenticated still use
+  // the same in-app handler and are authorised by their session/access checks.
+  if (!signedInStaff) {
+    const rawCreated = String(item.created_at || "").trim();
+    const createdAt = Date.parse(/(?:Z|[+-]\d\d:?\d\d)$/.test(rawCreated)
+      ? rawCreated
+      : rawCreated.replace(" ", "T") + "Z");
+    if (!Number.isFinite(createdAt) || Date.now() - createdAt > DECISION_TOKEN_TTL_MS) {
+      return ajax
+        ? new Response("expired", { status: 410 })
+        : doc(infoPage("Link expired", "That email action link has expired. Sign in to review the match from the app."), 410);
+    }
+  }
   // A signed-in agent may only act on their own clients' matches. Email links
   // (no session) are authorised by the unguessable token itself.
   if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) {
@@ -1916,11 +2095,11 @@ async function applyBulkDecisions(env, action, ids, session) {
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net",
+    "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https:",
-    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com https://static.cloudflareinsights.com https://cloudflareinsights.com",
     "frame-src https://www.googletagmanager.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",

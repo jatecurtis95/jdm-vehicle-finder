@@ -26,7 +26,7 @@ export const landingCss = `
     position:relative;background:var(--jf-bg);color:var(--jf-ink);overflow-x:clip;
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
   .jf ::selection{background:var(--gold);color:#15120A}
-  .jf a{text-decoration:none;color:inherit}
+  .jf :where(a){text-decoration:none;color:inherit}
   .jf img{display:block;max-width:100%}
   .jf h1,.jf h2,.jf h3{margin:0}
   .jf a:focus-visible,.jf summary:focus-visible,.jf button:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:8px}
@@ -36,6 +36,7 @@ export const landingCss = `
     font-size:15px;font-weight:600;padding:16px 28px;border-radius:8px;transition:background .2s var(--ease),transform .05s}
   .jf-gold:hover{background:var(--gold-hover)}
   .jf-gold:active{transform:translateY(1px)}
+  .jf a.jf-gold{color:#15120A}
   .jf-dark{display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,0.05);color:var(--jf-t2);
     border:1px solid rgba(255,255,255,0.16);font-size:15px;font-weight:600;padding:16px 28px;border-radius:8px;
     transition:border-color .2s,color .2s}
@@ -76,6 +77,8 @@ export const landingCss = `
   .nav-burger span{width:17px;height:1.5px;background:#C9CCD1;display:block}
   .nav-menu{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:2px;
     background:rgba(7,9,12,0.97);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.1);padding:10px 22px 20px}
+  .nav-menu[hidden]{display:none!important}
+  .nav-menu:not([hidden]){display:flex}
   .nav-menu a{font-size:16px;color:var(--jf-t2);padding:14px 4px;border-bottom:1px solid var(--hair-2)}
   .nav-menu a:last-child{border-bottom:0}
   /* Sticky-nav offset so in-page anchors don't hide under the fixed header. */
@@ -267,6 +270,7 @@ export const landingCss = `
   .review .q{font-weight:600;font-size:40px;line-height:0.6;color:var(--gold);height:24px}
   .review blockquote{font-size:16px;line-height:1.62;color:#2b2c2e;flex:1;margin:8px 0 0}
   .review figcaption{font-family:var(--mono);font-size:11px;letter-spacing:0.08em;color:var(--gold-cream);text-transform:uppercase;margin-top:24px;padding-top:18px;border-top:1px solid var(--cream-hair-2)}
+  .review figcaption span{display:block;color:var(--cream-t2);font-family:'Inter',sans-serif;font-size:10px;letter-spacing:.04em;margin-bottom:5px}
 
   /* ===== MEMBERSHIP ===== */
   .price{position:relative;overflow:hidden}
@@ -327,6 +331,9 @@ export const landingCss = `
   .jf-foot .jf-tag{color:var(--jf-faint)}
   .jf-foot .fmid{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;color:var(--jf-faint);text-transform:uppercase}
   .jf-foot .fcopy{font-size:12px;color:var(--jf-faint)}
+  .jf-foot .flinks{display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--jf-t3)}
+  .jf-foot .flinks a{padding:8px 0;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:4px;transition:color .2s,text-decoration-color .2s}
+  .jf-foot .flinks a:hover{color:var(--jf-ink);text-decoration-color:var(--gold)}
 
   /* ===== MOTION ===== */
   @keyframes jfTicker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}

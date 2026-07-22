@@ -1,6 +1,7 @@
 // Per-user session revocation: a versioned cookie stops validating once the
 // account's session_ver is bumped (deactivate / portal-revoke / password reset),
-// without rotating ADMIN_TOKEN. Legacy 3-part cookies are grandfathered.
+// without rotating ADMIN_TOKEN. Legacy 3-part cookies are rejected because
+// they cannot participate in per-account revocation.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeEnv } from "./helpers/d1.mjs";
@@ -47,13 +48,12 @@ test("a deleted account's versioned cookie is rejected", async () => {
   assert.equal(await getSession(reqWith(cookie), URLX, e), null);
 });
 
-test("legacy 3-part cookies are grandfathered (no version check)", async () => {
+test("legacy 3-part cookies are rejected", async () => {
   const e = env();
   const exp = Date.now() + 60000;
   const payload = `agent:1:${exp}`;                       // old 3-part format
   const legacy = `fsess=${encodeURIComponent(payload + "." + (await sign(e, payload)))}`;
-  const s = await getSession(reqWith(legacy), URLX, e);
-  assert.deepEqual(s, { role: "agent", id: 1 }, "old cookie still accepted until expiry");
+  assert.equal(await getSession(reqWith(legacy), URLX, e), null);
 });
 
 test("admin cookie needs no DB row", async () => {

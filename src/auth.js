@@ -2,7 +2,7 @@
 // everything), "agent" (sees only their own clients/wishlists/matches), "client"
 // (buyer portal), and "dealer" (vehicle submissions & review).
 //
-// The cookie carries `role:id:expiry`, signed with HMAC-SHA256 keyed by
+// The cookie carries `role:id:expiry:session-version`, signed with HMAC-SHA256 keyed by
 // ADMIN_TOKEN - no server-side session store. Admin logs in with ADMIN_PASSWORD
 // (required; ADMIN_TOKEN is signing-key only and is never a valid password);
 // agents log in with their email + password (PBKDF2-hashed in the agents
@@ -96,17 +96,32 @@ export async function readOauthState(env, token) {
 // --- Public share tokens -----------------------------------------------------
 // A stateless, signed token for the read-only public lot view ("Share" button).
 // Distinct from the queue row's `token` (which drives approve/skip), so a shared
-// link can only VIEW a car - it can never trigger an action. No DB column needed.
-export async function makeShareToken(env, queueId) {
+// link can only VIEW a car - it can never trigger an action. The signed expiry
+// prevents old emails and copied URLs remaining valid forever. No DB column needed.
+export const SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export async function makeShareToken(env, queueId, now = Date.now()) {
   const id = Number(queueId);
   if (!Number.isInteger(id) || id <= 0) return null;
-  return `${id}.${await sign(env, `share:${id}`)}`;
+  const issuedAt = Number(now);
+  if (!Number.isFinite(issuedAt)) return null;
+  const exp = issuedAt + SHARE_TTL_MS;
+  const payload = `${id}:${exp}`;
+  return `${payload}.${await sign(env, `share:${payload}`)}`;
 }
-export async function readShareToken(env, token) {
-  const [idStr, sig] = String(token || "").split(".");
+export async function readShareToken(env, token, now = Date.now()) {
+  const checkedAt = Number(now);
+  if (!Number.isFinite(checkedAt)) return null;
+  const value = String(token || "");
+  const dot = value.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = value.slice(0, dot);
+  const sig = value.slice(dot + 1);
+  const parts = payload.split(":");
+  if (parts.length !== 2) return null;
+  const [idStr, expStr] = parts;
   const id = Number(idStr);
-  if (!Number.isInteger(id) || id <= 0 || !sig) return null;
-  return safeEqual(sig, await sign(env, `share:${id}`)) ? id : null;
+  if (!Number.isInteger(id) || id <= 0 || !/^\d+$/.test(expStr) || Number(expStr) < checkedAt || !sig) return null;
+  return safeEqual(sig, await sign(env, `share:${payload}`)) ? id : null;
 }
 
 // --- Password hashing (PBKDF2-SHA256) ---------------------------------------
@@ -177,14 +192,14 @@ export function passwordValid(env, password) {
 // request. Bumping it (on deactivate / portal-revoke / password reset) makes
 // that account's existing cookies stop validating, WITHOUT rotating ADMIN_TOKEN
 // (which would sign every user out). Admin (id 0) has no DB row, so it stays 0.
-// Fail-open: any DB error returns 0 rather than blocking a login.
+// Account sessions fail closed if D1 cannot prove their current version. A
+// transient database fault must not revive a revoked or deleted credential.
 export async function currentSessionVer(env, role, id) {
   if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return 0;
-  try {
-    const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
-    const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
-    return row ? (Number(row.session_ver) || 0) : 0;
-  } catch (e) { return 0; }
+  const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
+  const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
+  if (!row) throw new Error("session account does not exist");
+  return Number(row.session_ver) || 0;
 }
 
 // Bump an account's session version, immediately invalidating its live cookies.
@@ -224,12 +239,11 @@ async function sessionFromCookie(request, env) {
   const sig = val.slice(dot + 1);
   if (!safeEqual(sig, await sign(env, payload))) return null;
   const parts = payload.split(":");
-  // 3-part = legacy cookie (pre-session-versioning), grandfathered until expiry.
-  // 4-part = versioned; the 4th field is checked against the account's current
-  // session_ver so a single account can be revoked without an ADMIN_TOKEN rotate.
-  if (parts.length < 3 || parts.length > 4) return null;
+  if (parts.length !== 4) return null;
+  // Only versioned cookies are accepted. Legacy 3-part cookies could not be
+  // revoked per account and were retired before launch.
   const [role, idStr, expStr, verStr] = parts;
-  if (!["admin", "agent", "client", "dealer"].includes(role) || !/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
+  if (!["admin", "agent", "client", "dealer"].includes(role) || !/^\d+$/.test(idStr) || !/^\d+$/.test(expStr) || !/^\d+$/.test(verStr) || Number(expStr) < Date.now()) return null;
   const id = Number(idStr) || 0;
   if (parts.length === 4 && (role === "agent" || role === "client" || role === "dealer")) {
     if (!/^\d+$/.test(verStr)) return null;
@@ -238,8 +252,9 @@ async function sessionFromCookie(request, env) {
       const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(id).first();
       if (!row) return null;                                   // account deleted → invalid
       if ((Number(row.session_ver) || 0) !== Number(verStr)) return null; // revoked/bumped
-    } catch (e) { /* DB hiccup: fail open so a blip can't lock everyone out */ }
+    } catch (e) { return null; }
   }
+  if (role === "admin" && (id !== 0 || Number(verStr) !== 0)) return null;
   return { role, id };
 }
 
