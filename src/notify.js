@@ -3,7 +3,7 @@
 import { clientHtml, clientMultiHtml, carText } from "./render.js";
 import { estimateLanded } from "./calc.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
-import { sendWhatsApp } from "./whatsapp.js";
+import { sendWhatsApp, sendSms } from "./whatsapp.js";
 
 // --- WhatsApp message builders ----------------------------------------------
 // The approved template uses 3 variables: the client's first name, a one-line
@@ -24,6 +24,15 @@ function waManyMsg(env, client, items) {
   const summary = `${items.length} new matches for your search`;
   const bodyText = items.map((it) => carText(it.lot)).join("\n\n") + `\n\nView them in your portal: ${url}`;
   return { name: waFirstName(client.name), summary, url, bodyText };
+}
+// SMS bodies are short plain text (no templates): one line plus the portal link.
+function smsMatchMsg(env, client, lot) {
+  const url = `${env.PUBLIC_URL}/portal`;
+  return { bodyText: `JDM Connect: ${waCarSummary(lot)} matches your search. View it in your portal: ${url}` };
+}
+function smsManyMsg(env, client, items) {
+  const url = `${env.PUBLIC_URL}/portal`;
+  return { bodyText: `JDM Connect: ${items.length} new matches for your search. View them in your portal: ${url}` };
 }
 
 // Log helpers so the WhatsApp outcome is visible in `wrangler tail`. Previously a
@@ -192,7 +201,7 @@ async function upsellFor(env, settings, client) {
 // Send an approved lot to a client across whatever channels they have set.
 // Returns { email: bool, whatsapp: bool } for status tracking.
 export async function deliverToClient(env, client, lot, wishlist) {
-  const result = { email: false, whatsapp: false };
+  const result = { email: false, whatsapp: false, sms: false };
   const settings = await getSettings(env);
   // "Send to client" off → approving just marks the match handled; the client
   // isn't contacted (you reach out manually).
@@ -227,6 +236,17 @@ export async function deliverToClient(env, client, lot, wishlist) {
     console.log(`WhatsApp not sent for client ${client.id}: no number on file.`);
   }
 
+  if (client.whatsapp && settingOn(settings, "sms_enabled")) {
+    try {
+      await sendSms(env, client.whatsapp, smsMatchMsg(env, client, lot));
+      result.sms = true;
+      console.log(`SMS accepted by Twilio for client ${client.id} ${maskPhone(client.whatsapp)}.`);
+    } catch (err) {
+      // SMS is best-effort, like WhatsApp: never block the email delivery.
+      console.error("SMS send skipped/failed:", err.message);
+    }
+  }
+
   return result;
 }
 
@@ -234,7 +254,7 @@ export async function deliverToClient(env, client, lot, wishlist) {
 // is [{ lot, wishlist }]. A single car still uses the rich single-car email;
 // multiple cars use the combined template. Returns { email, whatsapp }.
 export async function deliverManyToClient(env, client, items) {
-  const result = { email: false, whatsapp: false };
+  const result = { email: false, whatsapp: false, sms: false };
   if (!items || !items.length) return result;
   const settings = await getSettings(env);
   if (!settingOn(settings, "send_to_client")) return result;
@@ -270,6 +290,16 @@ export async function deliverManyToClient(env, client, items) {
       console.log(`WhatsApp accepted by provider for client ${client.id} ${maskPhone(client.whatsapp)} (id ${waResultId(res)}, ${items.length} lots). Accepted is not delivered: a free-form send (no template) only delivers inside the 24h window.`);
     } catch (err) {
       console.error("WhatsApp send skipped/failed:", err.message);
+    }
+  }
+
+  if (client.whatsapp && settingOn(settings, "sms_enabled")) {
+    try {
+      await sendSms(env, client.whatsapp, smsManyMsg(env, client, items));
+      result.sms = true;
+      console.log(`SMS accepted by Twilio for client ${client.id} ${maskPhone(client.whatsapp)} (${items.length} lots).`);
+    } catch (err) {
+      console.error("SMS send skipped/failed:", err.message);
     }
   }
   return result;

@@ -1512,6 +1512,7 @@ function settingsView(settings, opts = {}) {
           <p class="help" style="margin:0 0 16px">Also deliver approved matches over WhatsApp (on top of email) to clients who left a number. ${waConfigured ? "Provider detected." : "<strong>No provider configured yet</strong> -add the Twilio or Meta secrets first, then turn this on."} Automated matches send via your approved message template.</p>
           <div class="toggles" style="margin-top:0">
             ${toggleRow("whatsapp_enabled", "Send matches to clients on WhatsApp", "When you approve a match, also WhatsApp it to the client if they gave a number.", settingOn(s, "whatsapp_enabled"))}
+            ${toggleRow("sms_enabled", "Also send matches by SMS (Twilio)", "Text approved matches to clients who left a number, on top of email. Needs the Twilio SMS secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_SMS_FROM or a Messaging Service SID). Off by default; can be switched on here without a rebuild.", settingOn(s, "sms_enabled"))}
           </div>
           <div class="grid2" style="margin-top:16px">
             <div><label for="set-wa-provider">Provider</label>
