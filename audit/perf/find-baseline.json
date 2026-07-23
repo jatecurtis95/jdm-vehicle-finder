@@ -1,0 +1,15 @@
+{
+  "label": "baseline-cold",
+  "find": {
+    "ttfb_ms": 2241,
+    "response_end_ms": 2247,
+    "fcp_ms": 2344,
+    "dom_ms": 2345,
+    "landed_lines": 24,
+    "landed_sample": [
+      "A$50,000",
+      "A$50,000",
+      "A$50,000"
+    ]
+  }
+}

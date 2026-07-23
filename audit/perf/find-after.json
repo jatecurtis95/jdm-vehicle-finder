@@ -1,0 +1,15 @@
+{
+  "label": "after",
+  "find": {
+    "ttfb_ms": 277,
+    "response_end_ms": 285,
+    "fcp_ms": 404,
+    "dom_ms": 404,
+    "landed_lines": 24,
+    "landed_sample": [
+      "A$50,000",
+      "A$50,000",
+      "A$50,000"
+    ]
+  }
+}

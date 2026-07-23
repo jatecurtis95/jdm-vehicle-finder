@@ -6,6 +6,136 @@ with a 24-row auction fixture, using puppeteer-core and the pre-installed
 Chromium. Standing rules from BUILD.md applied: smallest change per item, no
 push to main, no migrations, no query-logic changes.
 
+Two passes are recorded here. **Perf pass 2** (in-client find batching,
+self-hosted Inter, and the count-scan write-up) is at the top; **perf pass 1**
+(lazy card images, non-blocking fonts, batching confirmation, relay-LIKE
+investigation) follows below and is unchanged.
+
+---
+
+# PERF PASS 2 (23 July 2026)
+
+Extra measurement tool this pass: `audit/perf/slowcalc.mjs`, a local stand-in
+for the landed-cost calculator, because the real
+`calculator.jdmconnect.com.au` (like the feed relay) is unreachable in the
+sandbox and fails fast, which would HIDE the server-side per-row blocking. It
+responds after a set delay (300 ms used here) with the calc JSON shape and
+exposes `GET /__count` to count calls, so a plain `curl` of a page reveals
+exactly how many calculator calls its server render made. `.dev.vars` points
+`CALC_API` at it. `audit/perf/measure-find.mjs` captures the staff find page.
+
+## 1. In-client find flow - landed cost now deferred and batched
+
+**The problem.** The staff "Find a car for a client" flow
+(`src/admin.js`) called the calculator ONCE PER RESULT ROW during the page
+render (`attachLanded` over up to 24 lots), so the HTML response blocked on
+those calls. It was the last per-row caller after Phase 2 batched the tabs.
+
+**The change.** The same deferred/batched path the tabs use: `staffFindCard`
+renders a rough local placeholder (`carAudToLanded`, no network) tagged as a
+`data-landed-slot`, and one batched `POST /admin/landed-batch?client=<id>`
+fills the real figures after first paint (`landedFillScript`). The endpoint
+resolves THAT client's state server-side (access-checked via
+`clientAccessibleBy`, never trusted from the browser), so the estimate is
+per-client exactly as before. The per-row `attachLanded` call is removed.
+
+**Before and after** (staff find page, cold isolate, 300 ms stub calculator):
+
+| Metric | Baseline | After | Change |
+|---|---|---|---|
+| Calculator calls during server render | 24 | 0 | deferred off the render path |
+| TTFB (server first byte) | 2,241 ms | 277 ms | not blocked on the calculator |
+| First Contentful Paint | 2,344 ms | 404 ms | " |
+| Landed figures shown | 24 x A$50,000 | 24 x A$50,000 | identical (filled after paint) |
+
+The 24-to-0 calls is deterministic (counted via the stub's `/__count` on a
+`curl`, which runs no JS). The ~2 s TTFB saving scales with the real
+calculator's per-call latency; 300 ms per call x 4 concurrency-6 waves is the
+stand-in. The final figures are byte-identical to the old server-rendered
+ones (A$50,000 from the stub); the only new thing on screen is the transient
+`≈A$...` rough placeholder before the batch fills, matching the tabs. Locked
+by a new assertion in `test/find-flow.test.mjs`.
+
+## 2. Self-hosted Inter - drops the third-party origin and the swap flash
+
+**The problem.** Pass 1 made the Google Fonts stylesheet non-render-blocking
+(`media="print"` swap), which fixed FCP but left Inter arriving from a
+third-party origin AFTER first paint, i.e. a visible fallback-to-Inter flash,
+and in the sandbox the hung `fonts.googleapis.com` fetch kept the page's
+`load` event pending for ~13 s.
+
+**The change.** Self-hosted Inter woff2, latin subset, exactly the six weights
+the CSS uses (300, 400, 500, 600, 700, 800), served from
+`public/assets/fonts/` (SIL OFL-1.1, ~148 KB total). `@font-face` is inlined
+in both shells via shared exports in `theme.js` (`FONT_FACE_CSS`,
+`FONT_PRELOADS`); the above-the-fold weights (400/600/700) are `<link
+rel="preload">`ed so Inter is ready by first paint, so there is no swap flash.
+The Google `<link>` and both preconnects are gone from `brandDoc` (theme.js)
+and the staff `shell` (admin.js), and the CSP drops
+`fonts.googleapis.com`/`fonts.gstatic.com` to `style-src 'self'` /
+`font-src 'self'`. Latin-ext was deliberately not shipped: the `latin` subset
+already covers Latin-1 (a-y accents and the yen sign), which is complete for
+this English/AU content; a rare exotic glyph falls back per-glyph.
+Incidentally fixes a latent bug: the staff shell's old Google URL omitted
+weight 800, which its CSS uses 18 times, so it was being faux-bolded.
+
+**Before and after** (member pages; baseline column is pass 1's async-Google
+state, so this isolates the self-host delta):
+
+| Metric | Live (async Google) | Live (self-host) | History (async) | History (self-host) |
+|---|---|---|---|---|
+| First Contentful Paint | 128 ms | 160 ms | 172 ms | 128 ms |
+| Load event end | 12,942 ms | 133 ms | 12,964 ms | 130 ms |
+| External (cross-origin) requests | 1 | 0 | 1 | 0 |
+
+FCP is unchanged within noise (it was already fixed in pass 1). The real
+deltas: the page's `load` event now settles in ~130 ms instead of hanging on
+the third-party fetch (a sandbox artefact in magnitude, but the third-party
+DNS/TLS/round-trip it removes is real in production), and there are zero
+cross-origin requests. The self-hosted woff2 add ~100 KB to page weight (the
+honest cost of self-hosting), same-origin, preloaded and cached across pages.
+The e2e smoke run dropped from ~89 s to ~20 s for the same reason (no hung
+font fetch delaying `networkidle0`).
+
+## 3. Duplicate count scan - written up, NOT implemented (no relay creds)
+
+This session has no `AVTONET_CODE`, and the local fixture short-circuits the
+relay (returns instantly, and its `count(*)` already yields a null total
+locally), so there is no real relay latency to measure a saving against. Per
+the "measure before and after, revert what does not measurably help" rule, and
+the instruction to leave it if it cannot be validated live, it is NOT
+implemented. What to change and how to verify:
+
+**The change.** `runSearch` (`src/auction-history-query.js:388-392`) always
+fires `count(*)` in parallel with the rows query. Fetch the rows first; when
+`p.page === 1` and `rows.length < HISTORY_PER_PAGE`, the total IS
+`rows.length` exactly, so skip the count query entirely; otherwise run it as
+today. This halves the relay round-trips for every narrow search (the common
+case, and the whole result fits on page one), preserves the exact "N sold
+results" count display in all cases, and never changes which lots return.
+Trade-off: on a full first page or a deep page (where the count is genuinely
+needed) the two queries serialise instead of running in parallel, adding one
+round-trip there; narrow searches dominate, so the average is a clear win.
+
+An alternative, bigger change: query `LIMIT PER_PAGE + 1` and derive
+`hasMore` from the extra row, dropping the count query ENTIRELY and forever.
+That removes the exact total and the numbered pager (prev/next only), so it is
+a product decision about the count display, not a pure perf change, and is out
+of scope here.
+
+**How to verify (needs a real `AVTONET_CODE`):**
+1. Narrow search returning < 24 rows (e.g. a rare chassis code): confirm via
+   `wrangler tail` that only ONE relay query fires (rows, no `count(*)`), the
+   displayed total equals the row count, and TTFB is roughly halved vs today.
+2. Broad search (> 24 results): confirm the count query still fires and
+   "N sold results" is still correct.
+3. Both cases: the returned lot set is byte-identical before and after
+   (results unchanged) on Live and History, at several page depths.
+
+---
+
+# PERF PASS 1 (22-23 July 2026)
+
 ## Method and its limits
 
 - Harness: `audit/perf/measure.mjs` loads each page twice (keeps the second)
@@ -155,13 +285,9 @@ work. Recorded here for a follow-up that has real-relay timing.
 
 ## Deliberately left alone
 
-- **The in-client "find a car" flow** (`src/admin.js`, the staff client-find
-  page) still calls the calculator per result row (PERFORMANCE.md #2). It is
-  NOT one of the two named tabs, so it is out of scope for this pass; it is the
-  natural next candidate and would reuse the Phase 2 batch endpoint.
-- **Self-hosting the Inter fonts.** Better long-term (drops the third-party
-  origin) but ships font binaries; deferred as a larger change than the async
-  fix.
+- **The in-client "find a car" flow** (`src/admin.js`) still called the
+  calculator per result row here. DONE in perf pass 2 (section 1 above).
+- **Self-hosting the Inter fonts.** DONE in perf pass 2 (section 2 above).
 - **The `queue` D1 indexes** (PERFORMANCE.md #8) need a migration, which the
   standing rules forbid without approval. Still recorded, not done.
 - **History image loading** was already correct; no change made.
