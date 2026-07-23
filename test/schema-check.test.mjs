@@ -11,14 +11,15 @@ import {
 test("expected schema is built from the migrations and includes the drift-prone columns", () => {
   const s = expectedSchemaFromMigrations();
   // Core tables from the baseline.
-  for (const t of ["clients", "wishlists", "queue", "seen_lots", "dealers", "dealer_vehicles"]) {
+  for (const t of ["users", "searches", "queue", "seen_lots", "suppliers", "dealer_vehicles"]) {
     assert.ok(s.has(t), `expected table ${t}`);
   }
-  // The exact columns whose absence in prod caused the original incident.
-  assert.ok(s.get("wishlists").has("budget_aud"), "wishlists.budget_aud (migration 0014)");
-  assert.ok(s.get("wishlists").has("model_code"), "wishlists.model_code (0015)");
-  assert.ok(s.get("wishlists").has("grades"), "wishlists.grades (0015)");
-  assert.ok(s.get("clients").has("category"), "clients.category (0011)");
+  // The exact columns whose absence in prod caused the original incident
+  // (wishlists -> searches, clients -> users after Phase 3's rename).
+  assert.ok(s.get("searches").has("budget_aud"), "searches.budget_aud (migration 0014)");
+  assert.ok(s.get("searches").has("model_code"), "searches.model_code (0015)");
+  assert.ok(s.get("searches").has("grades"), "searches.grades (0015)");
+  assert.ok(s.get("users").has("category"), "users.category (0011)");
   // Infra tables never count.
   assert.ok(!s.has("d1_migrations"));
   assert.ok(!s.has("sqlite_sequence"));
@@ -48,11 +49,11 @@ test("a production database missing migration 0015 is caught", () => {
   const expected = expectedSchemaFromMigrations();
   const rows = [];
   for (const [tbl, cols] of expected) for (const col of cols) {
-    if (tbl === "wishlists" && (col === "model_code" || col === "grades")) continue; // 0015 not applied
+    if (tbl === "searches" && (col === "model_code" || col === "grades")) continue; // 0015 not applied
     rows.push({ tbl, col });
   }
   const missing = diffSchema(expected, rowsToSchema(rows));
-  assert.deepEqual(missing, ["wishlists.grades", "wishlists.model_code"]);
+  assert.deepEqual(missing, ["searches.grades", "searches.model_code"]);
 });
 
 test("parseWranglerJson pulls rows out of the wrangler --json envelope", () => {

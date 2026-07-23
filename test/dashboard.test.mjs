@@ -58,8 +58,8 @@ test("dashboard stat numbers are static server-rendered values (no count-up)", a
 
 test("an agent dashboard is scoped to their own clients only", async () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
-  // Seed agent 9001 owns clients 9001 and 9002 (not the direct client 9003).
-  const html = await adminPage(env, "dashboard", { role: "agent", id: 9001, name: "Demo Agent" });
+  // Seed agent 9101 owns clients 9001 and 9002 (not the direct client 9003).
+  const html = await adminPage(env, "dashboard", { role: "agent", id: 9101, name: "Demo Agent" });
   assert.match(html, /data-count="2"[^>]*>2<\/div>\s*<div class="cap">Active clients/);
   // The one pending seeded match belongs to a client this agent owns (attention card).
   assert.match(html, /data-count="1"[^>]*>1<\/div>\s*<div class="ac-l">Matches to review/);

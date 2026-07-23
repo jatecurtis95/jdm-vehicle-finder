@@ -51,6 +51,6 @@ test("accessScope for admin is unrestricted", async () => {
   const scope = accessScope(ADMIN);
   assert.equal(scope.sql, "1=1");
   assert.deepEqual(scope.binds, []);
-  const rows = env.DB.prepare(`SELECT c.id FROM users c WHERE ${scope.sql} ORDER BY c.id`).all().results;
+  const rows = env.DB.prepare(`SELECT c.id FROM users c WHERE ${scope.sql} AND c.type = 'customer' ORDER BY c.id`).all().results;
   assert.deepEqual(rows.map((r) => r.id), [10, 20, 30]);
 });

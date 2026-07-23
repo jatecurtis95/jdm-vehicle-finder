@@ -21,7 +21,7 @@ const ADMIN = { role: "admin", id: 0 };
 async function counts(env) {
   const one = async (sql) => (await env.DB.prepare(sql).first())?.n || 0;
   return {
-    clients: await one("SELECT COUNT(*) AS n FROM users"),
+    clients: await one("SELECT COUNT(*) AS n FROM users WHERE type = 'customer'"),
     wishlists: await one("SELECT COUNT(*) AS n FROM searches"),
     queue: await one("SELECT COUNT(*) AS n FROM queue"),
     seen: await one("SELECT COUNT(*) AS n FROM seen_lots"),
@@ -35,7 +35,7 @@ test("bulk delete removes selected clients and all their dependent rows", async 
   const c = await counts(env);
   assert.deepEqual(c, { clients: 1, wishlists: 1, queue: 1, seen: 1, shares: 1 },
     "only the Survivor (30) and its rows remain");
-  const survivor = await env.DB.prepare("SELECT id FROM users").all();
+  const survivor = await env.DB.prepare("SELECT id FROM users WHERE type = 'customer'").all();
   assert.deepEqual(survivor.results.map((r) => r.id), [30]);
 });
 
@@ -57,7 +57,7 @@ test("bulk delete is admin-only - an agent cannot delete clients", async () => {
 test("bulk delete with no ids is a safe no-op", async () => {
   const env = makeEnv(FIXTURE);
   await bulkAllocate(env, "delete", "", [], ADMIN);
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 3);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE type = 'customer'").first()).n, 3);
 });
 
 // An agent's own customers (agent_id set) must never be swept up by an admin's
@@ -82,7 +82,7 @@ test("bulk delete removes agent-owned customers only when the admin opts in", as
   const env = makeEnv(OWNED_FIXTURE);
   const res = await bulkAllocate(env, "delete", null, ["10", "11"], ADMIN, true);
   assert.deepEqual(res, { deleted: 2, skipped: 0 });
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 0, "both removed with the opt-in");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE type = 'customer'").first()).n, 0, "both removed with the opt-in");
 });
 
 test("the Clients bulk bar exposes the 'Include agents' customers' opt-in", async () => {

@@ -14,17 +14,17 @@ function columns(db, table) {
 test("baseline creates every core table", () => {
   const { db } = makeEnv();
   const names = tableNames(db);
-  for (const t of ["agents", "clients", "client_shares", "wishlists", "seen_lots", "queue", "settings", "payments"]) {
+  for (const t of ["users", "client_shares", "searches", "suppliers", "seen_lots", "queue", "settings", "payments"]) {
     assert.ok(names.includes(t), `missing table: ${t}`);
   }
 });
 
 test("baseline includes columns the code depends on that schema.sql had missed", () => {
   const { db } = makeEnv();
-  assert.ok(columns(db, "agents").includes("company"), "agents.company");
+  assert.ok(columns(db, "users").includes("company"), "users.company");
   assert.ok(columns(db, "queue").includes("reason"), "queue.reason");
-  assert.ok(columns(db, "clients").includes("portal_enabled"), "clients.portal_enabled");
-  assert.ok(columns(db, "wishlists").includes("needs_detail"), "wishlists.needs_detail");
+  assert.ok(columns(db, "users").includes("portal_enabled"), "users.portal_enabled");
+  assert.ok(columns(db, "searches").includes("needs_detail"), "searches.needs_detail");
 });
 
 test("the dev seed loads on top of the baseline and creates the demo logins", () => {
