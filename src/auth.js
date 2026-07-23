@@ -305,7 +305,7 @@ export async function readMfaPending(request, env) {
 export async function currentSessionVer(env, role, id) {
   if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return 0;
   try {
-    const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
+    const table = role === "dealer" ? "suppliers" : "users";
     const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(Number(id)).first();
     return row ? (Number(row.session_ver) || 0) : 0;
   } catch (e) { return 0; }
@@ -314,7 +314,7 @@ export async function currentSessionVer(env, role, id) {
 // Bump an account's session version, immediately invalidating its live cookies.
 export async function bumpSessionVer(env, role, id) {
   if (!id || (role !== "agent" && role !== "client" && role !== "dealer")) return;
-  const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
+  const table = role === "dealer" ? "suppliers" : "users";
   try { await env.DB.prepare(`UPDATE ${table} SET session_ver = session_ver + 1 WHERE id = ?`).bind(Number(id)).run(); } catch (e) { /* best effort */ }
 }
 
@@ -358,7 +358,7 @@ async function sessionFromCookie(request, env) {
   if (parts.length === 4 && (role === "agent" || role === "client" || role === "dealer")) {
     if (!/^\d+$/.test(verStr)) return null;
     try {
-      const table = role === "agent" ? "agents" : role === "client" ? "clients" : "dealers";
+      const table = role === "dealer" ? "suppliers" : "users";
       const row = await env.DB.prepare(`SELECT session_ver FROM ${table} WHERE id = ?`).bind(id).first();
       if (!row) return null;                                   // account deleted → invalid
       if ((Number(row.session_ver) || 0) !== Number(verStr)) return null; // revoked/bumped
@@ -554,7 +554,7 @@ export async function beginPasswordResetFor(env, kind, id) {
   if (!row || !row.email) return null;
   const token = randomToken();
   const exp = Date.now() + RESET_TTL_MS;
-  const table = kind === "agent" ? "agents" : kind === "dealer" ? "dealers" : "clients";
+  const table = kind === "dealer" ? "suppliers" : "users";
   // Store only the hash; the raw token goes out in the email and is returned here.
   await env.DB.prepare(`UPDATE ${table} SET invite_token = ?, invite_exp = ? WHERE id = ?`)
     .bind(await hashToken(token), exp, row.id).run();

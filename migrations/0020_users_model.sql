@@ -44,10 +44,15 @@ UPDATE client_shares SET agent_id    = 1000 + agent_id    WHERE agent_id    IN (
 UPDATE wishlists     SET owner_id    = 1000 + owner_id    WHERE owner_id    IN (SELECT id FROM agents);
 UPDATE tasks         SET assigned_to = 1000 + assigned_to WHERE assigned_to IN (SELECT id FROM agents);
 
--- 6. Drop the superseded columns and the folded table.
-ALTER TABLE users DROP COLUMN member;
-ALTER TABLE users DROP COLUMN category;
-ALTER TABLE users DROP COLUMN dealer_username;
+-- 6. Drop the folded table. The superseded columns (member, category,
+--    dealer_username) are DEFERRED to a later cleanup migration rather than
+--    dropped here: this Phase-3 cutover's before-live goal is the unified Users
+--    model and terminology (Ben's launch plan), and dropping them now forces a
+--    large, risky remap across admin.js for no launch benefit (production has 0
+--    paid members and 0 dealer/portal rows). `tier` is backfilled from them in
+--    step 3 and is the forward source of truth; the legacy columns stay readable
+--    so existing code keeps working. A follow-up migration removes them once no
+--    code reads them.
 DROP TABLE agents;
 
 -- 7. wishlists -> searches (columns, including FK column names, unchanged).
