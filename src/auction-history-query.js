@@ -91,6 +91,7 @@ export const HISTORY_COLOURS = {
 export const HISTORY_RATES = {
   r: { label: "R", match: ["R"] },
   ra: { label: "RA", match: ["RA", "RA2"] },
+  "1": { label: "1", match: ["1"] },
   "2": { label: "2", match: ["2"] },
   "3": { label: "3", match: ["3"] },
   "3.5": { label: "3.5", match: ["3.5"] },
@@ -100,10 +101,17 @@ export const HISTORY_RATES = {
   "6": { label: "6", match: ["6"] },
   s: { label: "S", match: ["S"] },
 };
-// Canonical pill order (audit decision: exactly R, RA, 2, 3, 3.5, 4, 4.5, 5,
-// 6, S). Kept as an explicit array because integer-like object keys ("2",
-// "4") enumerate before string keys, so Object.keys() cannot express it.
-export const RATE_ORDER = ["r", "ra", "2", "3", "3.5", "4", "4.5", "5", "6", "s"];
+// Canonical order for stored/URL/SQL/chip sequencing: letter grades first,
+// then ascending numerics. Kept stable (audit-derived) so bookmarks, query
+// strings and active-filter chips do not churn. Grade 1 added per the Task 2
+// spec. The VISIBLE pill order is separate; see RATE_PILL_ORDER. Explicit
+// array because integer-like object keys enumerate before string keys.
+export const RATE_ORDER = ["r", "ra", "1", "2", "3", "3.5", "4", "4.5", "5", "6", "s"];
+
+// Visible auction-grade pill order (Task 2 spec): S, 6, 5, 4.5, 4, 3.5, 3, 2,
+// 1, R, RA. High-to-low then repair grades. RA2 folds under the RA pill. This
+// affects display order only; canonical sequencing stays RATE_ORDER.
+export const RATE_PILL_ORDER = ["s", "6", "5", "4.5", "4", "3.5", "3", "2", "1", "r", "ra"];
 
 // Sort whitelists -> ORDER BY. Anything else falls back to the default.
 export const HISTORY_SORTS = {
