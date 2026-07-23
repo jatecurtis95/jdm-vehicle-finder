@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Binary font assets - never normalise line endings
+*.woff2 binary

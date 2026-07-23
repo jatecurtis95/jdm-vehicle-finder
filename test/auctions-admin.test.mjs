@@ -22,10 +22,11 @@ test("Auctions live tab renders the tabs and the filter panel", async () => {
   assert.match(html, /Watchlist/);
   assert.match(html, /Sold prices/);
   // V1.3 Phase A: the free-text smart bar is parked; explicit filters only,
-  // including the labelled model-code select, and no auto-submit on change.
+  // and no auto-submit on change. Phase 1: the panel is the shared History
+  // one, so the code select reads "Any chassis code" and houses are pills.
   assert.ok(!/asrch-bar/.test(html), "smart search bar removed (sidebar global search is separate)");
   assert.match(html, /All makes/);
-  assert.match(html, /All model codes/);
+  assert.match(html, /Any chassis code/);
   assert.match(html, /All houses/);
   assert.ok(!/onchange="this\.form\.submit\(\)"/.test(html), "filter selects never auto-submit");
 });

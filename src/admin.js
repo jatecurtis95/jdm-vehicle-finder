@@ -2,20 +2,19 @@
 // Light theme, gold single accent, Inter, hairline borders (per design handoff).
 
 import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
-import { imageUrls, splitImages, distinctMakers, distinctModels, distinctModelCodes, distinctGrades, distinctHouses, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
-import { labelForCode } from "./model-codes.js";
-import { AUCTION_CSS, auctionCardV2, auctionSearchHeader, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
+import { imageUrls, splitImages, distinctMakers, distinctModels, distinctGrades, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
+import { AUCTION_CSS, auctionCardV2, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, carAudToLanded, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel, DEFAULT_WINDOW_DAYS } from "./market.js";
 import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
-import { brandDoc, brandShell, risingSun } from "./theme.js";
+import { brandDoc, brandShell, risingSun, FONT_FACE_CSS, FONT_PRELOADS } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
 import { portalSidebar, dealerSidebar } from "./portal-shell.js";
-import { auctionHistoryContent, HISTORY_SURFACES } from "./auction-history.js";
+import { auctionHistoryContent, HISTORY_SURFACES, liveSearchBlock, landedFillScript } from "./auction-history.js";
 export { portalSidebar };
 
 // "Continue with Google" button (social login). The official four-colour G mark,
@@ -1604,8 +1603,9 @@ function settingsView(settings, opts = {}) {
             <div><label for="set-compliance">Compliance <span class="opt">(A$, SEVS/RAWS)</span></label><input id="set-compliance" name="calc_compliance_aud" type="number" min="0" step="any" value="${esc(s.calc_compliance_aud || "")}" placeholder="4,000"></div>
             <div><label for="set-agency">Agency fee <span class="opt">(A$, per import)</span></label><input id="set-agency" name="calc_agency_aud" type="number" min="0" step="any" value="${esc(s.calc_agency_aud || "")}" placeholder="0"></div>
             <div><label for="set-fx">FX override <span class="opt">(JPY per A$1, blank = live rate)</span></label><input id="set-fx" name="calc_fx_jpy_aud" type="number" min="0" step="any" value="${esc(s.calc_fx_jpy_aud || "")}" placeholder="live"></div>
+            <div><label for="set-bias">Estimate bias <span class="opt">(%, negative aims under actuals)</span></label><input id="set-bias" name="calc_bias_pct" type="number" min="-50" max="50" step="any" value="${esc(s.calc_bias_pct || "")}" placeholder="0"></div>
           </div>
-          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed.</p>
+          <p class="help" style="margin-top:12px;font-size:var(--fs-label)">Shipping, duties and on-road costs come from the live landed-cost calculator per state and port. When an estimate can't be produced for a lot, the figure is hidden rather than guessed. Bias adjusts the final figure by a percentage: after back-testing against real invoices, set it so estimates aim 5 to 10% under actuals (e.g. -8).</p>
         </div>
       </div>
 
@@ -5396,12 +5396,18 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   if (findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
-      try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
+      // Landed cost is now DEFERRED and BATCHED (perf pass 2), like the auction
+      // tabs: the card renders a rough placeholder instantly and one batched
+      // POST to /admin/landed-batch?client=<id> fills the real figures after
+      // first paint, instead of blocking this page on 24 per-row calculator
+      // calls. fx powers the instant placeholder; the client's state is
+      // resolved server-side by the endpoint.
+      const fx = await getLiveFx(env).catch(() => 0);
       // Cheap existence check: which of these lots are already in this client's
       // queue? Renders a Queued / Sent badge on the card instead of a dead-end
       // add-reload-duplicate loop.
       const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
-      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)), { state: c.state, fx })).join("")}</div>${landedFillScript(`/admin/landed-batch?client=${cid}`)}`;
     } else {
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -6587,7 +6593,11 @@ function uxGuardScript() {
 }
 
 function shell(side, main, title) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
+  // Inter self-hosted and preloaded, shared with brandDoc via theme.js exports:
+  // no third-party origin, ready by first paint (no swap flash). The staff CSS
+  // uses weight 800, which the old Google URL omitted (so it was faux-bolded);
+  // the self-hosted set includes it. @font-face is prepended to the stylesheet.
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title>${FONT_PRELOADS}<style>${FONT_FACE_CSS}${CSS}</style></head>
     <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true" tabindex="-1"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" role="button" tabindex="0" aria-expanded="false" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}<script>(function(){var cb=document.getElementById('navToggle'),b=document.querySelector('.nav-burger');if(!cb||!b)return;function sync(){b.setAttribute('aria-expanded',cb.checked?'true':'false');}b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){e.preventDefault();cb.checked=!cb.checked;sync();}});cb.addEventListener('change',sync);})();</script></body></html>`;
 }
 
@@ -7692,52 +7702,41 @@ export async function portalAuctionsPage(env, session, params = {}) {
   const nowYear = new Date().getFullYear();
   const tab = params.tab === "watch" ? "watch" : "live";
   const view = params.view === "list" ? "list" : "grid";
-  const [makers, houses, fx] = await Promise.all([
-    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  const [fx, bidCountRow] = await Promise.all([
+    getLiveFx(env).catch(() => 0),
+    env.DB.prepare("SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1").bind(cid).first(),
   ]);
-  const models = String(params.make || "").trim() ? await distinctModels(env, params.make) : [];
-  const codes = String(params.make || "").trim()
-    ? (await distinctModelCodes(env, params.make, params.model)).map((code) => ({ code, label: labelForCode(code) }))
-    : [];
-  const bidCount = (await env.DB.prepare(
-    "SELECT COUNT(*) n FROM queue WHERE client_id = ? AND client_request = 1"
-  ).bind(cid).first())?.n || 0;
+  const bidCount = bidCountRow?.n || 0;
 
-  // URL builder that preserves the active search, filters and view across tabs
-  // and paging.
-  const clean = {};
-  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov", "house", "view"]) {
-    const val = String(params[k] ?? "").trim(); if (val) clean[k] = val;
-  }
-  const buildUrl = (over) => "/portal/auctions?" + new URLSearchParams({ ...clean, ...over }).toString();
-
-  const header = auctionSearchHeader({
-    action: "/portal/auctions", hidden: view === "list" ? `<input type="hidden" name="view" value="list">` : "",
-    p: params, makers, models, codes, houses, showBid: true, bidCount,
+  // The shared filter panel + engine (Phase 1): Live filters exactly like
+  // Auction History. The block owns validation, the panel, chips, the results
+  // bar and the pager; this page owns the tabs, cards and request actions.
+  const topBar = `<div class="ahx-top"><span class="ahx-toplabel">Search live Japanese auctions</span><span class="ahx-counts">Watchlist <b data-watch-count>0</b> <span class="sep">&middot;</span> Bid requests <b>${bidCount}</b></span></div>`;
+  const b = await liveSearchBlock(env, params, "member", {
+    extras: view === "list" ? { view: "list" } : {},
+    topBar,
+    viewParam: "view",
+    viewMode: view,
+    skipSearch: tab === "watch",
   });
-  const tabs = auctionTabs(tab, (id) => (id === "live" ? buildUrl({}) : buildUrl({ tab: id })), {});
+  const tabs = auctionTabs(tab, (id) => (id === "live" ? b.urlFor({}) : b.urlFor({ tab: id })), {});
 
   let body = "";
   if (tab === "watch") {
     body = `${tabs}<div id="watchGrid" class="acgrid"></div>`;
   } else {
-    const page = Math.max(1, parseInt(params.page, 10) || 1);
-    const { lots, hasMore, ok } = await searchLots(env, { ...params, page });
+    const r = b.r;
     const reqForm = (lot) => `<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="${esc(lot.id)}"><button class="btn-primary btn-sm ac-req" type="submit">Request bid</button></form>`;
-    const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view, viewHref: (mode) => buildUrl({ view: mode }), feedDown: !ok });
     let grid;
-    if (lots.length) {
-      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot), detailBase: "/portal/auctions/lot?id=" })).join("")}</div>`;
-    } else if (!ok) {
+    if (r.lots.length) {
+      grid = `<div class="acgrid${view === "list" ? " list" : ""}">${r.lots.map((lot) => auctionCardV2(lot, { fx, nowYear, actions: reqForm(lot), detailBase: "/portal/auctions/lot?id=" })).join("")}</div>`;
+    } else if (!r.ok) {
       grid = feedDownCard();
     } else {
-      const filtered = Object.keys(clean).some((k) => k !== "view");
-      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="/portal/auctions" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+      const filtered = Object.keys(b.clean).length > 0;
+      grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="${esc(b.clearUrl)}" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
     }
-    const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page - 1 }))}">&larr; Newer</a>` : "";
-    const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ page: page + 1 }))}">Older &rarr;</a>` : "";
-    const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
-    body = `${tabs}${toolbar}${grid}${pager}`;
+    body = `${tabs}${b.chips}<section id="ahxResults" class="ahx-live" aria-label="Live auction results">${b.resultsBar}${grid}${b.pagerHtml}</section>${b.loading}`;
   }
 
   const flash = params._flash ? `<div class="flash">${esc(params._flash)}</div>` : "";
@@ -7749,7 +7748,7 @@ export async function portalAuctionsPage(env, session, params = {}) {
         <p class="subline">Search every live Japanese auction, save cars to your watchlist, then ask us to chase any lot.</p>
       </div>
     </div>
-    <div class="content">${flash}${header}${body}${auctionWatchScript({ request: true, sync: true })}${AUCTION_CSS}</div>`;
+    <div class="content">${flash}${b.form}${body}${auctionWatchScript({ request: true, sync: true })}${AUCTION_CSS}${b.css}</div>`;
   return brandShell(portalSidebar(c, "auctions"), main, "Auction search - JDM Connect");
 }
 
@@ -7991,14 +7990,31 @@ function staffSendBar(opts = {}) {
   })();</script>`;
 }
 
-function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
+function staffFindCard(lot, clientId, firstName, qsBack, queueState, opts = {}) {
   // Selectable for the bulk send bar unless it has already gone to the client.
   const selectable = queueState !== "sent";
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  // Deferred landed cost (perf pass 2): render a rough placeholder (local
+  // arithmetic, no network) tagged as a fill slot; the page's batched fill
+  // swaps in the real calculator figure after first paint. Falls back to any
+  // pre-attached lot._landed if a caller still supplies one.
+  const clientState = opts.state ? String(opts.state) : "";
+  const fx = Number(opts.fx) || 0;
+  const jpy = lotJpy(lot);
+  const audVal = jpy > 0 && fx > 0 ? Math.round(jpy / fx) : 0;
+  const rough = audVal > 0 ? carAudToLanded(audVal) : null;
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const landedState = (lot._landed && lot._landed.state) || clientState;
+  const landedText = lot._landed
+    ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}`
+    : (rough ? `≈A$${rough.toLocaleString("en-AU")}` : "-");
+  const landedSlot = jpy > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpy))}" data-cc="${esc(String(cc))}"`
+    : "";
+  const landed = jpy > 0 ? landedText : null;
   // Full lot page (gallery, inspection report, market history), carrying the
   // client context so its Add button targets THIS client and Back returns to
   // these results. Before this, staff had to queue a car blind to see more
@@ -8022,7 +8038,7 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
       <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
-    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
+    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${landedState ? " · " + esc(landedState) : ""}</span><span class="ml-v"${landedSlot}>${landed}</span></div>` : ""}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div>${eligChip}</div>
       ${sheet ? `<a class="btn-tertiary" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}
@@ -8065,10 +8081,16 @@ export async function adminAuctionsPage(env, session, opts = {}) {
 
   // Preserve the active search + layout across tabs and paging. On /admin the
   // `view` param selects the page, so the grid/list toggle uses `layout`.
+  // rawQuery carries the multi-selects pre-joined (rates, houses), so the
+  // shared filters survive a hop between Live and History.
+  const bag = { ...sp, ...(opts.rawQuery || {}) };
   const clean = { view: "auctions" };
-  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMax", "gradeMin", "grade", "window", "kuzov", "house", "layout"]) {
-    const val = String(sp[k] ?? "").trim(); if (val) clean[k] = val;
+  for (const k of ["q", "make", "model", "yearMin", "yearMax", "priceMin", "priceMax", "gradeMin", "grade", "window", "kuzov", "house", "houses", "rates", "variant", "transmission", "drivetrain", "mileageMin", "mileageMax", "engineMin", "engineMax", "body", "fuel", "colour", "eligibility", "sort", "layout"]) {
+    const val = String(bag[k] ?? "").trim(); if (val) clean[k] = val;
   }
+  // Include-unspecified defaults ON; only the explicit opt-out rides along.
+  const uv = [].concat(bag.unspec ?? []).map(String);
+  if (uv.length && uv.includes("0") && !uv.includes("1")) clean.unspec = "0";
   const buildUrl = (over) => "/admin?" + new URLSearchParams({ ...clean, ...over }).toString();
   const tabs = auctionTabs(tab, (id) => buildUrl({ tab: id }), { stats: true, history: true });
 
@@ -8176,20 +8198,23 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     return `${tabs}${form}${chips}${intel}${toolbar}${grid}${pager}${AUCTION_CSS}`;
   }
 
-  // Live and Watchlist share the search header (and, for live, the client
-  // list that powers the add-to-client picker).
-  const [makers, houses, fx] = await Promise.all([
-    distinctMakers(env), distinctHouses(env), getLiveFx(env).catch(() => 0),
+  // Live and Watchlist share the filter panel: the History engine runs both
+  // Live tabs now (Phase 1), so filters and results match everywhere. This
+  // page keeps the tabs, cards, add-to-client picker and send bar.
+  const topBar = `<div class="ahx-top"><span class="ahx-toplabel">Search live Japanese auctions</span><span class="ahx-counts">Watchlist <b data-watch-count>0</b></span></div>`;
+  const [b, fx] = await Promise.all([
+    liveSearchBlock(env, opts.rawQuery || sp, "staff", {
+      extras: layout === "list" ? { layout: "list" } : {},
+      topBar,
+      viewParam: "layout",
+      viewMode: layout,
+      skipSearch: tab === "watch",
+    }),
+    getLiveFx(env).catch(() => 0),
   ]);
-  const models = String(sp.make || "").trim() ? await distinctModels(env, sp.make) : [];
-  const codes = String(sp.make || "").trim()
-    ? (await distinctModelCodes(env, sp.make, sp.model)).map((code) => ({ code, label: labelForCode(code) }))
-    : [];
-  const hidden = `<input type="hidden" name="view" value="auctions"><input type="hidden" name="tab" value="live">${layout === "list" ? `<input type="hidden" name="layout" value="list">` : ""}`;
-  const header = auctionSearchHeader({ action: "/admin", hidden, p: sp, makers, models, codes, houses, showBid: false, label: "Search live Japanese auctions" });
 
   if (tab === "watch") {
-    return `${header}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}`;
+    return `${b.form}${tabs}<div id="watchGrid" class="acgrid"></div>${auctionWatchScript({ request: false })}${AUCTION_CSS}${b.css}`;
   }
 
   const acc = accessScope(session);
@@ -8197,12 +8222,15 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
 
-  const page = Math.max(1, parseInt(sp.page, 10) || 1);
-  const { lots, hasMore, ok } = await searchLots(env, { ...sp, page });
+  const { lots, ok } = b.r;
   // IA-AUDIT item 15: the live feed reads closing soonest first, mirroring
-  // Matches (within the fetched page; dateless lots sink to the end).
-  lots.sort((a, b) => (tsMs(a.auction_date) || Infinity) - (tsMs(b.auction_date) || Infinity));
-  const back = buildUrl({ tab: "live", page }); // return to this exact page after adding
+  // Matches (within the fetched page; dateless lots sink to the end). The
+  // engine already orders by the selected sort; this only settles dateless
+  // rows under the default closing sort.
+  if (b.p.sort === "closing") {
+    lots.sort((x, y) => (tsMs(x.auction_date) || Infinity) - (tsMs(y.auction_date) || Infinity));
+  }
+  const back = b.urlFor({}); // return to this exact page after adding
 
   // Which of these lots are already queued for one of this session's clients?
   // A Queued / Sent badge on the card stops the add-reload-duplicate loop.
@@ -8238,7 +8266,6 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     try{var v=sessionStorage.getItem(KEY);if(v){[].slice.call(document.querySelectorAll('.ac-picker select[name=client_id]')).forEach(function(s){if(!s.value&&s.querySelector('option[value="'+v+'"]'))s.value=v;});}}catch(e){}
   })();</script>`;
 
-  const toolbar = auctionToolbar({ count: lots.length, hasMore, page, view: layout, viewHref: (mode) => buildUrl({ tab: "live", layout: mode }), label: "Live auction feed, closing soonest first", feedDown: !ok });
   let grid;
   if (lots.length) {
     // Cards are selectable (checkbox + tap outside the links) so a run of cars
@@ -8251,19 +8278,16 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   } else if (!ok) {
     grid = feedDownCard();
   } else {
-    const filtered = Object.keys(clean).some((k) => k !== "view" && k !== "layout");
-    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="/admin?view=auctions&tab=live" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
+    const filtered = Object.keys(b.clean).length > 0;
+    grid = `<div class="card"><div class="empty"><div class="rule"></div>${filtered ? `No upcoming lots match that search. Try fewer filters, or <a href="${esc(b.clearUrl)}" style="color:var(--gold-txt);font-weight:600;text-decoration:underline">clear the filters</a>.` : "No live lots in the feed right now. Check back shortly."}</div></div>`;
   }
-  const prev = page > 1 ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page - 1 }))}">&larr; Newer</a>` : "";
-  const next = hasMore ? `<a class="btn-secondary" href="${esc(buildUrl({ tab: "live", page: page + 1 }))}">Older &rarr;</a>` : "";
-  const pager = (prev || next) ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:24px">${prev}${next}</div>` : "";
   const flash = opts.found === "added" ? `<div class="flash">Added to the client's review queue. It's under their Live matches, ready to Approve and send.</div>`
     : opts.found === "dup" ? `<div class="dupnote">That car is already in that client's queue.</div>`
     : opts.found === "err" ? `<div class="dupnote">Sorry, we couldn't add that lot. Please try again.</div>` : "";
   const sendBar = clients.length
     ? staffSendBar({ mode: "picker", clients: clients.map((c) => ({ id: c.id, name: c.name, hasContact: !!(c.email || c.whatsapp) })) })
     : "";
-  return `${flash}${watchAlertBlock(buildUrl({ tab: "watch" }))}${header}${tabs}${toolbar}${grid}${pager}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}`;
+  return `${flash}${watchAlertBlock(b.urlFor({ tab: "watch" }))}${b.form}${tabs}${b.chips}<section id="ahxResults" class="ahx-live" aria-label="Live auction results">${b.resultsBar}${grid}${b.pagerHtml}</section>${b.loading}${auctionWatchScript({ request: false })}${lastClientScript}${sendBar}${AUCTION_CSS}${b.css}`;
 }
 
 // Admin: flip a client's paid-member flag (gates the auction page).

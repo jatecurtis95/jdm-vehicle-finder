@@ -39,6 +39,9 @@ const DEFAULTS = {
   calc_compliance_aud: "",  // typical SEVS/RAWS compliance cost, AUD
   calc_agency_aud: "",      // agency/service fee baked into estimates, AUD
   calc_fx_jpy_aud: "",      // JPY per A$1 override; blank = live rate
+  // Phase 2: signed % applied to the calculator's grand total so estimates
+  // can be aimed 5 to 10% under (negative) or over actuals after back-testing.
+  calc_bias_pct: "",        // e.g. "-8"; blank = no adjustment
   // Budget filtering (V1.3 Phase C, "done properly"): once a match carries a
   // REAL per-lot landed estimate, drop the ones that land clearly over the
   // customer's stated AUD budget. Uses the all-in landed figure, not a rough FX
@@ -113,6 +116,8 @@ export async function saveSettings(env, form) {
     calc_compliance_aud: posIntStr(form.get("calc_compliance_aud"), ""),
     calc_agency_aud: posIntStr(form.get("calc_agency_aud"), ""),
     calc_fx_jpy_aud: (() => { const n = Number(String(form.get("calc_fx_jpy_aud") ?? "").trim()); return Number.isFinite(n) && n > 0 ? String(n) : ""; })(),
+    // The one signed numeric setting: clamp to a sane band, blank = off.
+    calc_bias_pct: (() => { const v = String(form.get("calc_bias_pct") ?? "").trim(); const n = Number(v); return v && Number.isFinite(n) && n >= -50 && n <= 50 ? String(n) : ""; })(),
     budget_filter: form.get("budget_filter") ? "1" : "0",
     budget_headroom_pct: posIntStr(form.get("budget_headroom_pct"), "10"),
     dealer_portal_enabled: form.get("dealer_portal_enabled") ? "1" : "0",

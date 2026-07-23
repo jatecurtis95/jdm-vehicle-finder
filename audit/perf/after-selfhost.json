@@ -1,0 +1,63 @@
+{
+  "label": "after-selfhost",
+  "pages": {
+    "live": {
+      "fcp_ms": 160,
+      "dom_ms": 53,
+      "load_ms": 133,
+      "requests": 13,
+      "total_bytes": 125634,
+      "html_bytes": 23775,
+      "image_requests": 6,
+      "image_bytes": 3180,
+      "external_requests": 0,
+      "external_names": [],
+      "slowest": [
+        {
+          "ms": 102,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=1&w=320"
+        },
+        {
+          "ms": 102,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=2&w=320"
+        },
+        {
+          "ms": 102,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=3&w=320"
+        }
+      ]
+    },
+    "history": {
+      "fcp_ms": 128,
+      "dom_ms": 43,
+      "load_ms": 130,
+      "requests": 17,
+      "total_bytes": 148930,
+      "html_bytes": 20573,
+      "image_requests": 10,
+      "image_bytes": 5300,
+      "external_requests": 0,
+      "external_names": [],
+      "slowest": [
+        {
+          "ms": 104,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=9&w=320"
+        },
+        {
+          "ms": 103,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=8&w=320"
+        },
+        {
+          "ms": 102,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=7&w=320"
+        }
+      ]
+    }
+  }
+}

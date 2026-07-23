@@ -1,9 +1,19 @@
-# Auction History (member page)
+# Auction History (member page) + the shared auction filter engine
 
 Production design for the `/portal/history` page, built from the reviewed
 concept on `codex/auction-history-example` (`src/auction-history-example.js`).
 The concept page used fabricated rows and its own standalone shell; this page
 uses the real sold-auction feed inside the buyer-portal shell.
+
+Phase 1 (build charter): the same validator, WHERE builder and filter panel
+now also drive the Live Auctions tabs (`/portal/auctions` and
+`/admin?view=auctions&tab=live`) via `validateLiveParams` / `searchLive` /
+`liveSearchBlock`, so filters and results match everywhere. Live mode
+differences: queries hit `main` with `auction_date >= NOW()` and the RHD
+rule, prices are start prices (POA lots always stay in), there is no
+"auction held within" row, and the default sort is closing-soonest. All
+filters render in ONE always-visible panel - nothing collapsed, no "More
+filters" details element (audit decision).
 
 ## Data source
 
@@ -99,12 +109,14 @@ validated/coerced server-side (`validateHistoryParams`):
 | `drivetrain`   | whitelist: `4wd` `2wd`                                   |
 | `kuzov`        | string <= 20 chars, SQL-escaped (chassis code LIKE)      |
 | `variant`      | string <= 60 chars, SQL-escaped (trim keyword LIKE)      |
-| `rates`        | whitelist: `3` `3.5` `4` `4.5` `5` `r` `ra`; comma string or repeated checkbox params, deduped to canonical order |
+| `rates`        | whitelist keys in canonical order `r` `ra` `2` `3` `3.5` `4` `4.5` `5` `6` `s`; comma string or repeated checkbox params, deduped. Each key maps to exact `rate` spellings via `HISTORY_RATES[..].match` - the `ra` pill also matches `RA2`, because matching is by exact string and an unmapped `RA2` lot would vanish silently (audit decision). Extend match lists only from `scripts/check-feed-grades.mjs` output |
 | `yearMin/Max`  | int, 1950..2100; swapped if min > max (0 = unknown build year never matches a ceiling) |
 | `mileageMin/Max`| int, 1..1,000,000; swapped if min > max                 |
 | `engineMin/Max`| int cc, 1..20,000; swapped if min > max                  |
-| `priceMin/Max` | int JPY on `finish`, 1..999,999,999; swapped if min > max |
-| `house`        | string <= 40 chars, SQL-escaped                          |
+| `priceMin/Max` | int JPY, 1..999,999,999; swapped if min > max. History filters `finish`; live filters `start` and POA lots (`start <= 0`) always pass |
+| `houses`       | multi-select: comma string or repeated checkbox params, each entry <= 40 chars, SQL-escaped, deduped case-insensitively, capped at 15; queried as an OR-group of LIKEs. Legacy single `house` merges in |
+| `unspec`       | include-unspecified toggle, default ON. `0` (and no `1`) = OFF: colour / drivetrain / fuel clauses then require a non-blank source field instead of keeping blank-field lots in |
+| `gradeMin`     | live mode only, legacy: maps to the numeric pills at or above the floor (letter grades excluded, as the old numeric compare always did) |
 | `body`         | whitelist: `coupe` `sedan` `hatch` `wagon` `van` `suv` `truck` `convertible` |
 | `fuel`         | whitelist: `petrol` `diesel` `hybrid` `electric`         |
 | `colour`       | whitelist of common feed colours (LIKE match)            |
@@ -184,15 +196,22 @@ column list):
   (`F3`..`F7`, `C4`, `C5`); automatic = `%AT%` or `FA`/`CA`/`A`;
   cvt = `%CVT%`. The token sets live in one exported constant
   (`KPP_GROUPS`) for easy tuning after live QA.
-* **Drivetrain** (`priv`): `4wd` = `%4WD%`/`%AWD%`/`%4X4%`; `2wd` = empty or
-  none of those.
+* **Drivetrain** (`priv`): `4wd` = `%4WD%`/`%AWD%`/`%4X4%`; `2wd` = none of
+  those. With include-unspecified ON (the default) a blank `priv` passes
+  either choice; OFF requires a listed drivetrain.
 * **Fuel**: keyword match over `grade`: diesel `%DIESEL%`; hybrid
   `%HYBRID%`/`%E-POWER%`/`%PHV%`; electric `%ELECTRIC%`/`%BEV%`; petrol =
   none of the fuel keywords. Best-effort by nature; the option labels say
-  so ("Diesel (listed)").
+  so ("Diesel (listed)") and the panel carries the "(as listed, may exclude
+  incomplete listings)" caveat. Include-unspecified ON keeps blank-trim lots
+  in; OFF requires listed trim text.
+* **Colour** (`color`): LIKE over the listed colour word. Include-unspecified
+  ON keeps blank-colour lots in; OFF requires a listed colour.
 * **Body type**: keyword match over `model_name` + `grade` (van, wagon,
   truck, coupe, sedan, hatchback, SUV/cross, convertible/roadster/cabrio).
-  Same best-effort caveat, same labelling.
+  Same best-effort caveat, same labelling. Body stays positive-match only
+  (no unspecified wrapper): there is no body field at all, so "unspecified"
+  cannot be told apart from "a different body type".
 * **Import eligibility**: derived from `year`, mirroring
   `auctionEligibility` - "Eligible" filters to builds 26+ calendar years
   old, so the ambiguous 25-year boundary year is never asserted as eligible

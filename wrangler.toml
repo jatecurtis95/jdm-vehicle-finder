@@ -82,8 +82,8 @@ PUBLIC_URL = "https://jdmfinder.com.au"
 CALC_API = "https://calculator.jdmconnect.com.au/api/calc"
 CALC_ORIGIN = "https://jdmconnect.com.au"
 CALC_FX = "95"
-CALC_COMPLIANCE = "2500"
-CALC_AGENCY = "0"
+CALC_COMPLIANCE = "3500"
+CALC_AGENCY = "1500"
 CALC_DEFAULT_STATE = "VIC"
 
 # Phone chime (ntfy) for new signups. The secret topic is set separately with

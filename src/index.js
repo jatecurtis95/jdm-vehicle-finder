@@ -22,6 +22,7 @@ import { createCheckoutSession, createSubscriptionCheckout, createBillingPortalS
 import { notFoundPage, infoPage, decisionConfirmPage, privacyPage, termsPage, PUBLIC_ORIGIN } from "./theme.js";
 import { landingPage, findsPage } from "./landing.js";
 import { auctionHistoryPage, dealerHistoryPage } from "./auction-history.js";
+import { estimateLandedBatch, LANDED_BATCH_MAX } from "./calc.js";
 
 const REQ_RL_IP = 8;       // public request submissions per IP per hour
 const REQ_RL_CONTACT = 6;  // public request submissions per email/phone per hour
@@ -92,6 +93,55 @@ async function apiRateLimited(env, ip) {
     await env.RL.put(k, String(n + 1), { expirationTtl: API_RL_WINDOW_S });
   } catch (_) { /* fail open */ }
   return false;
+}
+
+// --- Deferred landed-cost fill (Phase 2) -------------------------------------
+// The landed-batch endpoints proxy the external calculator for a page of lots
+// at a time, behind a session. Per-session limiter (the batch itself is capped
+// at LANDED_BATCH_MAX, so this caps page loads, not lots) - fail-open KV like
+// the other limiters.
+const LANDED_RL_MAX = 30;        // batches
+const LANDED_RL_WINDOW_S = 300;  // per 5 minutes
+async function landedRateLimited(env, who) {
+  if (!env.RL || !who) return false;
+  const k = `landrl:${who}`;
+  try {
+    const n = parseInt((await env.RL.get(k)) || "0", 10);
+    if (n >= LANDED_RL_MAX) return true;
+    await env.RL.put(k, String(n + 1), { expirationTtl: LANDED_RL_WINDOW_S });
+  } catch (_) { /* fail open */ }
+  return false;
+}
+
+// Validate one landed-batch body: items -> [{ id, jpy, cc }], everything
+// coerced and bounded, junk dropped. Prices are display inputs for an
+// estimate, never persisted, so client-supplied values are acceptable within
+// bounds.
+function parseLandedItems(body) {
+  const raw = Array.isArray(body?.items) ? body.items.slice(0, LANDED_BATCH_MAX) : [];
+  const out = [];
+  for (const it of raw) {
+    const id = String(it?.id ?? "").trim().slice(0, 64);
+    const jpy = Math.floor(Number(it?.jpy));
+    const cc = Math.floor(Number(it?.cc));
+    if (!id || !Number.isFinite(jpy) || jpy <= 0 || jpy > 999999999) continue;
+    out.push({ id, jpy, cc: Number.isFinite(cc) && cc > 0 && cc <= 20000 ? cc : 0 });
+  }
+  return out;
+}
+
+const jsonResponse = (obj, status = 200) =>
+  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+
+// Shared handler body for the three landed-batch routes; `who` scopes the
+// rate limit, `state` picks the destination assumptions.
+async function landedBatchResponse(env, request, who, state) {
+  if (await landedRateLimited(env, who)) return jsonResponse({ error: "rate_limited" }, 429);
+  let body = {}; try { body = await request.json(); } catch (e) {}
+  const items = parseLandedItems(body);
+  if (!items.length) return jsonResponse({ estimates: {} });
+  const estimates = await estimateLandedBatch(env, items, state);
+  return jsonResponse({ estimates });
 }
 
 // --- Login brute-force protection (KV-backed) --------------------------------
@@ -811,6 +861,20 @@ export default {
 
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
+    // Deferred landed-cost fill for the staff Auctions pages and the in-client
+    // find flow. Any staff session (admin or agent). With ?client=<id> the
+    // estimate uses THAT client's state (resolved server-side, access-checked,
+    // never trusted from the browser); otherwise the default state.
+    if (path === "/admin/landed-batch" && request.method === "POST") {
+      let state = null;
+      const cid = Number(url.searchParams.get("client"));
+      if (Number.isInteger(cid) && cid > 0 && await clientAccessibleBy(env, cid, session)) {
+        const c = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+        state = c?.state || null;
+      }
+      return landedBatchResponse(env, request, `s:${session.role}:${session.id}`, state);
+    }
+
     // Append a one-shot outcome message to a redirect destination. The admin
     // shell renders ?notice= as a success toast and ?notice_err= as an error
     // toast, then cleans the URL, so no quick-action POST finishes silently.
@@ -966,10 +1030,16 @@ export default {
         const sp = url.searchParams;
         adminOpts.tab = sp.get("tab") || "live";
         adminOpts.found = sp.get("found") || "";
-        // The history tab validates its own params (validateHistoryParams),
-        // so it gets the raw query rather than the live-search whitelist.
-        // rates is a checkbox multi-select: getAll() keeps every ticked score.
-        adminOpts.rawQuery = { ...Object.fromEntries(sp), rates: sp.getAll("rates").join(",") };
+        // The history and live tabs validate their own params (the shared
+        // engine in auction-history-query.js), so they get the raw query
+        // rather than a whitelist. rates / houses / unspec are checkbox
+        // multi-selects: getAll() keeps every ticked value.
+        adminOpts.rawQuery = {
+          ...Object.fromEntries(sp),
+          rates: sp.getAll("rates").join(","),
+          houses: sp.getAll("houses").join(","),
+          unspec: sp.getAll("unspec"),
+        };
         adminOpts.search = {
           q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
           house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
@@ -1603,14 +1673,18 @@ async function handleClientPortal(request, env, url, path, session, here) {
     return doc(await portalPage(env, session, { flash }));
   }
 
-  // Member-only auction search page + request-a-lot action.
+  // Member-only auction search page + request-a-lot action. The full query
+  // bag goes through: every filter is validated inside validateLiveParams
+  // (shared engine) before it can reach SQL. rates / houses / unspec are
+  // checkbox multi-selects, so getAll() keeps every ticked value where
+  // Object.fromEntries would keep only the last repeated param.
   if (path === "/portal/auctions" && request.method === "GET") {
     const sp = url.searchParams;
     const params = {
-      q: sp.get("q") || "", make: sp.get("make") || "", model: sp.get("model") || "",
-      house: sp.get("house") || "", yearMin: sp.get("yearMin") || "", yearMax: sp.get("yearMax") || "",
-      priceMax: sp.get("priceMax") || "", gradeMin: sp.get("gradeMin") || "",
-      kuzov: sp.get("kuzov") || "", page: sp.get("page") || "1",
+      ...Object.fromEntries(sp),
+      rates: sp.getAll("rates").join(","),
+      houses: sp.getAll("houses").join(","),
+      unspec: sp.getAll("unspec"),
       tab: sp.get("tab") || "live", view: sp.get("view") || "grid",
       _flash: sp.get("_flash") || "",
     };
@@ -1626,7 +1700,12 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/history" && request.method === "GET") {
     // rates is a checkbox multi-select: getAll() keeps every ticked score
     // where Object.fromEntries would keep only the last repeated param.
-    return doc(await auctionHistoryPage(env, session, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") }));
+    return doc(await auctionHistoryPage(env, session, {
+      ...Object.fromEntries(url.searchParams),
+      rates: url.searchParams.getAll("rates").join(","),
+      houses: url.searchParams.getAll("houses").join(","),
+      unspec: url.searchParams.getAll("unspec"),
+    }));
   }
   if (path === "/portal/sold" && request.method === "GET") {
     // Superseded by Auction History: one destination for sold-price data.
@@ -1644,6 +1723,13 @@ async function handleClientPortal(request, env, url, path, session, here) {
   // GET returns the member's saved lots as {lotId: snapshot}; POST accepts
   // {add:[snapshot...], remove:[lotId...]} from the shared watch script. The
   // client keeps localStorage as its cache, so this degrades gracefully.
+  // Deferred landed-cost fill for the member auction pages (Phase 2). Gated
+  // like the pages themselves: active portal + paid member. JSON in/out.
+  if (path === "/portal/landed-batch" && request.method === "POST") {
+    const c = await env.DB.prepare("SELECT state, member FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    if (!c || !c.member) return jsonResponse({ error: "forbidden" }, 403);
+    return landedBatchResponse(env, request, `c:${session.id}`, c.state);
+  }
   if (path === "/portal/watchlist" && request.method === "GET") {
     const rows = (await env.DB.prepare("SELECT lot_id, snapshot FROM watchlist_items WHERE client_id = ? ORDER BY id").bind(Number(session.id)).all()).results || [];
     const map = {};
@@ -2011,13 +2097,26 @@ async function handleDealerPortal(request, env, url, path, session, here) {
     return doc(html, 200);
   }
 
+  // Deferred landed-cost fill for the dealer history page (Phase 2). Same
+  // active-dealer guard as the page; estimates use the default state.
+  if (path === "/dealer/landed-batch" && request.method === "POST") {
+    const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    if (!dealer) return jsonResponse({ error: "forbidden" }, 403);
+    return landedBatchResponse(env, request, `d:${session.id}`, null);
+  }
+
   // Auction history / sold prices, read-only for dealers. Params are raw off
   // the URL; validateHistoryParams coerces everything before SQL. rates is a
   // checkbox multi-select: getAll() keeps every ticked score.
   if (path === "/dealer/history" && request.method === "GET") {
     const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return Response.redirect(here("/login"), 303);
-    const html = await dealerHistoryPage(env, dealer, { ...Object.fromEntries(url.searchParams), rates: url.searchParams.getAll("rates").join(",") });
+    const html = await dealerHistoryPage(env, dealer, {
+      ...Object.fromEntries(url.searchParams),
+      rates: url.searchParams.getAll("rates").join(","),
+      houses: url.searchParams.getAll("houses").join(","),
+      unspec: url.searchParams.getAll("unspec"),
+    });
     return doc(html, 200);
   }
 
@@ -2214,8 +2313,8 @@ const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: https:",
     "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com",
     "frame-src https://www.googletagmanager.com",

@@ -1,17 +1,19 @@
-// Auction search UI (Stage 2 redesign).
+// Auction search UI (Stage 2 redesign; Phase 1 moved the filter panel to
+// auction-history.js so Live and History share one engine).
 //
-// The app-style search experience shared by the member Auction search page and
-// the staff Auctions workspace: a search-bar-first header with make / model /
-// house filters, Live / Watchlist tabs, a results toolbar with a grid/list
-// toggle, and richer result cards (grade badge, favourite heart, date, chassis,
-// a 2x2 spec grid with auction house + import eligibility, and a Recent-avg
-// price with a Sheet + primary action). The Watchlist is client-side only
-// (localStorage), so it needs no schema and works identically on both surfaces.
+// The app-style pieces shared by the member Auction search page and the staff
+// Auctions workspace: Live / Watchlist tabs, a results toolbar with a
+// grid/list toggle, and richer result cards (grade badge, favourite heart,
+// date, chassis, a 2x2 spec grid with auction house + import eligibility, and
+// a Recent-avg price with a Sheet + primary action). The Watchlist is
+// client-side only (localStorage), so it needs no schema and works
+// identically on both surfaces.
 //
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
 import { esc, yen, fullGrade } from "./render.js";
 import { imageUrls, splitImages } from "./avtonet.js";
+import { lotJpy, carAudToLanded } from "./calc.js";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
@@ -98,13 +100,26 @@ export function auctionCardV2(lot, opts = {}) {
   const trans = [lot.kpp || lot.kpp_type, lot.priv].map((s) => String(s || "").trim()).filter(Boolean).join(" · ") || "-";
   const lotNo = String(lot.lot || "").trim() || "-";
   const elig = auctionEligibility(lot, opts.nowYear);
+  // Phase 2 information pass: engine size and an Est. landed figure bring the
+  // live card up to the History table's density. The landed value renders as
+  // the instant rough placeholder (x1.13 + overhead); the page's deferred
+  // fill script (landedFillScript) swaps in the real calculator figure via
+  // the data attributes. Sold cards show the hammer price instead.
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const engine = cc > 0 ? cc.toLocaleString("en-US") + " cc" : "-";
+  const jpyWorking = lotJpy(lot);
+  const roughLanded = !sold && jpyWorking > 0 && fx > 0 ? carAudToLanded(Math.round(jpyWorking / fx)) : null;
+  const landedAttrs = !sold && jpyWorking > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpyWorking))}" data-cc="${esc(String(cc))}"`
+    : "";
+  const landedTxt = roughLanded ? "≈ A$" + roughLanded.toLocaleString("en-AU") : "-";
   const pr = sold
     ? { pk: "Sold price", price: yen(opts.soldPrice), aud: fx > 0 ? "≈ A$" + Math.round(opts.soldPrice / fx).toLocaleString("en-AU") : "" }
     : priceLine(lot, fx);
   const sheet = splitImages(lot).sheet;
   const sheetUrl = sheet ? `${sheet}&w=1400` : "";
 
-  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}" data-trans="${esc(trans)}" data-lotno="${esc(lotNo)}"` : "";
+  const favData = fav ? ` data-id="${esc(lot.id)}" data-name="${esc(name)}" data-code="${esc(code)}" data-img="${esc(img)}" data-grade="${esc(grade)}" data-house="${esc(house)}" data-date="${esc(date)}" data-ts="${esc(String(lot.auction_date || ""))}" data-pk="${esc(pr.pk)}" data-price="${esc(pr.price)}" data-aud="${esc(pr.aud)}" data-mileage="${esc(mileage)}" data-elig="${esc(elig.label)}" data-eligcls="${esc(elig.cls)}" data-sheet="${esc(sheetUrl)}" data-trans="${esc(trans)}" data-lotno="${esc(lotNo)}" data-engine="${esc(engine)}"` : "";
   const heart = fav ? `<button type="button" class="ac-fav"${favData} aria-pressed="false" aria-label="Save to watchlist">${HEART}</button>` : "";
   // When a detail route is supplied, the card opens a full lot page (gallery,
   // inspection report, specs, actions). The link is a stretched overlay UNDER
@@ -114,11 +129,20 @@ export function auctionCardV2(lot, opts = {}) {
   const photoLink = detailHref ? `<a class="ac-link" href="${esc(detailHref)}" aria-label="View ${esc(name)} details"></a>` : "";
   const nameHtml = detailHref ? `<a class="ac-name-link" href="${esc(detailHref)}">${esc(name)}</a>` : esc(name);
 
+  // A real <img> (not a CSS background) so offscreen cards genuinely defer with
+  // loading="lazy"; decoding="async" keeps decode off the main thread. The box
+  // keeps its dark placeholder colour and fixed height, so nothing shifts while
+  // the photo loads. alt="" (decorative): the card title/link carries the name.
+  const photoImg = img
+    ? `<img class="ac-photo-img" src="${esc(img)}" loading="lazy" decoding="async" width="320" height="214" alt="">`
+    : "";
+
   // opts.select: staff bulk-send selection (checkbox + gold outline via the
   // shared .selcard controller in the admin send bar).
   return `<div class="acard${opts.select ? " selcard" : ""}"${opts.select ? ` data-lot="${esc(lot.id)}"` : ""}>
     ${opts.select ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
-    <div class="ac-photo"${img ? ` style="background-image:url('${esc(img)}')"` : ""}>
+    <div class="ac-photo">
+      ${photoImg}
       <span class="ac-grade">Grade ${esc(grade)}</span>
       ${heart}
       ${date ? `<span class="ac-date${sold ? " sold" : ""}"><i></i>${sold ? "Sold " : ""}${esc(date)}</span>` : ""}
@@ -133,6 +157,8 @@ export function auctionCardV2(lot, opts = {}) {
       <div class="st"><div class="k">Mileage</div><div class="v">${esc(mileage)}</div></div>
       <div class="st"><div class="k">Transmission</div><div class="v">${esc(trans)}</div></div>
       <div class="st"><div class="k">Lot</div><div class="v">${esc(lotNo)}</div></div>
+      <div class="st"><div class="k">Engine</div><div class="v">${esc(engine)}</div></div>
+      ${sold ? "" : `<div class="st"><div class="k">Est. landed</div><div class="v ac-landed"${landedAttrs}>${esc(landedTxt)}</div></div>`}
     </div>
     <div class="ac-foot">
       <div class="ac-price"><div class="pk">${esc(pr.pk)}</div><div class="pv">${esc(pr.price)}</div>${pr.aud ? `<div class="pa">${esc(pr.aud)}</div>` : ""}</div>
@@ -142,84 +168,17 @@ export function auctionCardV2(lot, opts = {}) {
   </div>`;
 }
 
-// The search card: label + live counts, a big search bar, and make / model /
-// house selects with a "More filters" dropdown for year, price and grade.
-//   action   form GET target ("/portal/auctions" or "/admin")
-//   hidden   extra hidden inputs (e.g. view=auctions for the staff route)
-//   p        the current search params (echoed back into the fields)
-//   makers/models/houses  option lists (models only when a make is chosen)
-//   bidCount / showBid    the member's live bid-request count
-export function auctionSearchHeader(o = {}) {
-  const p = o.p || {};
-  const v = (k) => esc(p[k] ?? "");
-  const opt = (list, sel, tc) => (list || []).map((x) =>
-    `<option value="${esc(x)}"${String(x) === String(sel) ? " selected" : ""}>${esc(tc ? displayMaker(x) : x)}</option>`).join("");
-  const advOpen = ["yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
-  const counts = `<span class="asrch-counts">Watchlist <b data-watch-count>0</b>${o.showBid ? ` <span class="sep">&middot;</span> Bid requests <b>${Number(o.bidCount) || 0}</b>` : ""}</span>`;
-  // IA-AUDIT item 15: once a search has run, the form folds to a one-line
-  // criteria summary (the flight-search pattern) so the first result card
-  // starts inside the fold. Before any search, the form IS the page.
-  const hasQuery = ["q", "make", "model", "house", "yearMin", "yearMax", "priceMax", "gradeMin", "kuzov"].some((k) => String(p[k] || "").trim());
-  const digest = [
-    p.q, displayMaker(p.make), displayMaker(p.model), p.house,
-    (p.yearMin || p.yearMax) ? `${p.yearMin || "any"} to ${p.yearMax || "any"}` : "",
-    p.priceMax ? `to ${yen(Number(p.priceMax))}` : "",
-    p.gradeMin ? `grade ${p.gradeMin}+` : "",
-    p.kuzov,
-  ].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
-  // V1.3 Phase A: no free-text smart bar (parked, see FINDER-V13-FIXES.md),
-  // no auto-submit on select change (the panel stays open while refining;
-  // model and model-code option lists refill in the background instead), and
-  // one obvious explicit trigger: "Run Searches".
-  const codeOpt = (list, sel) => (list || []).map((c) => {
-    const code = typeof c === "string" ? c : c.code;
-    const label = typeof c === "string" ? c : (c.label || c.code);
-    return `<option value="${esc(code)}"${String(code).toUpperCase() === String(sel || "").toUpperCase() ? " selected" : ""}>${esc(label)}</option>`;
-  }).join("");
-  const kuzovSel = String(p.kuzov || "").trim();
-  const formHtml = `<form class="asrch-form" method="GET" action="${esc(o.action || "")}" role="search">
-      ${o.hidden || ""}
-      <div class="asrch-filters">
-        <select name="make" aria-label="Make" data-asrch-make><option value="">All makes</option>${opt(o.makers, p.make, true)}</select>
-        <select name="model" aria-label="Model" data-asrch-model><option value="">All models</option>${opt(o.models, p.model, true)}</select>
-        <select name="kuzov" aria-label="Model code" data-asrch-code><option value="">All model codes</option>${codeOpt(o.codes, kuzovSel)}${kuzovSel && !(o.codes || []).some((c) => String(typeof c === "string" ? c : c.code).toUpperCase() === kuzovSel.toUpperCase()) ? `<option value="${v("kuzov")}" selected>${v("kuzov")}</option>` : ""}</select>
-        <select name="house" aria-label="Auction house"><option value="">All houses</option>${opt(o.houses, p.house)}</select>
-        <button class="asrch-go" type="submit">Search</button>
-        <details class="asrch-more"${advOpen ? " open" : ""}>
-          <summary>More filters</summary>
-          <div class="asrch-adv">
-            <div class="asrch-adv-grid">
-              <label>Year from<input name="yearMin" type="number" min="1960" value="${v("yearMin")}" placeholder="1990"></label>
-              <label>Year to<input name="yearMax" type="number" min="1960" value="${v("yearMax")}" placeholder="2002"></label>
-              <label>Max price <span class="opt">(JPY)</span><input name="priceMax" type="number" min="0" step="any" value="${v("priceMax")}" placeholder="3,000,000"></label>
-              <label>Min grade<input name="gradeMin" type="number" min="1" max="6" step="any" value="${v("gradeMin")}" placeholder="4"></label>
-            </div>
-            <div class="asrch-adv-act"><button class="btn-primary" type="submit">Search</button></div>
-          </div>
-        </details>
-      </div>
-      <script>(function(){
-        var f=document.currentScript.closest("form");if(!f)return;
-        var mk=f.querySelector("[data-asrch-make]"),md=f.querySelector("[data-asrch-model]"),cd=f.querySelector("[data-asrch-code]");
-        function refill(sel,items,none,valKey,txtKey){
-          if(!sel)return;var cur=sel.value;sel.innerHTML='<option value="">'+none+'</option>';
-          (items||[]).forEach(function(x){var o=document.createElement("option");o.value=valKey?x[valKey]:x;o.textContent=txtKey?x[txtKey]:x;sel.appendChild(o);});
-          for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===cur){sel.value=cur;break;}}
-        }
-        function loadModels(){if(!mk||!mk.value){refill(md,[],"All models");loadCodes();return;}
-          fetch("/api/models?maker="+encodeURIComponent(mk.value)).then(function(r){return r.json();}).then(function(l){refill(md,l,"All models");loadCodes();}).catch(function(){});}
-        function loadCodes(){if(!cd)return;if(!mk||!mk.value){refill(cd,[],"All model codes");return;}
-          fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent((md&&md.value)||"")).then(function(r){return r.json();}).then(function(l){refill(cd,l,"All model codes","code","label");}).catch(function(){});}
-        if(mk)mk.addEventListener("change",loadModels);
-        if(md)md.addEventListener("change",loadCodes);
-      })();</script>
-    </form>`;
-  return `<div class="asrch">
-    <div class="asrch-top"><span class="asrch-label">${esc(o.label || "Search live Japanese auctions")}</span>${counts}</div>
-    ${hasQuery
-      ? `<details class="asrch-fold"><summary><span class="asrch-sum">${esc(digest || "Current search")}</span><span class="asrch-edit">Edit search</span></summary>${formHtml}</details>`
-      : formHtml}
-  </div>`;
+// The old auctionSearchHeader (make/model/house selects + a "More filters"
+// details fold) is gone (Phase 1): both Live tabs now share the Auction
+// History filter panel via liveSearchBlock() in auction-history.js, so
+// filters and results match everywhere and nothing hides behind a fold.
+
+// The grid/list view toggle, shared by the results bars. `hrefFor(mode)`
+// builds a URL that swaps only the view.
+export function viewToggle(view, hrefFor) {
+  const av = (mode, ic, lbl) =>
+    `<a class="av${view === mode ? " on" : ""}" href="${esc(hrefFor(mode))}" title="${lbl}" aria-label="${lbl}">${ic}</a>`;
+  return `<div class="aview">${av("grid", GRID_IC, "Grid view")}${av("list", LIST_IC, "List view")}</div>`;
 }
 
 // IA-AUDIT item 15: watched lots entering their final 24h page the staff.
@@ -297,11 +256,12 @@ export function auctionWatchScript(opts = {}) {
   function save(m){try{localStorage.setItem(KEY,JSON.stringify(m));}catch(e){}}
   function paint(){var n=Object.keys(load()).length,e=document.querySelectorAll('[data-watch-count]');for(var i=0;i<e.length;i++){e[i].textContent=n;}}
   function mark(){var m=load(),b=document.querySelectorAll('.ac-fav[data-id]');for(var i=0;i<b.length;i++){var on=!!m[b[i].getAttribute('data-id')];b[i].classList.toggle('on',on);b[i].setAttribute('aria-pressed',on?'true':'false');b[i].setAttribute('aria-label',on?'Remove from watchlist':'Save to watchlist');}}
-  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet,trans:d.trans,lotno:d.lotno};}
-  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
+  function snap(el){var d=el.dataset;return {id:d.id,name:d.name,code:d.code,img:d.img,grade:d.grade,house:d.house,date:d.date,ts:d.ts,pk:d.pk,price:d.price,aud:d.aud,mileage:d.mileage,elig:d.elig,eligcls:d.eligcls,sheet:d.sheet,trans:d.trans,lotno:d.lotno,engine:d.engine};}
+  function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno','engine'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
   var HEART='${HEART}';
   function card(v){
-    var h='<div class="acard"><div class="ac-photo" data-bg="'+esc(v.img)+'">';
+    var h='<div class="acard"><div class="ac-photo">';
+    h+=(v.img?'<img class="ac-photo-img" src="'+esc(v.img)+'" loading="lazy" decoding="async" width="320" height="214" alt="">':'');
     h+='<span class="ac-grade">Grade '+esc(v.grade)+'</span>';
     h+='<button type="button" class="ac-fav on" aria-pressed="true" aria-label="Remove from watchlist"'+attrs(v)+'>'+HEART+'</button>';
     h+=(v.date?'<span class="ac-date"><i></i>'+esc(v.date)+'</span>':'')+'<div class="ac-grad"></div></div>';
@@ -311,7 +271,8 @@ export function auctionWatchScript(opts = {}) {
     h+='<div class="st"><div class="k">Eligibility</div><div class="v"><span class="ac-elig '+(v.eligcls==='ok'?'ok':'check')+'"><span class="dot"></span>'+esc(v.elig)+'</span></div></div>';
     h+='<div class="st"><div class="k">Mileage</div><div class="v">'+(esc(v.mileage)||'-')+'</div></div>';
     h+='<div class="st"><div class="k">Transmission</div><div class="v">'+(esc(v.trans)||'-')+'</div></div>';
-    h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div></div>';
+    h+='<div class="st"><div class="k">Lot</div><div class="v">'+(esc(v.lotno)||'-')+'</div></div>';
+    h+='<div class="st"><div class="k">Engine</div><div class="v">'+(esc(v.engine)||'-')+'</div></div></div>';
     h+='<div class="ac-foot"><div class="ac-price"><div class="pk">'+(esc(v.pk)||'Price')+'</div><div class="pv">'+esc(v.price)+'</div>'+(v.aud?'<div class="pa">'+esc(v.aud)+'</div>':'')+'</div>';
     h+=(v.sheet?'<a class="ac-sheet" target="_blank" rel="noopener" href="'+esc(v.sheet)+'">Sheet</a>':'');
     if(REQUEST){h+='<form method="POST" action="/portal/auctions/request" style="margin:0"><input type="hidden" name="id" value="'+esc(v.id)+'"><button class="btn-primary btn-sm ac-req" type="submit">Request bid</button></form>';}
@@ -319,8 +280,7 @@ export function auctionWatchScript(opts = {}) {
   }
   function renderWatch(){var g=document.getElementById('watchGrid');if(!g)return;var m=load(),ids=Object.keys(m);
     if(!ids.length){g.innerHTML='<div class="awatch-empty"><div class="rule"></div>No cars saved yet. Tap the heart on any lot to add it to your watchlist.</div>';return;}
-    var out='';for(var i=0;i<ids.length;i++){out+=card(m[ids[i]]);}g.innerHTML=out;
-    var ph=g.querySelectorAll('.ac-photo[data-bg]');for(var j=0;j<ph.length;j++){var u=ph[j].getAttribute('data-bg');if(u)ph[j].style.backgroundImage="url('"+u+"')";}}
+    var out='';for(var i=0;i<ids.length;i++){out+=card(m[ids[i]]);}g.innerHTML=out;}
   document.addEventListener('click',function(ev){var t=ev.target,b=t&&t.closest?t.closest('.ac-fav'):null;if(!b)return;ev.preventDefault();var m=load(),id=b.getAttribute('data-id');if(m[id]){delete m[id];send({remove:[id]});}else{m[id]=snap(b);send({add:[m[id]]});}save(m);mark();paint();renderWatch();});
   mark();paint();renderWatch();
   // Hydrate from the server copy, then push up anything only this device has,
@@ -340,34 +300,6 @@ export function auctionWatchScript(opts = {}) {
 // which share design-token variable names. Eligibility colours are hardcoded for
 // the light content area both surfaces use.
 export const AUCTION_CSS = `<style>
-  .asrch{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:20px;margin-bottom:20px}
-  .asrch-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-  /* Post-search fold: one-line criteria summary, the form behind it. */
-  .asrch-fold>summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;min-height:44px;padding:10px 14px;border:1px solid var(--hair,rgba(0,0,0,.08));border-radius:var(--r-ctl,8px);background:var(--off,#F8F9FA)}
-  .asrch-fold>summary::-webkit-details-marker{display:none}
-  .asrch-sum{flex:1;min-width:0;font-size:var(--fs-sec,13px);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .asrch-edit{font-size:var(--fs-label,12px);font-weight:600;color:var(--gold-txt,#7A5E1C);white-space:nowrap}
-  .asrch-fold[open]>summary{margin-bottom:12px}
-  .asrch-label{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
-  .asrch-counts{font-size:var(--fs-label,12px);color:var(--t3)}
-  .asrch-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
-  .asrch-counts .sep{opacity:.5;margin:0 2px}
-  .asrch-go{flex:0 0 auto;background:var(--gold);color:var(--gold-on,#15120A);font-weight:700;border:0;padding:11px 24px;border-radius:var(--r-ctl,8px);font-size:var(--fs-sec,13px);cursor:pointer;font-family:inherit}
-  .asrch-go:hover{background:var(--gold-hover)}
-  .asrch-filters{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-  .asrch-filters select{flex:1 1 170px;min-width:0;padding:12px 32px 12px 12px;border-radius:var(--r-ctl,8px)}
-  .asrch-more{flex:0 0 auto;position:static}
-  .asrch-more>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;background:var(--soft,rgba(0,0,0,0.04));color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-ctl,8px);padding:12px 16px;font-size:var(--fs-sec,13px);font-weight:600}
-  .asrch-more>summary::-webkit-details-marker{display:none}
-  .asrch-more>summary:after{content:"+";color:var(--gold);font-weight:700;font-size:16px;line-height:1}
-  .asrch-more[open]>summary:after{content:"-"}
-  .asrch-adv{position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:8;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:16px;box-shadow:0 20px 55px rgba(0,0,0,.16)}
-  .asrch-adv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
-  .asrch-adv-grid label{display:block;font-size:var(--fs-label,12px);color:var(--t2);font-weight:600;margin:0}
-  .asrch-adv-grid label .opt{color:var(--faint);font-weight:400}
-  .asrch-adv-grid input{margin-top:8px;padding:12px;border-radius:var(--r-ctl,8px)}
-  .asrch-adv-act{display:flex;justify-content:flex-end;margin-top:16px}
-
   .atabs{display:inline-flex;gap:4px;background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);padding:4px;margin-bottom:16px}
   /* Four pill tabs run 388px wide at a 375 viewport; scroll the strip instead
      of overflowing the page. */
@@ -392,7 +324,10 @@ export const AUCTION_CSS = `<style>
   .acgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--gap-grid,20px)}
   .acard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s,transform .15s,box-shadow .15s;content-visibility:auto;contain-intrinsic-size:auto 420px}
   .acard:hover{border-color:var(--field-line);transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.12)}
-  .ac-photo{position:relative;height:168px;flex:0 0 auto;background:var(--media,#0B0D10);background-size:cover;background-position:center;border-bottom:1px solid var(--hair)}
+  .ac-photo{position:relative;height:168px;flex:0 0 auto;background:var(--media,#0B0D10);border-bottom:1px solid var(--hair)}
+  /* The photo fills the box behind every overlay (grad/badges/link sit above
+     it by z-index). object-fit:cover matches the old background-size:cover. */
+  .ac-photo-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;display:block}
   .ac-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 42%)}
   .ac-link{position:absolute;inset:0;z-index:1;display:block}
   .ac-name-link{color:inherit;text-decoration:none}
@@ -413,6 +348,7 @@ export const AUCTION_CSS = `<style>
   .ac-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:12px 16px;margin-top:12px;border-top:1px solid var(--hair)}
   .ac-stats .k{font-size:var(--fs-label,12px);font-weight:var(--w-label,500);letter-spacing:var(--ls-label,.06em);text-transform:uppercase;color:var(--faint)}
   .ac-stats .v{font-size:var(--fs-label,12px);font-weight:600;margin-top:4px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ac-landed{color:var(--gold-txt)!important;font-variant-numeric:tabular-nums}
   .ac-elig{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-label,12px);font-weight:600}
   .ac-elig .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
   .ac-elig.ok{color:var(--good,#1F7A4D)}.ac-elig.ok .dot{background:var(--good,#1F7A4D)}
@@ -447,13 +383,5 @@ export const AUCTION_CSS = `<style>
 
   @media(max-width:640px){
     .acgrid{grid-template-columns:1fr}
-    .asrch{padding:16px}
-    .asrch-go{padding:16px}
-    /* 2-up filter selects (not full-width-stacked) so the search header stays
-       compact and results are visible without a long scroll. */
-    .asrch-filters{gap:8px}
-    .asrch-filters select{flex:1 1 calc(50% - 4px);min-width:0}
-    .asrch-more{flex-basis:100%}
-    .asrch-more>summary{width:100%;justify-content:center}
   }
 </style>`;

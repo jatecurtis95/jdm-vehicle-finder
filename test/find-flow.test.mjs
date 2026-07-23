@@ -38,6 +38,18 @@ test("client find results carry details, eligibility and sold-history affordance
   assert.match(html, /view=auctions(?:&|&amp;)tab=prices(?:&|&amp;)make=NISSAN(?:&|&amp;)model=SKYLINE/, "sold price history is one tap from the search");
 });
 
+test("find-result landed cost is deferred and batched, not computed per row", async () => {
+  const env = seededEnv();
+  const html = await clientDetailPage(env, 7, ADMIN, { search: { make: "NISSAN", model: "SKYLINE" } });
+  // The card carries a fill slot (lot id + working JPY) instead of a
+  // server-computed figure, so the page render makes no per-row calculator call.
+  assert.match(html, /class="ml-v" data-landed-slot data-lot="fx-1" data-jpy="9800000"/, "landed renders as a deferred fill slot");
+  assert.match(html, /Est\. landed · NSW/, "the label carries the client's state, resolved server-side");
+  assert.match(html, /class="ml-v"[^>]*>≈A\$/, "an instant rough placeholder shows before the batch fills");
+  // One batched fill call, scoped to this client so the endpoint uses their state.
+  assert.match(html, /\/admin\/landed-batch\?client=7/, "a single batched fill call targets this client");
+});
+
 test("the auction lot page in client context offers a one-tap add and a back-to-search", async () => {
   const env = seededEnv();
   const back = "/admin?view=client&id=7&make=NISSAN&model=SKYLINE#find";

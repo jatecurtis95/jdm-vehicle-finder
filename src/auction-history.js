@@ -1,22 +1,26 @@
-// Auction History - member page (production version of the reviewed
-// /auction-history-example concept, docs/auction-history.md).
+// Auction History + the shared auction filter experience (Phase 1).
 //
-// Real sold results from the stats feed, rendered in the buyer-portal shell:
-// frequently used filters stay visible, specialist filters fold behind "More
-// filters", active filters become removable chips, and results render as a
-// table on desktop and as cards on mobile (the example's card layout).
+// Real sold results from the stats feed, rendered in the buyer-portal shell,
+// and the same filter panel re-used by the Live Auctions tabs (member and
+// staff) via liveSearchBlock(), so filters and results match everywhere.
+// Phase 1 decision: ALL filters live in one large always-visible panel -
+// nothing collapsed, no "More filters" details element. Active filters render
+// as removable chips; results are a table on desktop, cards on mobile.
 //
 // Copy rule for this codebase: no em dashes or en dashes. Use commas or hyphens.
 
 import { esc, yen, fullGrade } from "./render.js";
-import { imageUrls, distinctMakers, distinctModels, distinctModelCodes, distinctHouses } from "./avtonet.js";
+import {
+  imageUrls, distinctMakers, distinctModels, distinctModelCodes, distinctGrades, distinctHouses,
+} from "./avtonet.js";
 import { labelForCode } from "./model-codes.js";
 import { getLiveFx, carAudToLanded } from "./calc.js";
-import { auctionEligibility, displayMaker, feedDownCard } from "./auction-ui.js";
+import { auctionEligibility, displayMaker, feedDownCard, viewToggle } from "./auction-ui.js";
 import { brandShell } from "./theme.js";
 import { portalSidebar, dealerSidebar } from "./portal-shell.js";
 import {
-  validateHistoryParams, searchHistory, HISTORY_RANGES, HISTORY_SORTS, HISTORY_RATES,
+  validateHistoryParams, validateLiveParams, searchHistory, searchLive, houseList,
+  HISTORY_RANGES, HISTORY_SORTS, LIVE_SORTS, HISTORY_RATES, RATE_ORDER, RATE_PILL_ORDER,
   KPP_GROUPS, FUEL_KEYWORDS, BODY_KEYWORDS, HISTORY_COLOURS,
 } from "./auction-history-query.js";
 
@@ -46,10 +50,13 @@ function kppDisplay(kpp) {
   return v;
 }
 
-// The advanced filters live behind "More filters"; any active one re-opens it.
-const ADVANCED_KEYS = ["transmission", "drivetrain", "mileageMin", "mileageMax", "engineMin", "engineMax", "priceMin", "priceMax", "variant", "house", "body", "fuel", "colour", "eligibility"];
 // Everything that belongs in a shareable URL, in canonical order.
-const URL_KEYS = ["make", "model", "kuzov", "yearMin", "yearMax", "rates", "range", ...ADVANCED_KEYS, "sort", "page"];
+const URL_KEYS = [
+  "make", "model", "kuzov", "yearMin", "yearMax", "rates", "range",
+  "transmission", "drivetrain", "mileageMin", "mileageMax", "engineMin", "engineMax",
+  "priceMin", "priceMax", "variant", "houses", "body", "fuel", "colour", "eligibility",
+  "unspec", "sort", "page",
+];
 
 // The same history experience renders on two surfaces. A surface says where
 // the form posts back to (basePath + baseParams carried on every URL) and
@@ -60,12 +67,14 @@ export const HISTORY_SURFACES = {
     baseParams: {},
     detailBase: "/portal/auctions/lot?id=",
     liveSearch: (lot) => `/portal/auctions?${new URLSearchParams({ make: lot.marka_name || "", model: lot.model_name || "" })}`,
+    landedEndpoint: "/portal/landed-batch",
   },
   staff: {
     basePath: "/admin",
     baseParams: { view: "auctions", tab: "history" },
     detailBase: "/admin?view=auctionlot&lot=",
     liveSearch: (lot) => `/admin?${new URLSearchParams({ view: "auctions", tab: "live", make: lot.marka_name || "", model: lot.model_name || "" })}`,
+    landedEndpoint: "/admin/landed-batch",
   },
   // Dealers get the sold results read-only: the record and live-search pages
   // live behind staff/member sessions, so this surface renders no links.
@@ -74,16 +83,30 @@ export const HISTORY_SURFACES = {
     baseParams: {},
     detailBase: null,
     liveSearch: null,
+    landedEndpoint: "/dealer/landed-batch",
   },
+};
+
+// The Live Auctions surfaces share the panel and engine with History. Result
+// cards, tabs and per-surface actions stay with the callers in admin.js.
+export const LIVE_SURFACES = {
+  member: { basePath: "/portal/auctions", baseParams: {}, landedEndpoint: "/portal/landed-batch" },
+  staff: { basePath: "/admin", baseParams: { view: "auctions", tab: "live" }, landedEndpoint: "/admin/landed-batch" },
 };
 
 // Compact param bag for URL building: only non-defaults are carried.
 function cleanParams(p) {
+  const defSort = p.mode === "live" ? "closing" : "newest";
   const clean = {};
   for (const k of URL_KEYS) {
+    // Include-unspecified defaults ON; only the opt-out rides in the URL.
+    if (k === "unspec") {
+      if (p.unspec === false) clean.unspec = "0";
+      continue;
+    }
     const v = p[k];
     if (v === null || v === "" || v === undefined) continue;
-    if (k === "sort" && v === "newest") continue;
+    if (k === "sort" && v === defSort) continue;
     if (k === "page" && Number(v) === 1) continue;
     clean[k] = String(v);
   }
@@ -100,7 +123,7 @@ function historyUrl(surface, clean, over = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Filter form
+// Filter panel (shared by History and Live)
 // ---------------------------------------------------------------------------
 
 const opt = (value, label, selected) =>
@@ -115,7 +138,13 @@ const codeText = (code) => {
   return label ? `${code} · ${label}` : code;
 };
 
-function filterForm(p, { makers, models, codes, houses }, surface) {
+// The keyword-inference caveat (Phase 1 decision): colour, fuel, body and
+// drivetrain are read off listing text or sparse fields, so they are labelled
+// rather than trusted silently.
+const CAVEAT = `<em class="ahx-cav">(as listed)</em>`;
+
+function filterForm(p, { makers, models, codes, houses, grades }, surface, opts = {}) {
+  const live = p.mode === "live";
   const makerOpts = opt("", "All makes", p.make) +
     makers.map((m) => opt(m, displayMaker(m), p.make)).join("") +
     (p.make && !makers.includes(p.make) ? opt(p.make, displayMaker(p.make), p.make) : "");
@@ -125,69 +154,97 @@ function filterForm(p, { makers, models, codes, houses }, surface) {
   const codeOpts = opt("", "Any chassis code", p.kuzov) +
     codes.map((c) => opt(c, codeText(c), p.kuzov)).join("") +
     (p.kuzov && !codes.includes(p.kuzov) ? opt(p.kuzov, codeText(p.kuzov), p.kuzov) : "");
-  const houseOpts = opt("", "All auction houses", p.house) +
-    houses.map((h) => opt(h, h, p.house)).join("") +
-    (p.house && !houses.includes(p.house) ? opt(p.house, p.house, p.house) : "");
 
   const rangePill = (value, label) =>
     `<label><input type="radio" name="range" value="${value}"${p.range === value ? " checked" : ""}><span>${label}</span></label>`;
-  const pills = rangePill("", "Any time") +
-    Object.entries(HISTORY_RANGES).map(([k, r]) => rangePill(k, r.label)).join("");
+  const rangeRow = live ? "" : `<fieldset class="ahx-range"><legend>Auction held within</legend>${
+    rangePill("", "Any time") + Object.entries(HISTORY_RANGES).map(([k, r]) => rangePill(k, r.label)).join("")
+  }</fieldset>`;
 
   // Auction grade scores multi-select, so "4.5 and up" is two ticks, not a
-  // dropdown dance. Checkboxes reuse the range-pill styling.
+  // dropdown dance. Visible pill order S, 6, 5, 4.5, 4, 3.5, 3, 2, 1, R, RA
+  // (RATE_PILL_ORDER); RA2 folds under RA. Canonical URL/SQL order is separate.
   const rateSet = new Set(p.rates ? p.rates.split(",") : []);
-  const ratePills = Object.entries(HISTORY_RATES).map(([k, label]) =>
-    `<label><input type="checkbox" name="rates" value="${k}"${rateSet.has(k) ? " checked" : ""}><span>${label}</span></label>`).join("");
+  const ratePills = RATE_PILL_ORDER.map((k) =>
+    `<label><input type="checkbox" name="rates" value="${k}"${rateSet.has(k) ? " checked" : ""}><span>${HISTORY_RATES[k].label}</span></label>`).join("");
 
-  const advancedOpen = ADVANCED_KEYS.some((k) => p[k] !== "" && p[k] !== null);
+  // Auction houses multi-select: checkbox pills in a scrollable strip. A
+  // selected house missing from today's lookup list still renders, so a
+  // stale bookmark can be unticked.
+  const selHouses = houseList(p);
+  const selUpper = new Set(selHouses.map((h) => h.toUpperCase()));
+  const houseAll = [...houses, ...selHouses.filter((h) => !houses.some((x) => x.toUpperCase() === h.toUpperCase()))];
+  const housePills = houseAll.map((h) =>
+    `<label><input type="checkbox" name="houses" value="${esc(h)}"${selUpper.has(h.toUpperCase()) ? " checked" : ""}><span>${esc(h)}</span></label>`).join("");
+
   const numVal = (v) => (v === null ? "" : String(v));
+  const priceLabel = live ? "Start price" : "Sold price";
+  const defSort = live ? "closing" : "newest";
+  const submitLabel = live ? "Search live auctions" : "Search history";
+
+  const gradesDl = `<datalist id="ahx-grades">${(grades || []).map((g) => `<option value="${esc(g)}">`).join("")}</datalist>`;
 
   const baseHidden = Object.entries(surface.baseParams)
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
-  return `<form class="ahx-filter" method="GET" action="${esc(surface.basePath)}" data-ahx-form role="search" aria-label="Search auction history">
-    ${baseHidden}${p.sort !== "newest" ? `<input type="hidden" name="sort" value="${esc(p.sort)}">` : ""}
+  return `<form class="ahx-filter" method="GET" action="${esc(surface.basePath)}" data-ahx-form role="search" aria-label="${live ? "Search live auctions" : "Search auction history"}">
+    ${baseHidden}${p.sort !== defSort ? `<input type="hidden" name="sort" value="${esc(p.sort)}">` : ""}
+    ${opts.topBar || ""}
     <div class="ahx-frow">
       <label><span>Make</span><select name="make" data-ahx-make>${makerOpts}</select></label>
       <label><span>Model</span><select name="model" data-ahx-model>${modelOpts}</select></label>
       <label><span>Chassis code</span><select name="kuzov" data-ahx-code>${codeOpts}</select></label>
       <label><span>Year from</span><input type="number" name="yearMin" min="1950" max="2100" value="${numVal(p.yearMin)}" placeholder="1995"></label>
       <label><span>Year to</span><input type="number" name="yearMax" min="1950" max="2100" value="${numVal(p.yearMax)}" placeholder="2002"></label>
-      <button class="btn-primary ahx-go" type="submit" data-ahx-go>Search history</button>
+      <button class="btn-primary ahx-go" type="submit" data-ahx-go>${submitLabel}</button>
     </div>
-    <fieldset class="ahx-range"><legend>Auction held within</legend>${pills}</fieldset>
+    ${rangeRow}
     <fieldset class="ahx-range ahx-rates"><legend>Auction grade</legend>${ratePills}</fieldset>
-    <details class="ahx-more"${advancedOpen ? " open" : ""}>
-      <summary><span>More filters</span><small>Transmission, drivetrain, mileage, engine, price, variant, auction house, body, fuel, colour, eligibility</small></summary>
-      <div class="ahx-more-grid">
-        <label><span>Transmission</span><select name="transmission">${opt("", "Any transmission", p.transmission)}${optTable(KPP_GROUPS, p.transmission)}</select></label>
-        <label><span>Drivetrain</span><select name="drivetrain">${opt("", "Any drivetrain", p.drivetrain)}${opt("4wd", "4WD / AWD", p.drivetrain)}${opt("2wd", "2WD", p.drivetrain)}</select></label>
-        <label><span>Mileage from (km)</span><input type="number" name="mileageMin" min="1" max="1000000" step="1000" value="${numVal(p.mileageMin)}" placeholder="20,000"></label>
-        <label><span>Mileage to (km)</span><input type="number" name="mileageMax" min="1" max="1000000" step="1000" value="${numVal(p.mileageMax)}" placeholder="100,000"></label>
-        <label><span>Engine from (cc)</span><input type="number" name="engineMin" min="1" max="20000" step="100" value="${numVal(p.engineMin)}" placeholder="1,500"></label>
-        <label><span>Engine to (cc)</span><input type="number" name="engineMax" min="1" max="20000" step="100" value="${numVal(p.engineMax)}" placeholder="3,000"></label>
-        <label><span>Sold price from (JPY)</span><input type="number" name="priceMin" min="1" max="999999999" step="50000" value="${numVal(p.priceMin)}" placeholder="500,000"></label>
-        <label><span>Sold price to (JPY)</span><input type="number" name="priceMax" min="1" max="999999999" step="50000" value="${numVal(p.priceMax)}" placeholder="3,000,000"></label>
-        <label><span>Variant / trim</span><input type="text" name="variant" maxlength="60" value="${esc(p.variant)}" placeholder="e.g. GT-R, HIGHWAY STAR"></label>
-        <label><span>Auction house</span><select name="house">${houseOpts}</select></label>
-        <label><span>Body type</span><select name="body">${opt("", "Any body", p.body)}${optTable(BODY_KEYWORDS, p.body)}</select></label>
-        <label><span>Fuel</span><select name="fuel">${opt("", "Any fuel", p.fuel)}${optTable(FUEL_KEYWORDS, p.fuel)}</select></label>
-        <label><span>Colour</span><select name="colour">${opt("", "Any colour", p.colour)}${optTable(HISTORY_COLOURS, p.colour)}</select></label>
-        <label><span>Import eligibility</span><select name="eligibility">${opt("", "Any status", p.eligibility)}${opt("eligible", "Eligible (25-year rule)", p.eligibility)}</select></label>
+    <fieldset class="ahx-range ahx-houses"><legend>Auction houses <small>(leave unticked for All houses)</small></legend><div class="ahx-hbox">${housePills}</div></fieldset>
+    <div class="ahx-grid">
+      <label><span>Transmission</span><select name="transmission">${opt("", "Any transmission", p.transmission)}${optTable(KPP_GROUPS, p.transmission)}</select></label>
+      <label><span>Drivetrain ${CAVEAT}</span><select name="drivetrain">${opt("", "Any drivetrain", p.drivetrain)}${opt("4wd", "4WD / AWD", p.drivetrain)}${opt("2wd", "2WD", p.drivetrain)}</select></label>
+      <label><span>Mileage from (km)</span><input type="number" name="mileageMin" min="1" max="1000000" step="1000" value="${numVal(p.mileageMin)}" placeholder="20,000"></label>
+      <label><span>Mileage to (km)</span><input type="number" name="mileageMax" min="1" max="1000000" step="1000" value="${numVal(p.mileageMax)}" placeholder="100,000"></label>
+      <label><span>Engine from (cc)</span><input type="number" name="engineMin" min="1" max="20000" step="100" value="${numVal(p.engineMin)}" placeholder="1,500"></label>
+      <label><span>Engine to (cc)</span><input type="number" name="engineMax" min="1" max="20000" step="100" value="${numVal(p.engineMax)}" placeholder="3,000"></label>
+      <label><span>${priceLabel} from (JPY)</span><input type="number" name="priceMin" min="1" max="999999999" step="50000" value="${numVal(p.priceMin)}" placeholder="500,000"></label>
+      <label><span>${priceLabel} to (JPY)</span><input type="number" name="priceMax" min="1" max="999999999" step="50000" value="${numVal(p.priceMax)}" placeholder="3,000,000"></label>
+      <label><span>Variant / trim</span><input type="text" name="variant" maxlength="60" list="ahx-grades" value="${esc(p.variant)}" placeholder="e.g. GT-R, HIGHWAY STAR" autocomplete="off"></label>
+      <label><span>Body type ${CAVEAT}</span><select name="body">${opt("", "Any body", p.body)}${optTable(BODY_KEYWORDS, p.body)}</select></label>
+      <label><span>Fuel ${CAVEAT}</span><select name="fuel">${opt("", "Any fuel", p.fuel)}${optTable(FUEL_KEYWORDS, p.fuel)}</select></label>
+      <label><span>Colour ${CAVEAT}</span><select name="colour">${opt("", "Any colour", p.colour)}${optTable(HISTORY_COLOURS, p.colour)}</select></label>
+      <label><span>Import eligibility</span><select name="eligibility">${opt("", "Any status", p.eligibility)}${opt("eligible", "Eligible (25-year rule)", p.eligibility)}</select></label>
+    </div>
+    ${gradesDl}
+    <div class="ahx-foot">
+      <div class="ahx-foot-l">
+        <input type="hidden" name="unspec" value="0">
+        <label class="ahx-unspec"><input type="checkbox" name="unspec" value="1"${p.unspec ? " checked" : ""}><span>Include unspecified listings</span></label>
+        <small>Colour, fuel, body and drivetrain are matched as listed and may exclude incomplete listings. Leave this on so lots missing those details stay in your results.</small>
       </div>
-      <div class="ahx-more-act"><button class="btn-primary" type="submit" data-ahx-go>Search history</button></div>
-    </details>
+      <button class="btn-primary" type="submit" data-ahx-go>${submitLabel}</button>
+    </div>
     <script>(function(){
       var f=document.currentScript.closest("form");if(!f)return;
       var mk=f.querySelector("[data-ahx-make]"),md=f.querySelector("[data-ahx-model]"),cd=f.querySelector("[data-ahx-code]");
+      var gl=document.getElementById("ahx-grades");
       if(!mk||!md)return;
-      function loadCodes(){
-        if(!cd)return;
-        var cur=cd.value;cd.innerHTML='<option value="">Any chassis code</option>';
+      function loadGrades(){
+        if(!gl)return;
+        gl.innerHTML="";
         if(!mk.value)return;
+        fetch("/api/grades?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent(md.value)+"&code="+encodeURIComponent(cd?cd.value:"")).then(function(r){return r.json();}).then(function(list){
+          (list||[]).forEach(function(g){var o=document.createElement("option");o.value=g;gl.appendChild(o);});
+        }).catch(function(){});
+      }
+      function loadCodes(){
+        if(!cd){loadGrades();return;}
+        var cur=cd.value;cd.innerHTML='<option value="">Any chassis code</option>';
+        if(!mk.value){loadGrades();return;}
         fetch("/api/codes?maker="+encodeURIComponent(mk.value)+"&model="+encodeURIComponent(md.value)).then(function(r){return r.json();}).then(function(list){
           (list||[]).forEach(function(x){var o=document.createElement("option");o.value=x.code;o.textContent=x.label?x.code+" \\u00b7 "+x.label:x.code;cd.appendChild(o);});
           for(var i=0;i<cd.options.length;i++){if(cd.options[i].value===cur){cd.value=cur;break;}}
+          loadGrades();
         }).catch(function(){});
       }
       mk.addEventListener("change",function(){
@@ -201,6 +258,7 @@ function filterForm(p, { makers, models, codes, houses }, surface) {
         loadCodes();
       });
       md.addEventListener("change",loadCodes);
+      if(cd)cd.addEventListener("change",loadGrades);
     })();</script>
   </form>`;
 }
@@ -209,15 +267,18 @@ function filterForm(p, { makers, models, codes, houses }, surface) {
 // Filter chips
 // ---------------------------------------------------------------------------
 
+// Each entry is [paramKey, chipLabel, overrideValue?]. When overrideValue is
+// present, removing the chip sets the param to that value instead of clearing
+// it - how one house leaves a multi-select without dropping the others.
 function chipLabels(p) {
   const labels = [];
-  const add = (key, label) => labels.push([key, label]);
+  const add = (key, label, value) => labels.push([key, label, value]);
   if (p.make) add("make", displayMaker(p.make));
   if (p.model) add("model", displayMaker(p.model));
   if (p.kuzov) add("kuzov", p.kuzov);
   if (p.yearMin !== null) add("yearMin", `From ${p.yearMin}`);
   if (p.yearMax !== null) add("yearMax", `To ${p.yearMax}`);
-  if (p.rates) add("rates", "Grade " + p.rates.split(",").map((k) => HISTORY_RATES[k]).join(", "));
+  if (p.rates) add("rates", "Grade " + p.rates.split(",").map((k) => HISTORY_RATES[k].label).join(", "));
   if (p.range) add("range", "Last " + HISTORY_RANGES[p.range].label);
   if (p.transmission) add("transmission", KPP_GROUPS[p.transmission].label);
   if (p.drivetrain) add("drivetrain", p.drivetrain === "4wd" ? "4WD / AWD" : "2WD");
@@ -228,19 +289,23 @@ function chipLabels(p) {
   if (p.priceMin !== null) add("priceMin", `Over ${yen(p.priceMin)}`);
   if (p.priceMax !== null) add("priceMax", `Under ${yen(p.priceMax)}`);
   if (p.variant) add("variant", `"${p.variant}"`);
-  if (p.house) add("house", p.house);
+  const selHouses = houseList(p);
+  for (const h of selHouses) {
+    add("houses", h, selHouses.filter((x) => x !== h).join(","));
+  }
   if (p.body) add("body", BODY_KEYWORDS[p.body].label);
   if (p.fuel) add("fuel", FUEL_KEYWORDS[p.fuel].label);
   if (p.colour) add("colour", HISTORY_COLOURS[p.colour].label);
   if (p.eligibility) add("eligibility", "Eligible for import");
+  if (p.unspec === false) add("unspec", "Listed details only");
   return labels;
 }
 
 function chipsRow(p, clean, surface) {
   const labels = chipLabels(p);
   if (!labels.length) return "";
-  const chips = labels.map(([key, label]) =>
-    `<a class="ahx-chip" data-ahx-nav href="${esc(historyUrl(surface, clean, { [key]: "", page: "" }))}" aria-label="Remove ${esc(label)} filter">${esc(label)} <span aria-hidden="true">&times;</span></a>`
+  const chips = labels.map(([key, label, value]) =>
+    `<a class="ahx-chip" data-ahx-nav href="${esc(historyUrl(surface, clean, { [key]: value ?? "", page: "" }))}" aria-label="Remove ${esc(label)} filter">${esc(label)} <span aria-hidden="true">&times;</span></a>`
   ).join("");
   return `<div class="ahx-chips"><span>Filters</span>${chips}<a class="ahx-clear" data-ahx-nav href="${esc(historyUrl(surface, {}))}">Clear all filters</a></div>`;
 }
@@ -253,10 +318,18 @@ function lotView(lot, fx, nowYear, surface) {
   const title = `${lot.year || ""} ${displayMaker(lot.marka_name)} ${displayMaker(lot.model_name)}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const jpy = Number(lot.finish) || 0;
   const audVal = jpy > 0 && fx > 0 ? Math.round(jpy / fx) : 0;
+  // The rough figure (x1.13 + overhead) is only the instant placeholder now
+  // (Phase 2): the deferred fill script swaps in the real calculator estimate
+  // via the data attributes below, one batched call per page.
   const landed = audVal > 0 ? carAudToLanded(audVal) : null;
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const landedAttrs = jpy > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpy))}" data-cc="${esc(String(cc))}"`
+    : "";
   const gearbox = [kppDisplay(lot.kpp || lot.kpp_type), String(lot.priv || "").trim()].filter(Boolean).join(" · ") || "-";
   const elig = auctionEligibility(lot, nowYear);
   return {
+    landedAttrs,
     title,
     img: imageUrls(lot).medium || "",
     code: String(lot.kuzov || "").trim(),
@@ -291,7 +364,7 @@ function resultRow(v) {
     <td><strong>${esc(v.mileage)}</strong><span>Grade ${esc(v.grade)}</span></td>
     <td><strong>${esc(v.house)}</strong><span>${[v.lotNo ? "Lot " + esc(v.lotNo) : "", esc(v.date)].filter(Boolean).join(" · ")}</span></td>
     <td><span class="ahx-sold">Sold</span><strong class="ahx-price">${esc(v.jpy)}</strong>${v.aud ? `<span>${esc(v.aud)}</span>` : ""}</td>
-    <td>${v.landed ? `<strong class="ahx-landed">${esc(v.landed)}</strong><span>Est. landed</span>` : "-"}</td>
+    <td>${v.landedAttrs ? `<strong class="ahx-landed"${v.landedAttrs}>${esc(v.landed || "-")}</strong><span>Est. landed</span>` : "-"}</td>
     ${actions ? `<td class="ahx-act">${actions}</td>` : ""}
   </tr>`;
 }
@@ -310,7 +383,7 @@ function resultCard(v) {
       </div>
       <dl>
         ${dd("Sold price", `<span class="ahx-sold">Sold</span> ${esc(v.jpy)}${v.aud ? ` <small>${esc(v.aud)}</small>` : ""}`, "ahx-price")}
-        ${dd("Est. landed", v.landed ? esc(v.landed) : "-", "ahx-landed")}
+        ${dd("Est. landed", v.landedAttrs ? `<span${v.landedAttrs}>${esc(v.landed || "-")}</span>` : "-", "ahx-landed")}
         ${dd("Odometer", esc(v.mileage))}
         ${dd("Gearbox / drive", esc(v.gearbox))}
         ${dd("Engine", esc(v.engine))}
@@ -322,11 +395,15 @@ function resultCard(v) {
   </article>`;
 }
 
-function sortRow(p, clean, countTxt, surface) {
-  const links = Object.entries(HISTORY_SORTS).map(([key, s]) =>
-    `<a class="ahx-sort${p.sort === key ? " on" : ""}"${p.sort === key ? ' aria-current="true"' : ""} data-ahx-nav href="${esc(historyUrl(surface, clean, { sort: key === "newest" ? "" : key, page: "" }))}">${esc(s.label)}</a>`
+// The results bar: count + sort links (mode-aware) + an optional extra
+// control slot (the Live tabs put their grid/list toggle there).
+function sortRow(p, clean, countTxt, surface, extra = "") {
+  const sorts = p.mode === "live" ? LIVE_SORTS : HISTORY_SORTS;
+  const defSort = p.mode === "live" ? "closing" : "newest";
+  const links = Object.entries(sorts).map(([key, s]) =>
+    `<a class="ahx-sort${p.sort === key ? " on" : ""}"${p.sort === key ? ' aria-current="true"' : ""} data-ahx-nav href="${esc(historyUrl(surface, clean, { sort: key === defSort ? "" : key, page: "" }))}">${esc(s.label)}</a>`
   ).join("");
-  return `<div class="ahx-tbar"><span class="ahx-count">${countTxt}</span><div class="ahx-sorts" role="navigation" aria-label="Sort results">${links}</div></div>`;
+  return `<div class="ahx-tbar"><span class="ahx-count">${countTxt}</span><div class="ahx-tbar-r"><div class="ahx-sorts" role="navigation" aria-label="Sort results">${links}</div>${extra}</div></div>`;
 }
 
 function pager(r, clean, surface) {
@@ -363,6 +440,101 @@ const LOADING_SCRIPT = `<script>(function(){
   });
 })();</script>`;
 
+// Deferred landed-cost fill (Phase 2): the page renders instantly with the
+// rough placeholder figures, then ONE batched POST swaps in real calculator
+// estimates for every [data-landed-slot] on the page. A failed call leaves
+// the placeholders standing - the page never blocks on the calculator.
+export function landedFillScript(endpoint) {
+  if (!endpoint) return "";
+  return `<script>(function(){
+  var els=[].slice.call(document.querySelectorAll('[data-landed-slot]'));
+  if(!els.length)return;
+  var items=[],seen={};
+  els.forEach(function(el){
+    var id=el.getAttribute('data-lot'),jpy=Number(el.getAttribute('data-jpy')),cc=Number(el.getAttribute('data-cc'))||0;
+    if(!id||!(jpy>0)||seen[id])return;seen[id]=1;items.push({id:id,jpy:jpy,cc:cc});
+  });
+  if(!items.length)return;
+  fetch(${JSON.stringify(endpoint)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:items.slice(0,24)})})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      var est=data&&data.estimates;if(!est)return;
+      els.forEach(function(el){
+        var v=Number(est[el.getAttribute('data-lot')]);
+        if(v>0){el.textContent='A$'+Math.round(v).toLocaleString('en-AU');el.setAttribute('title','Live calculator estimate');}
+      });
+    }).catch(function(){});
+})();</script>`;
+}
+
+// ---------------------------------------------------------------------------
+// Live Auctions building block
+// ---------------------------------------------------------------------------
+
+// One validated live search plus every shared page part: the filter panel,
+// chips, results bar (count + sorts + view toggle), pager, loading script and
+// styles. The callers (portalAuctionsPage / adminAuctionsPage in admin.js)
+// own the tabs, the result cards and their per-surface actions.
+//   opts.extras     params to carry on every URL and echo as hidden inputs
+//                   (e.g. { view: "list" } member, { layout: "list" } staff)
+//   opts.topBar     HTML strip rendered inside the panel's top edge
+//   opts.viewParam / opts.viewMode  wire the grid/list toggle
+//   opts.skipSearch build the panel only (the Watchlist tab renders no feed
+//                   results, so it must not query the feed)
+export async function liveSearchBlock(env, rawParams = {}, surfaceKey = "member", opts = {}) {
+  const base = LIVE_SURFACES[surfaceKey] || LIVE_SURFACES.member;
+  const extras = opts.extras || {};
+  const surface = { basePath: base.basePath, baseParams: { ...base.baseParams, ...extras } };
+  const p = validateLiveParams(rawParams);
+  const clean = cleanParams(p);
+  const extraHidden = Object.entries(extras)
+    .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+
+  const [makers, houses, r] = await Promise.all([
+    distinctMakers(env),
+    distinctHouses(env),
+    opts.skipSearch ? null : searchLive(env, p),
+  ]);
+  const [models, codes, grades] = p.make
+    ? await Promise.all([
+      distinctModels(env, p.make),
+      distinctModelCodes(env, p.make, p.model),
+      distinctGrades(env, p.make, p.model, p.kuzov).catch(() => []),
+    ])
+    : [[], [], []];
+
+  const urlFor = (over) => historyUrl(surface, clean, over);
+  const form = filterForm(p, { makers, models, codes, houses, grades }, surface, {
+    topBar: (opts.topBar || "") + extraHidden,
+  });
+  const pageScripts = LOADING_SCRIPT + landedFillScript(base.landedEndpoint);
+  if (!r) {
+    return { p, clean, r: null, form, chips: "", resultsBar: "", pagerHtml: "", urlFor, clearUrl: historyUrl(surface, {}), loading: pageScripts, css: AHX_CSS };
+  }
+
+  const countTxt = !r.ok
+    ? "feed unavailable"
+    : r.total !== null
+      ? `${r.total.toLocaleString("en-AU")} live lot${r.total === 1 ? "" : "s"}`
+      : `${r.lots.length}${r.hasMore ? "+" : ""} live lots`;
+  const toggle = opts.viewParam
+    ? viewToggle(opts.viewMode || "grid", (mode) => urlFor({ [opts.viewParam]: mode === "grid" ? "" : mode }))
+    : "";
+  return {
+    p,
+    clean,
+    r,
+    form,
+    chips: chipsRow(p, clean, surface),
+    resultsBar: sortRow(p, clean, countTxt, surface, toggle),
+    pagerHtml: r.ok && r.lots.length ? pager(r, clean, surface) : "",
+    urlFor,
+    clearUrl: historyUrl(surface, {}),
+    loading: pageScripts,
+    css: AHX_CSS,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -382,9 +554,13 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     getLiveFx(env).catch(() => 0),
     searchHistory(env, p),
   ]);
-  const [models, codes] = p.make
-    ? await Promise.all([distinctModels(env, p.make), distinctModelCodes(env, p.make, p.model)])
-    : [[], []];
+  const [models, codes, grades] = p.make
+    ? await Promise.all([
+      distinctModels(env, p.make),
+      distinctModelCodes(env, p.make, p.model),
+      distinctGrades(env, p.make, p.model, p.kuzov).catch(() => []),
+    ])
+    : [[], [], []];
 
   const filtered = chipLabels(p).length > 0;
   const countTxt = !r.ok
@@ -419,7 +595,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
     ? `<p class="ahx-note">Sold prices are auction hammer prices. A$ conversion uses today's indicative rate (¥${Math.round(fx)} = A$1). Est. landed adds typical shipping, compliance and on-value taxes - a guide, not a quote.</p>`
     : "";
 
-  return `${filterForm(p, { makers, models, codes, houses }, surface)}
+  return `${filterForm(p, { makers, models, codes, houses, grades }, surface)}
       ${chipsRow(p, clean, surface)}
       <section id="ahxResults" class="ahx-results" aria-label="Sold auction results">
         ${sortRow(p, clean, countTxt, surface)}
@@ -427,7 +603,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
         ${r.ok && r.lots.length ? pager(r, clean, surface) : ""}
       </section>
       ${fine}
-      ${LOADING_SCRIPT}${AHX_CSS}`;
+      ${LOADING_SCRIPT}${landedFillScript(surface.landedEndpoint)}${AHX_CSS}`;
 }
 
 export async function auctionHistoryPage(env, session, rawParams = {}) {
@@ -482,31 +658,50 @@ const AHX_CSS = `<style>
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
   .ahx-filter{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:18px;margin-bottom:16px}
   .ahx-filter label span{display:block;font-size:11px;font-weight:700;color:var(--t2);margin:0 0 7px}
+  .ahx-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .ahx-toplabel{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .ahx-counts{font-size:12px;color:var(--t3)}
+  .ahx-counts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+  .ahx-counts .sep{opacity:.5;margin:0 2px}
   .ahx-frow{display:grid;grid-template-columns:1.2fr 1.2fr 1.1fr .7fr .7fr auto;gap:12px;align-items:end}
   .ahx-go{height:46px;white-space:nowrap}
   .ahx-range{border:0;border-top:1px solid var(--hair);margin:16px 0 0;padding:14px 0 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .ahx-range legend{float:left;margin:7px 14px 0 0;font-size:11px;font-weight:700;color:var(--t2)}
+  .ahx-range legend small{font-weight:500;color:var(--t3)}
   .ahx-range label{position:relative;margin:0;cursor:pointer}
   .ahx-range input{position:absolute;opacity:0;width:1px;height:1px;min-height:0}
   .ahx-filter .ahx-range label span{display:block;margin:0;padding:8px 13px;border:1px solid var(--field-line,#d8d6d0);border-radius:999px;background:var(--field,#fbfbfa);font-size:13px;font-weight:600;color:var(--t2)}
   .ahx-range input:checked+span{background:var(--ink);border-color:var(--ink);color:var(--bg-2)}
   .ahx-range input:focus-visible+span{outline:3px solid var(--gold-line);outline-offset:2px}
-  .ahx-more{border-top:1px solid var(--hair);margin-top:14px;padding-top:14px}
-  .ahx-more>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;color:var(--ink);font-size:13px;font-weight:700}
-  .ahx-more>summary::-webkit-details-marker{display:none}
-  .ahx-more>summary:after{content:"+";margin-left:auto;color:var(--gold-txt);font-size:22px;line-height:1}
-  .ahx-more[open]>summary:after{content:"-"}
-  .ahx-more>summary small{font-weight:500;color:var(--t3)}
-  .ahx-more-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:16px;padding:16px;background:var(--off);border:1px solid var(--hair-2);border-radius:9px}
-  .ahx-more-act{display:flex;justify-content:flex-end;margin-top:14px}
+  /* Houses multi-select: pills in a scrollable strip so a long house list
+     never buries the rest of the panel. */
+  .ahx-houses{align-items:flex-start}
+  .ahx-hbox{display:flex;flex-wrap:wrap;gap:8px;max-height:96px;overflow-y:auto;padding:2px 2px 2px 0;flex:1;min-width:0}
+  /* One always-visible grid for every remaining filter (Phase 1: nothing
+     collapsed, no "More filters"). */
+  .ahx-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:16px;padding:16px;background:var(--off);border:1px solid var(--hair-2);border-radius:9px}
+  .ahx-cav{font-style:normal;font-weight:500;color:var(--t3);text-transform:none}
+  .ahx-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:14px}
+  .ahx-foot-l{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:1;min-width:0}
+  .ahx-foot-l>small{color:var(--t3);font-size:11px;max-width:520px}
+  .ahx-unspec{position:relative;margin:0;cursor:pointer}
+  .ahx-unspec input{position:absolute;opacity:0;width:1px;height:1px;min-height:0}
+  .ahx-filter .ahx-unspec span{display:block;margin:0;padding:8px 13px;border:1px solid var(--field-line,#d8d6d0);border-radius:999px;background:var(--field,#fbfbfa);font-size:13px;font-weight:600;color:var(--t2)}
+  .ahx-unspec input:checked+span{background:var(--ink);border-color:var(--ink);color:var(--bg-2)}
+  .ahx-unspec input:focus-visible+span{outline:3px solid var(--gold-line);outline-offset:2px}
   .ahx-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 2px 14px}
   .ahx-chips>span{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);font-weight:700}
   .ahx-chip{background:var(--gold-tint);border:1px solid var(--gold-line);color:var(--ink);padding:6px 11px;border-radius:999px;font-size:12px;font-weight:600}
   .ahx-chip:hover{filter:brightness(.97)}
   .ahx-clear{font-size:12px;text-decoration:underline;text-underline-offset:3px;color:var(--t2);font-weight:600}
   .ahx-results{background:var(--card);border:1px solid var(--hair);border-radius:10px;overflow:hidden;transition:opacity .2s}
-  .ahx-results.ahx-loading{opacity:.45;pointer-events:none}
+  #ahxResults.ahx-loading{opacity:.45;pointer-events:none}
+  /* The Live tabs use the same results bar over a plain grid of cards. */
+  .ahx-live{transition:opacity .2s}
+  .ahx-live .ahx-tbar{background:var(--card);border:1px solid var(--hair);border-radius:10px;margin-bottom:16px}
   .ahx-tbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--hair)}
+  .ahx-live .ahx-tbar{border-bottom:1px solid var(--hair)}
+  .ahx-tbar-r{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .ahx-count{font-size:13px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .ahx-sorts{display:inline-flex;gap:4px;flex-wrap:wrap}
   .ahx-sort{padding:7px 11px;border:1px solid var(--hair);border-radius:8px;font-size:12px;font-weight:600;color:var(--t2)}
@@ -535,6 +730,7 @@ const AHX_CSS = `<style>
   .ahx-act a+a{margin-top:6px;color:var(--t2)}
   .ahx-mobile{display:none}
   .ahx-pager{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:18px}
+  .ahx-live .ahx-pager{padding-bottom:0}
   .ahx-pg{min-width:36px;text-align:center;padding:8px 11px;border:1px solid var(--hair);border-radius:8px;font-size:13px;font-weight:600;color:var(--t2)}
   .ahx-pg:hover{color:var(--ink)}
   .ahx-pg.on{background:var(--ink);border-color:var(--ink);color:var(--bg-2)}
@@ -545,7 +741,7 @@ const AHX_CSS = `<style>
   @media(max-width:1050px){
     .ahx-frow{grid-template-columns:repeat(3,minmax(0,1fr))}
     .ahx-frow .ahx-go{grid-column:1/-1;width:100%}
-    .ahx-more-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ahx-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
     .ahx-table{display:none}
     .ahx-mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:16px}
     .ahx-rcard{border:1px solid var(--hair);border-radius:10px;overflow:hidden;background:var(--card-2)}
@@ -571,9 +767,13 @@ const AHX_CSS = `<style>
     .ahx-range{display:grid;grid-template-columns:repeat(3,1fr)}
     .ahx-range legend{float:none;grid-column:1/-1;margin:0 0 4px}
     .ahx-range span{text-align:center;padding:8px 5px}
-    .ahx-more>summary{align-items:flex-start;flex-direction:column;gap:2px;position:relative;padding-right:24px}
-    .ahx-more>summary:after{position:absolute;right:0;top:-7px}
-    .ahx-more-grid{grid-template-columns:1fr 1fr;padding:12px}
+    .ahx-rates{grid-template-columns:repeat(5,1fr)}
+    .ahx-houses{display:flex}
+    .ahx-houses legend{margin:0 0 8px}
+    .ahx-hbox{max-height:120px}
+    .ahx-grid{grid-template-columns:1fr 1fr;padding:12px}
+    .ahx-foot{align-items:stretch;flex-direction:column}
+    .ahx-foot>button{width:100%}
     .ahx-tbar{padding:14px}
     .ahx-mobile{grid-template-columns:1fr;padding:12px}
     .ahx-rcard>img,.ahx-noimg-card{height:190px}

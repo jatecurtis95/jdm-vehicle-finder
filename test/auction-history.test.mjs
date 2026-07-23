@@ -11,6 +11,7 @@ import { auctionHistoryPage } from "../src/auction-history.js";
 import { auctionLotPage, requestAuctionLot, adminAuctionsPage } from "../src/admin.js";
 import {
   validateHistoryParams, buildHistoryWhere, searchHistory,
+  validateLiveParams, buildAuctionWhere, searchLive,
 } from "../src/auction-history-query.js";
 
 const ROWS = `<aj>
@@ -136,10 +137,31 @@ test("year, mileage and price ranges are bounded and swap when inverted", () => 
 
 test("auction grade accepts only whitelisted scores, from string or repeats", () => {
   assert.equal(validateHistoryParams({ rates: "4,4.5,evil,;DROP" }).rates, "4,4.5");
-  assert.equal(validateHistoryParams({ rates: ["4.5", "R", "junk"] }).rates, "4.5,r");
+  assert.equal(validateHistoryParams({ rates: ["4.5", "R", "junk"] }).rates, "r,4.5", "canonical order is R, RA, 2..S");
   assert.equal(validateHistoryParams({ rates: "RA" }).rates, "ra");
   assert.equal(validateHistoryParams({ rates: "4.5,4.5,4" }).rates, "4,4.5", "deduped and canonical order");
   assert.equal(validateHistoryParams({}).rates, "");
+});
+
+// --- Phase 1: the full pill set and the RA2 exact-string trap ----------------
+
+test("the grade pill set covers R, RA, 2, 3, 3.5, 4, 4.5, 5, 6, S in order", () => {
+  const p = validateHistoryParams({ rates: "s,6,2,r,ra" });
+  assert.equal(p.rates, "r,ra,2,6,s", "new scores accepted, canonical order kept");
+});
+
+test("the RA pill also matches RA2, so an RA2 lot cannot vanish silently", () => {
+  const w = buildHistoryWhere(validateHistoryParams({ rates: "ra" })).join(" AND ");
+  assert.match(w, /UPPER\(rate\) IN \('RA', 'RA2'\)/);
+  // The 2 pill stays a pure condition-2 match: RA2 is an accident-repair
+  // grade, not a clean 2.
+  const w2 = buildHistoryWhere(validateHistoryParams({ rates: "2" })).join(" AND ");
+  assert.match(w2, /UPPER\(rate\) IN \('2'\)/);
+});
+
+test("grade 6 and S map to exact spellings pending the feed check", () => {
+  const w = buildHistoryWhere(validateHistoryParams({ rates: "6,s" })).join(" AND ");
+  assert.match(w, /UPPER\(rate\) IN \('6', 'S'\)/);
 });
 
 test("the new filters map to their stats columns", () => {
@@ -151,7 +173,7 @@ test("the new filters map to their stats columns", () => {
   assert.match(w, /year >= 1995/);
   assert.match(w, /\(year > 0 AND year <= 2002\)/, "unknown build years excluded under a ceiling");
   assert.match(w, /UPPER\(kuzov\) LIKE '%BNR34%'/);
-  assert.match(w, /UPPER\(rate\) IN \('4\.5', 'R'\)/);
+  assert.match(w, /UPPER\(rate\) IN \('R', '4\.5'\)/);
   assert.match(w, /mileage >= 20000/);
   assert.match(w, /finish >= 1000000/);
   assert.match(w, /finish <= 15000000/);
@@ -185,7 +207,7 @@ test("the new filters render as removable chips", async () => {
   assert.match(html, /aria-label="Remove From 1995 filter"/);
   assert.match(html, /aria-label="Remove To 2002 filter"/);
   assert.match(html, /aria-label="Remove BNR34 filter"/);
-  assert.match(html, /aria-label="Remove Grade 4.5, R filter"/);
+  assert.match(html, /aria-label="Remove Grade R, 4.5 filter"/);
   assert.match(html, /aria-label="Remove Under ¥15,000,000 filter"/);
   assert.match(html, /aria-label="Remove &quot;V-SPEC&quot; filter"/);
 });
@@ -198,7 +220,38 @@ test("repeated rates params survive the member route", async () => {
     headers: { Cookie: cookie },
   }), e, {});
   assert.equal(res.status, 200);
-  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('4\.5', 'R'\)/.test(s)), "both scores reach the query");
+  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('R', '4\.5'\)/.test(s)), "both scores reach the query");
+});
+
+// --- Phase 1: auction house multi-select and the include-unspecified toggle --
+
+test("multiple auction houses become one OR-group; the legacy house param still works", () => {
+  const multi = buildHistoryWhere(validateHistoryParams({ houses: ["USS Tokyo", "TAA Kinki"] })).join(" AND ");
+  assert.match(multi, /\(UPPER\(auction\) LIKE '%USS TOKYO%' OR UPPER\(auction\) LIKE '%TAA KINKI%'\)/);
+  const legacy = buildHistoryWhere(validateHistoryParams({ house: "USS" })).join(" AND ");
+  assert.match(legacy, /UPPER\(auction\) LIKE '%USS%'/);
+  const merged = validateHistoryParams({ houses: "USS Tokyo", house: "USS Tokyo" });
+  assert.equal(merged.houses, "USS Tokyo", "deduped case-insensitively");
+});
+
+test("include-unspecified defaults ON: blank colour/drivetrain/fuel fields stay in", () => {
+  const p = validateHistoryParams({ colour: "white", drivetrain: "4wd", fuel: "diesel" });
+  assert.equal(p.unspec, true);
+  const w = buildHistoryWhere(p).join(" AND ");
+  assert.match(w, /\(color IS NULL OR color = '' OR \(UPPER\(color\) LIKE '%WHITE%'\)\)/);
+  assert.match(w, /\(priv IS NULL OR priv = '' OR \(UPPER\(priv\) LIKE '%4WD%'/);
+  assert.match(w, /\(grade IS NULL OR grade = '' OR \(UPPER\(grade\) LIKE '%DIESEL%'\)\)/);
+});
+
+test("unticking include-unspecified excludes blank fields instead", () => {
+  const p = validateHistoryParams({ colour: "white", drivetrain: "2wd", fuel: "petrol", unspec: ["0"] });
+  assert.equal(p.unspec, false);
+  const w = buildHistoryWhere(p).join(" AND ");
+  assert.doesNotMatch(w, /color IS NULL/);
+  assert.match(w, /priv <> ''/, "strict 2WD needs a listed drivetrain");
+  assert.match(w, /grade <> ''/, "strict petrol needs listed trim text");
+  // The hidden-0-plus-ticked-1 form submit still means ON.
+  assert.equal(validateHistoryParams({ unspec: ["0", "1"] }).unspec, true);
 });
 
 test("petrol means none of the listed fuel keywords; 2WD means not-4WD or blank", () => {
@@ -211,6 +264,47 @@ test("petrol means none of the listed fuel keywords; 2WD means not-4WD or blank"
 
 test("no filters means only the sold-row guard - no accidental narrowing", () => {
   assert.deepEqual(buildHistoryWhere(validateHistoryParams({})), ["finish > 0"]);
+});
+
+// --- Phase 1: the same engine drives the Live Auctions tabs ------------------
+
+test("live mode: upcoming RHD lots, start-price semantics, closing-soonest default", async () => {
+  const seen = stubFeed();
+  const p = validateLiveParams({ priceMin: "500000", priceMax: "3000000" });
+  await searchLive(env(), p);
+  const sql = seen.find((s) => /from main/i.test(s) && /order by/i.test(s));
+  assert.match(sql, /auction_date >= NOW\(\)/);
+  assert.match(sql, /\(lhdrive IS NULL OR lhdrive <> 1\)/, "LHD lots never surface");
+  assert.match(sql, /\(\(start > 0 AND start >= 500000\) OR start <= 0\)/, "POA lots stay in under a price floor");
+  assert.match(sql, /\(\(start > 0 AND start <= 3000000\) OR start <= 0\)/, "POA lots stay in under a price ceiling");
+  assert.match(sql, /order by auction_date ASC/);
+  assert.ok(seen.some((s) => /count\(\*\)/i.test(s) && /from main/i.test(s)), "live gets a real COUNT(*) too");
+});
+
+test("live mode: held-within is history-only and legacy gradeMin maps to pills", () => {
+  const p = validateLiveParams({ range: "6m", gradeMin: "4" });
+  assert.equal(p.range, "", "no auction-held-within over upcoming lots");
+  assert.equal(p.rates, "4,4.5,5,6", "numeric pills at or above the old floor; letter grades stay out, as the numeric compare always did");
+  const w = buildAuctionWhere(p).join(" AND ");
+  assert.match(w, /UPPER\(rate\) IN \('4', '4\.5', '5', '6'\)/);
+});
+
+test("live mode: a start-price sort excludes POA rows, like the mileage sort", () => {
+  const w = buildAuctionWhere(validateLiveParams({ sort: "price_asc" })).join(" AND ");
+  assert.match(w, /start > 0/);
+});
+
+test("the member live tab runs the shared engine with pills and houses applied", async () => {
+  const e = env();
+  const seen = stubFeed();
+  const cookie = (await sessionCookie(e, "client", 1)).split(";")[0];
+  const res = await worker.fetch(new Request("https://jdmfinder.com.au/portal/auctions?make=NISSAN&rates=ra&houses=USS+Tokyo&houses=TAA+Kinki", {
+    headers: { Cookie: cookie },
+  }), e, {});
+  assert.equal(res.status, 200);
+  const mainSql = seen.filter((s) => /from main/i.test(s));
+  assert.ok(mainSql.some((s) => /UPPER\(rate\) IN \('RA', 'RA2'\)/.test(s)), "RA2 stays reachable from the live tab");
+  assert.ok(mainSql.some((s) => /UPPER\(auction\) LIKE '%USS TOKYO%' OR UPPER\(auction\) LIKE '%TAA KINKI%'/.test(s)), "both houses reach the query as an OR-group");
 });
 
 // --- Sorting and pagination --------------------------------------------------
@@ -306,17 +400,30 @@ test("a revoked/disabled portal account sees access ended, not data", async () =
 
 // --- Page rendering --------------------------------------------------------
 
-test("the page keeps frequent filters visible and folds the rest behind More filters", async () => {
+test("every filter sits in one always-visible panel - nothing folds (Phase 1)", async () => {
   stubFeed();
   const html = await auctionHistoryPage(env(), MEMBER, {});
   assert.match(html, /method="GET" action="\/portal\/history"/, "searches are bookmarkable URLs");
   for (const label of ["4 weeks", "6 weeks", "3 months", "6 months", "12 months"]) {
     assert.match(html, new RegExp(`>${label}<`), `${label} date shortcut stays visible`);
   }
-  assert.match(html, /<details class="ahx-more"/);
-  for (const name of ["make", "model", "range", "transmission", "drivetrain", "mileageMax", "engineMin", "engineMax", "house", "body", "fuel", "colour", "eligibility"]) {
-    assert.match(html, new RegExp(`name="${name}"`), `${name} filter is available`);
+  const form = html.match(/<form class="ahx-filter"[\s\S]*?<\/form>/)[0];
+  assert.doesNotMatch(form, /<details/, "no collapsed sections in the filter panel");
+  assert.doesNotMatch(form, /More filters/, "the More filters fold is gone");
+  for (const name of ["make", "model", "range", "transmission", "drivetrain", "mileageMax", "engineMin", "engineMax", "houses", "body", "fuel", "colour", "eligibility", "unspec"]) {
+    assert.match(form, new RegExp(`name="${name}"`), `${name} filter is available`);
   }
+  // The keyword-inference filters carry the as-listed caveat and the
+  // include-unspecified toggle defaults to ticked.
+  assert.match(form, /\(as listed\)/);
+  assert.match(form, /may exclude incomplete listings/);
+  assert.match(form, /name="unspec" value="1" checked/);
+  // The full grade pill row, in the visible Task 2 order (S..RA, grade 1 in).
+  const rateOrder = [...form.matchAll(/name="rates" value="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(rateOrder, ["s", "6", "5", "4.5", "4", "3.5", "3", "2", "1", "r", "ra"]);
+  // Auction houses are a multi-select of checkboxes, not a single select.
+  assert.match(form, /type="checkbox" name="houses"/);
+  assert.doesNotMatch(form, /<select name="house"/);
 });
 
 test("each result shows the full record summary and links to the auction record", async () => {
@@ -501,7 +608,7 @@ test("dealers reach Auction history at /dealer/history with filters applied", as
   assert.match(html, /1999 Nissan Skyline/);
   assert.match(html, /¥12,850,000/);
   assert.ok(statsSql(seen).some((s) => /UPPER\(marka_name\) LIKE '%NISSAN%'/.test(s)));
-  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('4\.5', 'R'\)/.test(s)), "the multi-select survives the dealer route");
+  assert.ok(statsSql(seen).some((s) => /UPPER\(rate\) IN \('R', '4\.5'\)/.test(s)), "the multi-select survives the dealer route");
 });
 
 test("the dealer surface offers no staff or member record links", async () => {
