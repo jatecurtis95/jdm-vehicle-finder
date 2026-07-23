@@ -514,3 +514,25 @@ the existing database. No migration, no cutover.
 
 Live prod versions now: 2bb47937 (P1+2) -> 9049c598 (P5) -> 5f79bc7c (P4 SMS)
 -> ab93603f (free-tier teaser).
+
+---
+
+# Request-form fixes SHIPPED - version 2a749be9
+
+Three admin "New request" (/request/new) bugs flagged and fixed, live on current schema.
+
+1. CONTACT NOW OPTIONAL. Staff can log a car to chase with just a name; email and
+   WhatsApp are optional. createAdminRequest no longer returns error:contact, and
+   skips the dedupe lookup when there is no contact. Form labels/help updated.
+   Managed downstream fine (a no-contact customer just is not auto-emailed).
+2. MODEL/CODE DROPDOWNS now include SOLD HISTORY. distinctModels and
+   distinctModelCodes (src/avtonet.js) queried only live `main`, so a make with no
+   current live listing (e.g. LEXUS) returned nothing and the field degraded to
+   free text. Now they merge in the `stats` sold-history table (same approach as
+   distinctGrades). Verified live: /api/models?maker=LEXUS returns CT..LX..UX.
+3. GRADES GIBBERISH fixed. The feed stores grade/trim text as HTML numeric
+   entities (e.g. &#65397;...). codeGradeScript set them as textContent (shown
+   literally). Added a decode-for-display helper (value stays raw so matching
+   against the feed still works). Fixes the request form and the portal wizard.
+
+Test suite 593 pass. Deploy chain now ends at 2a749be9.
