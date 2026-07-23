@@ -227,3 +227,52 @@ click-through. All logged here; none actioned.
 - `chore/audit-consolidation`: pushed, audit docs (not merged).
 - `rescue/main-wip-2026-07-23`: created, holds prior uncommitted main WIP.
 - `rescue/onedrive-wip-2026-07-22`: NOT TOUCHED, as instructed.
+
+---
+
+# Session continuation (same session, after "keep going")
+
+## Task 7 / Phase 0 (DONE)
+
+- Inventory taken on the Windows machine: one worktree (no stray worktrees),
+  empty stash. `rescue/onedrive-wip-2026-07-22` left untouched (10 ahead).
+- Deleted ONLY zero-ahead (fully merged) branches: 17 local + 20 origin = 37
+  branches. All lossless (every commit still reachable from main). Kept all
+  non-zero-ahead branches and the session/milestone branches.
+- Migration-ledger decision (written): KEEP main's adopt-migration-tracking
+  (reviewed, live, keeps the apply-workflow guard); REJECT codex's
+  reconcile-migration-ledger (it strips that guard). Codex branch is 9-ahead
+  with other salvageable work, so it was archive-tagged
+  (`archive/codex-auction-history-example`, pushed) rather than deleted.
+- Migration-tracking adoption: found ALREADY ADOPTED and healthy in production.
+  `d1_migrations` holds all 19 rows matching the 19 migration files; `migrations
+  list --remote` reports nothing pending; `db:check:remote` passes (14 tables).
+  No production mutation was needed.
+
+## Task 4 / Phase 5 (DONE, DEPLOYED)
+
+Per-search manual trigger. Live version `9049c598`.
+- New `runOneWishlist(env, id, {ownerClientId})` in `matcher.js`: runs ONE saved
+  search on demand, reusing the matcher and runAll's joins. Ownership-scoped,
+  refuses watch_only bookmarks and inactive rows.
+- Staff route `POST /admin/run-search/:id` (staff-only: client/dealer sessions
+  are routed away before it; redirects to the client profile with a notice).
+- Member route `POST /portal/wishlist/run` (ownership-scoped + rate-limited,
+  4/hour per client via KV, fail-open).
+- Buttons in the shared `wishlistEditor`: "Check now" (members) and "Run match"
+  (staff), only on active non-system non-watch searches.
+- Cadence unchanged: cron stays `0 */6 * * *` (4x/day). Not touched.
+- Tests: new `test/manual-run.test.mjs` (5 cases). Full suite 582 pass, 0 fail.
+  e2e 0 fail (skip placeholder). Deployed, home 200, portal 303, login 200,
+  main pushed.
+
+## Progress so far this session
+
+DONE and deployed: Task 2 (Phase 1+2, ver 2bb47937), Task 4 (Phase 5, ver
+9049c598). DONE (no deploy needed): Task 1 (branch), Task 7 (Phase 0).
+Live prod versions in order: 2bb47937 (Phase 1+2) -> 9049c598 (Phase 5).
+
+Remaining: Task 3 (Phase 4 flags/SMS), Task 5 (Phase 6 submitted units), Task 6
+(Phase 3, held for go/no-go), Task 8 (Phase 7 pricing, lives in the separate
+jdm-calculator repo), Task 9 (Phase 8, separate rover-eligibility-local repo),
+Task 10 (Phase 9 landing page, branch only).
