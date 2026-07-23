@@ -61,8 +61,13 @@ ALTER TABLE wishlists RENAME TO searches;
 -- 8. dealers -> suppliers (0 rows; kills the third "dealer" meaning).
 ALTER TABLE dealers RENAME TO suppliers;
 
--- 9. Uniqueness now enforceable (case-insensitive), plus a type lookup index.
-CREATE UNIQUE INDEX idx_users_email    ON users(email COLLATE NOCASE)
+-- 9. Lookup + uniqueness indexes, plus a type lookup index.
+-- Email is intentionally NON-unique: the app supports several rows sharing an
+-- email (a staff-created record plus a later self-signup; the allow_dupe path;
+-- authenticate scanning multiple candidate rows). A unique index would break
+-- those. Email dedup is a warn-at-signup app check (Ben Site Notes), not a DB
+-- constraint. This index is just for fast case-insensitive lookups.
+CREATE INDEX idx_users_email    ON users(email COLLATE NOCASE)
   WHERE email IS NOT NULL AND email <> '';
 CREATE UNIQUE INDEX idx_users_username ON users(username COLLATE NOCASE)
   WHERE username IS NOT NULL;

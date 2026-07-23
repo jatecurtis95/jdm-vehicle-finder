@@ -1923,7 +1923,7 @@ function agentBars(people) {
 async function dashboardData(env, session) {
   const acc = accessScope(session);
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
-  const clients = (await run(`SELECT COUNT(*) AS n FROM users c WHERE ${acc.sql} AND c.archived = 0`).first())?.n || 0;
+  const clients = (await run(`SELECT COUNT(*) AS n FROM users c WHERE ${acc.sql} AND c.archived = 0 AND c.type = 'customer'`).first())?.n || 0;
   const agents = session.role === "admin"
     ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE active = 1 AND type = 'agent'").first())?.n || 0)
     : 0;

@@ -65,7 +65,7 @@ test("logContactTap writes an access-checked activity row", async () => {
   assert.equal(a.type, "contact");
   assert.match(a.detail, /WhatsApp/);
   // A foreign agent cannot log against a client they cannot see.
-  await env.DB.prepare("INSERT INTO users (id,email,name,pass_salt,pass_hash, type) VALUES (9,'x@x','X','','')").run(, 'agent');
+  await env.DB.prepare("INSERT INTO users (id,email,name,pass_salt,pass_hash, type) VALUES (9,'x@x','X','','','agent')").run();
   const deny = await logContactTap(env, 1, "call", { role: "agent", id: 9 });
   assert.equal(deny.ok, false);
 });

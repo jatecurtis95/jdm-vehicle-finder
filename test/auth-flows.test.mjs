@@ -32,7 +32,7 @@ const FUTURE = () => Date.now() + 60 * 60 * 1000;
 
 async function seedAgent(env, email, password) {
   const { salt, hash } = await hashPassword(password);
-  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, active, type) VALUES (?, 'Agent', ?, ?, 1)").run(email, salt, hash, 'agent');
+  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, active, type) VALUES (?, 'Agent', ?, ?, 1, 'agent')").run(email, salt, hash);
   return env.db.prepare("SELECT id FROM users WHERE email = ?").get(email).id;
 }
 async function seedDealer(env, email, password) {
@@ -84,7 +84,7 @@ test("0.1 route contract: /request re-renders EVERY validation error (no fall-th
 
 test("0.2: agent invite token sets a password and the agent can sign in", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, invite_token, invite_exp, type) VALUES ('ag@example.com','Ag','','','tok-agent',?)").run(FUTURE(), 'agent');
+  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, invite_token, invite_exp, type) VALUES ('ag@example.com','Ag','','','tok-agent',?,'agent')").run(FUTURE());
   const r = await setAgentPassword(env, "tok-agent", "Agentpass123");
   assert.equal(r.ok, true);
   const who = await authenticate(env, "ag@example.com", "Agentpass123");
