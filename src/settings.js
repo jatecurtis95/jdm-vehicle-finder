@@ -55,6 +55,11 @@ const DEFAULTS = {
   // buyers), so it ships hidden. Off = the admin Dealers views and new dealer
   // creation are hidden/blocked; already-invited dealers keep portal access.
   dealer_portal_enabled: "0",
+  // Per-tier daily cap on member-submitted car requests, so a self-serve tier
+  // cannot flood the review queue (Ben Site Notes). fully_managed is uncapped
+  // in code; these bound paid_access and free tiers. Tune without a deploy.
+  cap_paid_daily: "10",
+  cap_free_daily: "1",
 };
 
 export async function getSettings(env) {

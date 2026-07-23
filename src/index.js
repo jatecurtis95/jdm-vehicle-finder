@@ -129,6 +129,27 @@ async function runSearchRateLimited(env, who) {
   return false;
 }
 
+// Ben Site Notes guardrail: a per-tier daily cap on member-submitted car
+// requests, so a lower self-serve tier cannot flood the review queue (even one
+// per day per user is roughly one managed customer's workload). fully_managed
+// customers are uncapped - high-touch with a direct line. Caps are settings-
+// driven so staff can tune without a deploy; the defaults apply when unset.
+// Returns Infinity for "no cap".
+export function requestDailyCap(settings, tier) {
+  if (tier === "fully_managed") return Infinity;
+  if (tier === "paid_access") return settingNum(settings, "cap_paid_daily", 10);
+  return settingNum(settings, "cap_free_daily", 1); // free tier + any unknown tier
+}
+
+// Count a member's own car requests since the start of today (UTC). A portal-
+// submitted lot is a queue row with client_request = 1. Drives requestDailyCap.
+export async function requestsToday(env, clientId) {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue WHERE client_id = ? AND client_request = 1 AND created_at >= datetime('now','start of day')"
+  ).bind(Number(clientId)).first();
+  return row?.n || 0;
+}
+
 // Validate one landed-batch body: items -> [{ id, jpy, cc }], everything
 // coerced and bounded, junk dropped. Prices are display inputs for an
 // estimate, never persisted, so client-supplied values are acceptable within
@@ -1797,6 +1818,16 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/auctions/request" && request.method === "POST") {
     const c = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
     if (!c || !c.member) return Response.redirect(here("/portal/auctions"), 303);
+    // Guardrail (Ben Site Notes): cap self-serve car requests per day so a lower
+    // tier cannot flood the review queue. fully_managed is uncapped.
+    const rqCap = requestDailyCap(await getSettings(env), c.tier);
+    if (Number.isFinite(rqCap)) {
+      const usedToday = await requestsToday(env, c.id);
+      if (usedToday >= rqCap) {
+        const noun = rqCap === 1 ? "request" : "requests";
+        return Response.redirect(here("/portal/auctions?_flash=" + encodeURIComponent(`You've reached your daily limit of ${rqCap} car ${noun}. Our team is working through them - you can send more tomorrow.`)), 303);
+      }
+    }
     const r = await requestAuctionLot(env, c.id, (await request.formData()).get("id"));
     if (r.ok && !r.already) {
       await alertClientRequest(env, { client: c, lot: r.lot, wishlist: null });
