@@ -129,11 +129,20 @@ export function auctionCardV2(lot, opts = {}) {
   const photoLink = detailHref ? `<a class="ac-link" href="${esc(detailHref)}" aria-label="View ${esc(name)} details"></a>` : "";
   const nameHtml = detailHref ? `<a class="ac-name-link" href="${esc(detailHref)}">${esc(name)}</a>` : esc(name);
 
+  // A real <img> (not a CSS background) so offscreen cards genuinely defer with
+  // loading="lazy"; decoding="async" keeps decode off the main thread. The box
+  // keeps its dark placeholder colour and fixed height, so nothing shifts while
+  // the photo loads. alt="" (decorative): the card title/link carries the name.
+  const photoImg = img
+    ? `<img class="ac-photo-img" src="${esc(img)}" loading="lazy" decoding="async" width="320" height="214" alt="">`
+    : "";
+
   // opts.select: staff bulk-send selection (checkbox + gold outline via the
   // shared .selcard controller in the admin send bar).
   return `<div class="acard${opts.select ? " selcard" : ""}"${opts.select ? ` data-lot="${esc(lot.id)}"` : ""}>
     ${opts.select ? `<input type="checkbox" class="fsel" aria-label="Select this car for bulk send">` : ""}
-    <div class="ac-photo"${img ? ` style="background-image:url('${esc(img)}')"` : ""}>
+    <div class="ac-photo">
+      ${photoImg}
       <span class="ac-grade">Grade ${esc(grade)}</span>
       ${heart}
       ${date ? `<span class="ac-date${sold ? " sold" : ""}"><i></i>${sold ? "Sold " : ""}${esc(date)}</span>` : ""}
@@ -251,7 +260,8 @@ export function auctionWatchScript(opts = {}) {
   function attrs(v){var k=['id','name','code','img','grade','house','date','ts','pk','price','aud','mileage','elig','eligcls','sheet','trans','lotno','engine'],o='';for(var i=0;i<k.length;i++){o+=' data-'+k[i]+'="'+esc(v[k[i]])+'"';}return o;}
   var HEART='${HEART}';
   function card(v){
-    var h='<div class="acard"><div class="ac-photo" data-bg="'+esc(v.img)+'">';
+    var h='<div class="acard"><div class="ac-photo">';
+    h+=(v.img?'<img class="ac-photo-img" src="'+esc(v.img)+'" loading="lazy" decoding="async" width="320" height="214" alt="">':'');
     h+='<span class="ac-grade">Grade '+esc(v.grade)+'</span>';
     h+='<button type="button" class="ac-fav on" aria-pressed="true" aria-label="Remove from watchlist"'+attrs(v)+'>'+HEART+'</button>';
     h+=(v.date?'<span class="ac-date"><i></i>'+esc(v.date)+'</span>':'')+'<div class="ac-grad"></div></div>';
@@ -270,8 +280,7 @@ export function auctionWatchScript(opts = {}) {
   }
   function renderWatch(){var g=document.getElementById('watchGrid');if(!g)return;var m=load(),ids=Object.keys(m);
     if(!ids.length){g.innerHTML='<div class="awatch-empty"><div class="rule"></div>No cars saved yet. Tap the heart on any lot to add it to your watchlist.</div>';return;}
-    var out='';for(var i=0;i<ids.length;i++){out+=card(m[ids[i]]);}g.innerHTML=out;
-    var ph=g.querySelectorAll('.ac-photo[data-bg]');for(var j=0;j<ph.length;j++){var u=ph[j].getAttribute('data-bg');if(u)ph[j].style.backgroundImage="url('"+u+"')";}}
+    var out='';for(var i=0;i<ids.length;i++){out+=card(m[ids[i]]);}g.innerHTML=out;}
   document.addEventListener('click',function(ev){var t=ev.target,b=t&&t.closest?t.closest('.ac-fav'):null;if(!b)return;ev.preventDefault();var m=load(),id=b.getAttribute('data-id');if(m[id]){delete m[id];send({remove:[id]});}else{m[id]=snap(b);send({add:[m[id]]});}save(m);mark();paint();renderWatch();});
   mark();paint();renderWatch();
   // Hydrate from the server copy, then push up anything only this device has,
@@ -315,7 +324,10 @@ export const AUCTION_CSS = `<style>
   .acgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--gap-grid,20px)}
   .acard{background:var(--card);border:1px solid var(--hair);border-radius:var(--r-card,10px);overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s,transform .15s,box-shadow .15s;content-visibility:auto;contain-intrinsic-size:auto 420px}
   .acard:hover{border-color:var(--field-line);transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.12)}
-  .ac-photo{position:relative;height:168px;flex:0 0 auto;background:var(--media,#0B0D10);background-size:cover;background-position:center;border-bottom:1px solid var(--hair)}
+  .ac-photo{position:relative;height:168px;flex:0 0 auto;background:var(--media,#0B0D10);border-bottom:1px solid var(--hair)}
+  /* The photo fills the box behind every overlay (grad/badges/link sit above
+     it by z-index). object-fit:cover matches the old background-size:cover. */
+  .ac-photo-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;display:block}
   .ac-grad{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 42%)}
   .ac-link{position:absolute;inset:0;z-index:1;display:block}
   .ac-name-link{color:inherit;text-decoration:none}

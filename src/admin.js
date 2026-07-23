@@ -6587,7 +6587,12 @@ function uxGuardScript() {
 }
 
 function shell(side, main, title) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"><style>${CSS}</style></head>
+  // Font stylesheet loaded non-render-blocking (media=print then all onload),
+  // matching brandDoc in theme.js, so the staff app's first paint never waits
+  // on the third-party fetch. display=swap handles the swap; noscript covers JS-off.
+  const FONT_HREF = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap";
+  const fontLink = `<link rel="stylesheet" href="${FONT_HREF}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${FONT_HREF}"></noscript>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>${fontLink}<style>${CSS}</style></head>
     <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true" tabindex="-1"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" role="button" tabindex="0" aria-expanded="false" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}<script>(function(){var cb=document.getElementById('navToggle'),b=document.querySelector('.nav-burger');if(!cb||!b)return;function sync(){b.setAttribute('aria-expanded',cb.checked?'true':'false');}b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){e.preventDefault();cb.checked=!cb.checked;sync();}});cb.addEventListener('change',sync);})();</script></body></html>`;
 }
 

@@ -434,7 +434,15 @@ export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
   const content = /\bid=["']main["']/.test(bodyInner)
     ? bodyInner
     : `<main id="main">${bodyInner}</main>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${seo}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap">${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
+  // The Inter stylesheet is loaded NON-render-blocking (media="print" then
+  // flipped to all onload), so first paint never waits on the third-party
+  // fetch; display=swap paints text in the fallback and swaps Inter in when it
+  // arrives. noscript keeps it working with JS off. (Self-hosting the WOFF2s
+  // would also drop the third-party origin, but that ships font binaries; this
+  // is the smaller change that removes the render-block.)
+  const fontHref = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap";
+  const fontLink = `<link rel="stylesheet" href="${fontHref}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${fontHref}"></noscript>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${seo}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>${fontLink}${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature
