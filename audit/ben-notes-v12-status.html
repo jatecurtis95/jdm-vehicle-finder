@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Finder Site Notes V1.2 — Status</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+    margin: 0;
+  }
+
+  h1 {
+    font-size: 21pt;
+    font-weight: 600;
+    color: #2b6777;
+    margin: 0 0 2mm;
+  }
+
+  .sub {
+    color: #666;
+    font-size: 9.5pt;
+    margin-bottom: 6mm;
+  }
+
+  h2 {
+    font-size: 12.5pt;
+    font-weight: 600;
+    color: #2b6777;
+    margin: 7mm 0 2.5mm;
+    padding-bottom: 1.2mm;
+    border-bottom: 1px solid #d8e1e5;
+    break-after: avoid;
+  }
+
+  h2 .pg {
+    font-size: 8.5pt;
+    font-weight: 400;
+    color: #8a9aa1;
+    float: right;
+    padding-top: 2pt;
+  }
+
+  /* Scoreboard */
+  .score {
+    display: flex;
+    gap: 3mm;
+    margin-bottom: 5mm;
+  }
+
+  .score div {
+    flex: 1;
+    border: 1px solid #dfe5e8;
+    border-radius: 3px;
+    padding: 3mm 2mm;
+    text-align: center;
+  }
+
+  .score .n {
+    display: block;
+    font-size: 17pt;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+
+  .score .l {
+    font-size: 8pt;
+    color: #6b7b82;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .done   .n { color: #1e7a45; }
+  .part   .n { color: #b06a00; }
+  .todo   .n { color: #a32020; }
+
+  /* Item rows */
+  ul { list-style: none; padding: 0; margin: 0; }
+
+  li {
+    display: flex;
+    gap: 2.5mm;
+    padding: 1.4mm 0;
+    border-bottom: 1px solid #f0f2f3;
+    break-inside: avoid;
+  }
+
+  li:last-child { border-bottom: none; }
+
+  .box {
+    flex: 0 0 auto;
+    width: 4.6mm;
+    font-weight: 700;
+    font-size: 10pt;
+    text-align: center;
+  }
+
+  .y .box { color: #1e7a45; }
+  .p .box { color: #b06a00; }
+  .n .box { color: #a32020; }
+
+  .txt { flex: 1; }
+
+  .note {
+    display: block;
+    color: #6b7b82;
+    font-size: 9pt;
+    margin-top: 0.6mm;
+  }
+
+  strong { font-weight: 600; }
+
+  /* Callout */
+  .flag {
+    border: 1px solid #e8c4c4;
+    background: #fdf5f5;
+    border-left: 3px solid #a32020;
+    border-radius: 3px;
+    padding: 3mm 4mm;
+    margin: 6mm 0 0;
+    break-inside: avoid;
+  }
+
+  .flag h3 {
+    margin: 0 0 1.5mm;
+    font-size: 10.5pt;
+    color: #a32020;
+  }
+
+  .flag p { margin: 0; font-size: 9.5pt; }
+
+  .next {
+    border: 1px solid #dfe5e8;
+    background: #f7f9fa;
+    border-radius: 3px;
+    padding: 3mm 4mm 3mm 8mm;
+    margin-top: 4mm;
+    break-inside: avoid;
+  }
+
+  .next h3 {
+    margin: 0 0 1.5mm -4mm;
+    font-size: 10.5pt;
+    color: #2b6777;
+  }
+
+  .next ol { margin: 0; padding-left: 4mm; font-size: 9.5pt; }
+  .next li { display: list-item; border: none; padding: 0.8mm 0; }
+
+  .key {
+    margin-top: 6mm;
+    padding-top: 2mm;
+    border-top: 1px solid #e6eaec;
+    font-size: 8.5pt;
+    color: #6b7b82;
+  }
+</style>
+</head>
+<body>
+
+<h1>Finder Site Notes V1.2 — Status</h1>
+<div class="sub">
+  Ben Caudwell's notes (06/07/2026), checked against the live jdmfinder.com.au codebase.
+  Reviewed 13 July 2026. Test suite passing, 333 of 333.
+</div>
+
+<div class="score">
+  <div class="done"><span class="n">24</span><span class="l">Done</span></div>
+  <div class="part"><span class="n">4</span><span class="l">Partly done</span></div>
+  <div class="todo"><span class="n">10</span><span class="l">Not started</span></div>
+</div>
+
+<h2>Login page <span class="pg">p2</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Get rid of "admins can leave this blank"<span class="note">Placeholder is now just you@email.com.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Make "New here?" link more intuitive and visible<span class="note">Now reads "New here? Sign up to start searching", bold and underlined. Your wording.</span></span></li>
+</ul>
+
+<h2>Search page <span class="pg">p3</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Popular search tiles: remove them or finish them<span class="note">The broken image tiles are gone. Text-only now.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Replace the made-up stats, or show nothing<span class="note">500+ / 15+ / 100,000+ are gone. Replaced with true numbers: 40,000 listings scanned daily, 3 auction houses in one feed, 100% of landed cost shown up front.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">A way to tell models apart (Mercedes, BMW, Toyota Crown)<span class="note">Not started. This is the same problem as the section below.</span></span></li>
+</ul>
+
+<h2>Model code and grade — your "best idea" <span class="pg">p4</span></h2>
+<ul>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Let the user select the chassis number / model code</span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Model code, then a dropdown of the possible grades (the AUCRS pattern)</span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Friendly model code labels, e.g. "222058 &ndash; S450"</span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Flow: make &rarr; model &rarr; model code &rarr; available grades</span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Allow multiple grades to be selected at once</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"Is the make list generated by Claude or from the API?"<span class="note">From the auction feed, live. Not a hand-written list. Whatever the auction houses list is what you see.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">The Mercedes AMG / E55 problem<span class="note">Already handled. The matcher does a best-match on Make that catches both MERCEDES BENZ and MERCEDES AMG. This was your own fallback suggestion on p15, and it is live.</span></span></li>
+</ul>
+
+<h2>Request wizard <span class="pg">p5</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"Recent examples imported" tiles don't work<span class="note">Now driven by real sold-lot data, and they hide themselves when there is nothing to show.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"Delivering to (country, if outside Australia)" reads awkward<span class="note">Replaced with a single field labelled "Country", prefilled with Australia. Exactly as you asked.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"Refine my search" belongs on the Find car page<span class="note">Moved.</span></span></li>
+</ul>
+
+<h2>Passwords and login <span class="pg">p6&ndash;p7</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Password "set" links are broken<span class="note">Fixed. The three account types were tripping over each other during lookup.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Need a way to reset people's passwords<span class="note">"Forgot password?" added to the login page, plus a "Send password reset" button on customer, agent and dealer records in admin.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"Login doesn't work, signup does"<span class="note">Fixed. Signup and login were scrambling passwords differently. There is now an automated test using your exact bengc2000@gmail.com case so it cannot come back.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">"Why buyers use JDM Connect" card &mdash; make this better<span class="note">Left alone, waiting on your direction. You said you'd think of how later.</span></span></li>
+</ul>
+
+<h2>Buyer portal <span class="pg">p8</span></h2>
+<ul>
+  <li class="p"><span class="box">&#8776;</span><span class="txt">"Show more useful information here" (the Lot 6ryZINDpTKc2DI rows)<span class="note">Partly done. Cards now show year, make, model, a photo, the auction house, close date and the landed estimate. Still missing: the match-strength chip (it is already calculated, just not shown), sent/viewed/expired status, and the card does not click through to the match.</span></span></li>
+</ul>
+
+<h2>V1.1 items <span class="pg">p9&ndash;p12</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Remove the agent/client references and the admin login instructions</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Add a timeout for login requests, server side<span class="note">1.5 second delay on every failed attempt. Account locks for 15 minutes after 10 failures.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Character limit on the email and password fields</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Force a stricter password policy<span class="note">Minimum is now 10 characters, not 6.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Pasting sometimes doesn't work<span class="note">Nothing in the code blocks pasting. Should be reliable now.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Cap password length at about 32 characters</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Limit the allowed symbols, tooltip rather than always visible<span class="note">Done exactly as specified, including your symbol list.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Force people to create an account<span class="note">Password is now a required field, and the "no signup required" copy is gone.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Changing the Make clears the selected Model</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Stop free typing in the Model field, and drop the "pick or type" hint<span class="note">It is a proper dropdown now, select-only.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Fix having to backspace before you can reopen the Model list<span class="note">Gone, along with the free-text field.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Put the nickname at the top of "What you're looking for"</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Change "Choose a preset" to "No preset"</span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Budget in yen means nothing to customers<span class="note">Field is now "Max budget (AUD, on-road)" with the yen equivalent shown live underneath, worked out from a stripped-back version of the real landed cost calculator. Exactly what you proposed.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Chassis code isn't clearing when you pick a new preset<span class="note">Fixed.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">"I had a stroke trying to read this"<span class="note">Fixed. The sticky bars were see-through enough that the page text bled through them as you scrolled.</span></span></li>
+  <li class="p"><span class="box">&#8776;</span><span class="txt">Presets need work, a lot aren't eligible<span class="note">All presets have been removed for now, on a "ship empty rather than wrong" basis. You offered to spend an hour building the correct list. That is the unblock, and it's on you.</span></span></li>
+</ul>
+
+<h2>General changes, site wide <span class="pg">p12&ndash;p13</span></h2>
+<ul>
+  <li class="p"><span class="box">&#8776;</span><span class="txt">Character limits on all fields<span class="note">Done on the public request form. The admin forms still have none at all (Add agent, Add customer, Edit customer).</span></span></li>
+  <li class="p"><span class="box">&#8776;</span><span class="txt">Validation on all fields, e.g. Year 1970 to 2050<span class="note">The public form is right. The admin and portal wishlist forms do no checking at all, so nonsense or negative years go straight into the database.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">WhatsApp number validation<span class="note">Still just "8 or more digits". No real format check.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Check if an email has already been used, without leaking anything<span class="note">Not done, and currently doing the opposite. The site says "That email already has an account. Sign in instead.", which tells anyone who asks whether a given email is one of our customers. Worth fixing, and it's a small change.</span></span></li>
+</ul>
+
+<h2>Issues / Fixes &mdash; the ones you flagged twice <span class="pg">p13</span></h2>
+<ul>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Character limit on the username and password fields<span class="note">You marked this "same as V1, not fixed". It is fixed now.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Login attempt timeout and account lockout<span class="note">1 to 2 second delay between attempts, locks after 10 failures. Built to your spec.</span></span></li>
+</ul>
+
+<h2>Wishlists / saved searches <span class="pg">p14&ndash;p15</span></h2>
+<ul>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Search by trim / variant / grade<span class="note">Not done. Same job as the model code work above.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Make it a searchable list, like the IMD Eligibility Make search<span class="note">Not done. Make is still a plain dropdown.</span></span></li>
+  <li class="y"><span class="box">&#10004;</span><span class="txt">Your alternative: leave it and do a "best match" search<span class="note">Done, and it handles your E55 example.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Add a "Model Code" field</span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Wishlist size limit &mdash; "we can accidentally DDOS ourselves"<span class="note">Not done. You can no longer save a search with no criteria at all, but there is still no cap on how many wishlists one customer can create.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Filter matching: fuzzy filter or dropdown, AUCRS style<span class="note">Not done as a UI. The matcher does already do a loose contains-match on grade behind the scenes.</span></span></li>
+  <li class="p"><span class="box">&#8776;</span><span class="txt">Preset dropdown per model<span class="note">The mechanism is built. The list is empty, waiting on your sign-off.</span></span></li>
+</ul>
+
+<h2>Parked &mdash; ideas, not asks <span class="pg">p14&ndash;p16</span></h2>
+<ul>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Daily rare-car finder feeding Facebook and Instagram stories<span class="note">Your words: "cool idea, not yet".</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Tiers of service ($10 / $50 / $499 / $1200)<span class="note">You noted the prices are arbitrary. Needs a business decision before any code.</span></span></li>
+  <li class="n"><span class="box">&#10007;</span><span class="txt">Saved-search capture for leads who aren't ready to pay</span></li>
+</ul>
+
+<div class="flag">
+  <h3>&#9888; One thing that isn't on your list</h3>
+  <p>
+    The admin password is printed in plain text on page 1 of your document, and admin login
+    still works by leaving the email blank and typing it in. That PDF has been emailed around.
+    Rotating it takes two minutes and is the highest-value thing on this page.
+  </p>
+</div>
+
+<div class="next">
+  <h3>Suggested order from here</h3>
+  <ol>
+    <li>Rotate the admin password.</li>
+    <li>Close the "that email already has an account" leak. Small change, and it is the opposite of what you asked for.</li>
+    <li>Ben supplies the vetted preset list. One hour, and it unblocks a dropdown that currently ships empty.</li>
+    <li>Put limits and validation on the admin forms, and cap wishlists per customer.</li>
+    <li>Then model code and grade search. This is the real product work and deserves its own planning session, since Ben has strong opinions on how AUCRS does it.</li>
+  </ol>
+</div>
+
+<div class="key">
+  &#10004; done &nbsp;&nbsp; &#8776; partly done &nbsp;&nbsp; &#10007; not started
+</div>
+
+</body>
+</html>
