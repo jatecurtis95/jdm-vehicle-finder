@@ -28,7 +28,7 @@ test("createWishlist stores mileage_min from the form", async () => {
   const c = await createClient(env, cf({ name: "Buyer", email: "mm@x.com" }), ADMIN);
   const r = await createWishlist(env, cf({ client_id: String(c.id), marka_name: "TOYOTA", model_name: "CHASER", mileage_min: "60000", mileage_max: "150000" }), undefined, ADMIN);
   assert.equal(r.ok, true);
-  const w = await env.DB.prepare("SELECT mileage_min, mileage_max FROM wishlists WHERE client_id = ?").bind(c.id).first();
+  const w = await env.DB.prepare("SELECT mileage_min, mileage_max FROM searches WHERE client_id = ?").bind(c.id).first();
   assert.equal(w.mileage_min, 60000, "the floor is stored");
   assert.equal(w.mileage_max, 150000, "the ceiling is stored too");
 });
@@ -36,7 +36,7 @@ test("createWishlist stores mileage_min from the form", async () => {
 test("add-search still works when the mileage_min column is missing (drift tolerance)", async () => {
   const env = makeEnv();
   const c = await createClient(env, cf({ name: "Buyer2", email: "mm2@x.com" }), ADMIN);
-  env.db.exec("ALTER TABLE wishlists DROP COLUMN mileage_min");
+  env.db.exec("ALTER TABLE searches DROP COLUMN mileage_min");
   const r = await createWishlist(env, cf({ client_id: String(c.id), marka_name: "TOYOTA", model_name: "SUPRA", mileage_min: "50000" }), undefined, ADMIN);
   assert.equal(r.ok, true, "the search saves even though the DB lacks the column yet");
 });

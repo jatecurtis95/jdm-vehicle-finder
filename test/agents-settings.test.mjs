@@ -13,9 +13,9 @@ function seed() {
   return `
     INSERT INTO agents (id, email, name, pass_salt, pass_hash, active, alerts) VALUES
       (5, 'ben@x.com', 'Ben Broker', 's', 'h', 1, 1);
-    INSERT INTO clients (id, name, email, agent_id) VALUES
+    INSERT INTO users (id, name, email, agent_id) VALUES
       (1, 'Alice Apple', 'a@x.com', 5), (2, 'Bob Banana', 'b@x.com', 5);
-    INSERT INTO wishlists (id, client_id, label, marka_name, status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, status) VALUES
       (1, 1, 'R34', 'NISSAN', 'searching'),
       (2, 1, 'R32', 'NISSAN', 'new'),
       (3, 2, 'Supra', 'TOYOTA', 'delivered');

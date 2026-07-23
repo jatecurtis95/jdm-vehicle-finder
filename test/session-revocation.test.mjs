@@ -9,7 +9,7 @@ import { sessionCookie, getSession, bumpSessionVer, sign } from "../src/auth.js"
 const FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash,active,session_ver)
     VALUES (1,'a1@x','A1','','',1,0);
-  INSERT INTO clients (id,name,email,portal_enabled,session_ver)
+  INSERT INTO users (id,name,email,portal_enabled,session_ver)
     VALUES (10,'C1','c@x',1,0);
 `;
 

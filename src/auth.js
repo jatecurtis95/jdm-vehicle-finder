@@ -405,7 +405,7 @@ export async function authenticate(env, email, password) {
   }
 
   const dealer = await tryRole(() => env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash, active FROM dealers WHERE email = ?"
+    "SELECT id, pass_salt, pass_hash, active FROM suppliers WHERE email = ?"
   ).bind(e).first());
   if (dealer && dealer.active && dealer.pass_hash && await verifyPassword(password, dealer.pass_salt, dealer.pass_hash)) {
     return { role: "dealer", id: dealer.id };
@@ -418,7 +418,7 @@ export async function authenticate(env, email, password) {
   // candidate (newest first) rather than only the newest, so a valid password
   // on an older duplicate still signs in.
   const clients = ((await tryRole(() => env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
+    "SELECT id, pass_salt, pass_hash FROM users WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
   ).bind(e).all())) || {}).results || [];
   for (const client of clients) {
     if (await verifyPassword(password, client.pass_salt, client.pass_hash)) {
@@ -498,7 +498,7 @@ export async function setAgentPassword(env, token, password) {
 export async function clientByInviteToken(env, token) {
   if (!token) return null;
   const c = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM clients WHERE invite_token IN (?, ?)"
+    "SELECT id, name, email, invite_exp FROM users WHERE invite_token IN (?, ?)"
   ).bind(...(await tokenMatchPair(token))).first();
   if (!c || !c.invite_exp || Number(c.invite_exp) < Date.now()) return null;
   return c;
@@ -513,8 +513,8 @@ export async function setClientPassword(env, token, password) {
   const { salt, hash } = await hashPassword(password);
   // Bump session_ver so any older portal sessions stop validating on reset.
   await runWithSessionVerFallback(env,
-    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1, session_ver = session_ver + 1 WHERE id = ?",
-    "UPDATE clients SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?",
+    "UPDATE users SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE users SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, portal_enabled = 1 WHERE id = ?",
     [salt, hash, c.id], "setClientPassword");
   return { ok: true, id: c.id, email: c.email };
 }
@@ -524,7 +524,7 @@ export async function setClientPassword(env, token, password) {
 export async function dealerByInviteToken(env, token) {
   if (!token) return null;
   const d = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM dealers WHERE invite_token IN (?, ?)"
+    "SELECT id, name, email, invite_exp FROM suppliers WHERE invite_token IN (?, ?)"
   ).bind(...(await tokenMatchPair(token))).first();
   if (!d || !d.invite_exp || Number(d.invite_exp) < Date.now()) return null;
   return d;
@@ -546,8 +546,8 @@ export async function beginPasswordResetFor(env, kind, id) {
   if (!Number.isInteger(n) || n <= 0) return null;
   const eligible = {
     agent: "SELECT id, name, email FROM agents WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
-    dealer: "SELECT id, name, email FROM dealers WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
-    client: "SELECT id, name, email FROM clients WHERE id = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    dealer: "SELECT id, name, email FROM suppliers WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    client: "SELECT id, name, email FROM users WHERE id = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> ''",
   }[kind];
   if (!eligible) return null;
   const row = await env.DB.prepare(eligible).bind(n).first();
@@ -570,8 +570,8 @@ export async function beginPasswordReset(env, email) {
   if (!e || e.length > EMAIL_MAX) return null;
   const lookups = [
     { kind: "agent", sql: "SELECT id FROM agents WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
-    { kind: "dealer", sql: "SELECT id FROM dealers WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
-    { kind: "client", sql: "SELECT id FROM clients WHERE lower(email) = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1" },
+    { kind: "dealer", sql: "SELECT id FROM suppliers WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "client", sql: "SELECT id FROM users WHERE lower(email) = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1" },
   ];
   for (const { kind, sql } of lookups) {
     try {
@@ -595,7 +595,7 @@ export async function setDealerPassword(env, token, password) {
   const { salt, hash } = await hashPassword(password);
   // Bump session_ver so any older sessions stop validating on password reset.
   await env.DB.prepare(
-    "UPDATE dealers SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
+    "UPDATE suppliers SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?"
   ).bind(salt, hash, d.id).run();
   return { ok: true, id: d.id, email: d.email };
 }

@@ -39,10 +39,10 @@ function groupedEnv() {
   // Rita is a returning customer (two active searches); Sam has one. Sam's is
   // the most recently active, so his cluster should lead.
   return makeEnv(`
-    INSERT INTO clients (id, name, email, source) VALUES
+    INSERT INTO users (id, name, email, source) VALUES
       (1, 'Repeat Rita', 'rita@example.com', 'jdm'),
       (2, 'Solo Sam', 'sam@example.com', 'jdm');
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active, status, last_activity, created_at) VALUES
+    INSERT INTO searches (id, client_id, marka_name, model_name, active, status, last_activity, created_at) VALUES
       (10, 1, 'TOYOTA', 'SUPRA',   1, 'new',       datetime('now','-1 hour'),    datetime('now','-2 days')),
       (11, 1, 'NISSAN', 'SKYLINE', 1, 'new',       datetime('now','-3 hours'),   datetime('now','-1 day')),
       (12, 2, 'MAZDA',  'RX7',     1, 'searching', datetime('now','-30 minutes'),datetime('now','-5 hours'));
@@ -84,10 +84,10 @@ test("one-step create: a brand-new email creates a jdm customer plus a wishlist"
   assert.equal(r.ok, true);
   assert.equal(r.created, true);
   assert.equal(r.attached, false);
-  const clients = (await env.DB.prepare("SELECT id, source FROM clients").all()).results;
+  const clients = (await env.DB.prepare("SELECT id, source FROM users").all()).results;
   assert.equal(clients.length, 1, "one new customer");
   assert.equal(clients[0].source, "jdm", "staff-added customers are tagged jdm");
-  const wls = (await env.DB.prepare("SELECT client_id, marka_name FROM wishlists").all()).results;
+  const wls = (await env.DB.prepare("SELECT client_id, marka_name FROM searches").all()).results;
   assert.equal(wls.length, 1, "one new request");
   assert.equal(wls[0].client_id, r.clientId, "the request is attached to the new customer");
   assert.equal(wls[0].marka_name, "HONDA");
@@ -102,8 +102,8 @@ test("one-step create: an existing customer's email attaches the request, no dup
   assert.equal(second.created, false);
   assert.equal(second.attached, true);
   assert.equal(second.clientId, first.clientId, "attached to the existing customer");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 1, "no duplicate customer");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE client_id=?").bind(first.clientId).first()).n, 2, "both requests on the one customer");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 1, "no duplicate customer");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM searches WHERE client_id=?").bind(first.clientId).first()).n, 2, "both requests on the one customer");
 });
 
 test("one-step create: matching by phone attaches even when the email is new", async () => {
@@ -112,7 +112,7 @@ test("one-step create: matching by phone attaches even when the email is new", a
   const second = await createAdminRequest(env, fd({ name: "Phil P", email: "phil@example.com", whatsapp: "+61412345678", marka_name: "MAZDA", model_name: "RX8" }), ADMIN);
   assert.equal(second.attached, true);
   assert.equal(second.clientId, first.clientId, "same phone, one customer");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 1);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 1);
 });
 
 test("one-step create: the same car for a customer refreshes the request, no duplicate REQ", async () => {
@@ -122,21 +122,21 @@ test("one-step create: the same car for a customer refreshes the request, no dup
   const again = await createAdminRequest(env, fd({ name: "Rita", email: "rita@example.com", marka_name: "toyota", model_name: "supra" }), ADMIN);
   assert.equal(again.ok, true);
   assert.equal(again.wishlistId, first.wishlistId, "same make+model refreshes the one request");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists").first()).n, 1, "no duplicate REQ");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM searches").first()).n, 1, "no duplicate REQ");
 });
 
 test("one-step create requires a reachable customer (name + a contact channel)", async () => {
   const env = makeEnv();
   assert.equal((await createAdminRequest(env, fd({ email: "x@example.com", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "name");
   assert.equal((await createAdminRequest(env, fd({ name: "No Contact", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "contact");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing stored for an unreachable customer");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 0, "nothing stored for an unreachable customer");
 });
 
 test("one-step create honours Watch only and stores Min mileage", async () => {
   const env = makeEnv();
   const r = await createAdminRequest(env, fd({ name: "Wendy Watch", email: "wendy@example.com", marka_name: "TOYOTA", model_name: "SUPRA", watch_only: "1", mileage_min: "50000", mileage_max: "120000" }), ADMIN);
   assert.equal(r.ok, true);
-  const w = await env.DB.prepare("SELECT watch_only, mileage_min, mileage_max FROM wishlists WHERE id=?").bind(r.wishlistId).first();
+  const w = await env.DB.prepare("SELECT watch_only, mileage_min, mileage_max FROM searches WHERE id=?").bind(r.wishlistId).first();
   assert.equal(w.watch_only, 1, "a watch-only lead is flagged, so it is never auto-emailed");
   assert.equal(w.mileage_min, 50000, "the Min mileage field is persisted, not silently dropped");
   assert.equal(w.mileage_max, 120000);
@@ -149,7 +149,7 @@ test("one-step create enforces the per-customer active-search cap, but a same-ca
     const r = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "TOYOTA", model_name: `M${i}` }), ADMIN);
     assert.equal(r.ok, true, `request ${i} created`);
   }
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM searches WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP);
   // A further DISTINCT car is refused - the same guardrail the staff add-search form has.
   const over = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "NISSAN", model_name: "GTR" }), ADMIN);
   assert.equal(over.ok, false);
@@ -157,7 +157,7 @@ test("one-step create enforces the per-customer active-search cap, but a same-ca
   // But re-submitting an EXISTING car still succeeds: it refreshes, adds no row.
   const refresh = await createAdminRequest(env, fd({ name: "Cap", email, marka_name: "TOYOTA", model_name: "M0" }), ADMIN);
   assert.equal(refresh.ok, true, "a same-car refresh is exempt from the cap");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP, "no new row from the refresh");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM searches WHERE active=1").first()).n, WISHLIST_ACTIVE_CAP, "no new row from the refresh");
 });
 
 test("one-step create is scoped: an agent's new customer is theirs, not the public pool", async () => {
@@ -167,7 +167,7 @@ test("one-step create is scoped: an agent's new customer is theirs, not the publ
   // An agent using the same email gets their OWN customer (different scope).
   const r = await createAdminRequest(env, fd({ name: "Pam", email: "pam@example.com", marka_name: "MAZDA", model_name: "MX5" }), { role: "agent", id: 7 });
   assert.equal(r.created, true, "the agent gets their own customer, not the public one");
-  const rows = (await env.DB.prepare("SELECT agent_id FROM clients WHERE lower(email)='pam@example.com' ORDER BY id").all()).results;
+  const rows = (await env.DB.prepare("SELECT agent_id FROM users WHERE lower(email)='pam@example.com' ORDER BY id").all()).results;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].agent_id, null, "the public customer stays in the shared pool");
   assert.equal(rows[1].agent_id, 7, "the agent's customer is scoped to them");
@@ -187,13 +187,13 @@ test("the one-step request route is wired for staff and creates through the work
   }), env, CTX);
   assert.equal(res.status, 303);
   assert.match(res.headers.get("location") || "", /view=client&id=\d+/, "lands on the new customer's profile");
-  const c = await env.DB.prepare("SELECT source FROM clients WHERE lower(email)='wade@example.com'").first();
+  const c = await env.DB.prepare("SELECT source FROM users WHERE lower(email)='wade@example.com'").first();
   assert.ok(c, "the customer was created");
   assert.equal(c.source, "jdm");
 });
 
 test("a buyer (client) session cannot reach the one-step request route", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email, portal_enabled) VALUES (50, 'Buyer Bea', 'bea@example.com', 1);`);
+  const env = makeEnv(`INSERT INTO users (id, name, email, portal_enabled) VALUES (50, 'Buyer Bea', 'bea@example.com', 1);`);
   env.ADMIN_TOKEN = "test-admin-token"; // session signing key
   const cookie = await cookieFor(env, "client", 50);
   const body = new URLSearchParams({ name: "Gate Crash", email: "gate@example.com", marka_name: "TOYOTA", model_name: "YARIS" });
@@ -205,6 +205,6 @@ test("a buyer (client) session cannot reach the one-step request route", async (
   // The buyer is diverted to their own portal; the admin handler never runs.
   assert.equal(res.status, 303);
   assert.match(res.headers.get("location") || "", /\/portal/, "buyer bounced to the portal");
-  const created = await env.DB.prepare("SELECT id FROM clients WHERE lower(email)='gate@example.com'").first();
+  const created = await env.DB.prepare("SELECT id FROM users WHERE lower(email)='gate@example.com'").first();
   assert.equal(created, null, "no admin customer/request created from a buyer session");
 });

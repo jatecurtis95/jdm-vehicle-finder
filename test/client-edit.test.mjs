@@ -24,7 +24,7 @@ test("updateClient edits name, email, whatsapp and state", async () => {
   const id = await seed(env, { name: "Old Name", email: "old@example.com" });
   const r = await updateClient(env, fd({ id, name: "New Name", email: "new@example.com", whatsapp: "0400111222", state: "vic" }), ADMIN);
   assert.equal(r.ok, true);
-  const row = await env.DB.prepare("SELECT name,email,whatsapp,state FROM clients WHERE id=?").bind(id).first();
+  const row = await env.DB.prepare("SELECT name,email,whatsapp,state FROM users WHERE id=?").bind(id).first();
   assert.equal(row.name, "New Name");
   assert.equal(row.email, "new@example.com");
   // V1.2 Phase 3: phones store in canonical E.164 (AU local rewrites to +61).
@@ -38,7 +38,7 @@ test("updateClient requires a name", async () => {
   const r = await updateClient(env, fd({ id, name: "  ", email: "keep@example.com" }), ADMIN);
   assert.equal(r.ok, false);
   assert.equal(r.error, "name");
-  const row = await env.DB.prepare("SELECT name FROM clients WHERE id=?").bind(id).first();
+  const row = await env.DB.prepare("SELECT name FROM users WHERE id=?").bind(id).first();
   assert.equal(row.name, "Keep Me", "name unchanged after a rejected edit");
 });
 
@@ -54,10 +54,10 @@ test("updateClient lets a contactless client's state be corrected without invent
   // A client imported without an email/phone (matches show 'no contact on
   // file') must still be editable - staff shouldn't be forced to fake a
   // contact just to fix the state driving landed-cost estimates.
-  const env = makeEnv("INSERT INTO clients (id,name,email,whatsapp,state,category) VALUES (81,'Ashleigh',NULL,NULL,NULL,'private');");
+  const env = makeEnv("INSERT INTO users (id,name,email,whatsapp,state,category) VALUES (81,'Ashleigh',NULL,NULL,NULL,'private');");
   const r = await updateClient(env, fd({ id: 81, name: "Ashleigh", email: "", whatsapp: "", state: "wa" }), ADMIN);
   assert.equal(r.ok, true, "the state edit saves despite no contact channel");
-  const row = await env.DB.prepare("SELECT state, email, whatsapp FROM clients WHERE id=?").bind(81).first();
+  const row = await env.DB.prepare("SELECT state, email, whatsapp FROM users WHERE id=?").bind(81).first();
   assert.equal(row.state, normalizeState("wa"));
   assert.equal(row.email, null, "no fake contact was introduced");
   assert.equal(row.whatsapp, null);
@@ -66,10 +66,10 @@ test("updateClient lets a contactless client's state be corrected without invent
 test("createClient stores a valid category and defaults unknown values to private", async () => {
   const env = makeEnv();
   const dealer = await seed(env, { name: "Trade Co", email: "trade@example.com", category: "dealer" });
-  let row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(dealer).first();
+  let row = await env.DB.prepare("SELECT category FROM users WHERE id=?").bind(dealer).first();
   assert.equal(row.category, "dealer");
   const odd = await seed(env, { name: "Odd One", email: "odd@example.com", category: "wholesaler" });
-  row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(odd).first();
+  row = await env.DB.prepare("SELECT category FROM users WHERE id=?").bind(odd).first();
   assert.equal(row.category, "private", "unknown category falls back to private");
 });
 
@@ -78,12 +78,12 @@ test("updateClient changes the category; a form without the field keeps what's s
   const id = await seed(env, { name: "Flip", email: "flip@example.com" });
   let r = await updateClient(env, fd({ id, name: "Flip", email: "flip@example.com", category: "dealer" }), ADMIN);
   assert.equal(r.ok, true);
-  let row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(id).first();
+  let row = await env.DB.prepare("SELECT category FROM users WHERE id=?").bind(id).first();
   assert.equal(row.category, "dealer");
   // A caller that predates categories (no field at all) must not reset it.
   r = await updateClient(env, fd({ id, name: "Flip", email: "flip@example.com" }), ADMIN);
   assert.equal(r.ok, true);
-  row = await env.DB.prepare("SELECT category FROM clients WHERE id=?").bind(id).first();
+  row = await env.DB.prepare("SELECT category FROM users WHERE id=?").bind(id).first();
   assert.equal(row.category, "dealer", "category survives an edit that omits the field");
 });
 
@@ -101,7 +101,7 @@ test("updateClient refuses a change that collides with another client", async ()
   const r = await updateClient(env, fd({ id: a, name: "Alice", email: "bob@example.com" }), ADMIN);
   assert.equal(r.ok, false);
   assert.equal(r.error, "duplicate");
-  const row = await env.DB.prepare("SELECT email FROM clients WHERE id=?").bind(a).first();
+  const row = await env.DB.prepare("SELECT email FROM users WHERE id=?").bind(a).first();
   assert.equal(row.email, "alice@example.com", "the colliding email was not saved");
 });
 
@@ -124,7 +124,7 @@ test("updateClient blocks a non-owner agent and allows the owner/admin", async (
 test("updateClient won't strip the email while the buyer portal is enabled", async () => {
   const env = makeEnv();
   const id = await seed(env, { name: "Portal User", email: "portal@example.com" });
-  await env.DB.prepare("UPDATE clients SET portal_enabled=1 WHERE id=?").bind(id).run();
+  await env.DB.prepare("UPDATE users SET portal_enabled=1 WHERE id=?").bind(id).run();
   const r = await updateClient(env, fd({ id, name: "Portal User", email: "", whatsapp: "0400111222" }), ADMIN);
   assert.equal(r.ok, false);
   assert.equal(r.error, "portal_email");
@@ -154,7 +154,7 @@ test("client detail keeps the mobile overflow guards and the one action bar fami
   const env = makeEnv();
   const id = await seed(env, { name: "Guard Client", email: "guard@example.com" });
   await env.DB.prepare(
-    "INSERT INTO wishlists (id, client_id, label, marka_name, active) VALUES (77, ?, 'Guard search', 'TOYOTA', 1)"
+    "INSERT INTO searches (id, client_id, label, marka_name, active) VALUES (77, ?, 'Guard search', 'TOYOTA', 1)"
   ).bind(id).run();
   await env.DB.prepare(
     `INSERT INTO queue (wishlist_id, client_id, lot_id, lot_json, status, token)
@@ -183,7 +183,7 @@ test("client detail offers quick edit for the client's details and each search",
   const env = makeEnv();
   const id = await seed(env, { name: "Quick Eddie", email: "quick@example.com" });
   await env.DB.prepare(
-    "INSERT INTO wishlists (id, client_id, label, marka_name, active) VALUES (88, ?, 'Quick search', 'NISSAN', 1)"
+    "INSERT INTO searches (id, client_id, label, marka_name, active) VALUES (88, ?, 'Quick search', 'NISSAN', 1)"
   ).bind(id).run();
   const html = await clientDetailPage(env, id, ADMIN);
   // Header quick action -> the edit card, which is anchored and spring-opens.
@@ -199,7 +199,7 @@ test("client detail offers quick edit for the client's details and each search",
 test("a non-manager viewer gets no client quick-edit action", async () => {
   const env = makeEnv(`INSERT INTO agents (id,email,name,pass_salt,pass_hash,active) VALUES (5,'ag@x','Ag','s','h',1), (6,'ag2@x','Ag2','s','h',1);`);
   const id = await seed(env, { name: "Shared Sam", email: "shared@example.com", agent_id: 5 });
-  await env.DB.prepare("UPDATE clients SET agent_id = 5 WHERE id = ?").bind(id).run();
+  await env.DB.prepare("UPDATE users SET agent_id = 5 WHERE id = ?").bind(id).run();
   await env.DB.prepare("INSERT INTO client_shares (client_id, agent_id) VALUES (?, 6)").bind(id).run();
   const html = await clientDetailPage(env, id, { role: "agent", id: 6 });
   assert.doesNotMatch(html, /href="#edit-details"/, "shared-access agent cannot quick-edit the record");

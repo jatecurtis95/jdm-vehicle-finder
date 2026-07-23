@@ -1025,22 +1025,22 @@ async function adminSearch(env, session, q) {
   const acc = accessScope(session);
   const like = `%${q.replace(/[%_\\]/g, "")}%`;
   out.clients = (await env.DB.prepare(
-    `SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} AND (c.name LIKE ? OR c.email LIKE ? OR c.whatsapp LIKE ?) ORDER BY c.name LIMIT 25`
+    `SELECT c.id, c.name, c.email, c.state FROM users c WHERE ${acc.sql} AND (c.name LIKE ? OR c.email LIKE ? OR c.whatsapp LIKE ?) ORDER BY c.name LIMIT 25`
   ).bind(...acc.binds, like, like, like).all()).results || [];
   out.requests = (await env.DB.prepare(
     `SELECT w.id, w.label, w.marka_name, w.model_name, w.kuzov, c.id AS client_id, c.name AS client_name
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE ${acc.sql} AND (w.marka_name LIKE ? OR w.model_name LIKE ? OR w.kuzov LIKE ? OR w.label LIKE ?) ORDER BY c.name LIMIT 25`
   ).bind(...acc.binds, like, like, like, like).all()).results || [];
   out.matches = (await env.DB.prepare(
     `SELECT q.id, q.lot_id, q.status, q.lot_json, c.id AS client_id, c.name AS client_name
-       FROM queue q JOIN clients c ON c.id = q.client_id
+       FROM queue q JOIN users c ON c.id = q.client_id
       WHERE ${acc.sql} AND (q.lot_id LIKE ? OR q.lot_json LIKE ?) ORDER BY q.created_at DESC LIMIT 25`
   ).bind(...acc.binds, like, like).all()).results || [];
   if (session.role === "admin") {
     out.payments = (await env.DB.prepare(
       `SELECT p.id, p.amount_cents, p.currency, p.status, p.description, c.name AS client_name
-         FROM payments p LEFT JOIN clients c ON c.id = p.client_id
+         FROM payments p LEFT JOIN users c ON c.id = p.client_id
         WHERE (c.name LIKE ? OR p.description LIKE ? OR p.stripe_session LIKE ?) ORDER BY p.created_at DESC LIMIT 25`
     ).bind(like, like, like).all()).results || [];
   }
@@ -1077,9 +1077,9 @@ function searchView(res) {
 export async function clientDrawerFragment(env, clientId, session = { role: "admin", id: 0 }) {
   const id = Number(clientId);
   const acc = accessScope(session);
-  const c = await env.DB.prepare(`SELECT c.* FROM clients c WHERE c.id = ? AND ${acc.sql}`).bind(id, ...acc.binds).first();
+  const c = await env.DB.prepare(`SELECT c.* FROM users c WHERE c.id = ? AND ${acc.sql}`).bind(id, ...acc.binds).first();
   if (!c) return `<div class="dw-empty">Customer not found, or you don't have access.</div>`;
-  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY active DESC, id DESC").bind(id).all()).results || [];
+  const wls = (await env.DB.prepare("SELECT * FROM searches WHERE client_id = ? ORDER BY active DESC, id DESC").bind(id).all()).results || [];
   const matches = (await env.DB.prepare("SELECT id, lot_id, status, created_at, sent_at, viewed_at, response, lot_json FROM queue WHERE client_id = ? ORDER BY created_at DESC LIMIT 6").bind(id).all()).results || [];
   const pays = (await env.DB.prepare("SELECT amount_cents, currency, status, created_at FROM payments WHERE client_id = ? ORDER BY created_at DESC LIMIT 5").bind(id).all()).results || [];
   // Engagement roll-up across ALL their matches (not just the recent 6) so the
@@ -1158,8 +1158,8 @@ async function queryPendingMatches(env, session) {
             w.label AS wlabel, w.marka_name AS w_marka, w.model_name AS w_model,
             w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
        FROM queue q
-       JOIN clients c ON c.id = q.client_id
-       LEFT JOIN wishlists w ON w.id = q.wishlist_id
+       JOIN users c ON c.id = q.client_id
+       LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.status = 'pending' AND ${SNOOZE_LIVE} AND ${acc.sql} ORDER BY q.created_at DESC LIMIT 400`
   );
   return ((await (acc.binds.length ? stmt.bind(...acc.binds) : stmt).all()).results) || [];
@@ -1216,9 +1216,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
 
   const showArchived = !!opts.showArchived;
-  const clients = (await run(`SELECT * FROM clients c WHERE ${acc.sql}${showArchived ? "" : " AND c.archived = 0"} ORDER BY name`).all()).results || [];
+  const clients = (await run(`SELECT * FROM users c WHERE ${acc.sql}${showArchived ? "" : " AND c.archived = 0"} ORDER BY name`).all()).results || [];
   const wishlists = (await run(
-    `SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
+    `SELECT w.*, c.name AS client_name FROM searches w JOIN users c ON c.id = w.client_id WHERE ${acc.sql} ORDER BY c.name, w.id`
   ).all()).results || [];
   const pending = await queryPendingMatches(env, session);
 
@@ -1285,14 +1285,14 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // Admin-only: agent list (for the Agents view) and the logged-in agent's name.
   const agents = (!isAgent && view === "agents")
     ? (await env.DB.prepare(
-        `SELECT a.*, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count,
-                (SELECT COUNT(*) FROM wishlists w JOIN clients c2 ON c2.id = w.client_id
+        `SELECT a.*, (SELECT COUNT(*) FROM users c WHERE c.agent_id = a.id) AS client_count,
+                (SELECT COUNT(*) FROM searches w JOIN users c2 ON c2.id = w.client_id
                   WHERE c2.agent_id = a.id AND COALESCE(w.status, 'new') NOT IN ('delivered','lost')) AS open_requests
            FROM agents a ORDER BY a.name`
       ).all()).results || []
     : [];
   const dealers = (!isAgent && view === "dealers")
-    ? ((await env.DB.prepare("SELECT * FROM dealers ORDER BY created_at DESC").all()).results || [])
+    ? ((await env.DB.prepare("SELECT * FROM suppliers ORDER BY created_at DESC").all()).results || [])
     : [];
   const dealerStatus = ["pending", "approved", "rejected", "archived"].includes(opts.dealerStatus)
     ? opts.dealerStatus : "pending";
@@ -1302,14 +1302,14 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   const settings = (!isAgent && view === "settings") ? appSettings : null;
   const payments = (!isAgent && view === "payments")
     ? (await env.DB.prepare(
-        "SELECT p.*, c.name AS client_name FROM payments p LEFT JOIN clients c ON c.id = p.client_id ORDER BY p.created_at DESC LIMIT 200"
+        "SELECT p.*, c.name AS client_name FROM payments p LEFT JOIN users c ON c.id = p.client_id ORDER BY p.created_at DESC LIMIT 200"
       ).all()).results || []
     : [];
   // Deposits outstanding: requests whose deposit is requested but not yet paid.
   const deposits = (view === "payments" && !isAgent)
     ? (await env.DB.prepare(
         `SELECT w.id, w.deposit_status, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
-           FROM wishlists w JOIN clients c ON c.id = w.client_id
+           FROM searches w JOIN users c ON c.id = w.client_id
           WHERE w.deposit_status = 'requested' ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 100`
       ).all()).results || []
     : [];
@@ -1322,11 +1322,11 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
             (SELECT COUNT(*) FROM queue q WHERE q.wishlist_id = w.id AND q.viewed_at IS NOT NULL) AS viewed_count,
             (SELECT q.id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_queue_id,
             (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
        LEFT JOIN agents ow ON ow.id = w.owner_id
       WHERE ${acc.sql}
       ORDER BY (SELECT MAX(COALESCE(w2.last_activity, w2.created_at))
-                  FROM wishlists w2 WHERE w2.client_id = w.client_id) DESC,
+                  FROM searches w2 WHERE w2.client_id = w.client_id) DESC,
                w.client_id,
                COALESCE(w.last_activity, w.created_at) DESC
       LIMIT 500`
@@ -1339,7 +1339,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
 
   // Tasks and Agents left the sidebar (they live under Dashboard / Settings
   // now), so their old badge queries are gone with their nav items.
-  const dealerTotal = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealers WHERE active = 1").first())?.n || 0) : 0;
+  const dealerTotal = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM suppliers WHERE active = 1").first())?.n || 0) : 0;
   const dealerPending = (!isAgent && dealersOn) ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM dealer_vehicles WHERE status = 'pending'").first())?.n || 0) : 0;
   const counts = { clients: clients.length, requests: wishlists.length, matches: pending.length, dealers: dealerTotal, dealerSubmissions: dealerPending, dealersOn };
   const h = HEADERS[view];
@@ -1362,7 +1362,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
       `SELECT q.*, c.name AS client_name, c.state AS client_state,
               c.email AS client_email, c.whatsapp AS client_whatsapp,
               w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-         FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+         FROM queue q JOIN users c ON c.id = q.client_id LEFT JOIN searches w ON w.id = q.wishlist_id
         WHERE q.status = 'pending' AND q.snoozed_until > datetime('now') AND ${acc2.sql}
         ORDER BY q.snoozed_until ASC LIMIT 100`
     );
@@ -1372,7 +1372,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
     const srStmt = env.DB.prepare(
       `SELECT q.client_id, COUNT(*) AS n, MAX(q.sent_at) AS t,
               SUM(CASE WHEN q.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS v
-         FROM queue q JOIN clients c ON c.id = q.client_id
+         FROM queue q JOIN users c ON c.id = q.client_id
         WHERE q.sent_at >= datetime('now','-7 days') AND ${acc2.sql} GROUP BY q.client_id`
     );
     const sentRecency = {};
@@ -1919,19 +1919,19 @@ function agentBars(people) {
 async function dashboardData(env, session) {
   const acc = accessScope(session);
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
-  const clients = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE ${acc.sql} AND c.archived = 0`).first())?.n || 0;
+  const clients = (await run(`SELECT COUNT(*) AS n FROM users c WHERE ${acc.sql} AND c.archived = 0`).first())?.n || 0;
   const agents = session.role === "admin"
     ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
     : 0;
-  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
-  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
-  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY s`).all()).results || [];
+  const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
+  const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
+  const strRows = (await run(`SELECT json_extract(q.lot_json,'$._strength') AS s, COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY s`).all()).results || [];
   const strength = { Strong: 0, Good: 0, Possible: 0 };
   for (const r of strRows) if (r.s in strength) strength[r.s] = r.n;
   const days14 = lastNDays(14);
-  const revRows = (await run(`SELECT substr(q.decided_at,1,10) AS d, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.decided_at IS NOT NULL AND ${acc.sql} AND q.decided_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
+  const revRows = (await run(`SELECT substr(q.decided_at,1,10) AS d, COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.decided_at IS NOT NULL AND ${acc.sql} AND q.decided_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
   const reviewed = fillSeries(revRows, days14);
-  const foundRows = (await run(`SELECT substr(q.created_at,1,10) AS d, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE ${acc.sql} AND q.created_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
+  const foundRows = (await run(`SELECT substr(q.created_at,1,10) AS d, COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE ${acc.sql} AND q.created_at >= date('now','-13 days') GROUP BY d`).all()).results || [];
   const found = fillSeries(foundRows, days14);
   let spend = null;
   if (session.role === "admin") {
@@ -1939,39 +1939,39 @@ async function dashboardData(env, session) {
     spend = fillSeries(spendRows, days14);
   }
   // Throughput + demand signals (all role-scoped via run()).
-  const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
-  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
-  const members = (await run(`SELECT COUNT(*) AS n FROM clients c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
+  const sentWeek = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='sent' AND q.decided_at >= date('now','-6 days') AND ${acc.sql}`).first())?.n || 0;
+  const requests = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.client_request=1 AND q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
+  const members = (await run(`SELECT COUNT(*) AS n FROM users c WHERE c.member=1 AND ${acc.sql}`).first())?.n || 0;
   // Most-wanted makes in the live review queue, a quick read on demand.
-  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
+  const makeRows = (await run(`SELECT json_extract(q.lot_json,'$.marka_name') AS mk, COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} GROUP BY mk ORDER BY n DESC LIMIT 6`).all()).results || [];
   const topMakes = makeRows.filter((r) => r.mk).map((r) => ({ name: displayName(r.mk), n: r.n }));
   // Pending lots whose auction closes within 48h, the work that can't wait.
-  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
+  const closingList = (await run(`SELECT q.id, q.lot_json, c.name AS client_name FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours') ORDER BY json_extract(q.lot_json,'$.auction_date') ASC LIMIT 6`).all()).results || [];
 
   let people;
   if (session.role === "admin") {
-    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM clients c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
+    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM users c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
   } else {
-    people = (await run(`SELECT c.id, c.name, c.email, c.state FROM clients c WHERE ${acc.sql} AND c.archived = 0 ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
+    people = (await run(`SELECT c.id, c.name, c.email, c.state FROM users c WHERE ${acc.sql} AND c.archived = 0 ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
   }
 
   // --- Phase 2 "needs attention" signals (all role-scoped) -----------------
   // Live pipeline: count per stage across this session's requests.
   const TERMINAL = ["delivered", "lost"];
-  const stageRows = (await run(`SELECT w.status AS st, COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} GROUP BY w.status`).all()).results || [];
+  const stageRows = (await run(`SELECT w.status AS st, COUNT(*) AS n FROM searches w JOIN users c ON c.id = w.client_id WHERE ${acc.sql} GROUP BY w.status`).all()).results || [];
   const stageCounts = {};
   for (const s of REQUEST_STATUSES) stageCounts[s.id] = 0;
   for (const r of stageRows) if (r.st in stageCounts) stageCounts[r.st] = r.n;
   const openRequests = REQUEST_STATUSES.filter((s) => !TERMINAL.includes(s.id)).reduce((n, s) => n + (stageCounts[s.id] || 0), 0);
 
   // Deposits requested but not paid.
-  const depositsOut = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.deposit_status = 'requested' AND ${acc.sql}`).first())?.n || 0;
+  const depositsOut = (await run(`SELECT COUNT(*) AS n FROM searches w JOIN users c ON c.id = w.client_id WHERE w.deposit_status = 'requested' AND ${acc.sql}`).first())?.n || 0;
 
   // Hot leads: New requests nobody has touched yet. hot counts the ones past
   // the one-hour contact window, which flips the dashboard tile red.
   const newLeadsRow = (await run(
     `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN w.created_at <= datetime('now','-1 hour') THEN 1 ELSE 0 END), 0) AS hot
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE ${acc.sql} AND c.archived = 0 AND COALESCE(w.status, 'new') = 'new' AND w.last_activity IS NULL`
   ).first()) || {};
   const newUntouched = newLeadsRow.n || 0;
@@ -1981,12 +1981,12 @@ async function dashboardData(env, session) {
   const inTerminal = TERMINAL.map((s) => `'${s}'`).join(",");
   const stalledList = (await run(
     `SELECT w.id, w.status, w.last_activity, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0
         AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))
       ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
   ).all()).results || [];
-  const stalled = (await run(`SELECT COUNT(*) AS n FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0 AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))`).first())?.n || 0;
+  const stalled = (await run(`SELECT COUNT(*) AS n FROM searches w JOIN users c ON c.id = w.client_id WHERE ${acc.sql} AND w.status NOT IN (${inTerminal}) AND c.archived = 0 AND (w.last_activity IS NULL OR w.last_activity < datetime('now','-14 days'))`).first())?.n || 0;
 
   // Gone quiet (IA-AUDIT item 7): clients who ENGAGED (opened a sent car or
   // said interested), still have an active request, and have had no touch
@@ -1994,12 +1994,12 @@ async function dashboardData(env, session) {
   // re-contact list for the long deliberation cycle, distinct from Stalled,
   // which is request-activity based and blind to engagement.
   const gqCore = `
-     FROM clients c
+     FROM users c
      JOIN (SELECT client_id, sent_at AS ts FROM queue WHERE sent_at IS NOT NULL
            UNION ALL SELECT client_id, created_at FROM activity WHERE type IN ('note','contact')) t ON t.client_id = c.id
     WHERE ${acc.sql} AND c.archived = 0
       AND EXISTS (SELECT 1 FROM queue qe WHERE qe.client_id = c.id AND (qe.viewed_at IS NOT NULL OR qe.response = 'interested'))
-      AND EXISTS (SELECT 1 FROM wishlists we WHERE we.client_id = c.id AND COALESCE(we.status, 'new') NOT IN ('lost','delivered'))
+      AND EXISTS (SELECT 1 FROM searches we WHERE we.client_id = c.id AND COALESCE(we.status, 'new') NOT IN ('lost','delivered'))
     GROUP BY c.id, c.name
    HAVING MAX(t.ts) < datetime('now','-14 days')`;
   const goneQuietList = (await run(
@@ -2013,10 +2013,10 @@ async function dashboardData(env, session) {
   // Tasks: overdue + due-today counts and the actual list (scoped to me/my clients).
   const tsc = taskScope(session);
   const tbind = (sql) => { const s = env.DB.prepare(sql); return tsc.binds.length ? s.bind(...tsc.binds) : s; };
-  const tasksOverdue = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date < date('now') AND ${tsc.sql}`).first())?.n || 0;
-  const tasksToday = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN clients c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date = date('now') AND ${tsc.sql}`).first())?.n || 0;
+  const tasksOverdue = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN users c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date < date('now') AND ${tsc.sql}`).first())?.n || 0;
+  const tasksToday = (await tbind(`SELECT COUNT(*) AS n FROM tasks t LEFT JOIN users c ON c.id = t.client_id WHERE t.status != 'done' AND t.due_date = date('now') AND ${tsc.sql}`).first())?.n || 0;
   const tasksDueList = (await tbind(
-    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN users c ON c.id = t.client_id
       WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date <= date('now') AND ${tsc.sql}
       ORDER BY t.due_date ASC, t.priority='high' DESC LIMIT 6`
   ).all()).results || [];
@@ -2024,7 +2024,7 @@ async function dashboardData(env, session) {
   // Scheduled follow-ups due (or overdue) today, "who needs attention today?".
   const nextActionList = (await run(
     `SELECT w.id, w.status, w.next_action_date, w.next_action_note, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE ${acc.sql} AND c.archived = 0 AND w.status NOT IN (${inTerminal})
         AND w.next_action_date IS NOT NULL AND w.next_action_date <= date('now')
       ORDER BY w.next_action_date ASC LIMIT 8`
@@ -2034,7 +2034,7 @@ async function dashboardData(env, session) {
   // Who owes money, deposits requested but not paid (the list, for the panel).
   const depositsList = (await run(
     `SELECT w.id, w.status, w.price_max, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id, c.whatsapp AS client_whatsapp
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE w.deposit_status = 'requested' AND ${acc.sql} AND c.archived = 0
       ORDER BY COALESCE(w.last_activity, w.created_at) ASC LIMIT 6`
   ).all()).results || [];
@@ -2042,7 +2042,7 @@ async function dashboardData(env, session) {
   // Closest to buying, interested / deposit stages, most-committed first.
   const closestList = (await run(
     `SELECT w.id, w.status, w.deposit_status, w.marka_name, w.model_name, c.name AS client_name, c.id AS client_id
-       FROM wishlists w JOIN clients c ON c.id = w.client_id
+       FROM searches w JOIN users c ON c.id = w.client_id
       WHERE ${acc.sql} AND c.archived = 0
         AND w.status IN ('interested','deposit_requested','deposit_paid')
       ORDER BY CASE w.status WHEN 'deposit_paid' THEN 3 WHEN 'deposit_requested' THEN 2 ELSE 1 END DESC,
@@ -2994,7 +2994,7 @@ export async function updateRequestStatus(env, id, status, session) {
   if (!validStatus(status)) return { ok: false, error: "status" };
   if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
   const w = await env.DB.prepare(
-    "SELECT w.id, w.client_id, w.status, w.owner_id, w.deposit_status, c.name AS client_name, c.agent_id FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+    "SELECT w.id, w.client_id, w.status, w.owner_id, w.deposit_status, c.name AS client_name, c.agent_id FROM searches w JOIN users c ON c.id = w.client_id WHERE w.id = ?"
   ).bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   const prev = w.status || "new";
@@ -3004,7 +3004,7 @@ export async function updateRequestStatus(env, id, status, session) {
   let deposit = w.deposit_status || "none";
   if (status === "deposit_requested" && deposit === "none") deposit = "requested";
   if (status === "deposit_paid") deposit = "paid";
-  await env.DB.prepare("UPDATE wishlists SET status = ?, last_activity = ?, deposit_status = ? WHERE id = ?")
+  await env.DB.prepare("UPDATE searches SET status = ?, last_activity = ?, deposit_status = ? WHERE id = ?")
     .bind(status, now, deposit, wid).run();
   const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "status", detail: `${RSTATUS[prev]?.label || prev} to ${RSTATUS[status]?.label || status}`, actor });
@@ -3179,9 +3179,9 @@ export async function addRequestNote(env, id, note, session) {
   const text = String(note || "").trim().slice(0, 500);
   if (!text) return { ok: false, error: "empty" };
   if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
-  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
-  await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), wid).run();
+  await env.DB.prepare("UPDATE searches SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), wid).run();
   const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: text, actor });
   return { ok: true, client_id: w.client_id };
@@ -3191,7 +3191,7 @@ export async function addRequestNote(env, id, note, session) {
 export async function assignRequestOwner(env, id, ownerId, session) {
   const wid = Number(id);
   if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
-  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   const oid = Number(ownerId);
   const owner = Number.isInteger(oid) && oid > 0 ? oid : null;
@@ -3201,7 +3201,7 @@ export async function assignRequestOwner(env, id, ownerId, session) {
     if (!a) return { ok: false, error: "owner" };
     name = a.name;
   }
-  await env.DB.prepare("UPDATE wishlists SET owner_id = ?, last_activity = ? WHERE id = ?").bind(owner, new Date().toISOString(), wid).run();
+  await env.DB.prepare("UPDATE searches SET owner_id = ?, last_activity = ? WHERE id = ?").bind(owner, new Date().toISOString(), wid).run();
   const actor = await actorName(env, session);
   await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "owner", detail: `Assigned to ${name}`, actor });
   return { ok: true, client_id: w.client_id };
@@ -3214,17 +3214,17 @@ export async function setNextAction(env, id, { date, note, clear } = {}, session
   // Owner-only: the follow-up schedule drives the owning agent's pipeline;
   // shared (co-search) agents must not rewrite another agent's calendar.
   if (!(await wishlistOwnedBy(env, wid, session))) return { ok: false, error: "forbidden" };
-  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first();
+  const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(wid).first();
   if (!w) return { ok: false, error: "not_found" };
   if (clear) {
-    await env.DB.prepare("UPDATE wishlists SET next_action_date = NULL, next_action_note = NULL WHERE id = ?").bind(wid).run();
+    await env.DB.prepare("UPDATE searches SET next_action_date = NULL, next_action_note = NULL WHERE id = ?").bind(wid).run();
     return { ok: true, client_id: w.client_id, cleared: true };
   }
   // Accept only a plain ISO date (YYYY-MM-DD); anything else clears the schedule.
   const d = String(date || "").trim();
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
   const n = String(note || "").trim().slice(0, 160) || null;
-  await env.DB.prepare("UPDATE wishlists SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
+  await env.DB.prepare("UPDATE searches SET next_action_date = ?, next_action_note = ? WHERE id = ?").bind(iso, n, wid).run();
   if (iso) {
     const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: wid, client_id: w.client_id, type: "note", detail: `Follow-up set for ${iso}${n ? `: ${n}` : ""}`, actor });
@@ -3248,7 +3248,7 @@ export async function createTask(env, form, session) {
   let cid = form.get("client_id") ? Number(form.get("client_id")) : null;
   if (wid) {
     if (!(await wishlistAccessibleBy(env, wid, session))) return { ok: false, error: "forbidden" };
-    if (!cid) { const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(wid).first(); cid = w ? w.client_id : null; }
+    if (!cid) { const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(wid).first(); cid = w ? w.client_id : null; }
   } else if (cid) {
     if (!(await clientAccessibleBy(env, cid, session))) return { ok: false, error: "forbidden" };
   } else if (form.get("client_name")) {
@@ -3258,7 +3258,7 @@ export async function createTask(env, form, session) {
     const nm = String(form.get("client_name")).trim();
     if (nm) {
       const acc = accessScope(session);
-      const st = env.DB.prepare(`SELECT c.id FROM clients c WHERE ${acc.sql} AND c.archived = 0 AND LOWER(c.name) = LOWER(?) LIMIT 2`);
+      const st = env.DB.prepare(`SELECT c.id FROM users c WHERE ${acc.sql} AND c.archived = 0 AND LOWER(c.name) = LOWER(?) LIMIT 2`);
       const hits = (await (acc.binds.length ? st.bind(...acc.binds, nm) : st.bind(nm)).all()).results || [];
       if (hits.length === 1) cid = hits[0].id;
     }
@@ -3304,14 +3304,14 @@ export async function recordMatchSent(env, queueId, session) {
     if (!q.sent_at) await env.DB.prepare("UPDATE queue SET sent_at = datetime('now') WHERE id = ?").bind(q.id).run();
     let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
     const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
-    if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
+    if (q.wishlist_id) await env.DB.prepare("UPDATE searches SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
     const actor = await actorName(env, session);
     await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "match_sent", detail: `Vehicle sent: ${veh}`, actor });
     // Autopilot: the first lot sent moves an early-stage request to "Vehicles
     // sent" (which also seeds the 3-day follow-up task). A manually chosen
     // later stage always wins because only early stages advance.
     if (q.wishlist_id) {
-      const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
+      const w = await env.DB.prepare("SELECT status FROM searches WHERE id = ?").bind(q.wishlist_id).first();
       if (w && ["new", "qualified", "searching"].includes(w.status || "new")) {
         await updateRequestStatus(env, q.wishlist_id, "vehicles_sent", session);
       }
@@ -3346,14 +3346,14 @@ export async function setMatchResponse(env, queueId, response, session) {
   const veh = [lot.year, displayName(lot.marka_name), displayName(lot.model_name)].filter(Boolean).join(" ") || ("Lot " + (lot.lot || q.id));
   const actor = await actorName(env, session);
   if (resp === "interested" && q.wishlist_id) {
-    const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(q.wishlist_id).first();
+    const w = await env.DB.prepare("SELECT status FROM searches WHERE id = ?").bind(q.wishlist_id).first();
     if (w && ["new", "qualified", "searching", "vehicles_sent"].includes(w.status)) {
       await updateRequestStatus(env, q.wishlist_id, "interested", session); // logs its own event
       await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: "interested", detail: `Interested in ${veh}`, actor });
       return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
     }
   }
-  if (q.wishlist_id) await env.DB.prepare("UPDATE wishlists SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
+  if (q.wishlist_id) await env.DB.prepare("UPDATE searches SET last_activity = ? WHERE id = ?").bind(new Date().toISOString(), q.wishlist_id).run();
   await logActivity(env, { wishlist_id: q.wishlist_id, client_id: q.client_id, type: resp === "interested" ? "interested" : "note", detail: resp === "interested" ? `Interested in ${veh}` : `Passed on ${veh}`, actor });
   return { ok: true, wishlist_id: q.wishlist_id, client_id: q.client_id };
 }
@@ -3396,7 +3396,7 @@ export async function regenerateShareLink(env, queueId, session) {
 export async function archiveClient(env, id, on, session) {
   const cid = Number(id);
   if (!(await clientOwnedBy(env, cid, session))) return { ok: false, error: "forbidden" };
-  await env.DB.prepare("UPDATE clients SET archived = ? WHERE id = ?").bind(on ? 1 : 0, cid).run();
+  await env.DB.prepare("UPDATE users SET archived = ? WHERE id = ?").bind(on ? 1 : 0, cid).run();
   return { ok: true };
 }
 
@@ -3411,7 +3411,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   if (!(await wishlistAccessibleBy(env, wid, session))) return notFound();
   const w = await env.DB.prepare(
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state, c.agent_id AS client_agent, c.portal_enabled
-       FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?`
+       FROM searches w JOIN users c ON c.id = w.client_id WHERE w.id = ?`
   ).bind(wid).first();
   if (!w) return notFound();
 
@@ -3422,7 +3422,7 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
   ).bind(wid).all()).results || [];
   const acts = (await env.DB.prepare("SELECT * FROM activity WHERE wishlist_id = ? ORDER BY created_at DESC, id DESC LIMIT 40").bind(wid).all()).results || [];
   const tasks = (await env.DB.prepare(
-    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN users c ON c.id = t.client_id
       WHERE t.wishlist_id = ? ORDER BY (t.status='done'), COALESCE(t.due_date,'9999-99-99'), t.id DESC LIMIT 30`
   ).bind(wid).all()).results || [];
   const agents = session.role === "admin" ? ((await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || []) : [];
@@ -3690,7 +3690,7 @@ async function tasksData(env, session) {
   const sc = taskScope(session);
   const rows = (await env.DB.prepare(
     `SELECT t.*, c.name AS client_name, w.marka_name, w.model_name
-       FROM tasks t LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN wishlists w ON w.id = t.wishlist_id
+       FROM tasks t LEFT JOIN users c ON c.id = t.client_id LEFT JOIN searches w ON w.id = t.wishlist_id
       WHERE (t.status != 'done' OR t.done_at >= datetime('now','-7 days')) AND ${sc.sql}
       ORDER BY COALESCE(t.due_date,'9999-99-99'), t.priority='high' DESC, t.id DESC LIMIT 400`
   ).bind(...sc.binds).all()).results || [];
@@ -4568,8 +4568,8 @@ export async function autoFollowUps(env) {
     const rows = (await env.DB.prepare(
       `SELECT q.wishlist_id, q.client_id, c.name AS client_name, w.owner_id, c.agent_id
          FROM queue q
-         JOIN clients c ON c.id = q.client_id
-         LEFT JOIN wishlists w ON w.id = q.wishlist_id
+         JOIN users c ON c.id = q.client_id
+         LEFT JOIN searches w ON w.id = q.wishlist_id
         WHERE q.status = 'sent' AND q.sent_at IS NOT NULL AND q.sent_at <= datetime('now','-3 days')
           AND q.viewed_at IS NULL AND q.response IS NULL AND q.wishlist_id IS NOT NULL
         GROUP BY q.wishlist_id`
@@ -4798,7 +4798,7 @@ export async function lotDetailPage(env, queueId, session = { role: "admin", id:
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
             w.label AS wlabel, w.rate_min AS w_rate,
             w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-       FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+       FROM queue q JOIN users c ON c.id = q.client_id LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.id = ?`
   ).bind(qid).first();
   if (!q) return notFound();
@@ -5149,16 +5149,16 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
     "Client - JDM Connect");
   if (!Number.isInteger(cid) || cid <= 0) return notFound();
   if (!(await clientAccessibleBy(env, cid, session))) return notFound();
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  const c = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(cid).first();
   if (!c) return notFound();
 
-  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  const wls = (await env.DB.prepare("SELECT * FROM searches WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
   const lastc = await lastContacted(env, cid);
   await expirePast(env);
   const matches = (await env.DB.prepare(
     `SELECT q.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp,
             w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-       FROM queue q JOIN clients c ON c.id = q.client_id LEFT JOIN wishlists w ON w.id = q.wishlist_id
+       FROM queue q JOIN users c ON c.id = q.client_id LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.client_id = ? AND q.status = 'pending' AND ${SNOOZE_LIVE} ORDER BY q.created_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
   const snoozedN = (await env.DB.prepare(
@@ -5176,14 +5176,14 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
 
   // Cars this client has asked us to action/translate from their portal.
   const requested = (await env.DB.prepare(
-    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.client_id = ? AND q.client_request = 1 ORDER BY q.client_request_at DESC LIMIT 40`
   ).bind(cid).all()).results || [];
 
   // Sent-lot history: everything already actioned (sent Tue, opened Wed,
   // passed), so the page answers "what did we send and what happened?".
   const history = (await env.DB.prepare(
-    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+    `SELECT q.*, w.label AS wlabel FROM queue q LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.client_id = ? AND q.status != 'pending' ORDER BY COALESCE(q.decided_at, q.created_at) DESC LIMIT 20`
   ).bind(cid).all()).results || [];
 
@@ -6124,7 +6124,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   // auction search page). Staff (admin/agent) always pass.
   let client = null;
   if (member) {
-    client = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    client = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
     if (!client || !client.member) {
       const sb = portalSidebar(client || null, "auctions");
       return brandShell(sb,
@@ -6142,7 +6142,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
   // Client context (staff only): arriving from a client's find results makes
   // that client the Add target and points Back at the search they came from.
   const ctxClient = (!member && opts.clientId && await clientAccessibleBy(env, opts.clientId, session))
-    ? await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(Number(opts.clientId)).first()
+    ? await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(Number(opts.clientId)).first()
     : null;
   const ctxFirst = ctxClient ? (String(ctxClient.name || "").trim().split(/\s+/)[0] || "client") : "";
   const backHref = member ? "/portal/auctions"
@@ -6220,7 +6220,7 @@ export async function auctionLotPage(env, session, lotId, opts = {}) {
       <p class="plv-fine">Requesting a bid sends this lot to JDM Connect to action on your behalf. No payment is taken at this step.</p>`;
   } else {
     const acc = accessScope(session);
-    const cstmt = env.DB.prepare(`SELECT id, name FROM clients c WHERE ${acc.sql} ORDER BY name`);
+    const cstmt = env.DB.prepare(`SELECT id, name FROM users c WHERE ${acc.sql} ORDER BY name`);
     const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
     const options = clients.map((cl) => `<option value="${cl.id}"${ctxClient && Number(cl.id) === Number(ctxClient.id) ? " selected" : ""}>${esc(cl.name)}</option>`).join("");
     // With client context the primary action is ONE tap: add to that client.
@@ -6674,7 +6674,7 @@ function drawerChrome() {
 // destructive/management actions (delete client, manage sharing).
 export async function clientOwnedBy(env, clientId, session) {
   if (!session || session.role === "admin") return true;
-  const c = await env.DB.prepare("SELECT agent_id FROM clients WHERE id = ?").bind(Number(clientId)).first();
+  const c = await env.DB.prepare("SELECT agent_id FROM users WHERE id = ?").bind(Number(clientId)).first();
   return !!c && Number(c.agent_id) === Number(session.id);
 }
 
@@ -6691,7 +6691,7 @@ export async function clientAccessibleBy(env, clientId, session) {
 
 async function wishlistAccessibleBy(env, wishlistId, session) {
   if (!session || session.role === "admin") return true;
-  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
+  const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(Number(wishlistId)).first();
   return !!w && (await clientAccessibleBy(env, w.client_id, session));
 }
 
@@ -6701,7 +6701,7 @@ async function wishlistAccessibleBy(env, wishlistId, session) {
 // reschedule follow-ups) on another agent's client.
 async function wishlistOwnedBy(env, wishlistId, session) {
   if (!session || session.role === "admin") return true;
-  const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(wishlistId)).first();
+  const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(Number(wishlistId)).first();
   return !!w && (await clientOwnedBy(env, w.client_id, session));
 }
 
@@ -6736,7 +6736,7 @@ export async function findClientByContact(env, { email, whatsapp, scopeSql, scop
   const e = String(email || "").trim().toLowerCase();
   if (e) {
     const row = await env.DB.prepare(
-      `SELECT id, name FROM clients WHERE ${scopeSql} AND email IS NOT NULL AND lower(email) = ? LIMIT 1`
+      `SELECT id, name FROM users WHERE ${scopeSql} AND email IS NOT NULL AND lower(email) = ? LIMIT 1`
     ).bind(...scopeBinds, e).first();
     if (row) return row;
   }
@@ -6744,7 +6744,7 @@ export async function findClientByContact(env, { email, whatsapp, scopeSql, scop
   // Require a plausibly-complete number so short/garbage input can't collide.
   if (key.length >= 8) {
     const { results } = await env.DB.prepare(
-      `SELECT id, name, whatsapp FROM clients WHERE ${scopeSql} AND whatsapp IS NOT NULL AND whatsapp <> ''`
+      `SELECT id, name, whatsapp FROM users WHERE ${scopeSql} AND whatsapp IS NOT NULL AND whatsapp <> ''`
     ).bind(...scopeBinds).all();
     for (const r of results || []) {
       if (phoneKey(r.whatsapp) === key) return { id: r.id, name: r.name };
@@ -6774,7 +6774,7 @@ async function insertClientDrift(env, cols) {
     const names = entries.map(([k]) => k);
     try {
       return await env.DB.prepare(
-        `INSERT INTO clients (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
+        `INSERT INTO users (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
       ).bind(...entries.map(([, v]) => v)).run();
     } catch (e) {
       const m = String(e && e.message).match(CLIENT_DRIFT);
@@ -6813,7 +6813,7 @@ export async function createClient(env, form, session) {
     const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(agentId) });
     if (dup) {
       await env.DB.prepare(
-        `UPDATE clients SET
+        `UPDATE users SET
             email = COALESCE(NULLIF(?, ''), email),
             whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
             state = COALESCE(NULLIF(?, ''), state)
@@ -6837,7 +6837,7 @@ export async function createClient(env, form, session) {
 export async function updateClient(env, form, session) {
   const cid = Number(form.get("id"));
   if (!Number.isInteger(cid) || cid <= 0) return { ok: false, error: "notfound" };
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  const c = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(cid).first();
   if (!c) return { ok: false, error: "notfound" };
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
   if (!canManage) return { ok: false, error: "forbidden" };
@@ -6873,7 +6873,7 @@ export async function updateClient(env, form, session) {
   const dup = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(c.agent_id) });
   if (dup && Number(dup.id) !== cid) return { ok: false, error: "duplicate", id: dup.id, name: dup.name };
 
-  await env.DB.prepare("UPDATE clients SET name = ?, email = ?, whatsapp = ?, state = ?, category = ? WHERE id = ?")
+  await env.DB.prepare("UPDATE users SET name = ?, email = ?, whatsapp = ?, state = ?, category = ? WHERE id = ?")
     .bind(name, email || null, whatsapp || null, state, category, cid).run();
   return { ok: true, id: cid };
 }
@@ -6952,7 +6952,7 @@ export function gradesText(raw) {
   try { const l = JSON.parse(s); return Array.isArray(l) ? l.join(", ") : ""; } catch (e) { return s; }
 }
 async function activeWishlistCount(env, clientId) {
-  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists WHERE client_id = ? AND active = 1").bind(Number(clientId)).first();
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM searches WHERE client_id = ? AND active = 1").bind(Number(clientId)).first();
   return Number(r?.n) || 0;
 }
 // Shared year pair: both valid 4-digit years, swapped into order.
@@ -6977,7 +6977,7 @@ async function insertWishlistDrift(env, pairs) {
     const names = cols.map((c) => c[0]);
     try {
       const ins = await env.DB.prepare(
-        `INSERT INTO wishlists (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
+        `INSERT INTO searches (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`
       ).bind(...cols.map((c) => c[1])).run();
       return ins?.meta?.last_row_id ?? null;
     } catch (e) {
@@ -6994,7 +6994,7 @@ async function updateWishlistDrift(env, sets, where, whereVals) {
   for (;;) {
     try {
       await env.DB.prepare(
-        `UPDATE wishlists SET ${cols.map((c) => `${c[0]} = ?`).join(", ")} ${where}`
+        `UPDATE searches SET ${cols.map((c) => `${c[0]} = ?`).join(", ")} ${where}`
       ).bind(...cols.map((c) => c[1]), ...whereVals).run();
       return;
     } catch (e) {
@@ -7037,10 +7037,10 @@ export async function deleteClient(env, id, session) {
   const cid = Number(id);
   if (!Number.isInteger(cid) || cid <= 0) return;
   if (!(await clientOwnedBy(env, cid, session))) return; // delete is owner-only
-  const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(cid).all()).results || [];
+  const wls = (await env.DB.prepare("SELECT id FROM searches WHERE client_id = ?").bind(cid).all()).results || [];
   const stmts = [env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid)];
   for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
-  stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM searches WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
   // Clear the free-text CRM trail (activity timeline + tasks hold names, notes
   // and "Vehicle sent: …" detail) so it isn't orphaned after the client is
@@ -7048,7 +7048,7 @@ export async function deleteClient(env, id, session) {
   // (client_id is NOT NULL and the row holds no name/email/phone).
   stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
   stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
-  stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
+  stmts.push(env.DB.prepare("DELETE FROM users WHERE id = ?").bind(cid));
   await env.DB.batch(stmts);
 }
 
@@ -7061,7 +7061,7 @@ export async function deleteWishlist(env, id, session) {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ?").bind(wid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(wid),
-    env.DB.prepare("DELETE FROM wishlists WHERE id = ?").bind(wid),
+    env.DB.prepare("DELETE FROM searches WHERE id = ?").bind(wid),
   ]);
 }
 
@@ -7072,7 +7072,7 @@ export async function toggleWishlist(env, id, session) {
   if (!Number.isInteger(wid) || wid <= 0) return;
   if (!(await wishlistOwnedBy(env, wid, session))) return;
   await env.DB.prepare(
-    "UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
+    "UPDATE searches SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?"
   ).bind(wid).run();
 }
 
@@ -7119,19 +7119,19 @@ export async function toggleAgentAlerts(env, id) {
 export async function deleteAgent(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
-  const clients = (await env.DB.prepare("SELECT id FROM clients WHERE agent_id = ?").bind(aid).all()).results || [];
+  const clients = (await env.DB.prepare("SELECT id FROM users WHERE agent_id = ?").bind(aid).all()).results || [];
   const stmts = [];
   for (const c of clients) {
-    const wls = (await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(c.id).all()).results || [];
+    const wls = (await env.DB.prepare("SELECT id FROM searches WHERE client_id = ?").bind(c.id).all()).results || [];
     stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(c.id));
     for (const w of wls) stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id));
-    stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(c.id));
+    stmts.push(env.DB.prepare("DELETE FROM searches WHERE client_id = ?").bind(c.id));
     stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(c.id));
     stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(c.id));
     stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(c.id));
   }
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE agent_id = ?").bind(aid)); // shares received
-  stmts.push(env.DB.prepare("DELETE FROM clients WHERE agent_id = ?").bind(aid));
+  stmts.push(env.DB.prepare("DELETE FROM users WHERE agent_id = ?").bind(aid));
   stmts.push(env.DB.prepare("DELETE FROM agents WHERE id = ?").bind(aid));
   await env.DB.batch(stmts);
 }
@@ -7141,7 +7141,7 @@ export async function shareClient(env, clientId, agentId, session) {
   const cid = Number(clientId), aid = Number(agentId);
   if (!cid || !aid) return;
   if (!(await clientOwnedBy(env, cid, session))) return; // only the owner shares
-  const owner = await env.DB.prepare("SELECT agent_id FROM clients WHERE id = ?").bind(cid).first();
+  const owner = await env.DB.prepare("SELECT agent_id FROM users WHERE id = ?").bind(cid).first();
   if (owner && Number(owner.agent_id) === aid) return; // don't share with the owner
   const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(aid).first();
   if (!agent) return;
@@ -7167,7 +7167,7 @@ export async function assignClient(env, clientId, agentId, session) {
     const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(owner).first();
     if (!agent) return;
   }
-  await env.DB.prepare("UPDATE clients SET agent_id = ? WHERE id = ?").bind(owner, cid).run();
+  await env.DB.prepare("UPDATE users SET agent_id = ? WHERE id = ?").bind(owner, cid).run();
   if (owner) await env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, owner).run();
 }
 
@@ -7189,7 +7189,7 @@ export async function bulkAllocate(env, action, agentId, ids, session, includeAg
     let deletable = list, skipped = 0;
     if (!includeAgents) {
       const owned = new Set(
-        (((await env.DB.prepare("SELECT id FROM clients WHERE agent_id IS NOT NULL").all()).results) || [])
+        (((await env.DB.prepare("SELECT id FROM users WHERE agent_id IS NOT NULL").all()).results) || [])
           .map((r) => Number(r.id))
       );
       deletable = list.filter((cid) => !owned.has(cid));
@@ -7198,12 +7198,12 @@ export async function bulkAllocate(env, action, agentId, ids, session, includeAg
     const stmts = [];
     for (const cid of deletable) {
       stmts.push(env.DB.prepare("DELETE FROM queue WHERE client_id = ?").bind(cid));
-      stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM wishlists WHERE client_id = ?)").bind(cid));
-      stmts.push(env.DB.prepare("DELETE FROM wishlists WHERE client_id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id IN (SELECT id FROM searches WHERE client_id = ?)").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM searches WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM activity WHERE client_id = ?").bind(cid));
       stmts.push(env.DB.prepare("DELETE FROM tasks WHERE client_id = ?").bind(cid));
-      stmts.push(env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(cid));
+      stmts.push(env.DB.prepare("DELETE FROM users WHERE id = ?").bind(cid));
     }
     if (stmts.length) await env.DB.batch(stmts);
     return { deleted: deletable.length, skipped };
@@ -7212,7 +7212,7 @@ export async function bulkAllocate(env, action, agentId, ids, session, includeAg
   // Soft archive / restore selected clients.
   if (action === "archive" || action === "unarchive") {
     const on = action === "archive" ? 1 : 0;
-    await env.DB.batch(list.map((cid) => env.DB.prepare("UPDATE clients SET archived = ? WHERE id = ?").bind(on, cid)));
+    await env.DB.batch(list.map((cid) => env.DB.prepare("UPDATE users SET archived = ? WHERE id = ?").bind(on, cid)));
     return;
   }
 
@@ -7228,7 +7228,7 @@ export async function bulkAllocate(env, action, agentId, ids, session, includeAg
     for (const cid of list) stmts.push(env.DB.prepare("INSERT OR IGNORE INTO client_shares (client_id, agent_id) VALUES (?, ?)").bind(cid, owner));
   } else {
     for (const cid of list) {
-      stmts.push(env.DB.prepare("UPDATE clients SET agent_id = ? WHERE id = ?").bind(owner, cid));
+      stmts.push(env.DB.prepare("UPDATE users SET agent_id = ? WHERE id = ?").bind(owner, cid));
       if (owner) stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE client_id = ? AND agent_id = ?").bind(cid, owner));
     }
   }
@@ -7288,7 +7288,7 @@ export async function createRequest(env, form, session) {
   let sessionClient = null;
   if (session && session.role === "client" && session.id) {
     sessionClient = await env.DB.prepare(
-      "SELECT id, name, email, whatsapp, google_sub FROM clients WHERE id = ?"
+      "SELECT id, name, email, whatsapp, google_sub FROM users WHERE id = ?"
     ).bind(session.id).first();
   }
 
@@ -7374,7 +7374,7 @@ export async function createRequest(env, form, session) {
   if (phoneKey(effectivePhone).length < 8) return { ok: false, error: "phone", vals };
   // A signed-in buyer who supplied a new number gets it saved to their record.
   if (sessionClient && phoneKey(whatsapp).length >= 8 && phoneKey(whatsapp) !== phoneKey(sessionClient.whatsapp || "")) {
-    await env.DB.prepare("UPDATE clients SET whatsapp = ? WHERE id = ?").bind(whatsapp, sessionClient.id).run();
+    await env.DB.prepare("UPDATE users SET whatsapp = ? WHERE id = ?").bind(whatsapp, sessionClient.id).run();
   }
 
   // Attach the wishlist to the right client. Signed-in -> their own record;
@@ -7401,7 +7401,7 @@ export async function createRequest(env, form, session) {
       // so we never nag them for a password. A staff-revoked client never gets
       // one either: the resulting inviteClientPortal call would clear the
       // portal_revoked veto, letting them self-invite straight back in.
-      const exi = await env.DB.prepare("SELECT pass_hash, google_sub, COALESCE(portal_revoked, 0) AS portal_revoked FROM clients WHERE id = ?").bind(clientId).first();
+      const exi = await env.DB.prepare("SELECT pass_hash, google_sub, COALESCE(portal_revoked, 0) AS portal_revoked FROM users WHERE id = ?").bind(clientId).first();
       if (exi && !exi.pass_hash && !exi.google_sub && !exi.portal_revoked) inviteNeeded = true;
       // Existing record WITH a login: the typed password was ignored, so email
       // a sign-in link instead (neutral "check your email to continue" flow).
@@ -7438,12 +7438,12 @@ export async function upsertGoogleClient(env, profile) {
   let existing = null;
   if (sub) {
     existing = await env.DB.prepare(
-      "SELECT id, portal_revoked FROM clients WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
+      "SELECT id, portal_revoked FROM users WHERE google_sub = ? AND agent_id IS NULL AND dealer_username IS NULL LIMIT 1"
     ).bind(sub).first();
   }
   if (!existing) {
     existing = await env.DB.prepare(
-      "SELECT id, portal_revoked FROM clients WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
+      "SELECT id, portal_revoked FROM users WHERE agent_id IS NULL AND dealer_username IS NULL AND email IS NOT NULL AND lower(email) = ? ORDER BY id DESC LIMIT 1"
     ).bind(email).first();
   }
 
@@ -7455,7 +7455,7 @@ export async function upsertGoogleClient(env, profile) {
     // Link the Google id, enable the portal, and backfill a blank/placeholder
     // name - but never overwrite a real name already on file.
     await env.DB.prepare(
-      "UPDATE clients SET portal_enabled = 1, google_sub = COALESCE(google_sub, ?), " +
+      "UPDATE users SET portal_enabled = 1, google_sub = COALESCE(google_sub, ?), " +
       "name = CASE WHEN name IS NULL OR name = '' OR name = 'Website enquiry' THEN ? ELSE name END " +
       "WHERE id = ?"
     ).bind(sub, name, existing.id).run();
@@ -7484,7 +7484,7 @@ async function upsertPublicClient(env, form, email, whatsapp) {
     // so a stranger who knows a client's email/phone can't rename them via the
     // public form. A real name on file is kept.
     await env.DB.prepare(
-      `UPDATE clients SET
+      `UPDATE users SET
           name = CASE WHEN name IS NULL OR name = '' OR name = 'Website enquiry' THEN ? ELSE name END,
           email = COALESCE(NULLIF(?, ''), email),
           whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
@@ -7513,7 +7513,7 @@ async function sameCarWishlistId(env, clientId, form) {
   const modelCode = sstr(form, "model_code", FIELD_MAX.kuzov);
   const needsDetail = !(marka || model || kuzov || gradeKw || modelCode) ? 1 : 0;
   const row = await env.DB.prepare(
-    `SELECT id FROM wishlists
+    `SELECT id FROM searches
        WHERE client_id = ?
          AND lower(COALESCE(marka_name,'')) = lower(?)
          AND lower(COALESCE(model_name,'')) = lower(?)
@@ -7566,7 +7566,7 @@ async function createRequestWishlist(env, clientId, form) {
     const vals = [clientId, str(form, "label"), marka, model, yMin, yMax, priceMax, mileageMax, rateMin, kuzov, gradeKw, watchOnly, needsDetail, dest, ...extraCols.map((c) => optional[c])];
     try {
       const ins = await env.DB.prepare(
-        `INSERT INTO wishlists (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
+        `INSERT INTO searches (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
       ).bind(...vals).run();
       return ins?.meta?.last_row_id ?? null;
     } catch (e) {
@@ -7615,7 +7615,7 @@ export async function createAdminRequest(env, form, session) {
     // Backfill newly-supplied contact details without clobbering existing ones
     // (mirrors createClient's duplicate branch and upsertPublicClient).
     await env.DB.prepare(
-      `UPDATE clients SET
+      `UPDATE users SET
           email = COALESCE(NULLIF(?, ''), email),
           whatsapp = COALESCE(NULLIF(?, ''), whatsapp),
           state = COALESCE(NULLIF(?, ''), state)
@@ -7665,7 +7665,7 @@ async function enablePortalSelfSignup(env, clientId, password) {
   // "only if no password yet" condition would let a staff-revoked client
   // self-signup straight back into the portal.
   const r = await env.DB.prepare(
-    `UPDATE clients SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
+    `UPDATE users SET portal_enabled = 1, pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL
        WHERE id = ? AND (pass_hash IS NULL OR pass_hash = '') AND portal_revoked = 0`
   ).bind(salt, hash, clientId).run();
   return (r.meta?.changes || 0) > 0;
@@ -7691,7 +7691,7 @@ const SYSTEM_WISHLIST_LABELS = new Set([DIRECT_REQUESTS_LABEL, MANUAL_FINDS_LABE
 // request any lot. Gated on clients.member.
 export async function portalAuctionsPage(env, session, params = {}) {
   const cid = Number(session.id);
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  const c = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
       `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>
@@ -7769,10 +7769,10 @@ export async function requestAuctionLot(env, clientId, lotId) {
   // from Auction History). The UI never offers the bid form on a sold lot, but
   // a replayed/hand-built POST must not queue a bid on a car that's gone.
   if (Number(lot.finish) > 0) return { ok: false, error: "sold" };
-  let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(clientId, DIRECT_REQUESTS_LABEL).first();
+  let wl = await env.DB.prepare("SELECT id FROM searches WHERE client_id = ? AND label = ? LIMIT 1").bind(clientId, DIRECT_REQUESTS_LABEL).first();
   let wishlistId = wl?.id;
   if (!wishlistId) {
-    const ins = await env.DB.prepare("INSERT INTO wishlists (client_id, label, active, watch_only) VALUES (?, ?, 1, 1)").bind(clientId, DIRECT_REQUESTS_LABEL).run();
+    const ins = await env.DB.prepare("INSERT INTO searches (client_id, label, active, watch_only) VALUES (?, ?, 1, 1)").bind(clientId, DIRECT_REQUESTS_LABEL).run();
     wishlistId = ins.meta?.last_row_id;
   }
   const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(clientId, String(lot.id)).first();
@@ -7803,15 +7803,15 @@ export async function addLotToClient(env, clientId, lotId, session) {
   const existing = await env.DB.prepare("SELECT id FROM queue WHERE client_id = ? AND lot_id = ? LIMIT 1").bind(cid, String(lot.id)).first();
   if (existing) return { ok: true, already: true, lot, queueId: existing.id };
 
-  let wl = await env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
+  let wl = await env.DB.prepare("SELECT id FROM searches WHERE client_id = ? AND label = ? LIMIT 1").bind(cid, MANUAL_FINDS_LABEL).first();
   let wishlistId = wl?.id;
   if (!wishlistId) {
-    const ins = await env.DB.prepare("INSERT INTO wishlists (client_id, label, active, watch_only) VALUES (?, ?, 1, 0)").bind(cid, MANUAL_FINDS_LABEL).run();
+    const ins = await env.DB.prepare("INSERT INTO searches (client_id, label, active, watch_only) VALUES (?, ?, 1, 0)").bind(cid, MANUAL_FINDS_LABEL).run();
     wishlistId = ins.meta?.last_row_id;
   }
   // Snapshot landed cost (best-effort) and tag the card as a manual find.
   try {
-    const client = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+    const client = await env.DB.prepare("SELECT state FROM users WHERE id = ?").bind(cid).first();
     await attachLanded(env, [{ lot, client: { state: client?.state } }]);
   } catch (e) { /* card just renders without a landed figure */ }
   lot._strength = "Manual";
@@ -8224,7 +8224,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
   }
 
   const acc = accessScope(session);
-  const cstmt = env.DB.prepare(`SELECT id, name, email, whatsapp FROM clients c WHERE ${acc.sql} ORDER BY name`);
+  const cstmt = env.DB.prepare(`SELECT id, name, email, whatsapp FROM users c WHERE ${acc.sql} ORDER BY name`);
   const clients = ((await (acc.binds.length ? cstmt.bind(...acc.binds) : cstmt).all()).results) || [];
   const options = clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
 
@@ -8246,7 +8246,7 @@ export async function adminAuctionsPage(env, session, opts = {}) {
     if (ids.length) {
       const marks = ids.map(() => "?").join(",");
       const qstmt = env.DB.prepare(
-        `SELECT q.lot_id, q.status, c.name AS client_name FROM queue q JOIN clients c ON c.id = q.client_id WHERE q.lot_id IN (${marks}) AND ${acc.sql}`
+        `SELECT q.lot_id, q.status, c.name AS client_name FROM queue q JOIN users c ON c.id = q.client_id WHERE q.lot_id IN (${marks}) AND ${acc.sql}`
       ).bind(...ids, ...acc.binds);
       const rows = (await qstmt.all()).results || [];
       for (const r of rows) {
@@ -8303,7 +8303,7 @@ export async function setClientMember(env, clientId, on, session) {
   // Admin only (defence in depth alongside the route guard): membership is a
   // paid feature, the Stripe webhook is the only other writer of this flag.
   if (session?.role !== "admin") return;
-  await env.DB.prepare("UPDATE clients SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
+  await env.DB.prepare("UPDATE users SET member = ? WHERE id = ?").bind(on ? 1 : 0, id).run();
 }
 
 // One car the buyer sees in their portal. opts.stripe shows a "Pay deposit"
@@ -8376,7 +8376,7 @@ function requestedCard(q) {
 // The buyer portal dashboard. opts.flash shows a one-line confirmation banner.
 export async function portalPage(env, session, opts = {}) {
   const cid = Number(session.id);
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  const c = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
       `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>
@@ -8385,10 +8385,10 @@ export async function portalPage(env, session, opts = {}) {
   }
   await expirePast(env);
 
-  const wls = (await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
+  const wls = (await env.DB.prepare("SELECT * FROM searches WHERE client_id = ? ORDER BY id").bind(cid).all()).results || [];
   const cars = (await env.DB.prepare(
     `SELECT q.*, w.label AS wlabel, w.rate_min AS w_rate, w.price_max AS w_price, w.kuzov AS w_kuzov, w.grade_kw AS w_kw
-       FROM queue q LEFT JOIN wishlists w ON w.id = q.wishlist_id
+       FROM queue q LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.client_id = ? AND q.status = 'sent' AND COALESCE(w.watch_only, 0) = 0
       ORDER BY q.client_request DESC, q.decided_at DESC LIMIT 60`
   ).bind(cid).all()).results || [];
@@ -8502,14 +8502,14 @@ export async function portalPage(env, session, opts = {}) {
 
 // --- Portal handlers (every one scoped to the signed-in client's own id) -----
 async function portalWishlistOwned(env, id, cid) {
-  const w = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(Number(id)).first();
+  const w = await env.DB.prepare("SELECT * FROM searches WHERE id = ?").bind(Number(id)).first();
   return w && Number(w.client_id) === Number(cid) ? w : null;
 }
 
 // True only while this client still exists and has portal access. Re-checked on
 // every write so a revoked client (or a stale tab) can't keep making changes.
 async function portalClientActive(env, cid) {
-  const c = await env.DB.prepare("SELECT 1 FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(cid)).first();
+  const c = await env.DB.prepare("SELECT 1 FROM users WHERE id = ? AND portal_enabled = 1").bind(Number(cid)).first();
   return !!c;
 }
 
@@ -8525,7 +8525,7 @@ export async function portalAddWishlist(env, form, session) {
   // general anti-fanout cap only. Enforced here, server side, so a hand-built
   // POST can't bypass the portal UI.
   const active = await activeWishlistCount(env, cid);
-  const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(cid).first();
+  const me = await env.DB.prepare("SELECT member FROM users WHERE id = ?").bind(cid).first();
   if (!(me && me.member)) {
     const settings = await getSettings(env);
     const freeLimit = settingNum(settings, "free_search_limit", 1);
@@ -8570,7 +8570,7 @@ export async function portalToggleWishlist(env, form, session) {
   if (!(await portalClientActive(env, cid))) return;
   const w = await portalWishlistOwned(env, form.get("id"), cid);
   if (!w) return;
-  await env.DB.prepare("UPDATE wishlists SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ? AND client_id = ?").bind(w.id, cid).run();
+  await env.DB.prepare("UPDATE searches SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ? AND client_id = ?").bind(w.id, cid).run();
 }
 
 export async function portalDeleteWishlist(env, form, session) {
@@ -8581,7 +8581,7 @@ export async function portalDeleteWishlist(env, form, session) {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM queue WHERE wishlist_id = ? AND client_id = ?").bind(w.id, cid),
     env.DB.prepare("DELETE FROM seen_lots WHERE wishlist_id = ?").bind(w.id),
-    env.DB.prepare("DELETE FROM wishlists WHERE id = ? AND client_id = ?").bind(w.id, cid),
+    env.DB.prepare("DELETE FROM searches WHERE id = ? AND client_id = ?").bind(w.id, cid),
   ]);
 }
 
@@ -8603,7 +8603,7 @@ export async function portalApprove(env, queueId, session) {
     // so the profile timeline shows it in both directions.
     if (item.wishlist_id) {
       await env.DB.prepare(
-        `UPDATE wishlists SET
+        `UPDATE searches SET
             status = CASE WHEN COALESCE(status,'new') IN ('new','qualified','searching','vehicles_sent') THEN 'interested' ELSE status END,
             last_activity = datetime('now')
           WHERE id = ? AND client_id = ?`
@@ -8615,11 +8615,11 @@ export async function portalApprove(env, queueId, session) {
       await logActivity(env, { wishlist_id: item.wishlist_id, client_id: cid, type: "note", detail: `Client asked us to get: ${title}`, actor: "Portal" });
     } catch (e2) { /* timeline is best effort */ }
   }
-  const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(cid).first();
+  const client = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(cid).first();
   let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
   // Pin the wishlist to this client too, so a stale/cross wishlist_id can never
   // pull another client's search into the staff alert.
-  const wishlist = await env.DB.prepare("SELECT * FROM wishlists WHERE id = ? AND client_id = ?").bind(item.wishlist_id, cid).first();
+  const wishlist = await env.DB.prepare("SELECT * FROM searches WHERE id = ? AND client_id = ?").bind(item.wishlist_id, cid).first();
   return { ok: true, alreadyDone, client, lot, wishlist, queueId: qid };
 }
 
@@ -8628,13 +8628,13 @@ export async function inviteClientPortal(env, clientId, session) {
   const cid = Number(clientId);
   if (!Number.isInteger(cid) || cid <= 0) return { ok: false };
   if (!(await clientOwnedBy(env, cid, session))) return { ok: false };
-  const c = await env.DB.prepare("SELECT id, name, email FROM clients WHERE id = ?").bind(cid).first();
+  const c = await env.DB.prepare("SELECT id, name, email FROM users WHERE id = ?").bind(cid).first();
   if (!c || !c.email) return { ok: false, error: "no-email" };
   const token = randomToken();
   const exp = Date.now() + PORTAL_INVITE_TTL_MS;
   // A staff re-invite is the one sanctioned way back in after a revoke, so it
   // clears the portal_revoked veto.
-  await env.DB.prepare("UPDATE clients SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, cid).run();
+  await env.DB.prepare("UPDATE users SET portal_enabled = 1, portal_revoked = 0, invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, cid).run();
   return { ok: true, token, email: c.email, name: c.name };
 }
 
@@ -8647,8 +8647,8 @@ export async function revokeClientPortal(env, clientId, session) {
   // Bump session_ver so any cookie the client still holds stops validating now.
   // Falls back to the legacy update if migration 0010 is not applied yet.
   await runWithSessionVerFallback(env,
-    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?",
-    "UPDATE clients SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
+    "UPDATE users SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL, session_ver = session_ver + 1 WHERE id = ?",
+    "UPDATE users SET portal_enabled = 0, portal_revoked = 1, pass_salt = NULL, pass_hash = NULL, invite_token = NULL, invite_exp = NULL WHERE id = ?",
     [cid], "revokeClientPortal");
 }
 
@@ -8668,7 +8668,7 @@ export async function createDealer(env, form) {
   const exp = Date.now() + INVITE_TTL_MS;
   try {
     await env.DB.prepare(
-      "INSERT INTO dealers (email, name, company, state, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, ?, '', '', ?, ?)"
+      "INSERT INTO suppliers (email, name, company, state, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, ?, '', '', ?, ?)"
     ).bind(email, name, company, state, await hashToken(token), exp).run();
     return { ok: true, token, email, name };
   } catch (e) {
@@ -8679,11 +8679,11 @@ export async function createDealer(env, form) {
 
 // Re-issue invite / set-password link for a dealer (admin only).
 export async function resendDealerInvite(env, id) {
-  const d = await env.DB.prepare("SELECT id, name, email FROM dealers WHERE id = ?").bind(Number(id)).first();
+  const d = await env.DB.prepare("SELECT id, name, email FROM suppliers WHERE id = ?").bind(Number(id)).first();
   if (!d) return null;
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE dealers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, d.id).run();
+  await env.DB.prepare("UPDATE suppliers SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, d.id).run();
   return { token, email: d.email, name: d.name };
 }
 
@@ -8691,7 +8691,7 @@ export async function resendDealerInvite(env, id) {
 export async function toggleDealer(env, id) {
   const did = Number(id);
   if (!Number.isInteger(did) || did <= 0) return;
-  await env.DB.prepare("UPDATE dealers SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(did).run();
+  await env.DB.prepare("UPDATE suppliers SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(did).run();
 }
 
 // Delete a dealer and all their vehicle submissions (admin only).
@@ -8700,7 +8700,7 @@ export async function deleteDealer(env, id) {
   if (!Number.isInteger(did) || did <= 0) return;
   const stmts = [
     env.DB.prepare("DELETE FROM dealer_vehicles WHERE dealer_id = ?").bind(did),
-    env.DB.prepare("DELETE FROM dealers WHERE id = ?").bind(did),
+    env.DB.prepare("DELETE FROM suppliers WHERE id = ?").bind(did),
   ];
   await env.DB.batch(stmts);
 }
@@ -8720,7 +8720,7 @@ export const DEALER_VEHICLE_LIMITS = {
 // `error` is a friendly, display-ready sentence (surfaced in the portal flash).
 export async function submitDealerVehicle(env, form, session) {
   if (!session || session.role !== "dealer") return { ok: false, error: "You are not signed in as a dealer." };
-  const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+  const dealer = await env.DB.prepare("SELECT id FROM suppliers WHERE id = ? AND active = 1").bind(session.id).first();
   if (!dealer) return { ok: false, error: "Your dealer account is inactive. Please contact JDM Connect." };
 
   const L = DEALER_VEHICLE_LIMITS;
@@ -8824,7 +8824,7 @@ export async function rejectDealerVehicle(env, vehicleId, notes, session) {
 // Get dealer vehicle submissions for admin review, optionally filtered by status.
 export async function getDealerVehicleSubmissions(env, status = null, limit = 100, offset = 0) {
   try {
-    let sql = "SELECT dv.*, d.name as dealer_name, d.company as dealer_company, d.email as dealer_email FROM dealer_vehicles dv JOIN dealers d ON dv.dealer_id = d.id";
+    let sql = "SELECT dv.*, d.name as dealer_name, d.company as dealer_company, d.email as dealer_email FROM dealer_vehicles dv JOIN suppliers d ON dv.dealer_id = d.id";
     const binds = [];
     if (status && status !== "all") {
       sql += " WHERE dv.status = ?";

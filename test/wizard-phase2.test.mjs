@@ -79,7 +79,7 @@ test("the wishlist stores the AUD budget on the lead only (V1.3 Phase C: no yen 
   })) f.set(k, v);
   const r = await createRequest(env, f);
   assert.equal(r.ok, true);
-  const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM wishlists WHERE client_id = ?").bind(r.clientId).first();
+  const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM searches WHERE client_id = ?").bind(r.clientId).first();
   assert.equal(wl.budget_aud, 45000, "the AUD figure is stored");
   assert.equal(wl.price_max, null, "no rough yen conversion feeds the matcher's price filter");
 });

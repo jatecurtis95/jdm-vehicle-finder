@@ -182,8 +182,8 @@ async function recentFinds(env) {
   if (hit && now < hit.exp) return hit.finds;
   const rows = (await env.DB.prepare(
     `SELECT q.lot_json, q.sent_at, c.name AS client_name, c.state AS client_state, w.status AS req_status
-       FROM queue q JOIN clients c ON c.id = q.client_id
-       LEFT JOIN wishlists w ON w.id = q.wishlist_id
+       FROM queue q JOIN users c ON c.id = q.client_id
+       LEFT JOIN searches w ON w.id = q.wishlist_id
       WHERE q.sent_at IS NOT NULL AND c.archived = 0
       ORDER BY q.sent_at DESC LIMIT 80`
   ).all()).results || [];

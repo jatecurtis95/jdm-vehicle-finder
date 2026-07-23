@@ -17,7 +17,7 @@ function seededEnv() {
 // Insert a wishlist row with full control over status / activity / age.
 async function addRequest(env, { id, clientId = 9001, status = "new", createdAgo = "-10 minutes", lastActivity = null, label = "Test search" }) {
   await env.DB.prepare(
-    `INSERT INTO wishlists (id, client_id, label, marka_name, active, status, last_activity, created_at)
+    `INSERT INTO searches (id, client_id, label, marka_name, active, status, last_activity, created_at)
      VALUES (?, ?, ?, 'TOYOTA', 1, ?, ?, datetime('now', ?))`
   ).bind(id, clientId, label, status, lastActivity, createdAgo).run();
 }
@@ -101,7 +101,7 @@ test("dashboard section buttons are gold only when their count is non-zero", asy
 test("a due follow-up turns its dashboard section button gold", async () => {
   const env = seededEnv();
   await env.DB.prepare(
-    `INSERT INTO wishlists (id, client_id, label, marka_name, active, status, next_action_date, created_at)
+    `INSERT INTO searches (id, client_id, label, marka_name, active, status, next_action_date, created_at)
      VALUES (507, 9001, 'Follow-up search', 'TOYOTA', 1, 'searching', date('now'), datetime('now'))`
   ).run();
   const html = await adminPage(env, "dashboard", ADMIN);

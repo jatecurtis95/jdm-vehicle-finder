@@ -36,8 +36,8 @@ function seed({ possAgeDays = 0 } = {}) {
   add(2, "Good", 0);
   add(2, "Possible", 5, possAgeDays);
   return `
-    INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com'), (2, 'Bob Banana', 'b@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN'), (2, 2, 'Supra hunt', 'TOYOTA');
+    INSERT INTO users (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com'), (2, 'Bob Banana', 'b@x.com');
+    INSERT INTO searches (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN'), (2, 2, 'Supra hunt', 'TOYOTA');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, created_at) VALUES ${rows.join(",")};
   `;
 }
@@ -127,8 +127,8 @@ test("admin triage buttons carry the exact stale-Possible id lists", async () =>
 
 test("a queue with no Strong or Good falls back to showing everything", async () => {
   const env = makeEnv(`
-    INSERT INTO clients (id, name) VALUES (1, 'Solo');
-    INSERT INTO wishlists (id, client_id, label) VALUES (1, 1, 'Any');
+    INSERT INTO users (id, name) VALUES (1, 'Solo');
+    INSERT INTO searches (id, client_id, label) VALUES (1, 1, 'Any');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token) VALUES
       (1, 1, 1, 'L1', '${lotJson("L1", "Possible", 4)}', 'pending', 't1');
   `);

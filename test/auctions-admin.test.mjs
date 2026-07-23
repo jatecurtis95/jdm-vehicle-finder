@@ -32,7 +32,7 @@ test("Auctions live tab renders the tabs and the filter panel", async () => {
 });
 
 test("Auctions live search lists lots with an Add-to-client picker", async () => {
-  const env = makeEnv(`INSERT INTO clients (id,name,email) VALUES (5,'Buyer','b@x');`);
+  const env = makeEnv(`INSERT INTO users (id,name,email) VALUES (5,'Buyer','b@x');`);
   stub(lotXml("L9"));
   const html = await adminPage(env, "auctions", ADMIN, { tab: "live", search: { make: "NISSAN" } });
   assert.match(html, /SKYLINE/i, "lists the matching lot");

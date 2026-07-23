@@ -8,8 +8,8 @@ const ADMIN = { role: "admin", id: 0 };
 
 function envWithPendingMatch() {
   const env = makeEnv(`
-    INSERT INTO clients (id,name,email,portal_enabled) VALUES (1,'Jordan','jordan@example.com',1);
-    INSERT INTO wishlists (id,client_id,label,active,watch_only) VALUES (1,1,'R34',1,1);
+    INSERT INTO users (id,name,email,portal_enabled) VALUES (1,'Jordan','jordan@example.com',1);
+    INSERT INTO searches (id,client_id,label,active,watch_only) VALUES (1,1,'R34',1,1);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES
       (10,1,1,'L1','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE","lot":"42","images":["https://img.test/car.jpg"]}','pending','tok-pending');
   `);
@@ -27,8 +27,8 @@ test("admin views with no primary action do not render empty buttons", async () 
 
 test("buyer portal stat counts have server-rendered fallback text and live regions", async () => {
   const env = makeEnv(`
-    INSERT INTO clients (id,name,portal_enabled) VALUES (1,'Jordan',1);
-    INSERT INTO wishlists (id,client_id,label,active) VALUES (1,1,'R34',1),(2,1,'Daily',1),(3,1,'Rotary',0);
+    INSERT INTO users (id,name,portal_enabled) VALUES (1,'Jordan',1);
+    INSERT INTO searches (id,client_id,label,active) VALUES (1,1,'R34',1),(2,1,'Daily',1),(3,1,'Rotary',0);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token,client_request) VALUES
       (10,1,1,'L1','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t1',0),
       (11,1,1,'L2','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t2',1),

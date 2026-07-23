@@ -23,7 +23,7 @@ INSERT OR REPLACE INTO agents (id, email, name, pass_salt, pass_hash, active, al
 
 -- Dealer account -----------------------------------------------------------
 -- Uses the same QA-only demo password as the agent and buyer: demo1234.
-INSERT OR REPLACE INTO dealers (id, email, name, company, state, pass_salt, pass_hash, active) VALUES
+INSERT OR REPLACE INTO suppliers (id, email, name, company, state, pass_salt, pass_hash, active) VALUES
   (9001, 'demo.dealer@example.com', 'Demo Dealer', 'Tokyo Demo Cars', 'WA', 'Z/BWEBau6M4vcJs5hitPwQ==', 'QHirASmhIRYnd6NXnoFv9jo6JuP/hOw/1AU3A1Q0I1M=', 1);
 
 INSERT OR REPLACE INTO dealer_vehicles (id, dealer_id, make, model, year, grade, mileage_km, price_aud, location, description, status) VALUES
@@ -32,13 +32,13 @@ INSERT OR REPLACE INTO dealer_vehicles (id, dealer_id, make, model, year, grade,
 -- Clients ------------------------------------------------------------------
 -- 9001 owned by the demo agent, portal enabled with a working login.
 -- 9002 owned by the demo agent, no portal. 9003 is a JDM Connect direct client.
-INSERT OR REPLACE INTO clients (id, name, email, whatsapp, state, agent_id, portal_enabled, pass_salt, pass_hash) VALUES
+INSERT OR REPLACE INTO users (id, name, email, whatsapp, state, agent_id, portal_enabled, pass_salt, pass_hash) VALUES
   (9001, 'Aiko Tanaka', 'demo.buyer@example.com', '+61400000001', 'VIC', 9001, 1, '735Tli9Zbw8K+vQ6lwBG2A==', 'fEIhbrdwNGkaDNtkMNUDrtSeTtgMAZIt7kA2JlUX6d0='),
   (9002, 'Ben Carter', 'ben.demo@example.com', NULL, 'NSW', 9001, 0, NULL, NULL),
   (9003, 'Direct Buyer', NULL, '+61400000003', 'QLD', NULL, 0, NULL, NULL);
 
 -- Wishlists ----------------------------------------------------------------
-INSERT OR REPLACE INTO wishlists (id, client_id, label, marka_name, model_name, year_min, year_max, price_max, rate_min, kuzov, active, watch_only) VALUES
+INSERT OR REPLACE INTO searches (id, client_id, label, marka_name, model_name, year_min, year_max, price_max, rate_min, kuzov, active, watch_only) VALUES
   (9001, 9001, 'R34 GT-R', 'NISSAN', 'SKYLINE', 1999, 2002, 12000000, 4, 'BNR34', 1, 0),
   (9002, 9002, 'A80 Supra', 'TOYOTA', 'SUPRA', 1993, 2002, 9000000, 4, 'JZA80', 1, 0),
   (9003, 9003, 'FD RX-7 watch', 'MAZDA', 'RX-7', 1991, 2002, 6000000, 3.5, 'FD3S', 1, 1);

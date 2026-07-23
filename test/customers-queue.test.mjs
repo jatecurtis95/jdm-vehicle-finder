@@ -15,10 +15,10 @@ const ADMIN = { role: "admin", id: 0 };
 // Dee: never contacted at all - neutral, not red.
 function seed() {
   return `
-    INSERT INTO clients (id, name, email) VALUES
+    INSERT INTO users (id, name, email) VALUES
       (1, 'Amy Fresh', 'amy@x.com'), (2, 'Bea Quiet', 'bea@x.com'),
       (3, 'Cal Cold', 'cal@x.com'), (4, 'Dee Prospect', 'dee@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name, status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, status) VALUES
       (1, 1, 'R34', 'NISSAN', 'deposit_paid'), (2, 1, 'R32', 'NISSAN', 'searching'),
       (3, 2, 'Supra', 'TOYOTA', 'vehicles_sent'), (4, 3, 'RX7', 'MAZDA', 'new'),
       (5, 4, 'Evo', 'MITSUBISHI', 'lost');

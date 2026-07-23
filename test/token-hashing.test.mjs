@@ -39,29 +39,29 @@ test("createDealer stores the hash and resolves the raw token", async () => {
   const env = makeEnv();
   const r = await createDealer(env, fd({ name: "D", email: "d@x.com" }));
   assert.equal(r.ok, true);
-  const stored = env.db.prepare("SELECT invite_token FROM dealers WHERE email='d@x.com'").get().invite_token;
+  const stored = env.db.prepare("SELECT invite_token FROM suppliers WHERE email='d@x.com'").get().invite_token;
   assert.equal(stored, await hashToken(r.token));
   assert.ok(await dealerByInviteToken(env, r.token));
 });
 
 test("inviteClientPortal stores the hash and resolves the raw token", async () => {
-  const env = makeEnv(`INSERT INTO clients (id,name,email) VALUES (1,'C','c@x.com');`);
+  const env = makeEnv(`INSERT INTO users (id,name,email) VALUES (1,'C','c@x.com');`);
   const r = await inviteClientPortal(env, 1, ADMIN);
   assert.equal(r.ok, true);
-  const stored = env.db.prepare("SELECT invite_token FROM clients WHERE id=1").get().invite_token;
+  const stored = env.db.prepare("SELECT invite_token FROM users WHERE id=1").get().invite_token;
   assert.equal(stored, await hashToken(r.token));
   assert.ok(await clientByInviteToken(env, r.token));
 });
 
 test("a password reset stores the hash; the raw token sets the password once", async () => {
-  const env = makeEnv(`INSERT INTO clients (id,name,email,portal_enabled,portal_revoked,pass_hash,pass_salt) VALUES (1,'C','c@x.com',1,0,'h','s');`);
+  const env = makeEnv(`INSERT INTO users (id,name,email,portal_enabled,portal_revoked,pass_hash,pass_salt) VALUES (1,'C','c@x.com',1,0,'h','s');`);
   const r = await beginPasswordResetFor(env, "client", 1);
   assert.ok(r && r.token);
-  const stored = env.db.prepare("SELECT invite_token FROM clients WHERE id=1").get().invite_token;
+  const stored = env.db.prepare("SELECT invite_token FROM users WHERE id=1").get().invite_token;
   assert.equal(stored, await hashToken(r.token), "only the hash is persisted");
   const set = await setClientPassword(env, r.token, "Newpass1234");
   assert.equal(set.ok, true, "raw token from the email works");
-  assert.equal(env.db.prepare("SELECT invite_token FROM clients WHERE id=1").get().invite_token, null, "single-use: cleared");
+  assert.equal(env.db.prepare("SELECT invite_token FROM users WHERE id=1").get().invite_token, null, "single-use: cleared");
   const again = await setClientPassword(env, r.token, "Another1234");
   assert.equal(again.ok, false, "token can't be reused");
 });

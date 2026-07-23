@@ -19,7 +19,7 @@ function fd(obj) {
 
 function seededEnv() {
   const env = makeEnv(`
-    INSERT INTO clients (id, name, email, portal_enabled) VALUES (1, 'Cust', 'c@x.com', 1);
+    INSERT INTO users (id, name, email, portal_enabled) VALUES (1, 'Cust', 'c@x.com', 1);
   `);
   return env;
 }
@@ -28,11 +28,11 @@ test("staff edit refuses to blank every narrowing term and keeps the row intact"
   const env = seededEnv();
   const c = await createWishlist(env, fd({ client_id: "1", marka_name: "SUBARU", model_name: "IMPREZA" }), null, ADMIN);
   assert.equal(c.ok, true);
-  const id = env.db.prepare("SELECT id FROM wishlists WHERE client_id = 1").get().id;
+  const id = env.db.prepare("SELECT id FROM searches WHERE client_id = 1").get().id;
 
   const r = await editWishlist(env, fd({ id: String(id), marka_name: "", model_name: "", kuzov: "", grade_kw: "", model_code: "" }), ADMIN);
   assert.ok(r && r.ok === false && r.error === "term", "the blanked edit is refused with the term error");
-  const w = env.db.prepare("SELECT marka_name, model_name FROM wishlists WHERE id = ?").get(id);
+  const w = env.db.prepare("SELECT marka_name, model_name FROM searches WHERE id = ?").get(id);
   assert.equal(w.marka_name, "SUBARU", "the stored search is untouched");
   assert.equal(w.model_name, "IMPREZA");
 });
@@ -40,10 +40,10 @@ test("staff edit refuses to blank every narrowing term and keeps the row intact"
 test("staff edit with at least one term still saves normally", async () => {
   const env = seededEnv();
   await createWishlist(env, fd({ client_id: "1", marka_name: "SUBARU", model_name: "IMPREZA" }), null, ADMIN);
-  const id = env.db.prepare("SELECT id FROM wishlists WHERE client_id = 1").get().id;
+  const id = env.db.prepare("SELECT id FROM searches WHERE client_id = 1").get().id;
   const r = await editWishlist(env, fd({ id: String(id), marka_name: "TOYOTA", model_name: "", kuzov: "", grade_kw: "", model_code: "" }), ADMIN);
   assert.ok(!r || r.ok !== false, "a one-term edit is accepted");
-  assert.equal(env.db.prepare("SELECT marka_name FROM wishlists WHERE id = ?").get(id).marka_name, "TOYOTA");
+  assert.equal(env.db.prepare("SELECT marka_name FROM searches WHERE id = ?").get(id).marka_name, "TOYOTA");
 });
 
 test("portal edit refuses a blanked search server-side", async () => {
@@ -51,11 +51,11 @@ test("portal edit refuses a blanked search server-side", async () => {
   const session = { role: "client", id: 1 };
   const a = await portalAddWishlist(env, fd({ marka_name: "HONDA", model_name: "S2000" }), session);
   assert.equal(a.ok, true);
-  const id = env.db.prepare("SELECT id FROM wishlists WHERE client_id = 1").get().id;
+  const id = env.db.prepare("SELECT id FROM searches WHERE client_id = 1").get().id;
 
   const r = await portalEditWishlist(env, fd({ id: String(id), marka_name: "", model_name: "", kuzov: "", grade_kw: "", model_code: "" }), session);
   assert.ok(r && r.ok === false && r.error === "term", "portal edit refuses the blanked search");
-  assert.equal(env.db.prepare("SELECT marka_name FROM wishlists WHERE id = ?").get(id).marka_name, "HONDA");
+  assert.equal(env.db.prepare("SELECT marka_name FROM searches WHERE id = ?").get(id).marka_name, "HONDA");
 });
 
 test("the portal edit route surfaces the refusal instead of flashing success", () => {

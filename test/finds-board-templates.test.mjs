@@ -21,10 +21,10 @@ const LOT = (id, extra = "") => JSON.stringify({
 
 function seededEnv() {
   const env = makeEnv(`
-    INSERT INTO clients (id, name, email, whatsapp, state) VALUES
+    INSERT INTO users (id, name, email, whatsapp, state) VALUES
       (20, 'Ahtesham Rahman', 'a.rahman@example.com', '+61466123456', 'WA'),
       (21, 'No Contact', NULL, NULL, 'VIC');
-    INSERT INTO wishlists (id, client_id, label, marka_name, model_name, status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, model_name, status) VALUES
       (30, 20, 'Daily', 'TOYOTA', 'CHASER', 'purchased'),
       (31, 21, 'Quiet', 'NISSAN', 'SKYLINE', 'new');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, sent_at) VALUES

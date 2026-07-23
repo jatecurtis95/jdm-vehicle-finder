@@ -25,7 +25,7 @@ test("a request with no budget is rejected and creates nothing", async () => {
   const r = await createRequest(env, fd({ name: "Dreamer", email: "d@example.com", marka_name: "NISSAN", portal_password: "Goodpass123" }));
   assert.equal(r.ok, false);
   assert.equal(r.error, "budget");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing stored");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 0, "nothing stored");
 });
 
 test("a below-floor budget is rejected", async () => {
@@ -39,7 +39,7 @@ test("the AUD budget stores on the lead record and never filters matching (V1.3 
   const env = makeEnv();
   const r = await createRequest(env, fd({ name: "Buyer", email: "b@example.com", marka_name: "TOYOTA", portal_password: "Goodpass123", budget_aud: "35000" }));
   assert.equal(r.ok, true);
-  const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM wishlists WHERE client_id = ?").bind(r.clientId).first();
+  const wl = await env.DB.prepare("SELECT price_max, budget_aud FROM searches WHERE client_id = ?").bind(r.clientId).first();
   assert.equal(wl.price_max, null, "no yen ceiling is stored, so the matcher never filters on a rough conversion");
   assert.equal(wl.budget_aud, 35000, "the stated AUD budget lives on the lead record");
   assert.equal(r.req.budget_aud, 35000, "the raw AUD figure is preserved for staff");

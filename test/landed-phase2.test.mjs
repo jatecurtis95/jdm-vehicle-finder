@@ -115,7 +115,7 @@ test("sold cards show engine but never a landed slot", () => {
 
 test("history rows expose landed slots and the page ships the batched fill script", async () => {
   stubNet();
-  const e = env(`INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
+  const e = env(`INSERT INTO users (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
   const html = await auctionHistoryPage(e, { role: "client", id: 1 }, {});
   assert.match(html, /data-landed-slot data-lot="H1" data-jpy="12850000" data-cc="2600"/);
   assert.match(html, /fetch\("\/portal\/landed-batch"/, "the member page posts to the member endpoint");
@@ -125,7 +125,7 @@ test("history rows expose landed slots and the page ships the batched fill scrip
 test("members get real estimates from the batch endpoint; non-members are refused", async () => {
   _resetLandedCache();
   stubNet({ grandTotal: 61000 });
-  const e = env(`INSERT INTO clients (id,name,portal_enabled,member,state) VALUES
+  const e = env(`INSERT INTO users (id,name,portal_enabled,member,state) VALUES
     (1,'Member Mike',1,1,'WA'),(2,'Free Fred',1,0,'VIC');`);
   const post = async (id) => worker.fetch(new Request(HOST + "/portal/landed-batch", {
     method: "POST",
@@ -143,7 +143,7 @@ test("members get real estimates from the batch endpoint; non-members are refuse
 test("junk items are dropped server-side and an empty batch is a cheap no-op", async () => {
   _resetLandedCache();
   const calls = stubNet();
-  const e = env(`INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
+  const e = env(`INSERT INTO users (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
   const res = await worker.fetch(new Request(HOST + "/portal/landed-batch", {
     method: "POST",
     headers: { Cookie: (await sessionCookie(e, "client", 1)).split(";")[0], Origin: HOST, "Content-Type": "application/json" },
@@ -157,7 +157,7 @@ test("junk items are dropped server-side and an empty batch is a cheap no-op", a
 test("staff and dealer sessions have their own endpoints", async () => {
   _resetLandedCache();
   stubNet({ grandTotal: 72000 });
-  const e = env(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active)
+  const e = env(`INSERT INTO suppliers (id, email, name, company, pass_salt, pass_hash, active)
     VALUES (9, 'd@x', 'Dealer Dan', 'Dan Motors', 's', 'h', 1);`);
   const staff = await worker.fetch(new Request(HOST + "/admin/landed-batch", {
     method: "POST",
@@ -193,7 +193,7 @@ test("a calculator outage leaves the placeholders standing (empty estimates, HTT
     if (q) return { ok: true, status: 200, text: async () => ROWS };
     throw new Error("calculator down");
   };
-  const e = env(`INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
+  const e = env(`INSERT INTO users (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);`);
   const res = await worker.fetch(new Request(HOST + "/portal/landed-batch", {
     method: "POST",
     headers: { Cookie: (await sessionCookie(e, "client", 1)).split(";")[0], Origin: HOST, "Content-Type": "application/json" },

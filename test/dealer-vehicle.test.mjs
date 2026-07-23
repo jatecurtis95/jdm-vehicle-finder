@@ -16,7 +16,7 @@ function fd(obj) {
 
 function seed() {
   const env = makeEnv(`
-    INSERT INTO dealers (id, email, name, pass_salt, pass_hash, active)
+    INSERT INTO suppliers (id, email, name, pass_salt, pass_hash, active)
     VALUES (1, 'd@x.com', 'Dealer One', 's', 'h', 1);
   `);
   return env;
@@ -95,7 +95,7 @@ test("a non-dealer session is refused", async () => {
 });
 
 test("an inactive dealer cannot submit", async () => {
-  const env = makeEnv(`INSERT INTO dealers (id, email, name, pass_salt, pass_hash, active) VALUES (2, 'z@x.com', 'Off', 's', 'h', 0);`);
+  const env = makeEnv(`INSERT INTO suppliers (id, email, name, pass_salt, pass_hash, active) VALUES (2, 'z@x.com', 'Off', 's', 'h', 0);`);
   const r = await submitDealerVehicle(env, fd(valid), { role: "dealer", id: 2 });
   assert.equal(r.ok, false);
   assert.match(r.error, /inactive/);

@@ -40,7 +40,7 @@ function envWith(extraSql) {
 
 test("deliverToClient adds the upsell for a non-member when membership is purchasable", async () => {
   const env = envWith("INSERT INTO settings (key,value) VALUES ('membership_enabled','1');");
-  env.db.exec("INSERT INTO clients (id,name,email,member) VALUES (5,'Free','free@x.com',0);");
+  env.db.exec("INSERT INTO users (id,name,email,member) VALUES (5,'Free','free@x.com',0);");
   const cap = captureEmail();
   try {
     const r = await deliverToClient(env, { id: 5, name: "Free", email: "free@x.com" }, LOT, WL);
@@ -52,7 +52,7 @@ test("deliverToClient adds the upsell for a non-member when membership is purcha
 
 test("deliverToClient omits the upsell for a paying member", async () => {
   const env = envWith("INSERT INTO settings (key,value) VALUES ('membership_enabled','1');");
-  env.db.exec("INSERT INTO clients (id,name,email,member) VALUES (6,'Paid','paid@x.com',1);");
+  env.db.exec("INSERT INTO users (id,name,email,member) VALUES (6,'Paid','paid@x.com',1);");
   const cap = captureEmail();
   try {
     await deliverToClient(env, { id: 6, name: "Paid", email: "paid@x.com" }, LOT, WL);
@@ -63,7 +63,7 @@ test("deliverToClient omits the upsell for a paying member", async () => {
 
 test("deliverToClient omits the upsell when membership selling is off", async () => {
   const env = envWith(""); // membership_enabled defaults to "0"
-  env.db.exec("INSERT INTO clients (id,name,email,member) VALUES (7,'Free2','f2@x.com',0);");
+  env.db.exec("INSERT INTO users (id,name,email,member) VALUES (7,'Free2','f2@x.com',0);");
   const cap = captureEmail();
   try {
     await deliverToClient(env, { id: 7, name: "Free2", email: "f2@x.com" }, LOT, WL);

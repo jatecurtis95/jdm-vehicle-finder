@@ -12,7 +12,7 @@ const ADMIN = { role: "admin", id: 0 };
 function seed(extra = "") {
   return makeEnv(`
     INSERT INTO agents (id,email,name,pass_salt,pass_hash,active) VALUES (5,'ag@x','Ag','s','h',1), (6,'ag2@x','Ag2','s','h',1);
-    INSERT INTO clients (id,name,email,agent_id,archived) VALUES (10,'Alice Apple','a@x.com',5,0);
+    INSERT INTO users (id,name,email,agent_id,archived) VALUES (10,'Alice Apple','a@x.com',5,0);
     ${extra}
   `);
 }
@@ -30,7 +30,7 @@ test("admin sees the Manage card with Archive and Delete on the detail page", as
 
 test("an archived customer shows Restore instead of Archive", async () => {
   const env = seed();
-  env.db.exec("UPDATE clients SET archived = 1 WHERE id = 10;");
+  env.db.exec("UPDATE users SET archived = 1 WHERE id = 10;");
   const html = await clientDetailPage(env, 10, ADMIN);
   assert.match(html, /action="\/client\/unarchive"/, "restore action present");
   assert.match(html, /Restore from archive/);

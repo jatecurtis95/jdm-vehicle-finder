@@ -37,8 +37,8 @@ async function seedAgent(env, email, password) {
 }
 async function seedDealer(env, email, password) {
   const { salt, hash } = await hashPassword(password);
-  env.db.prepare("INSERT INTO dealers (email, name, pass_salt, pass_hash, active) VALUES (?, 'Dealer', ?, ?, 1)").run(email, salt, hash);
-  return env.db.prepare("SELECT id FROM dealers WHERE email = ?").get(email).id;
+  env.db.prepare("INSERT INTO suppliers (email, name, pass_salt, pass_hash, active) VALUES (?, 'Dealer', ?, ?, 1)").run(email, salt, hash);
+  return env.db.prepare("SELECT id FROM suppliers WHERE email = ?").get(email).id;
 }
 
 // --- 0.1: signup then login round-trips --------------------------------------
@@ -70,7 +70,7 @@ test("0.1: a failed validation must surface as an error, never a silent fake suc
   }));
   assert.equal(r.ok, false);
   assert.equal(r.error, "budget");
-  assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM clients").get().n, 0, "nothing stored");
+  assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM users").get().n, 0, "nothing stored");
 });
 
 test("0.1 route contract: /request re-renders EVERY validation error (no fall-through to success)", () => {
@@ -93,7 +93,7 @@ test("0.2: agent invite token sets a password and the agent can sign in", async 
 
 test("0.2: client invite token sets a password and the client can sign in", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','cl@example.com',1,'tok-client',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','cl@example.com',1,'tok-client',?)").run(FUTURE());
   const r = await setClientPassword(env, "tok-client", "Clientpass123");
   assert.equal(r.ok, true);
   const who = await authenticate(env, "cl@example.com", "Clientpass123");
@@ -102,7 +102,7 @@ test("0.2: client invite token sets a password and the client can sign in", asyn
 
 test("0.2: dealer invite token sets a password and the dealer can sign in", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO dealers (email, name, pass_salt, pass_hash, invite_token, invite_exp) VALUES ('dl@example.com','Dl','','','tok-dealer',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO suppliers (email, name, pass_salt, pass_hash, invite_token, invite_exp) VALUES ('dl@example.com','Dl','','','tok-dealer',?)").run(FUTURE());
   const r = await setDealerPassword(env, "tok-dealer", "Dealerpass123");
   assert.equal(r.ok, true);
   const who = await authenticate(env, "dl@example.com", "Dealerpass123");
@@ -111,7 +111,7 @@ test("0.2: dealer invite token sets a password and the dealer can sign in", asyn
 
 test("0.2: expired and unknown invite tokens are refused with a friendly error", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Old','old@example.com',1,'tok-old',?)").run(Date.now() - 1000);
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Old','old@example.com',1,'tok-old',?)").run(Date.now() - 1000);
   const expired = await setClientPassword(env, "tok-old", "Clientpass123");
   assert.equal(expired.ok, false);
   const unknown = await setClientPassword(env, "no-such-token", "Clientpass123");
@@ -120,11 +120,11 @@ test("0.2: expired and unknown invite tokens are refused with a friendly error",
 
 test("0.2: a broken role table breaks only that role's login, not everyone's", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','iso@example.com',1,'tok-iso',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','iso@example.com',1,'tok-iso',?)").run(FUTURE());
   await setClientPassword(env, "tok-iso", "Clientpass123");
   // Simulate the production incident: the dealers table is missing (a deploy
   // that outran its migration). Client login must still work.
-  env.db.exec("DROP TABLE dealers");
+  env.db.exec("DROP TABLE suppliers");
   const who = await authenticate(env, "iso@example.com", "Clientpass123");
   assert.deepEqual(who && who.role, "client", "client login survives a broken dealers branch");
 });
@@ -133,14 +133,14 @@ test("0.2: a broken role table breaks only that role's login, not everyone's", a
 
 test("0.3: reset for a portal client issues a 1 hour token that round-trips", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','reset@example.com',1,'tok-r1',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','reset@example.com',1,'tok-r1',?)").run(FUTURE());
   await setClientPassword(env, "tok-r1", "Original123");
 
   const before = Date.now();
   const r = await beginPasswordReset(env, "Reset@Example.com "); // case+space tolerated
   assert.ok(r && r.token, "an eligible account gets a token");
   assert.equal(r.kind, "client");
-  const row = env.db.prepare("SELECT invite_exp FROM clients WHERE email = 'reset@example.com'").get();
+  const row = env.db.prepare("SELECT invite_exp FROM users WHERE email = 'reset@example.com'").get();
   assert.ok(row.invite_exp <= before + RESET_TTL_MS + 5000, "reset expiry is about 1 hour, not 7 days");
 
   const set = await setClientPassword(env, r.token, "Newpass1234");
@@ -171,11 +171,11 @@ test("0.3: reset is refused (null) for unknown, revoked, deactivated and passwor
 
   // Passwordless client (portal enabled, never set a password): not eligible -
   // a reset must not become a back door around the invite flow.
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled) VALUES ('NoPw','nopw@example.com',1)").run();
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled) VALUES ('NoPw','nopw@example.com',1)").run();
   assert.equal(await beginPasswordReset(env, "nopw@example.com"), null);
 
   // Revoked client: staff said no; reset must respect that.
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, portal_revoked, pass_salt, pass_hash) VALUES ('Rev','rev@example.com',0,1,'s','h')").run();
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, portal_revoked, pass_salt, pass_hash) VALUES ('Rev','rev@example.com',0,1,'s','h')").run();
   assert.equal(await beginPasswordReset(env, "rev@example.com"), null);
 
   // Deactivated agent.
@@ -193,7 +193,7 @@ test("0.3: reset is refused (null) for unknown, revoked, deactivated and passwor
 
 test("0.4: oversized email or password is rejected before any hashing work", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','cap@example.com',1,'tok-cap',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Cl','cap@example.com',1,'tok-cap',?)").run(FUTURE());
   await setClientPassword(env, "tok-cap", "Clientpass123");
 
   const longEmail = "a".repeat(EMAIL_MAX) + "@example.com"; // over 254

@@ -25,8 +25,8 @@ function envWith(sql) {
 
 function seed(priceMaxSql) {
   return `
-    INSERT INTO clients (id, name, email) VALUES (1, 'Aiko Tanaka', 'a@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name${priceMaxSql ? ", price_max" : ""}) VALUES (1, 1, 'R34 GT-R', 'NISSAN'${priceMaxSql ? `, ${priceMaxSql}` : ""});
+    INSERT INTO users (id, name, email) VALUES (1, 'Aiko Tanaka', 'a@x.com');
+    INSERT INTO searches (id, client_id, label, marka_name${priceMaxSql ? ", price_max" : ""}) VALUES (1, 1, 'R34 GT-R', 'NISSAN'${priceMaxSql ? `, ${priceMaxSql}` : ""});
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, created_at) VALUES
       (1, 1, 1, 'L1', '${LOT}', 'pending', 'tok1', datetime('now'));
   `;

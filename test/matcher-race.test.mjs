@@ -26,8 +26,8 @@ function stubFeed(lots) {
 
 function seed(env) {
   env.db.exec(`
-    INSERT INTO clients (id, name, email, state) VALUES (1, 'Buyer', 'b@x.com', 'VIC');
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active)
+    INSERT INTO users (id, name, email, state) VALUES (1, 'Buyer', 'b@x.com', 'VIC');
+    INSERT INTO searches (id, client_id, marka_name, model_name, active)
       VALUES (1, 1, 'NISSAN', 'SKYLINE', 1);
   `);
 }

@@ -128,7 +128,7 @@ test("upsertGoogleClient creates, dedupes by sub, and links an existing email ac
   // New Google user -> creates a portal-enabled client with the sub stored.
   const a = await upsertGoogleClient(env, { sub: "sub-1", email: "New@Gmail.com", name: "New Person" });
   assert.equal(a.created, true);
-  const row = db.prepare("SELECT name,email,portal_enabled,google_sub FROM clients WHERE id=?").get(a.id);
+  const row = db.prepare("SELECT name,email,portal_enabled,google_sub FROM users WHERE id=?").get(a.id);
   assert.equal(row.email, "new@gmail.com");
   assert.equal(row.portal_enabled, 1);
   assert.equal(row.google_sub, "sub-1");
@@ -141,21 +141,21 @@ test("upsertGoogleClient creates, dedupes by sub, and links an existing email ac
 
   // An existing email/password client (no sub) gets linked + portal-enabled,
   // and their real name is preserved (not overwritten by Google's).
-  db.exec("INSERT INTO clients (id,name,email,portal_enabled,pass_hash) VALUES (77,'Real Name','legacy@x.com',0,'HASH');");
+  db.exec("INSERT INTO users (id,name,email,portal_enabled,pass_hash) VALUES (77,'Real Name','legacy@x.com',0,'HASH');");
   const c = await upsertGoogleClient(env, { sub: "sub-9", email: "Legacy@x.com", name: "Google Name" });
   assert.equal(c.created, false);
   assert.equal(c.id, 77);
-  const linked = db.prepare("SELECT name,portal_enabled,google_sub FROM clients WHERE id=77").get();
+  const linked = db.prepare("SELECT name,portal_enabled,google_sub FROM users WHERE id=77").get();
   assert.equal(linked.google_sub, "sub-9");
   assert.equal(linked.portal_enabled, 1);
   assert.equal(linked.name, "Real Name", "existing real name kept");
 
   // Never touches agent-owned records.
-  db.exec("INSERT INTO clients (id,name,email,agent_id) VALUES (88,'Agent Client','owned@x.com',5);");
+  db.exec("INSERT INTO users (id,name,email,agent_id) VALUES (88,'Agent Client','owned@x.com',5);");
   const d = await upsertGoogleClient(env, { sub: "sub-owned", email: "owned@x.com", name: "Hijack" });
   assert.equal(d.created, true, "a fresh public client is made, the agent-owned one is untouched");
   assert.notEqual(d.id, 88);
-  assert.equal(db.prepare("SELECT google_sub FROM clients WHERE id=88").get().google_sub, null);
+  assert.equal(db.prepare("SELECT google_sub FROM users WHERE id=88").get().google_sub, null);
 });
 
 // ---- rendered surfaces ----------------------------------------------------
@@ -194,9 +194,9 @@ test("createRequest attaches to the signed-in client, no password or form email"
   assert.equal(result.req.email, "g@x.com", "identity comes from the session, not the form");
   assert.equal(result.req.name, "G Buyer", "Lead-eligible: name present");
   assert.equal(result.inviteNeeded, false, "signed-in Google client is never nagged for a password");
-  const w = db.prepare("SELECT client_id, marka_name FROM wishlists WHERE client_id=?").get(c.id);
+  const w = db.prepare("SELECT client_id, marka_name FROM searches WHERE client_id=?").get(c.id);
   assert.equal(w.marka_name, "TOYOTA", "wishlist attached to the signed-in client");
-  assert.equal(db.prepare("SELECT whatsapp FROM clients WHERE id=?").get(c.id).whatsapp, "+61412345678", "the supplied phone is saved to the client");
+  assert.equal(db.prepare("SELECT whatsapp FROM users WHERE id=?").get(c.id).whatsapp, "+61412345678", "the supplied phone is saved to the client");
 });
 
 test("request form collapses the account step for a signed-in buyer", async () => {

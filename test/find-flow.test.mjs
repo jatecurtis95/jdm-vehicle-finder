@@ -17,8 +17,8 @@ const FIXTURE = `<aj><row><id>fx-1</id><lot>4021</lot><auction>USS Tokyo</auctio
 
 function seededEnv() {
   const env = makeEnv(`
-    INSERT INTO clients (id, name, email, state) VALUES (7, 'Ben Carter', 'ben@example.com', 'NSW');
-    INSERT INTO wishlists (id, client_id, label, marka_name, model_name) VALUES (70, 7, 'R34 hunt', 'NISSAN', 'SKYLINE');
+    INSERT INTO users (id, name, email, state) VALUES (7, 'Ben Carter', 'ben@example.com', 'NSW');
+    INSERT INTO searches (id, client_id, label, marka_name, model_name) VALUES (70, 7, 'R34 hunt', 'NISSAN', 'SKYLINE');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token) VALUES
       (80, 70, 7, 'Q1', '{"id":"Q1","year":"1999","marka_name":"NISSAN","model_name":"SKYLINE","kuzov":"BNR34-XYZ","rate":"4","start":"8200000"}', 'pending', 'tok-q1');
   `);

@@ -22,8 +22,8 @@ function lotJson(strength) {
 // Bob: 1 pending match, last send 20 days ago (outside the pacing window).
 function seed() {
   return `
-    INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com'), (2, 'Bob Banana', 'b@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN'), (2, 2, 'Supra hunt', 'TOYOTA');
+    INSERT INTO users (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com'), (2, 'Bob Banana', 'b@x.com');
+    INSERT INTO searches (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN'), (2, 2, 'Supra hunt', 'TOYOTA');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, created_at, sent_at, viewed_at, response) VALUES
       (1, 1, 1, 'L1', '${lotJson()}', 'pending', 't1', datetime('now'), NULL, NULL, NULL),
       (2, 1, 1, 'L2', '${lotJson()}', 'sent', 't2', datetime('now','-2 days'), datetime('now','-2 days'), datetime('now','-1 day'), 'interested'),

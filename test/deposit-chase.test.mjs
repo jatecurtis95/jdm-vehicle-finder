@@ -12,10 +12,10 @@ const ADMIN = { role: "admin", id: 0 };
 
 function seed() {
   return `
-    INSERT INTO clients (id, name, email, whatsapp) VALUES
+    INSERT INTO users (id, name, email, whatsapp) VALUES
       (1, 'Amy Owes', 'amy@x.com', '+61400111222'),
       (2, 'Ben NoPhone', 'ben@x.com', NULL);
-    INSERT INTO wishlists (id, client_id, label, marka_name, model_name, deposit_status, status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, model_name, deposit_status, status) VALUES
       (1, 1, 'R34', 'NISSAN', 'SKYLINE', 'requested', 'deposit_requested'),
       (2, 2, 'Supra', 'TOYOTA', 'SUPRA', 'requested', 'deposit_requested');
     INSERT INTO payments (client_id, amount_cents, currency, status, description, created_at) VALUES

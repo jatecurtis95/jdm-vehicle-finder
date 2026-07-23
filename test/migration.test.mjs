@@ -31,7 +31,7 @@ test("the dev seed loads on top of the baseline and creates the demo logins", ()
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   const agent = env.DB.prepare("SELECT name FROM agents WHERE email = ?").bind("demo.agent@example.com").first();
   assert.equal(agent.name, "Demo Agent");
-  const buyer = env.DB.prepare("SELECT portal_enabled FROM clients WHERE email = ?").bind("demo.buyer@example.com").first();
+  const buyer = env.DB.prepare("SELECT portal_enabled FROM users WHERE email = ?").bind("demo.buyer@example.com").first();
   assert.equal(buyer.portal_enabled, 1, "demo buyer has the portal enabled");
   const sent = env.DB.prepare("SELECT COUNT(*) AS n FROM queue WHERE status = 'sent'").first();
   assert.ok(sent.n >= 2, "seed delivers at least two cars to the portal buyer");

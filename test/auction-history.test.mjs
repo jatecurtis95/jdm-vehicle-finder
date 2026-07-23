@@ -38,7 +38,7 @@ function stubFeed({ rows = ROWS, count = 2, fail = false } = {}) {
 }
 
 function env() {
-  const e = makeEnv(`INSERT INTO clients (id,name,portal_enabled,member) VALUES
+  const e = makeEnv(`INSERT INTO users (id,name,portal_enabled,member) VALUES
     (1,'Member Mike',1,1),(2,'Free Fred',1,0),(3,'Off Olive',0,0);`);
   e.API_BASE = "http://feed/api";
   e.AVTONET_CODE = "c";
@@ -587,7 +587,7 @@ test("the staff history tab needs no membership and other tabs are unchanged", a
 // --- Dealer surface (V1.4: /dealer/history in the dealer portal) -------------
 
 function dealerEnv() {
-  const e = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active)
+  const e = makeEnv(`INSERT INTO suppliers (id, email, name, company, pass_salt, pass_hash, active)
     VALUES (9, 'd@x', 'Dealer Dan', 'Dan Motors', 's', 'h', 1);`);
   e.API_BASE = "http://feed/api";
   e.AVTONET_CODE = "c";

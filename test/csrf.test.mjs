@@ -12,7 +12,7 @@ const CTX = { waitUntil() {} };
 const HOST = "https://jdmfinder.com.au";
 
 function env() {
-  const e = makeEnv(`INSERT INTO clients (id,name,email) VALUES (1,'C','c@x.com');`);
+  const e = makeEnv(`INSERT INTO users (id,name,email) VALUES (1,'C','c@x.com');`);
   e.ADMIN_TOKEN = "test-admin-token";
   return e;
 }
@@ -37,14 +37,14 @@ test("an authenticated POST with no Origin or Referer is blocked (403)", async (
   assert.equal(res.status, 403);
   assert.match(await res.text(), /Request blocked/);
   // The action did not run: the client row is untouched.
-  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM clients WHERE id=1").get().n, 1);
+  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM users WHERE id=1").get().n, 1);
 });
 
 test("an authenticated POST from a foreign Origin is blocked (403)", async () => {
   const e = env();
   const res = await worker.fetch(post(await adminCookie(e), { Origin: "https://evil.example" }), e, CTX);
   assert.equal(res.status, 403);
-  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM clients WHERE id=1").get().n, 1, "not deleted");
+  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM users WHERE id=1").get().n, 1, "not deleted");
 });
 
 test("a foreign Referer (Origin absent) is also blocked", async () => {
@@ -58,7 +58,7 @@ test("a same-origin POST passes the guard and runs the action", async () => {
   const res = await worker.fetch(post(await adminCookie(e), { Origin: HOST }), e, CTX);
   assert.notEqual(res.status, 403, "same-origin is allowed through");
   assert.equal(res.status, 303, "the delete handler runs and redirects");
-  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM clients WHERE id=1").get().n, 0, "client deleted");
+  assert.equal(e.db.prepare("SELECT COUNT(*) AS n FROM users WHERE id=1").get().n, 0, "client deleted");
 });
 
 test("a same-origin Referer (no Origin header) is accepted", async () => {
