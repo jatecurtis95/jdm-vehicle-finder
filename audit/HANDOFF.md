@@ -436,3 +436,54 @@ Phase 3 renames, so building it now against clients/member and redoing it after
 the rename is wasteful. It belongs in the Phase 3 pass, on users/tier: open
 `/portal/auctions/request` to tier='free' customers with a 1-request quota, and
 render their one matched car with details masked behind an upgrade CTA.
+
+---
+
+# Phase 3 progress update (same session): migration verified + mechanical sweep done
+
+Branch `feat/phase3-users-model` advanced to `7ff5b74`, pushed. NOT deployed,
+NOT cut over. This is real progress on the keystone, driven toward the rehearsal.
+
+State now:
+- Migration `0020_users_model.sql` written and rehearsed clean on local D1 (see
+  earlier section). In `migrations/`, so the test harness builds the NEW schema.
+- Mechanical table-rename sweep done via `scripts/phase3-sweep.mjs` (a safe,
+  SQL-keyword-context-only script, kept on the branch as the record): 546 renames
+  of clients->users, wishlists->searches, dealers->suppliers across 121 files
+  (src, test, seed). It deliberately did NOT touch `agents` (semantic fold) and
+  did NOT touch bare identifiers, so JS like `res.clients.map` is safe. Zero
+  residual `FROM/JOIN/INTO/UPDATE clients|wishlists|dealers` remain.
+- Test suite on the branch: 314 of 589 passing (from 0 right after the migration
+  landed). The remaining 275 failures are cleanly categorised:
+  - ~148: "no such table: agents" - the agents-fold. `FROM/JOIN/INTO/UPDATE agents`
+    (~30 SQL sites, mostly admin.js, plus auth.js role lookup, createAgent/
+    delete/toggle, matcher join) must become `users` with `type='agent'` in the
+    WHERE/ON, and inserts must set `type='agent'`. Semantic, done by hand.
+  - ~57: "no such column: dealer_username" - the column is dropped and the
+    container-per-request pattern is deleted per the plan; remove/adjust its
+    read/write sites (request wizard, createAdminRequest, drift helpers).
+  - ~8+: "no such column: member" and category - the member->tier and
+    category->type logic (gates become tier IN ('paid_access','fully_managed'),
+    Stripe writes tier, upsell gates on tier='free', staff selector, KPI, flash).
+  - A couple of stray `clients`/`suppliers` refs (SQL qualifiers or an auth path)
+    surfaced by the failures; fix as they appear.
+
+Remaining to a clean rehearsal (the cutover gate), in order:
+1. Agents-fold (biggest chunk).
+2. dealer_username removal + member->tier + category->type.
+3. `scripts/check-remote-schema.mjs` (the deploy gate) updated to expect the new
+   schema, and the role-to-table map in auth.js (~308,317,361,557).
+4. Nav labels (Users, Searches) and the ?ok=member flash copy.
+5. Green the full suite (589), then `npm run db:check:local`, `npm run test:e2e`,
+   and the four auth paths on `wrangler dev`.
+6. The separate `jdm-dealer-portal` repo: table names, dealer scoping rewritten
+   off `dealer_username`, auth re-pointed at FINDER_DB users where type='dealer'.
+7. The two-app local rehearsal loop (PHASE3_PLAN_V2 section 7).
+Only after ALL of that is clean-green: the production email-collision check, then
+export + cutover + smoke per PHASE3_PLAN_V2 sections 4-8, rollback-ready.
+
+Honest status: the hardest SQL is verified and the mechanical bulk is done, but
+the semantic work (agents-fold, column drops, member->tier, portal) plus the
+full two-app rehearsal is still a focused multi-hour effort. It should be driven
+to a clean rehearsal in a dedicated continuation before the cutover. The branch is
+in a consistent, resumable state at `7ff5b74`.
