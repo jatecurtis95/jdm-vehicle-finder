@@ -53,11 +53,26 @@ export function risingSun({ size = 320, tone = "soft" } = {}) {
   </svg>`;
 }
 
+// Self-hosted Inter (perf pass 2): the six weights the CSS actually uses,
+// latin subset (SIL OFL-1.1, files under public/assets/fonts), served
+// same-origin. This drops the third-party Google Fonts origins entirely and,
+// with the preloads below, has Inter ready by first paint so there is no swap
+// flash. Shared with the staff shell in admin.js via these exports.
+const INTER_WEIGHTS = [300, 400, 500, 600, 700, 800];
+const INTER_LATIN_RANGE = "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD";
+export const FONT_FACE_CSS = INTER_WEIGHTS.map((w) =>
+  `@font-face{font-family:'Inter';font-style:normal;font-weight:${w};font-display:swap;src:url('/assets/fonts/inter-${w}.woff2') format('woff2');unicode-range:${INTER_LATIN_RANGE}}`).join("");
+// Preload only the above-the-fold weights (body 400, nav 600, headings 700) so
+// they are ready by first paint; 300/500/800 load on demand. crossorigin is
+// required even same-origin (fonts fetch in anonymous CORS mode).
+export const FONT_PRELOADS = [400, 600, 700].map((w) =>
+  `<link rel="preload" as="font" type="font/woff2" href="/assets/fonts/inter-${w}.woff2" crossorigin>`).join("");
+
 // The dark brand stylesheet. Mirrors the staff-app class names so portal and
 // request markup theme cleanly, with a product-grade dark palette layered on top.
 export const themeCss = `
-  /* Inter is loaded via preconnected <link> tags in brandDoc()'s <head>, so it
-     no longer render-blocks behind this stylesheet's @import. */
+  /* Inter is self-hosted (FONT_FACE_CSS is prepended to this stylesheet by the
+     shells) and preloaded, so it no longer depends on any third-party origin. */
   :root{
     --gold:#CAA34C;--gold-hover:#D9B45F;--gold-txt:#E6C879;--gold-tint:rgba(202,163,76,0.14);--gold-line:rgba(202,163,76,0.34);
     --ink:#F4F2EC;--t2:#C9CCD1;--t3:#9BA0A7;--faint:#888D95;--ph:#828994; /* --ph nudged to 4.69:1 on --field for AA placeholders (launch audit) */
@@ -435,14 +450,11 @@ export function brandDoc(bodyInner, title = "JDM Connect", opts = {}) {
     ? bodyInner
     : `<main id="main">${bodyInner}</main>`;
   // The Inter stylesheet is loaded NON-render-blocking (media="print" then
-  // flipped to all onload), so first paint never waits on the third-party
-  // fetch; display=swap paints text in the fallback and swaps Inter in when it
-  // arrives. noscript keeps it working with JS off. (Self-hosting the WOFF2s
-  // would also drop the third-party origin, but that ships font binaries; this
-  // is the smaller change that removes the render-block.)
-  const fontHref = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap";
-  const fontLink = `<link rel="stylesheet" href="${fontHref}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${fontHref}"></noscript>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${seo}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>${fontLink}${headExtra}<style>${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
+  // Inter is self-hosted and preloaded (see FONT_FACE_CSS / FONT_PRELOADS): no
+  // third-party origin, and the preloaded weights are ready by first paint so
+  // there is no fallback-to-Inter swap flash. The @font-face rules are prepended
+  // to the inline stylesheet.
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115">${head}<meta name="color-scheme" content="dark"><title>${escHtml(title)}</title>${seo}${FONT_PRELOADS}${headExtra}<style>${FONT_FACE_CSS}${themeCss}</style></head><body><a class="skip-link" href="#main">Skip to content</a>${body}${content}${CONTACT_WIDGET}</body></html>`;
 }
 
 // Branded sidebar + main shell (buyer portal). Mirrors the staff shell signature

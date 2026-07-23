@@ -4,17 +4,17 @@
 import { esc, yen, km, displayGrade, fullGrade } from "./render.js";
 import { imageUrls, splitImages, distinctMakers, distinctModels, distinctGrades, refreshLotImages, searchLots, searchSold, fetchLot } from "./avtonet.js";
 import { AUCTION_CSS, auctionCardV2, auctionTabs, auctionToolbar, auctionWatchScript, auctionEligibility, watchAlertBlock, feedDownCard } from "./auction-ui.js";
-import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
+import { attachLanded, auStates, normalizeState, getLiveFx, audBudgetToYen, lotJpy, carAudToLanded, IMPORT_OVERHEAD_AUD, ON_VALUE_TAX, MIN_CAR_VALUE_AUD } from "./calc.js";
 import { marketIntel, marketPanel, DEFAULT_WINDOW_DAYS } from "./market.js";
 import { hashPassword, randomToken, hashToken, makeShareToken, passwordPolicyError, runWithSessionVerFallback, PW_MIN, PW_MAX, EMAIL_MAX } from "./auth.js";
 import { getSettings, settingOn, settingNum } from "./settings.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { googleConfigured } from "./oauth.js";
-import { brandDoc, brandShell, risingSun } from "./theme.js";
+import { brandDoc, brandShell, risingSun, FONT_FACE_CSS, FONT_PRELOADS } from "./theme.js";
 import { SHEET_MODELS, DEFAULT_SHEET_MODEL, SHEET_AUTO_MODES } from "./sheet.js";
 import { onboardingCss, wizardScript, popularCards, recentExamplesShell, budgetChips, testimonialPanel, whyUs, whatHappensNext, successTimeline, supportBlock } from "./request-wizard.js";
 import { portalSidebar, dealerSidebar } from "./portal-shell.js";
-import { auctionHistoryContent, HISTORY_SURFACES, liveSearchBlock } from "./auction-history.js";
+import { auctionHistoryContent, HISTORY_SURFACES, liveSearchBlock, landedFillScript } from "./auction-history.js";
 export { portalSidebar };
 
 // "Continue with Google" button (social login). The official four-colour G mark,
@@ -5396,12 +5396,18 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   if (findHasQuery) {
     const { lots } = await searchLots(env, sp);
     if (lots.length) {
-      try { await attachLanded(env, lots.map((lot) => ({ lot, client: { state: c.state } }))); } catch (e) {}
+      // Landed cost is now DEFERRED and BATCHED (perf pass 2), like the auction
+      // tabs: the card renders a rough placeholder instantly and one batched
+      // POST to /admin/landed-batch?client=<id> fills the real figures after
+      // first paint, instead of blocking this page on 24 per-row calculator
+      // calls. fx powers the instant placeholder; the client's state is
+      // resolved server-side by the endpoint.
+      const fx = await getLiveFx(env).catch(() => 0);
       // Cheap existence check: which of these lots are already in this client's
       // queue? Renders a Queued / Sent badge on the card instead of a dead-end
       // add-reload-duplicate loop.
       const queueStates = await lotQueueStates(env, cid, lots.map((lot) => lot.id));
-      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)))).join("")}</div>`;
+      findResults = `<div class="mgrid" style="margin-top:16px">${lots.map((lot) => staffFindCard(lot, c.id, firstName, findQs, queueStates.get(String(lot.id)), { state: c.state, fx })).join("")}</div>${landedFillScript(`/admin/landed-batch?client=${cid}`)}`;
     } else {
       findResults = `<div class="empty" style="margin-top:16px">No upcoming lots match that search. Try fewer filters, or a broader make/model.</div>`;
     }
@@ -6587,12 +6593,11 @@ function uxGuardScript() {
 }
 
 function shell(side, main, title) {
-  // Font stylesheet loaded non-render-blocking (media=print then all onload),
-  // matching brandDoc in theme.js, so the staff app's first paint never waits
-  // on the third-party fetch. display=swap handles the swap; noscript covers JS-off.
-  const FONT_HREF = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap";
-  const fontLink = `<link rel="stylesheet" href="${FONT_HREF}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${FONT_HREF}"></noscript>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>${fontLink}<style>${CSS}</style></head>
+  // Inter self-hosted and preloaded, shared with brandDoc via theme.js exports:
+  // no third-party origin, ready by first paint (no swap flash). The staff CSS
+  // uses weight 800, which the old Google URL omitted (so it was faux-bolded);
+  // the self-hosted set includes it. @font-face is prepended to the stylesheet.
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0F1115"><meta name="color-scheme" content="dark"><title>${title}</title>${FONT_PRELOADS}<style>${FONT_FACE_CSS}${CSS}</style></head>
     <body><a class="skip-link" href="#admin-main">Skip to content</a><input type="checkbox" id="navToggle" class="nav-cb" aria-hidden="true" tabindex="-1"><div class="wrap">${side}<label for="navToggle" class="nav-scrim" aria-hidden="true"></label><div class="main" role="main" id="admin-main"><label for="navToggle" class="nav-burger" role="button" tabindex="0" aria-expanded="false" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></label>${main}</div></div>${drawerChrome()}${uxGuardScript()}${revealScript()}${tableToolsScript()}<script>(function(){var cb=document.getElementById('navToggle'),b=document.querySelector('.nav-burger');if(!cb||!b)return;function sync(){b.setAttribute('aria-expanded',cb.checked?'true':'false');}b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){e.preventDefault();cb.checked=!cb.checked;sync();}});cb.addEventListener('change',sync);})();</script></body></html>`;
 }
 
@@ -7985,14 +7990,31 @@ function staffSendBar(opts = {}) {
   })();</script>`;
 }
 
-function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
+function staffFindCard(lot, clientId, firstName, qsBack, queueState, opts = {}) {
   // Selectable for the bulk send bar unless it has already gone to the client.
   const selectable = queueState !== "sent";
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.replace(/\s+/g, " ").trim() || "Vehicle";
   const bid = Number(lot.start) > 0 ? yen(lot.start) : (Number(lot.avg_price) > 0 ? yen(lot.avg_price) : "-");
   const when = lot.auction_date ? esc(String(lot.auction_date).slice(0, 10)) : "";
-  const landed = lot._landed ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}` : null;
+  // Deferred landed cost (perf pass 2): render a rough placeholder (local
+  // arithmetic, no network) tagged as a fill slot; the page's batched fill
+  // swaps in the real calculator figure after first paint. Falls back to any
+  // pre-attached lot._landed if a caller still supplies one.
+  const clientState = opts.state ? String(opts.state) : "";
+  const fx = Number(opts.fx) || 0;
+  const jpy = lotJpy(lot);
+  const audVal = jpy > 0 && fx > 0 ? Math.round(jpy / fx) : 0;
+  const rough = audVal > 0 ? carAudToLanded(audVal) : null;
+  const cc = Number(lot.eng_v) > 0 ? Math.round(Number(lot.eng_v)) : 0;
+  const landedState = (lot._landed && lot._landed.state) || clientState;
+  const landedText = lot._landed
+    ? `A$${Number(lot._landed.grandTotal).toLocaleString("en-AU")}`
+    : (rough ? `≈A$${rough.toLocaleString("en-AU")}` : "-");
+  const landedSlot = jpy > 0
+    ? ` data-landed-slot data-lot="${esc(lot.id)}" data-jpy="${esc(String(jpy))}" data-cc="${esc(String(cc))}"`
+    : "";
+  const landed = jpy > 0 ? landedText : null;
   // Full lot page (gallery, inspection report, market history), carrying the
   // client context so its Add button targets THIS client and Back returns to
   // these results. Before this, staff had to queue a car blind to see more
@@ -8016,7 +8038,7 @@ function staffFindCard(lot, clientId, firstName, qsBack, queueState) {
       <div class="s"><div class="k">Odo</div><div class="v">${lot.mileage ? Math.round(Number(lot.mileage) / 1000) + "k" : "-"}</div></div>
       <div class="s gold"><div class="k">Auction est.</div><div class="v">${bid}</div></div>
     </div>
-    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${lot._landed.state ? " · " + esc(lot._landed.state) : ""}</span><span class="ml-v">${landed}</span></div>` : ""}
+    ${landed ? `<div class="mland"><span class="ml-k">Est. landed${landedState ? " · " + esc(landedState) : ""}</span><span class="ml-v"${landedSlot}>${landed}</span></div>` : ""}
     <div class="mfoot">
       <div class="who" style="flex:1"><div class="w">${esc(lot.kuzov || "")}</div>${eligChip}</div>
       ${sheet ? `<a class="btn-tertiary" target="_blank" rel="noopener" href="${esc(sheet + "&w=1400")}">Sheet</a>` : ""}

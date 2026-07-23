@@ -861,10 +861,18 @@ export default {
 
     const adminOnly = () => Response.redirect(here("/admin"), 303);
 
-    // Deferred landed-cost fill for the staff Auctions pages (Phase 2). Any
-    // staff session (admin or agent); estimates use the default state.
+    // Deferred landed-cost fill for the staff Auctions pages and the in-client
+    // find flow. Any staff session (admin or agent). With ?client=<id> the
+    // estimate uses THAT client's state (resolved server-side, access-checked,
+    // never trusted from the browser); otherwise the default state.
     if (path === "/admin/landed-batch" && request.method === "POST") {
-      return landedBatchResponse(env, request, `s:${session.role}:${session.id}`, null);
+      let state = null;
+      const cid = Number(url.searchParams.get("client"));
+      if (Number.isInteger(cid) && cid > 0 && await clientAccessibleBy(env, cid, session)) {
+        const c = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+        state = c?.state || null;
+      }
+      return landedBatchResponse(env, request, `s:${session.role}:${session.id}`, state);
     }
 
     // Append a one-shot outcome message to a redirect destination. The admin
@@ -2305,8 +2313,8 @@ const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.google-analytics.com https://connect.facebook.net",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: https:",
     "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.facebook.com",
     "frame-src https://www.googletagmanager.com",
