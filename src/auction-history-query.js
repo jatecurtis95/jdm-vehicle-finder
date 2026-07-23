@@ -108,10 +108,13 @@ export const HISTORY_RATES = {
 // array because integer-like object keys enumerate before string keys.
 export const RATE_ORDER = ["r", "ra", "1", "2", "3", "3.5", "4", "4.5", "5", "6", "s"];
 
-// Visible auction-grade pill order (Task 2 spec): S, 6, 5, 4.5, 4, 3.5, 3, 2,
-// 1, R, RA. High-to-low then repair grades. RA2 folds under the RA pill. This
-// affects display order only; canonical sequencing stays RATE_ORDER.
-export const RATE_PILL_ORDER = ["s", "6", "5", "4.5", "4", "3.5", "3", "2", "1", "r", "ra"];
+// Visible auction-grade pill order (Ben launch-plan spec): R, RA, 1, 2, 3, 3.5,
+// 4, 4.5, 5, 6, S. Repair grades first, then ascending numerics, matching the
+// order Ben wrote in the JDMC 2.0 Launch Plan. Grade 1 is kept in the list (Ben
+// did not list it, but it is a real auction grade and dropping the pill would
+// stop staff isolating grade-1 lots); flag for review if it should be removed.
+// RA2 folds under the RA pill. Display order only; canonical stays RATE_ORDER.
+export const RATE_PILL_ORDER = ["r", "ra", "1", "2", "3", "3.5", "4", "4.5", "5", "6", "s"];
 
 // Sort whitelists -> ORDER BY. Anything else falls back to the default.
 export const HISTORY_SORTS = {

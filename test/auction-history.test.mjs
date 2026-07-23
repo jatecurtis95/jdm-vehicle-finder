@@ -418,9 +418,9 @@ test("every filter sits in one always-visible panel - nothing folds (Phase 1)", 
   assert.match(form, /\(as listed\)/);
   assert.match(form, /may exclude incomplete listings/);
   assert.match(form, /name="unspec" value="1" checked/);
-  // The full grade pill row, in the visible Task 2 order (S..RA, grade 1 in).
+  // The full grade pill row, in the visible Ben launch-plan order (R, RA..S, grade 1 kept).
   const rateOrder = [...form.matchAll(/name="rates" value="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(rateOrder, ["s", "6", "5", "4.5", "4", "3.5", "3", "2", "1", "r", "ra"]);
+  assert.deepEqual(rateOrder, ["r", "ra", "1", "2", "3", "3.5", "4", "4.5", "5", "6", "s"]);
   // Auction houses are a multi-select of checkboxes, not a single select.
   assert.match(form, /type="checkbox" name="houses"/);
   assert.doesNotMatch(form, /<select name="house"/);

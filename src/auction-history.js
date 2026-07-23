@@ -162,7 +162,7 @@ function filterForm(p, { makers, models, codes, houses, grades }, surface, opts 
   }</fieldset>`;
 
   // Auction grade scores multi-select, so "4.5 and up" is two ticks, not a
-  // dropdown dance. Visible pill order S, 6, 5, 4.5, 4, 3.5, 3, 2, 1, R, RA
+  // dropdown dance. Visible pill order R, RA, 1, 2, 3, 3.5, 4, 4.5, 5, 6, S
   // (RATE_PILL_ORDER); RA2 folds under RA. Canonical URL/SQL order is separate.
   const rateSet = new Set(p.rates ? p.rates.split(",") : []);
   const ratePills = RATE_PILL_ORDER.map((k) =>

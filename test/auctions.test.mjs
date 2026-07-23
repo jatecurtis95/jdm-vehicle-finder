@@ -51,7 +51,7 @@ test("the member live tab shares the History filter panel (Phase 1)", async () =
   const form = html.match(/<form class="ahx-filter"[\s\S]*?<\/form>/)[0];
   assert.doesNotMatch(form, /<details/, "nothing collapsed, no More filters");
   const rateOrder = [...form.matchAll(/name="rates" value="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(rateOrder, ["s", "6", "5", "4.5", "4", "3.5", "3", "2", "1", "r", "ra"], "grade pills in Task 2 order (S..RA, grade 1 included), replacing the min-grade input");
+  assert.deepEqual(rateOrder, ["r", "ra", "1", "2", "3", "3.5", "4", "4.5", "5", "6", "s"], "grade pills in Ben launch-plan order (R, RA..S, grade 1 kept), replacing the min-grade input");
   assert.doesNotMatch(form, /name="gradeMin"/);
   assert.match(form, /name="variant"[^>]*list="ahx-grades"/, "the trim selector is wired to the grades datalist");
   assert.match(form, /Start price from \(JPY\)/, "live prices are start prices");
