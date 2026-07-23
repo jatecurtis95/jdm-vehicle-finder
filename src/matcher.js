@@ -274,7 +274,7 @@ export async function runAll(env, session) {
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
             c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
      FROM searches w JOIN users c ON c.id = w.client_id
-     LEFT JOIN agents ag ON ag.id = c.agent_id
+     LEFT JOIN users ag ON ag.id = c.agent_id AND ag.type = 'agent'
      WHERE w.active = 1${membersOnly ? " AND c.member = 1" : ""}${isAgent ? " AND (c.agent_id = ? OR c.id IN (SELECT client_id FROM client_shares WHERE agent_id = ?))" : ""}`
   );
   const wl = await (isAgent ? stmt.bind(session.id, session.id) : stmt).all();
@@ -316,7 +316,7 @@ export async function runOneWishlist(env, wishlistId, { ownerClientId = null } =
     `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
             c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
      FROM searches w JOIN users c ON c.id = w.client_id
-     LEFT JOIN agents ag ON ag.id = c.agent_id
+     LEFT JOIN users ag ON ag.id = c.agent_id AND ag.type = 'agent'
      WHERE w.id = ? AND w.active = 1${ownerClientId ? " AND w.client_id = ?" : ""}`
   );
   const w = await (ownerClientId ? stmt.bind(wishlistId, ownerClientId) : stmt.bind(wishlistId)).first();

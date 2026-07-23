@@ -398,7 +398,7 @@ export async function authenticate(env, email, password) {
   };
 
   const agent = await tryRole(() => env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash, active FROM agents WHERE email = ?"
+    "SELECT id, pass_salt, pass_hash, active FROM users WHERE email = ? AND type = 'agent'"
   ).bind(e).first());
   if (agent && agent.active && agent.pass_hash && await verifyPassword(password, agent.pass_salt, agent.pass_hash)) {
     return { role: "agent", id: agent.id };
@@ -418,7 +418,7 @@ export async function authenticate(env, email, password) {
   // candidate (newest first) rather than only the newest, so a valid password
   // on an older duplicate still signs in.
   const clients = ((await tryRole(() => env.DB.prepare(
-    "SELECT id, pass_salt, pass_hash FROM users WHERE lower(email) = ? AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
+    "SELECT id, pass_salt, pass_hash FROM users WHERE lower(email) = ? AND type = 'customer' AND portal_enabled = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 5"
   ).bind(e).all())) || {}).results || [];
   for (const client of clients) {
     if (await verifyPassword(password, client.pass_salt, client.pass_hash)) {
@@ -457,7 +457,7 @@ async function tokenMatchPair(token) {
 export async function agentByInviteToken(env, token) {
   if (!token) return null;
   const a = await env.DB.prepare(
-    "SELECT id, name, email, invite_exp FROM agents WHERE invite_token IN (?, ?)"
+    "SELECT id, name, email, invite_exp FROM users WHERE invite_token IN (?, ?) AND type = 'agent'"
   ).bind(...(await tokenMatchPair(token))).first();
   if (!a || !a.invite_exp || Number(a.invite_exp) < Date.now()) return null;
   return a;
@@ -487,8 +487,8 @@ export async function setAgentPassword(env, token, password) {
   // Bump session_ver so any older sessions for this agent stop validating once
   // the password changes (a reset should log out the old device).
   await runWithSessionVerFallback(env,
-    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ?",
-    "UPDATE agents SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ?",
+    "UPDATE users SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1, session_ver = session_ver + 1 WHERE id = ? AND type = 'agent'",
+    "UPDATE users SET pass_salt = ?, pass_hash = ?, invite_token = NULL, invite_exp = NULL, active = 1 WHERE id = ? AND type = 'agent'",
     [salt, hash, a.id], "setAgentPassword");
   return { ok: true, id: a.id, email: a.email };
 }
@@ -545,7 +545,7 @@ export async function beginPasswordResetFor(env, kind, id) {
   const n = Number(id);
   if (!Number.isInteger(n) || n <= 0) return null;
   const eligible = {
-    agent: "SELECT id, name, email FROM agents WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
+    agent: "SELECT id, name, email FROM users WHERE id = ? AND type = 'agent' AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
     dealer: "SELECT id, name, email FROM suppliers WHERE id = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> ''",
     client: "SELECT id, name, email FROM users WHERE id = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> ''",
   }[kind];
@@ -569,7 +569,7 @@ export async function beginPasswordReset(env, email) {
   const e = String(email || "").trim().toLowerCase();
   if (!e || e.length > EMAIL_MAX) return null;
   const lookups = [
-    { kind: "agent", sql: "SELECT id FROM agents WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
+    { kind: "agent", sql: "SELECT id FROM users WHERE lower(email) = ? AND type = 'agent' AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
     { kind: "dealer", sql: "SELECT id FROM suppliers WHERE lower(email) = ? AND active = 1 AND pass_hash IS NOT NULL AND pass_hash <> '' LIMIT 1" },
     { kind: "client", sql: "SELECT id FROM users WHERE lower(email) = ? AND portal_enabled = 1 AND portal_revoked = 0 AND pass_hash IS NOT NULL AND pass_hash <> '' ORDER BY id DESC LIMIT 1" },
   ];

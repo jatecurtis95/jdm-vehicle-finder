@@ -1226,9 +1226,9 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   // shares (chips), so owners can share/unshare.
   let shareAgents = [], sharesByClient = {}, lastContact = {}, pendingCounts = {}, engagedClients = new Set();
   if (view === "clients") {
-    shareAgents = (await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || [];
+    shareAgents = (await env.DB.prepare("SELECT id, name, company FROM users WHERE active = 1 AND type = 'agent' ORDER BY name").all()).results || [];
     const sh = (await env.DB.prepare(
-      "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN agents a ON a.id = cs.agent_id"
+      "SELECT cs.client_id, cs.agent_id, a.name AS agent_name FROM client_shares cs JOIN users a ON a.id = cs.agent_id AND a.type = 'agent'"
     ).all()).results || [];
     for (const r of sh) (sharesByClient[r.client_id] = sharesByClient[r.client_id] || []).push({ id: r.agent_id, name: r.agent_name });
     // Derived last-contacted per client: the newest of any sent vehicle, note
@@ -1288,7 +1288,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
         `SELECT a.*, (SELECT COUNT(*) FROM users c WHERE c.agent_id = a.id) AS client_count,
                 (SELECT COUNT(*) FROM searches w JOIN users c2 ON c2.id = w.client_id
                   WHERE c2.agent_id = a.id AND COALESCE(w.status, 'new') NOT IN ('delivered','lost')) AS open_requests
-           FROM agents a ORDER BY a.name`
+           FROM users a WHERE a.type = 'agent' ORDER BY a.name`
       ).all()).results || []
     : [];
   const dealers = (!isAgent && view === "dealers")
@@ -1323,7 +1323,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
             (SELECT q.id FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_queue_id,
             (SELECT q.lot_json FROM queue q WHERE q.wishlist_id = w.id ORDER BY q.created_at DESC LIMIT 1) AS last_lot_json
        FROM searches w JOIN users c ON c.id = w.client_id
-       LEFT JOIN agents ow ON ow.id = w.owner_id
+       LEFT JOIN users ow ON ow.id = w.owner_id AND ow.type = 'agent'
       WHERE ${acc.sql}
       ORDER BY (SELECT MAX(COALESCE(w2.last_activity, w2.created_at))
                   FROM searches w2 WHERE w2.client_id = w.client_id) DESC,
@@ -1333,7 +1333,7 @@ export async function adminPage(env, view = "dashboard", session = { role: "admi
   ).all()).results || []) : [];
   const matchSettings = view === "matches" ? appSettings : null;
   if (isAgent) {
-    const me = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(session.id).first();
+    const me = await env.DB.prepare("SELECT name FROM users WHERE id = ? AND type = 'agent'").bind(session.id).first();
     session = { ...session, name: me ? me.name : "Agent" };
   }
 
@@ -1921,7 +1921,7 @@ async function dashboardData(env, session) {
   const run = (sql) => { const s = env.DB.prepare(sql); return acc.binds.length ? s.bind(...acc.binds) : s; };
   const clients = (await run(`SELECT COUNT(*) AS n FROM users c WHERE ${acc.sql} AND c.archived = 0`).first())?.n || 0;
   const agents = session.role === "admin"
-    ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE active = 1").first())?.n || 0)
+    ? ((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE active = 1 AND type = 'agent'").first())?.n || 0)
     : 0;
   const pending = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql}`).first())?.n || 0;
   const closing = (await run(`SELECT COUNT(*) AS n FROM queue q JOIN users c ON c.id = q.client_id WHERE q.status='pending' AND ${SNOOZE_LIVE} AND ${acc.sql} AND json_extract(q.lot_json,'$.auction_date') BETWEEN datetime('now') AND datetime('now','+48 hours')`).first())?.n || 0;
@@ -1950,7 +1950,7 @@ async function dashboardData(env, session) {
 
   let people;
   if (session.role === "admin") {
-    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM users c WHERE c.agent_id = a.id) AS client_count FROM agents a ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
+    people = (await env.DB.prepare(`SELECT a.id, a.name, a.company, a.email, a.active, a.alerts, (SELECT COUNT(*) FROM users c WHERE c.agent_id = a.id) AS client_count FROM users a WHERE a.type = 'agent' ORDER BY a.created_at DESC LIMIT 6`).all()).results || [];
   } else {
     people = (await run(`SELECT c.id, c.name, c.email, c.state FROM users c WHERE ${acc.sql} AND c.archived = 0 ORDER BY c.created_at DESC LIMIT 6`).all()).results || [];
   }
@@ -3168,7 +3168,7 @@ function matchTrackRow(q, back) {
 // logged as the anonymous "Agent" (audit: shared-agent actions unattributable).
 async function actorName(env, session) {
   if (!session || session.role === "admin") return "JDM Connect";
-  const a = await env.DB.prepare("SELECT name FROM agents WHERE id = ?").bind(Number(session.id)).first();
+  const a = await env.DB.prepare("SELECT name FROM users WHERE id = ? AND type = 'agent'").bind(Number(session.id)).first();
   return (a && a.name) || "Agent";
 }
 
@@ -3197,7 +3197,7 @@ export async function assignRequestOwner(env, id, ownerId, session) {
   const owner = Number.isInteger(oid) && oid > 0 ? oid : null;
   let name = "JDM Connect";
   if (owner) {
-    const a = await env.DB.prepare("SELECT name FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    const a = await env.DB.prepare("SELECT name FROM users WHERE id = ? AND type = 'agent' AND active = 1").bind(owner).first();
     if (!a) return { ok: false, error: "owner" };
     name = a.name;
   }
@@ -3425,9 +3425,9 @@ export async function requestDetailPage(env, wishlistId, session = { role: "admi
     `SELECT t.*, c.name AS client_name FROM tasks t LEFT JOIN users c ON c.id = t.client_id
       WHERE t.wishlist_id = ? ORDER BY (t.status='done'), COALESCE(t.due_date,'9999-99-99'), t.id DESC LIMIT 30`
   ).bind(wid).all()).results || [];
-  const agents = session.role === "admin" ? ((await env.DB.prepare("SELECT id, name, company FROM agents WHERE active = 1 ORDER BY name").all()).results || []) : [];
+  const agents = session.role === "admin" ? ((await env.DB.prepare("SELECT id, name, company FROM users WHERE active = 1 AND type = 'agent' ORDER BY name").all()).results || []) : [];
   const ownerId = w.owner_id || w.client_agent || null;
-  const owner = ownerId ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(ownerId).first() : null;
+  const owner = ownerId ? await env.DB.prepare("SELECT name, company FROM users WHERE id = ? AND type = 'agent'").bind(ownerId).first() : null;
   const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
 
   const first = firstNameOf(w.client_name);
@@ -5220,7 +5220,7 @@ export async function clientDetailPage(env, clientId, session = { role: "admin",
   // editable Searches list, they're plumbing, not searches staff manage.
   const searchWls = wls.filter((w) => !SYSTEM_WISHLIST_LABELS.has(w.label));
 
-  const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM agents WHERE id = ?").bind(c.agent_id).first() : null;
+  const owner = c.agent_id ? await env.DB.prepare("SELECT name, company FROM users WHERE id = ? AND type = 'agent'").bind(c.agent_id).first() : null;
   const ownerLabel = owner ? esc(owner.name) + (owner.company ? " · " + esc(owner.company) : "") : "JDM Connect";
   const contact = [c.email && `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, c.whatsapp && esc(c.whatsapp), c.state && esc(c.state)].filter(Boolean).join(" &middot; ") || "No contact on file";
   const canManage = session.role === "admin" || Number(c.agent_id) === Number(session.id);
@@ -7091,7 +7091,7 @@ export async function createAgent(env, form) {
   const exp = Date.now() + INVITE_TTL_MS;
   try {
     await env.DB.prepare(
-      "INSERT INTO agents (email, name, company, pass_salt, pass_hash, invite_token, invite_exp) VALUES (?, ?, ?, '', '', ?, ?)"
+      "INSERT INTO users (email, name, company, pass_salt, pass_hash, invite_token, invite_exp, type, portal_enabled) VALUES (?, ?, ?, '', '', ?, ?, 'agent', 0)"
     ).bind(email, name, company, await hashToken(token), exp).run();
     return { ok: true, token, email, name };
   } catch (e) {
@@ -7102,18 +7102,18 @@ export async function createAgent(env, form) {
 
 // Re-issue an invite / set-password link (resend invite or reset password).
 export async function resendInvite(env, id) {
-  const a = await env.DB.prepare("SELECT id, name, email FROM agents WHERE id = ?").bind(Number(id)).first();
+  const a = await env.DB.prepare("SELECT id, name, email FROM users WHERE id = ? AND type = 'agent'").bind(Number(id)).first();
   if (!a) return null;
   const token = randomToken();
   const exp = Date.now() + INVITE_TTL_MS;
-  await env.DB.prepare("UPDATE agents SET invite_token = ?, invite_exp = ? WHERE id = ?").bind(await hashToken(token), exp, a.id).run();
+  await env.DB.prepare("UPDATE users SET invite_token = ?, invite_exp = ? WHERE id = ? AND type = 'agent'").bind(await hashToken(token), exp, a.id).run();
   return { token, email: a.email, name: a.name };
 }
 
 export async function toggleAgentAlerts(env, id) {
   const aid = Number(id);
   if (!Number.isInteger(aid) || aid <= 0) return;
-  await env.DB.prepare("UPDATE agents SET alerts = CASE WHEN alerts = 1 THEN 0 ELSE 1 END WHERE id = ?").bind(aid).run();
+  await env.DB.prepare("UPDATE users SET alerts = CASE WHEN alerts = 1 THEN 0 ELSE 1 END WHERE id = ? AND type = 'agent'").bind(aid).run();
 }
 
 export async function deleteAgent(env, id) {
@@ -7132,7 +7132,7 @@ export async function deleteAgent(env, id) {
   }
   stmts.push(env.DB.prepare("DELETE FROM client_shares WHERE agent_id = ?").bind(aid)); // shares received
   stmts.push(env.DB.prepare("DELETE FROM users WHERE agent_id = ?").bind(aid));
-  stmts.push(env.DB.prepare("DELETE FROM agents WHERE id = ?").bind(aid));
+  stmts.push(env.DB.prepare("DELETE FROM users WHERE id = ? AND type = 'agent'").bind(aid));
   await env.DB.batch(stmts);
 }
 
@@ -7143,7 +7143,7 @@ export async function shareClient(env, clientId, agentId, session) {
   if (!(await clientOwnedBy(env, cid, session))) return; // only the owner shares
   const owner = await env.DB.prepare("SELECT agent_id FROM users WHERE id = ?").bind(cid).first();
   if (owner && Number(owner.agent_id) === aid) return; // don't share with the owner
-  const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(aid).first();
+  const agent = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND type = 'agent' AND active = 1").bind(aid).first();
   if (!agent) return;
   await env.DB.prepare("INSERT OR IGNORE INTO client_shares (client_id, agent_id) VALUES (?, ?)").bind(cid, aid).run();
 }
@@ -7164,7 +7164,7 @@ export async function assignClient(env, clientId, agentId, session) {
   const aid = Number(agentId);
   const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
   if (owner) {
-    const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    const agent = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND type = 'agent' AND active = 1").bind(owner).first();
     if (!agent) return;
   }
   await env.DB.prepare("UPDATE users SET agent_id = ? WHERE id = ?").bind(owner, cid).run();
@@ -7219,7 +7219,7 @@ export async function bulkAllocate(env, action, agentId, ids, session, includeAg
   const aid = Number(agentId);
   const owner = Number.isInteger(aid) && aid > 0 ? aid : null;
   if (owner) {
-    const agent = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND active = 1").bind(owner).first();
+    const agent = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND type = 'agent' AND active = 1").bind(owner).first();
     if (!agent) return;
   }
   const stmts = [];
@@ -7242,8 +7242,8 @@ export async function toggleAgent(env, id) {
   // immediately, not just block the next login. Falls back to the legacy
   // update if migration 0010 has not reached this database yet.
   await runWithSessionVerFallback(env,
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ?",
-    "UPDATE agents SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?",
+    "UPDATE users SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END, session_ver = session_ver + 1 WHERE id = ? AND type = 'agent'",
+    "UPDATE users SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ? AND type = 'agent'",
     [aid], "toggleAgent");
 }
 
