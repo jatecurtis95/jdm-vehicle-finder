@@ -5,7 +5,7 @@
 // fetch(): serves the admin UI, the manual "run now" trigger, the form posts,
 //   and the approve/skip decision links from the digest.
 
-import { runAll, sendWelcomeMatch } from "./matcher.js";
+import { runAll, runOneWishlist, sendWelcomeMatch } from "./matcher.js";
 import { digestHtml, agentInviteHtml, requestAlertHtml, requestConfirmationHtml, clientPortalInviteHtml, clientRequestAlertHtml, dealerInviteHtml, passwordResetHtml } from "./render.js";
 import { sendEmail, deliverToClient, deliverManyToClient, sendPush, paymentChime } from "./notify.js";
 import { adminPage, requestPage, loginPage, mfaPage, setPasswordPage, forgotPasswordPage, createClient, updateClient, createWishlist, createRequest, createAdminRequest, deleteClient, deleteWishlist, toggleWishlist, createAgent, deleteAgent, toggleAgent, resendInvite, toggleAgentAlerts, clientAccessibleBy, shareClient, unshareClient, assignClient, bulkAllocate, editWishlist, clientDetailPage, clientDrawerFragment, matchesChunk, logContactTap, updateRequestStatus, requestDetailPage, addRequestNote, assignRequestOwner, setNextAction, createTask, toggleTask, deleteTask, recordMatchSent, stampMatchViewed, setMatchResponse, snoozeMatch, archiveClient, lotDetailPage, publicLotPage, auctionLotPage, expirePast, portalPage, portalAuctionsPage, requestAuctionLot, addLotToClient, addLotsToClient, autoFollowUps, setClientMember, portalAddWishlist, portalEditWishlist, portalToggleWishlist, portalDeleteWishlist, portalApprove, inviteClientPortal, revokeClientPortal, phoneKey, upsertGoogleClient, createDealer, resendDealerInvite, toggleDealer, deleteDealer, submitDealerVehicle, approveDealerVehicle, rejectDealerVehicle, getDealerVehicles, dealerPortalPage, updateShareDetails, setShareRevoked, regenerateShareLink } from "./admin.js";
@@ -109,6 +109,22 @@ async function landedRateLimited(env, who) {
     const n = parseInt((await env.RL.get(k)) || "0", 10);
     if (n >= LANDED_RL_MAX) return true;
     await env.RL.put(k, String(n + 1), { expirationTtl: LANDED_RL_WINDOW_S });
+  } catch (_) { /* fail open */ }
+  return false;
+}
+
+// Manual per-search run (Phase 5): cap how often one client can trigger their
+// own search, so the button cannot hammer the matcher or the feed. 4 per hour
+// mirrors the automatic 4x/day cadence in spirit; staff runs are not limited.
+const RUNSEARCH_RL_MAX = 4;
+const RUNSEARCH_RL_WINDOW_S = 3600;
+async function runSearchRateLimited(env, who) {
+  if (!env.RL || !who) return false;
+  const k = `runsearch:${who}`;
+  try {
+    const n = parseInt((await env.RL.get(k)) || "0", 10);
+    if (n >= RUNSEARCH_RL_MAX) return true;
+    await env.RL.put(k, String(n + 1), { expirationTtl: RUNSEARCH_RL_WINDOW_S });
   } catch (_) { /* fail open */ }
   return false;
 }
@@ -1198,6 +1214,18 @@ export default {
     // Old GET bookmarks land on the Matches queue without running anything.
     if (path === "/run") return Response.redirect(here("/admin?view=matches"), 303);
 
+    // Per-search manual trigger (Phase 5), staff: run the matcher for ONE saved
+    // search now and queue any new matches for review. Only staff reach here
+    // (client/dealer sessions were routed to their handlers above); POST +
+    // same-origin guarded like /run. Redirects to the owning client's profile.
+    if (path.startsWith("/admin/run-search/") && request.method === "POST") {
+      const id = Number(path.slice("/admin/run-search/".length));
+      if (!Number.isInteger(id) || id <= 0) return Response.redirect(here("/admin?view=customers"), 303);
+      const r = await runOneWishlist(env, id);
+      const dest = r.wishlist ? `/admin?view=client&id=${r.wishlist.client_id}` : "/admin?view=customers";
+      return Response.redirect(here(withNotice(dest, r.ok ? `Search run. ${r.queued} new match${r.queued === 1 ? "" : "es"} queued.` : "That search could not be run.", !r.ok)), 303);
+    }
+
     // One-click "Fix all photos": AI-read every un-read pending match in the
     // background, which tags each car's cover photo + sheet so the cards heal.
     // Admin only; gated by the API key.
@@ -1665,10 +1693,12 @@ async function handleClientPortal(request, env, url, path, session, here) {
       code === "paid" ? "Payment received - thank you. We'll be in touch with the next steps." :
       code === "member" ? "You're in - Full access is now active on your account." :
       code === "saved" ? "Saved." :
+      code === "checked" ? "We're checking the latest auctions for that search now. New matches appear here once our team reviews them." :
       err === "pay" ? "Sorry, we couldn't start that payment. Please try again or contact us." :
       err === "sub" ? "Sorry, we couldn't start that just now. Please try again or contact us." :
       err === "freelimit" ? "Free accounts run one active search at a time. Pause or delete your current search to swap it, or upgrade to Full access for unlimited searches." :
       err === "searchcap" ? "You've reached the maximum number of active searches. Pause or delete one first." :
+      err === "toomany" ? "You've checked your searches a few times just now. Please wait a little while before checking again. Our team also runs every search automatically through the day." :
       err === "save" ? "We couldn't save that search. Add at least a make, model or chassis code so we know what to look for." : "";
     return doc(await portalPage(env, session, { flash }));
   }
@@ -1802,6 +1832,16 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/wishlist/delete" && request.method === "POST") {
     await portalDeleteWishlist(env, await request.formData(), session);
     return back();
+  }
+  // Per-search manual trigger (Phase 5), member: check the latest auctions for
+  // ONE of your own searches now. Ownership-scoped (a foreign id finds nothing)
+  // and rate-limited so the button cannot hammer the feed.
+  if (path === "/portal/wishlist/run" && request.method === "POST") {
+    const id = Number((await request.formData()).get("id"));
+    if (!Number.isInteger(id) || id <= 0) return back("?err=save");
+    if (await runSearchRateLimited(env, `c:${session.id}`)) return back("?err=toomany");
+    const r = await runOneWishlist(env, id, { ownerClientId: Number(session.id) });
+    return back(r.ok ? "?ok=checked" : "?err=save");
   }
 
   // Buyer asks us to action/translate a car - flag it and alert staff (once).
