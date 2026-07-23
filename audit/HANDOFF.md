@@ -487,3 +487,30 @@ the semantic work (agents-fold, column drops, member->tier, portal) plus the
 full two-app rehearsal is still a focused multi-hour effort. It should be driven
 to a clean rehearsal in a dedicated continuation before the cutover. The branch is
 in a consistent, resumable state at `7ff5b74`.
+
+---
+
+# Free-tier teaser SHIPPED (current schema, live) - version ab93603f
+
+The customer-facing value from Task 5, decoupled from Phase 3 and live today on
+the existing database. No migration, no cutover.
+
+- A free public self-signup (member=0 AND source='public') now sees, in their
+  portal, a locked "Match found" card confirming a match exists for their search,
+  with the car's photo/specs/price hidden behind an "Upgrade to see this car"
+  CTA. Capped by the existing free_result_limit setting (default 1); any extra
+  matches are teased ("Plus N more waiting").
+- SAFETY: "free" is deliberately `!member && source='public'`, NOT just `!member`.
+  Production has 0 members, so every client is member=0; keying only on member
+  would have locked your fully-managed clients out of their own matches. Managed
+  and legacy clients (source null/jdm) and members always see full detail.
+  Covered by a dedicated test.
+- Files: src/admin.js (clientCarCard locked mode + portalPage wiring),
+  test/free-tier-teaser.test.mjs (4 cases). Full suite 593 pass, deployed,
+  home 200, login 200, main pushed.
+- Note: this is the current-schema slice. When Phase 3 lands, `isFree` moves from
+  `source='public'` to `tier='free'` (a one-line change) and the quota side of
+  Task 5 (per-tier request limits) builds on the tier model.
+
+Live prod versions now: 2bb47937 (P1+2) -> 9049c598 (P5) -> 5f79bc7c (P4 SMS)
+-> ab93603f (free-tier teaser).
