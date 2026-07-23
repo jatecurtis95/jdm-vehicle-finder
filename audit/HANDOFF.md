@@ -377,3 +377,62 @@ Untouched as instructed: rescue/onedrive-wip-2026-07-22.
 Also parked, your call: the avg-sold tool on rescue/main-wip-2026-07-23, and the
 docs-only chore/audit-consolidation branch (merge to main if you want the full
 audit/ folder there; main currently has the Phase 1/2 subset plus this HANDOFF).
+
+---
+
+# Phase 3 (Task 6): migration BUILT and verified; full cutover NOT run (rehearsal gate)
+
+Branch `feat/phase3-users-model`, migration `migrations/0020_users_model.sql`
+committed and pushed (`005666c`).
+
+Done and verified:
+- Migration 0020 written per PHASE3_PLAN_V2.md and REHEARSED on a fresh local D1
+  with seed data. It applied cleanly (23 statements, no errors) and transformed
+  the data correctly: clients -> users (+ type/tier with CHECK constraints); tier
+  backfill (member=1 -> paid_access, source='public' -> free, else fully_managed
+  - seed rows landed fully_managed); the agents fold into users as type='agent'
+  with ids 1000+old (verified: no collision with customer ids; references remapped
+  across users.agent_id, client_shares.agent_id, wishlists.owner_id,
+  tasks.assigned_to); member/category/dealer_username dropped; agents table
+  dropped; wishlists -> searches (FK columns intact); dealers -> suppliers; four
+  new indexes (unique email/username/google_sub, plus type). Local state was reset
+  clean afterwards.
+
+Why the cutover did NOT run - this is your Task 6 rehearsal rule working:
+- The migration is roughly 5% of Phase 3. The rest is a large code sweep plus
+  non-mechanical work: ~145 `clients` SQL sites, ~80 `wishlists`, ~16 `dealers`,
+  a SEMANTIC agents-fold across ~39 sites (agents becomes `users WHERE
+  type='agent'` with id remap, not a rename), ~29 `member` sites plus the
+  member-to-tier gate/Stripe/upsell/staff-selector logic, ~31 `category` sites,
+  across admin.js (654 KB), index.js, auth.js, matcher, stripe, notify,
+  auction-history, landing. THEN 389 table references across the test suite, the
+  schema-check DEPLOY GATE (`check-remote-schema.mjs` must expect the new schema
+  or main will not deploy), seed and qa-reset, AND the separate `jdm-dealer-portal`
+  repo (functions/api/requests.js, login/forgot/reset) which binds the SAME
+  production database.
+- That is 700+ edit sites across two repos, ending in an irreversible production
+  database cutover. Your rule: rehearse the ENTIRE cutover to clean-green first,
+  cut over only if it passes, roll back on any failure. A clean full rehearsal
+  (fresh D1, every test updated and green, e2e, four auth paths, the two-app
+  portal loop) is not reachable for a refactor this size in one sitting, and
+  cutting over on anything less would risk your live client and agent data.
+- One production risk the plan itself flags (PHASE3_CHECKS Task 1) and that MUST
+  be checked before any cutover: the new unique email index assumes zero
+  case-insensitive email collision between your one client-with-email and the four
+  agents. Confirm with a read-only production query first, or the migration aborts
+  at index creation. Command is in PHASE3_CHECKS.md section 1.2.
+
+Recommended path (I can drive it, it is a focused pass not a tail-of-session job):
+build the full sweep + portal + tests + schema-check on `feat/phase3-users-model`,
+take it through the complete local rehearsal to clean-green, run the production
+collision check, then export + cutover + smoke exactly per PHASE3_PLAN_V2 sections
+5 to 8, rollback-ready. The verified migration is the foundation to build on.
+
+# Task 5 / Phase 6 - decision recorded, build folded into the Phase 3 pass
+
+You decided: free customers get 1 request with details hidden (an upgrade teaser),
+quota 1. Buildable, but it touches the request flow and the member model that
+Phase 3 renames, so building it now against clients/member and redoing it after
+the rename is wasteful. It belongs in the Phase 3 pass, on users/tier: open
+`/portal/auctions/request` to tier='free' customers with a 1-request quota, and
+render their one matched car with details masked behind an upgrade CTA.
