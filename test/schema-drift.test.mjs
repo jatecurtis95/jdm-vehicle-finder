@@ -51,22 +51,21 @@ test("a customer can set their portal password even when migration 0010 is missi
 
 test("agent set-password also survives the missing column", async () => {
   const env = envWithout0010(`
-    INSERT INTO agents (id, name, email, pass_salt, pass_hash, invite_token, invite_exp)
-    VALUES (1, 'Agent A', 'ag@x.com', '', '', 'atok', ${Date.now() + 86400000});
+    INSERT INTO users (id, name, email, pass_salt, pass_hash, invite_token, invite_exp, type) VALUES (1, 'Agent A', 'ag@x.com', '', '', 'atok', ${Date.now() + 86400000}, 'agent');
   `);
   const res = await worker.fetch(postForm("/set-password", { token: "atok", password: "supersecret123", confirm: "supersecret123" }), env, CTX);
   assert.equal(res.status, 303);
-  const a = await env.DB.prepare("SELECT pass_hash FROM agents WHERE id = 1").first();
+  const a = await env.DB.prepare("SELECT pass_hash FROM users WHERE id = 1").first();
   assert.ok(a.pass_hash, "password stored");
 });
 
 test("agent toggle and portal revoke degrade to the legacy update, not a throw", async () => {
   const env = envWithout0010(`
-    INSERT INTO agents (id, name, email, pass_salt, pass_hash, active) VALUES (1, 'A', 'a@x', 's', 'h', 1);
+    INSERT INTO users (id, name, email, pass_salt, pass_hash, active, type) VALUES (1, 'A', 'a@x', 's', 'h', 1, 'agent');
     INSERT INTO users (id, name, email, portal_enabled, pass_hash, pass_salt) VALUES (1, 'C', 'c@x', 1, 'h', 's');
   `);
   await toggleAgent(env, 1);
-  assert.equal((await env.DB.prepare("SELECT active FROM agents WHERE id = 1").first()).active, 0, "agent paused");
+  assert.equal((await env.DB.prepare("SELECT active FROM users WHERE id = 1").first()).active, 0, "agent paused");
   await revokeClientPortal(env, 1, { role: "admin", id: 0 });
   const c = await env.DB.prepare("SELECT portal_enabled, portal_revoked, pass_hash FROM users WHERE id = 1").first();
   assert.equal(c.portal_enabled, 0, "portal revoked");

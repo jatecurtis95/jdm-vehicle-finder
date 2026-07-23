@@ -32,8 +32,8 @@ const FUTURE = () => Date.now() + 60 * 60 * 1000;
 
 async function seedAgent(env, email, password) {
   const { salt, hash } = await hashPassword(password);
-  env.db.prepare("INSERT INTO agents (email, name, pass_salt, pass_hash, active) VALUES (?, 'Agent', ?, ?, 1)").run(email, salt, hash);
-  return env.db.prepare("SELECT id FROM agents WHERE email = ?").get(email).id;
+  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, active, type) VALUES (?, 'Agent', ?, ?, 1)").run(email, salt, hash, 'agent');
+  return env.db.prepare("SELECT id FROM users WHERE email = ?").get(email).id;
 }
 async function seedDealer(env, email, password) {
   const { salt, hash } = await hashPassword(password);
@@ -84,7 +84,7 @@ test("0.1 route contract: /request re-renders EVERY validation error (no fall-th
 
 test("0.2: agent invite token sets a password and the agent can sign in", async () => {
   const env = makeEnv();
-  env.db.prepare("INSERT INTO agents (email, name, pass_salt, pass_hash, invite_token, invite_exp) VALUES ('ag@example.com','Ag','','','tok-agent',?)").run(FUTURE());
+  env.db.prepare("INSERT INTO users (email, name, pass_salt, pass_hash, invite_token, invite_exp, type) VALUES ('ag@example.com','Ag','','','tok-agent',?)").run(FUTURE(), 'agent');
   const r = await setAgentPassword(env, "tok-agent", "Agentpass123");
   assert.equal(r.ok, true);
   const who = await authenticate(env, "ag@example.com", "Agentpass123");
@@ -180,7 +180,7 @@ test("0.3: reset is refused (null) for unknown, revoked, deactivated and passwor
 
   // Deactivated agent.
   const aid = await seedAgent(env, "off@example.com", "Agentpass123");
-  env.db.prepare("UPDATE agents SET active = 0 WHERE id = ?").run(aid);
+  env.db.prepare("UPDATE users SET active = 0 WHERE id = ?").run(aid);
   assert.equal(await beginPasswordReset(env, "off@example.com"), null);
 
   // Admin-side variant refuses the same ineligible rows.

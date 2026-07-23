@@ -73,7 +73,7 @@ test("Auction history / Sold prices gets its own sidebar item beneath Auctions",
 });
 
 test("agents see the Auction history sidebar item too", async () => {
-  const env = makeEnv(`INSERT INTO agents (id,name,email,pass_salt,pass_hash,active) VALUES (7,'Agent Amy','a@x','s','h',1);`);
+  const env = makeEnv(`INSERT INTO users (id,name,email,pass_salt,pass_hash,active, type) VALUES (7,'Agent Amy','a@x','s','h',1, 'agent');`);
   stub(lotXml());
   const html = await adminPage(env, "dashboard", { role: "agent", id: 7, name: "Agent Amy" });
   assert.match(html, /href="\/admin\?view=auctions&(amp;)?tab=history"/);

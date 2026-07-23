@@ -7,7 +7,7 @@ import { makeEnv } from "./helpers/d1.mjs";
 import { bulkAllocate, adminPage } from "../src/admin.js";
 
 const FIXTURE = `
-  INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
+  INSERT INTO users (id,email,name,pass_salt,pass_hash, type) VALUES (1,'a1@x','A1','','', 'agent');
   INSERT INTO users (id,name,email) VALUES (10,'Doomed One','d1@x'),(20,'Doomed Two','d2@x'),(30,'Survivor','s@x');
   INSERT INTO searches (id,client_id,label) VALUES (100,10,'w10'),(200,20,'w20'),(300,30,'w30');
   INSERT INTO seen_lots (wishlist_id,lot_id) VALUES (100,'L1'),(200,'L2'),(300,'L3');
@@ -64,7 +64,7 @@ test("bulk delete with no ids is a safe no-op", async () => {
 // select-all delete unless the admin explicitly opts in. Shared-but-unowned
 // customers belong to JDM Connect, so they stay deletable (see the first test).
 const OWNED_FIXTURE = `
-  INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
+  INSERT INTO users (id,email,name,pass_salt,pass_hash, type) VALUES (1,'a1@x','A1','','', 'agent');
   INSERT INTO users (id,name,email,agent_id) VALUES (10,'Unowned','u@x',NULL),(11,'Agent Book','ao@x',1);
   INSERT INTO searches (id,client_id,label) VALUES (100,10,'w'),(110,11,'w');
 `;

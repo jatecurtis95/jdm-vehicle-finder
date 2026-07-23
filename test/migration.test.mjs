@@ -29,7 +29,7 @@ test("baseline includes columns the code depends on that schema.sql had missed",
 
 test("the dev seed loads on top of the baseline and creates the demo logins", () => {
   const env = makeEnv(readFile("seed/seed-dev.sql"));
-  const agent = env.DB.prepare("SELECT name FROM agents WHERE email = ?").bind("demo.agent@example.com").first();
+  const agent = env.DB.prepare("SELECT name FROM users WHERE email = ?").bind("demo.agent@example.com").first();
   assert.equal(agent.name, "Demo Agent");
   const buyer = env.DB.prepare("SELECT portal_enabled FROM users WHERE email = ?").bind("demo.buyer@example.com").first();
   assert.equal(buyer.portal_enabled, 1, "demo buyer has the portal enabled");

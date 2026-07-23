@@ -15,7 +15,7 @@ const FEED_ROW = `<row><id>L1</id><marka_name>NISSAN</marka_name><model_name>SKY
 
 function seed() {
   return `
-    INSERT INTO agents (id, email, name, pass_salt, pass_hash, active) VALUES (5, 'ben@x.com', 'Ben', '', '', 1);
+    INSERT INTO users (id, email, name, pass_salt, pass_hash, active, type) VALUES (5, 'ben@x.com', 'Ben', '', '', 1, 'agent');
     INSERT INTO users (id, name, email, whatsapp, portal_enabled, member, agent_id) VALUES
       (1, 'Jordan Member', 'jordan@x.com', '+61400111222', 1, 1, NULL),
       (2, 'Casey Free', 'casey@x.com', NULL, 1, 0, 5);

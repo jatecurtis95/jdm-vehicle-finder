@@ -12,7 +12,7 @@ const ADMIN = { role: "admin", id: 0 };
 
 function seed() {
   return `
-    INSERT INTO agents (id, email, name, pass_salt, pass_hash, active) VALUES (5, 'ben@x.com', 'Ben', '', '', 1);
+    INSERT INTO users (id, email, name, pass_salt, pass_hash, active, type) VALUES (5, 'ben@x.com', 'Ben', '', '', 1, 'agent');
     INSERT INTO users (id, name, email, agent_id) VALUES (1, 'Alice Apple', 'a@x.com', 5), (2, 'Bob Banana', 'b@x.com', 5);
     INSERT INTO tasks (id, title, client_id, assigned_to, due_date, status) VALUES
       (1, 'Call Alice re finance', 1, 5, date('now'), 'todo'),

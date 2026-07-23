@@ -11,7 +11,7 @@ const ADMIN = { role: "admin", id: 0 };
 
 function seed(extra = "") {
   return makeEnv(`
-    INSERT INTO agents (id,email,name,pass_salt,pass_hash,active) VALUES (5,'ag@x','Ag','s','h',1), (6,'ag2@x','Ag2','s','h',1);
+    INSERT INTO users (id,email,name,pass_salt,pass_hash,active, type) VALUES (5,'ag@x','Ag','s','h',1, 'agent'), (6,'ag2@x','Ag2','s','h',1, 'agent');
     INSERT INTO users (id,name,email,agent_id,archived) VALUES (10,'Alice Apple','a@x.com',5,0);
     ${extra}
   `);

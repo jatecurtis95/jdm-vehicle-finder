@@ -17,9 +17,9 @@
 
 -- Agents -------------------------------------------------------------------
 -- 9001 has a working password; 9002 is in the invited state (no password yet).
-INSERT OR REPLACE INTO agents (id, email, name, pass_salt, pass_hash, active, alerts, company) VALUES
-  (9001, 'demo.agent@example.com', 'Demo Agent', 'Z/BWEBau6M4vcJs5hitPwQ==', 'QHirASmhIRYnd6NXnoFv9jo6JuP/hOw/1AU3A1Q0I1M=', 1, 1, 'Ofuka Demo'),
-  (9002, 'invited.agent@example.com', 'Invited Agent', '', '', 1, 1, NULL);
+INSERT OR REPLACE INTO users (id, email, name, pass_salt, pass_hash, active, alerts, company, type) VALUES
+  (9101, 'demo.agent@example.com', 'Demo Agent', 'Z/BWEBau6M4vcJs5hitPwQ==', 'QHirASmhIRYnd6NXnoFv9jo6JuP/hOw/1AU3A1Q0I1M=', 1, 1, 'Ofuka Demo', 'agent'),
+  (9102, 'invited.agent@example.com', 'Invited Agent', '', '', 1, 1, NULL, 'agent');
 
 -- Dealer account -----------------------------------------------------------
 -- Uses the same QA-only demo password as the agent and buyer: demo1234.
@@ -33,8 +33,8 @@ INSERT OR REPLACE INTO dealer_vehicles (id, dealer_id, make, model, year, grade,
 -- 9001 owned by the demo agent, portal enabled with a working login.
 -- 9002 owned by the demo agent, no portal. 9003 is a JDM Connect direct client.
 INSERT OR REPLACE INTO users (id, name, email, whatsapp, state, agent_id, portal_enabled, pass_salt, pass_hash) VALUES
-  (9001, 'Aiko Tanaka', 'demo.buyer@example.com', '+61400000001', 'VIC', 9001, 1, '735Tli9Zbw8K+vQ6lwBG2A==', 'fEIhbrdwNGkaDNtkMNUDrtSeTtgMAZIt7kA2JlUX6d0='),
-  (9002, 'Ben Carter', 'ben.demo@example.com', NULL, 'NSW', 9001, 0, NULL, NULL),
+  (9001, 'Aiko Tanaka', 'demo.buyer@example.com', '+61400000001', 'VIC', 9101, 1, '735Tli9Zbw8K+vQ6lwBG2A==', 'fEIhbrdwNGkaDNtkMNUDrtSeTtgMAZIt7kA2JlUX6d0='),
+  (9002, 'Ben Carter', 'ben.demo@example.com', NULL, 'NSW', 9101, 0, NULL, NULL),
   (9003, 'Direct Buyer', NULL, '+61400000003', 'QLD', NULL, 0, NULL, NULL);
 
 -- Wishlists ----------------------------------------------------------------

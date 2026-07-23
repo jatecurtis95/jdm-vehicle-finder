@@ -7,8 +7,7 @@ import { makeEnv } from "./helpers/d1.mjs";
 import { sessionCookie, getSession, bumpSessionVer, sign } from "../src/auth.js";
 
 const FIXTURE = `
-  INSERT INTO agents (id,email,name,pass_salt,pass_hash,active,session_ver)
-    VALUES (1,'a1@x','A1','','',1,0);
+  INSERT INTO users (id,email,name,pass_salt,pass_hash,active,session_ver, type) VALUES (1,'a1@x','A1','','',1,0, 'agent');
   INSERT INTO users (id,name,email,portal_enabled,session_ver)
     VALUES (10,'C1','c@x',1,0);
 `;
@@ -43,7 +42,7 @@ test("bumping session_ver invalidates the old cookie", async () => {
 test("a deleted account's versioned cookie is rejected", async () => {
   const e = env();
   const cookie = await sessionCookie(e, "agent", 1);
-  await e.DB.prepare("DELETE FROM agents WHERE id = 1").run();
+  await e.DB.prepare("DELETE FROM users WHERE id = 1").run();
   assert.equal(await getSession(reqWith(cookie), URLX, e), null);
 });
 

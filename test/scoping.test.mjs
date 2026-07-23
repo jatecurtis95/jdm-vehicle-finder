@@ -7,7 +7,7 @@ import { makeEnv } from "./helpers/d1.mjs";
 import { clientOwnedBy, clientAccessibleBy, accessScope } from "../src/admin.js";
 
 const FIXTURE = `
-  INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','',''),(2,'a2@x','A2','','');
+  INSERT INTO users (id,email,name,pass_salt,pass_hash, type) VALUES (1,'a1@x','A1','','', 'agent'),(2,'a2@x','A2','','', 'agent');
   INSERT INTO users (id,name,email,agent_id) VALUES
     (10,'Owned by A1','a@x',1),
     (20,'Owned by A2','b@x',2),

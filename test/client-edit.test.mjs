@@ -197,7 +197,7 @@ test("client detail offers quick edit for the client's details and each search",
 });
 
 test("a non-manager viewer gets no client quick-edit action", async () => {
-  const env = makeEnv(`INSERT INTO agents (id,email,name,pass_salt,pass_hash,active) VALUES (5,'ag@x','Ag','s','h',1), (6,'ag2@x','Ag2','s','h',1);`);
+  const env = makeEnv(`INSERT INTO users (id,email,name,pass_salt,pass_hash,active, type) VALUES (5,'ag@x','Ag','s','h',1, 'agent'), (6,'ag2@x','Ag2','s','h',1, 'agent');`);
   const id = await seed(env, { name: "Shared Sam", email: "shared@example.com", agent_id: 5 });
   await env.DB.prepare("UPDATE users SET agent_id = 5 WHERE id = ?").bind(id).run();
   await env.DB.prepare("INSERT INTO client_shares (client_id, agent_id) VALUES (?, 6)").bind(id).run();

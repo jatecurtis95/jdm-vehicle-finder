@@ -27,7 +27,7 @@ test("createAgent stores only the hash, and the raw token still resolves", async
   const env = makeEnv();
   const r = await createAgent(env, fd({ name: "Ben", email: "ben@x.com" }));
   assert.equal(r.ok, true);
-  const stored = env.db.prepare("SELECT invite_token FROM agents WHERE email = 'ben@x.com'").get().invite_token;
+  const stored = env.db.prepare("SELECT invite_token FROM users WHERE email = 'ben@x.com'").get().invite_token;
   assert.notEqual(stored, r.token, "raw token is not in the DB");
   assert.equal(stored, await hashToken(r.token), "the hash of the raw token is stored");
   const found = await agentByInviteToken(env, r.token);
@@ -68,7 +68,7 @@ test("a password reset stores the hash; the raw token sets the password once", a
 
 test("a legacy plaintext token still works during rollout (raw fallback)", async () => {
   // A row seeded/issued before hashing shipped keeps its plaintext token.
-  const env = makeEnv(`INSERT INTO agents (id,name,email,pass_salt,pass_hash,invite_token,invite_exp) VALUES (1,'A','a@x',' ',' ','legacy-plain',${Date.now() + 3600000});`);
+  const env = makeEnv(`INSERT INTO users (id,name,email,pass_salt,pass_hash,invite_token,invite_exp, type) VALUES (1,'A','a@x',' ',' ','legacy-plain',${Date.now() + 3600000}, 'agent');`);
   const found = await agentByInviteToken(env, "legacy-plain");
   assert.ok(found && found.id === 1, "plaintext lookup still resolves");
   const set = await setAgentPassword(env, "legacy-plain", "Legacypw1234");

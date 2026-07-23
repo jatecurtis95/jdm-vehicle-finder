@@ -11,8 +11,8 @@ const ADMIN = { role: "admin", id: 0 };
 
 function seed() {
   return `
-    INSERT INTO agents (id, email, name, pass_salt, pass_hash, active, alerts) VALUES
-      (5, 'ben@x.com', 'Ben Broker', 's', 'h', 1, 1);
+    INSERT INTO users (id, email, name, pass_salt, pass_hash, active, alerts, type) VALUES
+      (5, 'ben@x.com', 'Ben Broker', 's', 'h', 1, 1, 'agent');
     INSERT INTO users (id, name, email, agent_id) VALUES
       (1, 'Alice Apple', 'a@x.com', 5), (2, 'Bob Banana', 'b@x.com', 5);
     INSERT INTO searches (id, client_id, label, marka_name, status) VALUES
