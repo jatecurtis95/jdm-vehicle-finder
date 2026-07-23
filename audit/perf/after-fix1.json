@@ -1,0 +1,67 @@
+{
+  "label": "after-fix1",
+  "pages": {
+    "live": {
+      "fcp_ms": 128,
+      "dom_ms": 115,
+      "load_ms": 12942,
+      "requests": 10,
+      "total_bytes": 27611,
+      "html_bytes": 23628,
+      "image_requests": 6,
+      "image_bytes": 3180,
+      "external_requests": 1,
+      "external_names": [
+        "https://fonts.googleapis.com/css2"
+      ],
+      "slowest": [
+        {
+          "ms": 12896,
+          "bytes": 0,
+          "name": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        },
+        {
+          "ms": 157,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=1&w=320"
+        },
+        {
+          "ms": 157,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=2&w=320"
+        }
+      ]
+    },
+    "history": {
+      "fcp_ms": 172,
+      "dom_ms": 127,
+      "load_ms": 12964,
+      "requests": 14,
+      "total_bytes": 26736,
+      "html_bytes": 20426,
+      "image_requests": 11,
+      "image_bytes": 5830,
+      "external_requests": 1,
+      "external_names": [
+        "https://fonts.googleapis.com/css2"
+      ],
+      "slowest": [
+        {
+          "ms": 12915,
+          "bytes": 0,
+          "name": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        },
+        {
+          "ms": 180,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=9&w=320"
+        },
+        {
+          "ms": 180,
+          "bytes": 530,
+          "name": "/assets/perf-placeholder.svg?lot=10&w=320"
+        }
+      ]
+    }
+  }
+}
