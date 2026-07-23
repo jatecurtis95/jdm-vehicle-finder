@@ -144,6 +144,53 @@ columns, `archived`.
 - **No market or region column.** Out of scope by charter decision; the
   CHECK-constrained enums above are deliberately the only new axes.
 
+### member to tier semantics
+
+`member` was the only free-versus-paid signal in the system and it is
+Stripe-driven, so dropping it needs explicit semantics, not just a sweep.
+Line references are from the 23 July member-to-tier investigation.
+
+1. **Tier model.** `free` and `paid_access` are a self-serve ladder.
+   `fully_managed` is a separate staff-set track, not a rung above
+   `paid_access`. Nothing automatic ever writes `fully_managed`.
+
+2. **Stripe transition rule.** Stripe only ever moves a user between
+   `free` and `paid_access`:
+   - subscribe (`stripe.js:198`): `SET tier = 'paid_access' WHERE
+     tier = 'free'`
+   - lifecycle downgrade (`stripe.js:214`): `SET tier = 'free' WHERE
+     tier = 'paid_access'`
+   - `fully_managed` is never touched by any webhook.
+   This closes both the undefined downgrade target (the old boolean lost
+   nothing on `member = 0`; a ternary tier needs a stated landing spot)
+   and the risk of a managed client demoting themselves by purchasing a
+   subscription.
+
+3. **Gate rule (decided, not open).** Gates become
+   `tier IN ('paid_access', 'fully_managed')`. This is a deliberate
+   product change: fully managed clients gain the auction search, history
+   and landed-batch access they did not have under `member`. Rationale:
+   they are the highest-value clients, and locking them out while a
+   self-serve subscriber gets in is backwards. Safe to change now, since
+   production has zero members. Applies to: `admin.js:7685`,
+   `auction-history.js:617`, `index.js:1721-1722`, `index.js:1761`,
+   `admin.js:6110-6116`, `matcher.js:278`.
+
+4. **Upsell exception.** `notify.js:182-186` must gate on
+   `tier = 'free'` specifically, NOT on `tier != 'paid_access'`.
+   Otherwise fully managed clients receive upsell emails for a tier below
+   the one they already have.
+
+5. **Staff control.** The boolean toggle (`setClientMember` at
+   `admin.js:8267-8274`, route `index.js:1408-1413`, button
+   `admin.js:5315`) becomes a three-way tier selector. This plan states
+   staff can hand-correct tier; no such control currently exists, so the
+   selector is part of the build, not an assumption.
+
+6. **Sweep items not previously named.** The dashboard members KPI
+   (`admin.js:1943`), the `?ok=member` flash copy (`index.js:1658`), and
+   at least 12 test fixture files plus `seed/seed-dev.sql`.
+
 ## 4. The renames, included this time
 
 With 21 data rows total, the renames are cheap now and expensive later; V1
@@ -286,6 +333,14 @@ Closed by the data or by this design:
    and there is no meaningful data to anonymise.
 9. `SESSION_SECRET` custody - CLOSED: moot with 0 portal sessions; the
    portal keeps its secret regardless.
+
+Decided since first writing, and deliberately NOT open:
+- **The member-to-tier gate rule.** Decided in section 3 ("member to tier
+  semantics", item 3): gates become `tier IN ('paid_access',
+  'fully_managed')`, a stated product change that grants fully managed
+  clients member-level access. This should be COMMUNICATED to Ben as part
+  of the cutover summary, not asked of him - production has zero members,
+  so there is no behaviour for anyone to lose.
 
 Genuinely still open, needing a human:
 - **Cutover date and the launch freeze.** Step 6 wants a quiet hour and a
