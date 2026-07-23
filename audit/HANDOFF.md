@@ -276,3 +276,32 @@ Remaining: Task 3 (Phase 4 flags/SMS), Task 5 (Phase 6 submitted units), Task 6
 (Phase 3, held for go/no-go), Task 8 (Phase 7 pricing, lives in the separate
 jdm-calculator repo), Task 9 (Phase 8, separate rover-eligibility-local repo),
 Task 10 (Phase 9 landing page, branch only).
+
+## Task 3 / Phase 4: SMS delivery channel (DONE, DEPLOYED, gated OFF)
+
+Live version `5f79bc7c`. SMS wired end to end, defaulting OFF.
+- `sms_enabled` setting added (default "0"), saved from the Settings form.
+- `sendSms(env, to, msg)` + `smsConfigured(env)` in `whatsapp.js`: SMS via the
+  Twilio Messages API (plain From/To + Body, or a Messaging Service SID). This
+  is the small Twilio extension the task allowed, so the SEND PATH IS BUILT (not
+  just wired). It no-ops safely until the Twilio SMS secrets are set.
+- Dispatch added to `deliverToClient` and `deliverManyToClient` in `notify.js`,
+  gated on `sms_enabled` + the client's phone; best-effort like WhatsApp.
+- Staff Settings UI: an SMS toggle in the WhatsApp card.
+- DECISION on "in the schema": SMS reuses the existing per-client phone number
+  and a global settings flag, matching how WhatsApp already works. No D1
+  migration was added; per-user SMS preferences belong with the Phase 3 users
+  model. To switch SMS on: set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and
+  TWILIO_SMS_FROM (or TWILIO_MESSAGING_SERVICE_SID) as Wrangler secrets, then
+  turn on the toggle in Settings. Note prod WhatsApp currently uses the Meta
+  provider; SMS is Twilio-only and independent of that.
+- Tests: new `test/sms-channel.test.mjs` (7 cases). Full suite 589 pass, 0 fail.
+
+## Deploys this session (in order)
+
+1. `2bb47937` - Phase 1+2 (Task 2)
+2. `9049c598` - Phase 5 manual trigger (Task 4)
+3. `5f79bc7c` - Phase 4 SMS channel, gated off (Task 3)
+
+Rollback: `npx wrangler rollback <previous version id>` (each version above is
+the rollback target for the one after it; `31364596...` predates them all).
