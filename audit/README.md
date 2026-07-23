@@ -49,3 +49,7 @@ Ben V1.2 site notes status (13 Jul 2026):
 - The uncommitted avg-sold tool (scripts/avg-sold.mjs and its package.json "avg"
   alias) was not folded in here. It is unrelated to audit docs and is preserved on
   rescue/main-wip-2026-07-23 for a separate decision.
+
+## Addendum 2026-07-23
+
+Phase 3 planning docs added from origin/docs/phase3-plan: PHASE3_PLAN_V2.md (current), PHASE3_PLAN.md (V1), PHASE3_CHECKS.md. Note: Phase 3 is planning only, there is no Phase 3 code yet; implementation was deliberately stopped before the users-table migration.
