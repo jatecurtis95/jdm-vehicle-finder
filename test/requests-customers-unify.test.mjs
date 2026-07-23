@@ -125,11 +125,19 @@ test("one-step create: the same car for a customer refreshes the request, no dup
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists").first()).n, 1, "no duplicate REQ");
 });
 
-test("one-step create requires a reachable customer (name + a contact channel)", async () => {
+test("one-step create requires a name, but contact is optional for staff", async () => {
   const env = makeEnv();
+  // Name is still required.
   assert.equal((await createAdminRequest(env, fd({ email: "x@example.com", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "name");
-  assert.equal((await createAdminRequest(env, fd({ name: "No Contact", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN)).error, "contact");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "nothing stored for an unreachable customer");
+  // Contact is optional: staff often log a car to chase before they have the
+  // customer's email or phone. A name-only request succeeds and stores them.
+  const r = await createAdminRequest(env, fd({ name: "No Contact", marka_name: "TOYOTA", model_name: "SUPRA" }), ADMIN);
+  assert.equal(r.ok, true, "a name-only staff request is allowed");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 1, "the contactless customer is stored");
+  const c = await env.DB.prepare("SELECT name, email, whatsapp FROM clients WHERE id=?").bind(r.clientId).first();
+  assert.equal(c.name, "No Contact");
+  assert.equal(c.email, null, "no email is invented");
+  assert.equal(c.whatsapp, null, "no phone is invented");
 });
 
 test("one-step create honours Watch only and stores Min mileage", async () => {
