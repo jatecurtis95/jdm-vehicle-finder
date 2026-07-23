@@ -299,6 +299,42 @@ export async function runAll(env, session) {
   return summary;
 }
 
+// Run a SINGLE active wishlist on demand (manual per-search trigger, Phase 5).
+// Reuses runAll's client/agent joins so autoDeliver/digest fields are present.
+// ownerClientId, when set, scopes to that client's own searches (portal button);
+// staff pass none. watch_only rows are watchlist bookmarks, not match searches,
+// so they are refused. Returns { ok, queued, wishlist, notFound?, watchOnly? }.
+export async function runOneWishlist(env, wishlistId, { ownerClientId = null } = {}) {
+  let budgetFilter = true;
+  let budgetHeadroom = 10;
+  try {
+    const s = await getSettings(env);
+    budgetFilter = s.budget_filter !== "0";
+    budgetHeadroom = settingNum(s, "budget_headroom_pct", 10);
+  } catch (e) { /* defaults: filter on, 10% headroom */ }
+  const stmt = env.DB.prepare(
+    `SELECT w.*, c.name AS client_name, c.email AS client_email, c.whatsapp AS client_whatsapp, c.state AS client_state,
+            c.agent_id AS client_agent_id, ag.email AS agent_email, ag.name AS agent_name, ag.alerts AS agent_alerts, ag.active AS agent_active
+     FROM wishlists w JOIN clients c ON c.id = w.client_id
+     LEFT JOIN agents ag ON ag.id = c.agent_id
+     WHERE w.id = ? AND w.active = 1${ownerClientId ? " AND w.client_id = ?" : ""}`
+  );
+  const w = await (ownerClientId ? stmt.bind(wishlistId, ownerClientId) : stmt.bind(wishlistId)).first();
+  if (!w) return { ok: false, notFound: true, queued: 0 };
+  if (w.watch_only) return { ok: false, watchOnly: true, queued: 0 };
+  let queued = [];
+  try {
+    queued = await runWishlist(env, w, { budgetFilter, budgetHeadroom });
+  } catch (err) {
+    console.error(`Manual run wishlist ${w.id} failed:`, err.message);
+    return { ok: false, error: true, queued: 0, wishlist: w };
+  }
+  if (queued.length && w.auto_notify) {
+    try { await autoDeliver(env, w, queued); } catch (e) { console.error(`autoDeliver ${w.id}:`, e.message); }
+  }
+  return { ok: true, queued: queued.length, wishlist: w };
+}
+
 // Free-tier welcome: the moment a buyer signs up, find their best live match(es)
 // and send them straight away as a first taste of the service. The count is
 // capped by the `free_result_limit` setting (default 1); the paywall/upsell for

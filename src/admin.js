@@ -4688,6 +4688,11 @@ function wishlistEditor(w, opts = {}) {
         ${searchBtn}
         <button type="button" class="btn-toggle wl-editbtn" onclick="var d=this.closest('.wlrow').querySelector('.wledit');d.open=!d.open;if(d.open)d.scrollIntoView({block:'nearest'})">Edit</button>
         <form method="POST" action="${base}/wishlist/toggle" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle ${w.active ? "on" : "off"}" type="submit">${w.active ? "On" : "Off"}</button></form>
+        ${(w.active && !w.watch_only && !SYSTEM_WISHLIST_LABELS.has(w.label))
+          ? (opts.portal
+            ? `<form method="POST" action="${base}/wishlist/run" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-toggle" type="submit" title="Check the latest auctions for this search now">Check now</button></form>`
+            : `<form method="POST" action="/admin/run-search/${w.id}" style="display:inline"><button class="btn-toggle" type="submit" title="Run the matcher for this search now">Run match</button></form>`)
+          : ""}
         ${opts.portal
           ? `<form method="POST" action="${base}/wishlist/delete" style="display:inline" onsubmit="return confirm('Delete this search? This cannot be undone.')"><input type="hidden" name="id" value="${w.id}"><button class="btn-danger" type="submit">Delete</button></form>`
           : `<form method="POST" action="${base}/wishlist/delete" style="display:inline" data-confirm="Delete this search? Its pending matches are removed and it stops matching new auction lots. This cannot be undone." data-danger data-confirm-ok="Delete search"><input type="hidden" name="id" value="${w.id}"><button class="btn-danger" type="submit">Delete</button></form>`}
