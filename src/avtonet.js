@@ -351,11 +351,23 @@ export async function distinctModels(env, maker) {
   const cached = _modelsCache.get(key);
   if (cached && now < cached.exp) return cached.list;
   try {
-    const rows = await query(
+    const mkUp = sqlString(maker).toUpperCase();
+    const live = await query(
       env,
-      `SELECT DISTINCT model_name FROM main WHERE UPPER(marka_name) = '${sqlString(maker).toUpperCase()}' AND model_name <> '' ORDER BY model_name`
+      `SELECT DISTINCT model_name FROM main WHERE UPPER(marka_name) = '${mkUp}' AND model_name <> '' ORDER BY model_name`
     );
-    const list = [...new Set(rows.map((r) => (r.model_name || "").trim()).filter(Boolean))];
+    // Merge in sold history so a make with no CURRENT live listing (e.g. LEXUS)
+    // still populates its model list from what has actually sold. Same coverage
+    // approach as distinctGrades; sold history is best-effort.
+    let sold = [];
+    try {
+      sold = await query(
+        env,
+        `SELECT DISTINCT model_name FROM stats WHERE UPPER(marka_name) = '${mkUp}' AND model_name <> '' ORDER BY model_name`
+      );
+    } catch (e) { /* sold history is best-effort coverage */ }
+    const list = [...new Set([...live, ...sold].map((r) => (r.model_name || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
     _modelsCache.set(key, { list, exp: now + LOOKUP_TTL });
     return list;
   } catch (e) {
@@ -378,8 +390,12 @@ export async function distinctModelCodes(env, maker, model) {
   const where = [`UPPER(marka_name) = '${sqlString(mk)}'`, "kuzov <> ''"];
   if (md) where.push(`UPPER(model_name) LIKE '%${sqlLike(md)}%'`);
   try {
-    const rows = await query(env, `SELECT DISTINCT kuzov FROM main WHERE ${where.join(" AND ")} ORDER BY kuzov`);
-    const list = [...new Set(rows.map((r) => (r.kuzov || "").trim().toUpperCase()).filter(Boolean))];
+    const live = await query(env, `SELECT DISTINCT kuzov FROM main WHERE ${where.join(" AND ")} ORDER BY kuzov`);
+    let sold = [];
+    try {
+      sold = await query(env, `SELECT DISTINCT kuzov FROM stats WHERE ${where.join(" AND ")} ORDER BY kuzov`);
+    } catch (e) { /* sold history is best-effort coverage */ }
+    const list = [...new Set([...live, ...sold].map((r) => (r.kuzov || "").trim().toUpperCase()).filter(Boolean))].sort();
     _codesCache.set(key, { list, exp: now + LOOKUP_TTL });
     return list;
   } catch (e) {

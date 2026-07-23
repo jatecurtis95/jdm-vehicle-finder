@@ -109,7 +109,11 @@ function codeGradeScript(makerId, modelId, codeId, gradesId) {
     var mk=document.getElementById(${JSON.stringify(makerId)}),md=document.getElementById(${JSON.stringify(modelId)});
     var cd=document.getElementById(${JSON.stringify(codeId)}),gr=document.getElementById(${JSON.stringify(gradesId)});
     if(!mk||!cd)return;
-    function opt(sel,val,txt,selected){var o=document.createElement("option");o.value=val;o.textContent=txt;if(selected)o.selected=true;sel.appendChild(o);}
+    // Feed values (especially grade/trim text) arrive HTML-entity-encoded, e.g.
+    // Japanese as numeric character references. Decode for DISPLAY only; the
+    // option value stays raw so it still matches the feed's stored grade string.
+    function dec(s){var t=document.createElement("textarea");t.innerHTML=String(s==null?"":s);return t.value;}
+    function opt(sel,val,txt,selected){var o=document.createElement("option");o.value=val;o.textContent=dec(txt);if(selected)o.selected=true;sel.appendChild(o);}
     function fillGrades(){
       if(!gr||gr.tagName!=="SELECT")return;
       var want=(gr.getAttribute("data-want")||"").split(",").map(function(s){return s.trim();}).filter(Boolean);
@@ -2342,8 +2346,8 @@ function intakeView(makers, opts = {}) {
         <h3 class="intake-sub">Customer</h3>
         <div class="grid">
           <div><label for="ic-name">Name</label><input id="ic-name" name="name" maxlength="120" placeholder="Jane Citizen" value="${vv("name")}" required></div>
-          <div><label for="ic-email">Email <span class="opt">(email or WhatsApp required)</span></label><input id="ic-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
-          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(email or WhatsApp required)</span></label><input id="ic-whatsapp" name="whatsapp" maxlength="40" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
+          <div><label for="ic-email">Email <span class="opt">(optional)</span></label><input id="ic-email" name="email" type="email" maxlength="254" spellcheck="false" placeholder="name@email.com" value="${vv("email")}"></div>
+          <div><label for="ic-whatsapp">WhatsApp <span class="opt">(optional)</span></label><input id="ic-whatsapp" name="whatsapp" maxlength="40" placeholder="+61 4XX XXX XXX" value="${vv("whatsapp")}"></div>
           <div><label for="ic-state">State <span class="opt">(for landed cost)</span></label><select id="ic-state" name="state">${stateOptions(vals.state || "")}</select></div>
           <div><label for="ic-category">Category <span class="opt">(dealer = trade buyer)</span></label>${categorySelect("ic-category", vals.category)}</div>
         </div>
@@ -2366,7 +2370,7 @@ function intakeView(makers, opts = {}) {
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:var(--fs-sec);color:var(--t2);cursor:pointer"><input type="checkbox" name="watch_only" value="1" style="width:auto;margin-top:2px"><span><strong>Watch only (lead).</strong> Surface matches for a follow-up call, but never auto-email this customer. Good for buyers who aren't ready yet, especially rare cars.</span></label>
         <div class="actions"><button class="btn-primary" type="submit">Add request</button>
-          <span class="help">Name plus a way to reach them (email or WhatsApp) is required. The car can be filled in later.</span></div>
+          <span class="help">Only the name is required. Email or WhatsApp is optional, add it now or later. The car can be filled in later too.</span></div>
       </form>
     </div>
     ${modelScript("wl-maker", "wl-models")}${codeGradeScript("wl-maker", "wl-models", "wl-code", "wl-grades")}${presetScript()}`;
@@ -7593,10 +7597,10 @@ export async function createAdminRequest(env, form, session) {
   const name = sstr(form, "name") || "";
   const email = String(form.get("email") || "").trim().slice(0, FIELD_MAX.email).toLowerCase();
   const whatsappRaw = String(form.get("whatsapp") || "").trim();
-  // A customer must be reachable, or any match we find can never be sent. Same
-  // rule as createClient: a name plus at least one contact channel.
+  // Contact is OPTIONAL for a staff-created request: staff often log a car to
+  // chase for a customer before they have the customer's email or phone. A
+  // no-contact customer just cannot be auto-emailed a match; staff follow up.
   if (!name) return { ok: false, error: "name" };
-  if (!email && !whatsappRaw) return { ok: false, error: "contact" };
   if (email && !REQ_EMAIL_RE.test(email)) return { ok: false, error: "email" };
   const whatsapp = whatsappRaw ? phoneE164(whatsappRaw) : "";
   if (whatsappRaw && !whatsapp) return { ok: false, error: "whatsapp" };
@@ -7608,7 +7612,8 @@ export async function createAdminRequest(env, form, session) {
 
   // Attach to the existing customer (matched by email, then phone) instead of
   // spawning a duplicate; otherwise create one, tagged 'jdm' (staff-added).
-  const match = await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(agentId) });
+  // With no email or phone there is nothing to match on, so create a fresh record.
+  const match = (email || whatsapp) ? await findClientByContact(env, { email, whatsapp, ...clientDedupeScope(agentId) }) : null;
   let clientId, created = false;
   if (match) {
     clientId = match.id;
