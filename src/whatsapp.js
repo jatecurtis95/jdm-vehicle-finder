@@ -140,3 +140,37 @@ async function sendViaMeta(env, to, msg, params) {
   if (!res.ok) throw new Error(`Meta WhatsApp HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
+
+// --- SMS (Twilio) -----------------------------------------------------------
+// SMS is a small extension of the Twilio path above: same account and Messages
+// API, just a plain From/To and a text Body instead of the "whatsapp:" prefix
+// and Content template. Needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and a sender
+// (TWILIO_SMS_FROM, an E.164 number, or TWILIO_MESSAGING_SERVICE_SID). It no-ops
+// safely until those are set, and delivery is gated behind the sms_enabled
+// setting (default off), so SMS can be switched on later without a rebuild.
+export function smsConfigured(env) {
+  return !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN
+    && (env.TWILIO_SMS_FROM || env.TWILIO_MESSAGING_SERVICE_SID));
+}
+
+export async function sendSms(env, toNumber, msg = {}) {
+  const to = toE164(toNumber);
+  if (!to) throw new Error("SMS: no usable number");
+  if (!smsConfigured(env)) throw new Error("SMS not configured");
+  const sid = String(env.TWILIO_ACCOUNT_SID || "").trim();
+  const token = String(env.TWILIO_AUTH_TOKEN || "").trim();
+  const body = new URLSearchParams({ To: `+${to}`, Body: msg.bodyText || msg.summary || "" });
+  const svc = String(env.TWILIO_MESSAGING_SERVICE_SID || "").trim();
+  if (svc) body.set("MessagingServiceSid", svc);
+  else body.set("From", "+" + String(env.TWILIO_SMS_FROM).replace(/\D/g, ""));
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + btoa(`${sid}:${token}`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (!res.ok) throw new Error(`Twilio SMS HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}

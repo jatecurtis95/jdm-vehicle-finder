@@ -12,6 +12,9 @@ const DEFAULTS = {
   send_to_client: "1",   // email the client when a match is approved
   whatsapp_enabled: "0", // also WhatsApp the match to clients who gave a number
   whatsapp_provider: "twilio", // which provider to send through: twilio | meta
+  // SMS delivery channel (Phase 4). Default OFF; wired end to end (schema, staff
+  // UI and Twilio send path) so it can be switched on later without a rebuild.
+  sms_enabled: "0",      // also SMS the match to clients who gave a number (Twilio)
   client_landed: "1",    // include the landed-cost figure in client emails
   request_alerts: "1",   // email admin when a customer submits the public request form
   stripe_enabled: "0",   // show the "Pay deposit" button in the buyer portal
@@ -101,6 +104,7 @@ export async function saveSettings(env, form) {
     send_to_client: form.get("send_to_client") ? "1" : "0",
     whatsapp_enabled: form.get("whatsapp_enabled") ? "1" : "0",
     whatsapp_provider: form.get("whatsapp_provider") === "meta" ? "meta" : "twilio",
+    sms_enabled: form.get("sms_enabled") ? "1" : "0",
     client_landed: form.get("client_landed") ? "1" : "0",
     request_alerts: form.get("request_alerts") ? "1" : "0",
     market_for_clients: form.get("market_for_clients") ? "1" : "0",
