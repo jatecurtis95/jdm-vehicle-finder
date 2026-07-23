@@ -8309,6 +8309,21 @@ export async function setClientMember(env, clientId, on, session) {
 // One car the buyer sees in their portal. opts.stripe shows a "Pay deposit"
 // button; opts.depositLabel is the formatted amount.
 function clientCarCard(q, opts = {}) {
+  // Free-tier teaser: a locked card that confirms a match was found but keeps
+  // the car itself hidden until the buyer upgrades. No photo, specs or price
+  // ever render in this branch.
+  if (opts.locked) {
+    return `<div class="mcard" style="position:relative">
+      <div class="mphoto" style="background:linear-gradient(135deg,#2b3138,#191c20);display:flex;align-items:center;justify-content:center;min-height:150px">
+        <span style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#caa34c;border:1px solid rgba(202,163,76,.55);border-radius:999px;padding:6px 14px">Match found</span>
+      </div>
+      <div style="padding:16px">
+        <div style="font-size:15px;font-weight:700;color:var(--ink)">We found a car matching &ldquo;${esc(q.wlabel || "your search")}&rdquo;</div>
+        <div style="font-size:13px;color:var(--t3);margin:6px 0 14px">The photos, specs and landed price are ready to view. ${opts.membershipOn ? "Upgrade to Full access to unlock this match, and get every future one." : "Get in touch to unlock full access and see this match."}</div>
+        ${opts.membershipOn ? `<form method="POST" action="/portal/subscribe"><button class="btn-primary" type="submit">Upgrade to see this car</button></form>` : ""}
+      </div>
+    </div>`;
+  }
   let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
   const img = imageUrls(lot).medium;
   const title = `${esc(lot.year || "")} ${esc(displayName(lot.marka_name))} ${esc(displayName(lot.model_name))}`.trim();
@@ -8402,7 +8417,14 @@ export async function portalPage(env, session, opts = {}) {
   const stripeOn = settingOn(settings, "stripe_enabled") && !!env.STRIPE_SECRET_KEY && depositAud > 0;
   const showMarket = settingOn(settings, "market_for_clients");
   const fx = showMarket ? await getLiveFx(env).catch(() => 0) : 0;
-  const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}`, showMarket, fx };
+  // Free tier gets a teaser: the match is shown but the car stays locked behind
+  // an upgrade, and free_result_limit caps how many locked cards appear. "Free"
+  // means a public self-signup that has not paid (source='public' AND not a
+  // member); managed and legacy clients (source null/jdm) always see full detail.
+  const isFree = !c.member && String(c.source || "") === "public";
+  const membershipOn = settingOn(settings, "membership_enabled") && !!env.STRIPE_SECRET_KEY && settingNum(settings, "membership_monthly_aud", 0) > 0;
+  const freeCarLimit = settingNum(settings, "free_result_limit", 1);
+  const cardOpts = { stripe: stripeOn, depositLabel: `A$${depositAud.toLocaleString("en-AU")}`, showMarket, fx, locked: isFree, membershipOn };
   const makers = await distinctMakers(env);
   const yMax = new Date().getFullYear() + 1;
 
@@ -8418,8 +8440,10 @@ export async function portalPage(env, session, opts = {}) {
   // the same view-only link staff share: native share sheet where available,
   // clipboard copy otherwise.
   const memberShareScript = `<script>(function(){document.querySelectorAll('.mshare').forEach(function(b){b.addEventListener('click',function(){var url=location.origin+b.getAttribute('data-href');var title=b.getAttribute('data-title')||'Vehicle';if(navigator.share){navigator.share({title:title,text:title,url:url}).catch(function(){});}else if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){var t=b.textContent;b.textContent='Link copied';setTimeout(function(){b.textContent=t;},1500);});}});});})();</script>`;
+  const shownCars = isFree ? cars.slice(0, Math.max(0, freeCarLimit)) : cars;
+  const moreLocked = isFree && cars.length > shownCars.length;
   const carsBody = cars.length
-    ? `<div class="mgrid">${cars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>${memberShareScript}`
+    ? `<div class="mgrid">${shownCars.map((q) => clientCarCard(q, cardOpts)).join("")}</div>${moreLocked ? `<p class="psub" style="margin-top:12px">Plus ${cars.length - shownCars.length} more match${cars.length - shownCars.length === 1 ? "" : "es"} waiting. Upgrade to Full access to see them all.</p>` : ""}${isFree ? "" : memberShareScript}`
     : `<div class="empty"><div class="rule"></div>No cars yet. As soon as we find and review a match for your search, it'll appear here.</div>`;
 
   const wlBody = wls.length
@@ -8454,7 +8478,6 @@ export async function portalPage(env, session, opts = {}) {
   // Membership card: an upgrade prompt for non-members (when billing is on), or a
   // status + "manage billing" for members. A manually-comped member (no Stripe
   // customer) sees the status without the billing-portal button.
-  const membershipOn = settingOn(settings, "membership_enabled") && !!env.STRIPE_SECRET_KEY && settingNum(settings, "membership_monthly_aud", 0) > 0;
   const memberPrice = `A$${settingNum(settings, "membership_monthly_aud", 49)}`;
   const memberCard = c.member
     ? `<div class="memcard is-member">
