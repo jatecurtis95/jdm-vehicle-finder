@@ -11,7 +11,7 @@ import { searchSold } from "../src/avtonet.js";
 const HOST = "https://jdmfinder.com.au";
 
 async function memberFetch(path) {
-  const env = makeEnv("INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);");
+  const env = makeEnv("INSERT INTO users (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1);");
   env.ADMIN_TOKEN = "test-admin-token";
   const cookie = (await sessionCookie(env, "client", 1)).split(";")[0];
   return worker.fetch(new Request(HOST + path, { headers: { Cookie: cookie }, redirect: "manual" }), env, {});

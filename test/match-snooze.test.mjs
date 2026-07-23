@@ -21,8 +21,8 @@ function lotJson(daysOut) {
 
 function seed() {
   return `
-    INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN');
+    INSERT INTO users (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');
+    INSERT INTO searches (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, created_at) VALUES
       (1, 1, 1, 'L1', '${lotJson(5)}', 'pending', 'tok1', datetime('now'));
   `;

@@ -24,8 +24,8 @@ function stubFeed(xml) {
 test("sendWelcomeMatch finds the best live match, queues it and marks it seen", async () => {
   const env = makeEnv("INSERT INTO settings (key,value) VALUES ('send_to_client','0');");
   const db = env.db;
-  db.exec(`INSERT INTO clients (id,name,email) VALUES (300,'Free Buyer','free@x.com');
-           INSERT INTO wishlists (id,client_id,marka_name,model_name,year_min,year_max,price_max,active)
+  db.exec(`INSERT INTO users (id,name,email) VALUES (300,'Free Buyer','free@x.com');
+           INSERT INTO searches (id,client_id,marka_name,model_name,year_min,year_max,price_max,active)
              VALUES (900,300,'TOYOTA','SUPRA',1993,1998,5000000,1);`);
 
   const restore = stubFeed(XML_ONE);
@@ -51,8 +51,8 @@ test("sendWelcomeMatch finds the best live match, queues it and marks it seen", 
 test("sendWelcomeMatch returns nothing (and queues nothing) when the feed is empty", async () => {
   const env = makeEnv();
   const db = env.db;
-  db.exec(`INSERT INTO clients (id,name,email) VALUES (301,'No Match','none@x.com');
-           INSERT INTO wishlists (id,client_id,marka_name,model_name,active) VALUES (901,301,'NISSAN','FIGARO',1);`);
+  db.exec(`INSERT INTO users (id,name,email) VALUES (301,'No Match','none@x.com');
+           INSERT INTO searches (id,client_id,marka_name,model_name,active) VALUES (901,301,'NISSAN','FIGARO',1);`);
   const restore = stubFeed(XML_NONE);
   try {
     const res = await sendWelcomeMatch(env, 901);

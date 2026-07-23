@@ -7,8 +7,8 @@ import { recordMatchSent, autoFollowUps, logContactTap, adminPage, clientDetailP
 
 const ADMIN = { role: "admin", id: 0 };
 const BASE = `
-  INSERT INTO clients (id,name,email,state) VALUES (1,'Jordan Buyer','j@x.com','VIC');
-  INSERT INTO wishlists (id,client_id,label,marka_name,status) VALUES (1,1,'R34 hunt','NISSAN','new');
+  INSERT INTO users (id,name,email,state) VALUES (1,'Jordan Buyer','j@x.com','VIC');
+  INSERT INTO searches (id,client_id,label,marka_name,status) VALUES (1,1,'R34 hunt','NISSAN','new');
 `;
 
 test("first lot sent auto-advances a new request to Vehicles sent and seeds a follow-up", async () => {
@@ -17,7 +17,7 @@ test("first lot sent auto-advances a new request to Vehicles sent and seeds a fo
       (10,1,1,'L1','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t1');
   `);
   await recordMatchSent(env, 10, ADMIN);
-  const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = 1").first();
+  const w = await env.DB.prepare("SELECT status FROM searches WHERE id = 1").first();
   assert.equal(w.status, "vehicles_sent", "request moved forward automatically");
   const t = await env.DB.prepare("SELECT * FROM tasks WHERE wishlist_id = 1 AND status != 'done'").first();
   assert.ok(t, "a follow-up task was seeded");
@@ -25,12 +25,12 @@ test("first lot sent auto-advances a new request to Vehicles sent and seeds a fo
 
 test("a manually chosen later stage is never overwritten by a send", async () => {
   const env = makeEnv(BASE + `
-    UPDATE wishlists SET status = 'deposit_paid' WHERE id = 1;
+    UPDATE searches SET status = 'deposit_paid' WHERE id = 1;
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES
       (10,1,1,'L1','{"marka_name":"NISSAN"}','sent','t1');
   `);
   await recordMatchSent(env, 10, ADMIN);
-  const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = 1").first();
+  const w = await env.DB.prepare("SELECT status FROM searches WHERE id = 1").first();
   assert.equal(w.status, "deposit_paid", "manual override wins");
 });
 
@@ -82,7 +82,7 @@ test("the Customers list shows a derived last-contact dot from sends and contact
 
 test("client detail merges sends, notes, payments and logins into one feed plus sent-lot history", async () => {
   const env = makeEnv(BASE + `
-    UPDATE clients SET last_seen = datetime('now','-1 days') WHERE id = 1;
+    UPDATE users SET last_seen = datetime('now','-1 days') WHERE id = 1;
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token,sent_at,viewed_at,response,decided_at) VALUES
       (10,1,1,'L1','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t1',datetime('now','-2 days'),datetime('now','-1 days'),'interested',datetime('now','-2 days'));
     INSERT INTO activity (client_id, wishlist_id, type, detail, actor) VALUES (1, 1, 'note', 'Called about shipping', 'JDM Connect');

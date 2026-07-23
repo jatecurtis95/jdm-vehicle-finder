@@ -9,8 +9,8 @@ import { addLotsToClient, clientDetailPage, adminPage } from "../src/admin.js";
 
 const ADMIN = { role: "admin", id: 0 };
 const FIXTURE = `
-  INSERT INTO clients (id,name,email,state) VALUES (10,'Jordan Buyer','j@x.com','VIC');
-  INSERT INTO clients (id,name,state) VALUES (11,'No Contact','QLD');
+  INSERT INTO users (id,name,email,state) VALUES (10,'Jordan Buyer','j@x.com','VIC');
+  INSERT INTO users (id,name,state) VALUES (11,'No Contact','QLD');
 `;
 
 // URL-sensitive feed stub: the relay carries its SQL base64-encoded in the ?q=

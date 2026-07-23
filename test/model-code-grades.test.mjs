@@ -53,13 +53,13 @@ test("wishlists store and edit model_code and grades (multi-select and comma tex
   const c = await createClient(env, fd({ name: "Buyer", email: "mc@example.com" }), ADMIN);
   const r = await createWishlist(env, fd({ client_id: c.id, marka_name: "NISSAN", model_code: "BNR32", grades: ["GT-R", "GT-R V-SPEC"] }), undefined, ADMIN);
   assert.equal(r.ok, true);
-  const w = env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ?").bind(c.id).first();
+  const w = env.DB.prepare("SELECT * FROM searches WHERE client_id = ?").bind(c.id).first();
   assert.equal(w.model_code, "BNR32");
   assert.deepEqual(JSON.parse(w.grades), ["GT-R", "GT-R V-SPEC"]);
   assert.equal(gradesText(w.grades), "GT-R, GT-R V-SPEC");
   // Edit via the plain comma-separated text input (the wishlist editor form).
   await editWishlist(env, fd({ id: w.id, marka_name: "NISSAN", model_code: "BNR34", grades: "GT-R, M-SPEC" }), ADMIN);
-  const after = env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(w.id).first();
+  const after = env.DB.prepare("SELECT * FROM searches WHERE id = ?").bind(w.id).first();
   assert.equal(after.model_code, "BNR34");
   assert.deepEqual(JSON.parse(after.grades), ["GT-R", "M-SPEC"]);
 });

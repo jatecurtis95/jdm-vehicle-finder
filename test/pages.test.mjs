@@ -69,8 +69,8 @@ test("landing page reflects a changed membership price from settings", async () 
 
 test("the buyer portal shows an at-a-glance summary with real per-client counts", async () => {
   const env = makeEnv(`
-    INSERT INTO clients (id,name,portal_enabled) VALUES (1,'Jordan',1);
-    INSERT INTO wishlists (id,client_id,label,active) VALUES (1,1,'R34',1),(2,1,'Daily',1),(3,1,'Rotary',0);
+    INSERT INTO users (id,name,portal_enabled) VALUES (1,'Jordan',1);
+    INSERT INTO searches (id,client_id,label,active) VALUES (1,1,'R34',1),(2,1,'Daily',1),(3,1,'Rotary',0);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token,client_request) VALUES
       (10,1,1,'L1','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t1',0),
       (11,1,1,'L2','{"year":1999,"marka_name":"NISSAN","model_name":"SKYLINE"}','sent','t2',1),

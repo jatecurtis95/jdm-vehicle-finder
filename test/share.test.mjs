@@ -69,7 +69,7 @@ test("verifyShareLink honours the row's nonce, revocation and regeneration", asy
 test("public lot page shows the car but never client or admin data", async () => {
   const e = env();
   const row = await e.DB.prepare("SELECT id, client_id FROM queue WHERE status = 'pending' LIMIT 1").first();
-  const client = await e.DB.prepare("SELECT name FROM clients WHERE id = ?").bind(row.client_id).first();
+  const client = await e.DB.prepare("SELECT name FROM users WHERE id = ?").bind(row.client_id).first();
   const html = await publicLotPage(e, row.id);
   assert.match(html, /Enquire about this car/);
   assert.match(html, /plv-grid/);
@@ -117,7 +117,7 @@ test("an agent cannot manage share links for another agent's client", async () =
   const e = env();
   // Find a queue row whose client is NOT owned by agent 5 and not shared.
   const row = await e.DB.prepare(
-    `SELECT q.id FROM queue q JOIN clients c ON c.id = q.client_id
+    `SELECT q.id FROM queue q JOIN users c ON c.id = q.client_id
       WHERE COALESCE(c.agent_id, 0) != 5
         AND NOT EXISTS (SELECT 1 FROM client_shares s WHERE s.client_id = c.id AND s.agent_id = 5)
       LIMIT 1`

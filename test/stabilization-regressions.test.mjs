@@ -14,8 +14,8 @@ function feedXml(lots) {
 
 test("a partially full queue still reaches affordable candidates after expensive ones", async () => {
   const env = makeEnv(`
-    INSERT INTO clients (id, name, email, state) VALUES (1, 'Buyer', 'buyer@example.com', 'VIC');
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active, budget_aud)
+    INSERT INTO users (id, name, email, state) VALUES (1, 'Buyer', 'buyer@example.com', 'VIC');
+    INSERT INTO searches (id, client_id, marka_name, model_name, active, budget_aud)
       VALUES (1, 1, 'NISSAN', 'SKYLINE', 1, 40000);
     INSERT INTO settings (key, value) VALUES ('calc_fx_jpy_aud', '95');
   `);
@@ -72,7 +72,7 @@ test("the request wizard does not scroll the active step during initial render",
 test("dealer management and submissions render inside the shared admin shell", async () => {
   // The dealer feature ships hidden for launch; these admin views only exist
   // once the Settings toggle is on (see launch-audit-regressions.test.mjs).
-  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);
+  const env = makeEnv(`INSERT INTO suppliers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);
     INSERT INTO settings (key, value) VALUES ('dealer_portal_enabled', '1');`);
   for (const view of ["dealers", "dealer-submissions"]) {
     const html = await adminPage(env, view, ADMIN, { dealerStatus: "pending" });
@@ -84,7 +84,7 @@ test("dealer management and submissions render inside the shared admin shell", a
 });
 
 test("the dealer portal uses the shared branded shell and collapses forms on phones", async () => {
-  const env = makeEnv(`INSERT INTO dealers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
+  const env = makeEnv(`INSERT INTO suppliers (id, email, name, company, pass_salt, pass_hash, active) VALUES (1, 'dealer@example.com', 'Dealer One', 'Demo Cars', 'salt', 'hash', 1);`);
   const html = await dealerPortalPage(env, { id: 1, name: "Dealer One", email: "dealer@example.com", company: "Demo Cars", active: 1 });
   assert.match(html, /<aside class="side">/, "dealer portal keeps the shared navigation shell");
   // The nav must target the registered GET route - bare /dealer has no GET

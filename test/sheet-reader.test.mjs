@@ -45,7 +45,7 @@ test("fixAllPhotos reads every un-read match once, then is a no-op", async () =>
   };
   const env = makeEnv(readFile("seed/seed-dev.sql"));
   env.ANTHROPIC_API_KEY = "k"; env.API_BASE = "http://feed/api"; env.AVTONET_CODE = "c";
-  const cid = (await env.DB.prepare("SELECT id FROM clients LIMIT 1").first()).id;
+  const cid = (await env.DB.prepare("SELECT id FROM users LIMIT 1").first()).id;
   await env.DB.prepare("DELETE FROM queue").run();
   for (let i = 0; i < 5; i++) {
     await env.DB.prepare("INSERT INTO queue (wishlist_id,client_id,lot_id,lot_json,status,token) VALUES (?,?,?,?,?,?)")

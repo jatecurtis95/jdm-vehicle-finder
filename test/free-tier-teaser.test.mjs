@@ -11,8 +11,8 @@ const LOT = JSON.stringify({ year: 2002, marka_name: "NISSAN", model_name: "SKYL
 function seed(member) {
   const env = makeEnv(`
     INSERT INTO settings (key,value) VALUES ('membership_enabled','1'),('free_result_limit','1');
-    INSERT INTO clients (id,name,email,portal_enabled,member,source) VALUES (1,'Buyer','b@x.com',1,${member},'public');
-    INSERT INTO wishlists (id,client_id,label,active) VALUES (10,1,'GTR hunt',1);
+    INSERT INTO users (id,name,email,portal_enabled,member,source) VALUES (1,'Buyer','b@x.com',1,${member},'public');
+    INSERT INTO searches (id,client_id,label,active) VALUES (10,1,'GTR hunt',1);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES (100,10,1,'L1','${LOT}','sent','tok1');
   `);
   env.STRIPE_SECRET_KEY = "sk_test_x";
@@ -36,8 +36,8 @@ test("a member sees the full car details, no teaser", async () => {
 test("the free cap follows free_result_limit: a second match stays hidden with a prompt", async () => {
   const env = makeEnv(`
     INSERT INTO settings (key,value) VALUES ('membership_enabled','1'),('free_result_limit','1');
-    INSERT INTO clients (id,name,email,portal_enabled,member,source) VALUES (1,'Buyer','b@x.com',1,0,'public');
-    INSERT INTO wishlists (id,client_id,label,active) VALUES (10,1,'GTR hunt',1);
+    INSERT INTO users (id,name,email,portal_enabled,member,source) VALUES (1,'Buyer','b@x.com',1,0,'public');
+    INSERT INTO searches (id,client_id,label,active) VALUES (10,1,'GTR hunt',1);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES (100,10,1,'L1','${LOT}','sent','tok1');
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES (101,10,1,'L2','${LOT}','sent','tok2');
   `);
@@ -50,8 +50,8 @@ test("the free cap follows free_result_limit: a second match stays hidden with a
 test("a managed client (member 0, no public source) sees full details, never the teaser", async () => {
   const env = makeEnv(`
     INSERT INTO settings (key,value) VALUES ('membership_enabled','1'),('free_result_limit','1');
-    INSERT INTO clients (id,name,email,portal_enabled,member) VALUES (1,'Managed','m@x.com',1,0);
-    INSERT INTO wishlists (id,client_id,label,active) VALUES (10,1,'Managed hunt',1);
+    INSERT INTO users (id,name,email,portal_enabled,member) VALUES (1,'Managed','m@x.com',1,0);
+    INSERT INTO searches (id,client_id,label,active) VALUES (10,1,'Managed hunt',1);
     INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,status,token) VALUES (100,10,1,'L1','${LOT}','sent','tok1');
   `);
   env.STRIPE_SECRET_KEY = "sk_test_x";

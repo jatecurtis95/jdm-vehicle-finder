@@ -16,7 +16,7 @@ function stub(single = false) {
   };
 }
 function env2() {
-  const e = makeEnv("INSERT INTO clients (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1),(2,'Free Fred',1,0);");
+  const e = makeEnv("INSERT INTO users (id,name,portal_enabled,member) VALUES (1,'Member Mike',1,1),(2,'Free Fred',1,0);");
   e.API_BASE = "http://feed/api"; e.AVTONET_CODE = "c";
   return e;
 }
@@ -71,7 +71,7 @@ test("requesting a lot files it against a catch-all search and is idempotent", a
   const e = env2();
   const r1 = await requestAuctionLot(e, 1, "L9");
   assert.ok(r1.ok && !r1.already);
-  const wl = await e.DB.prepare("SELECT watch_only FROM wishlists WHERE client_id=1 AND label='Direct requests'").first();
+  const wl = await e.DB.prepare("SELECT watch_only FROM searches WHERE client_id=1 AND label='Direct requests'").first();
   assert.equal(wl.watch_only, 1);
   const row = await e.DB.prepare("SELECT client_request,status FROM queue WHERE client_id=1 AND lot_id='L9'").first();
   assert.equal(row.client_request, 1);
@@ -86,7 +86,7 @@ test("admin member toggle flips the flag", async () => {
   stub();
   const e = env2();
   await setClientMember(e, 2, true, { role: "admin", id: 0 });
-  assert.equal((await e.DB.prepare("SELECT member FROM clients WHERE id=2").first()).member, 1);
+  assert.equal((await e.DB.prepare("SELECT member FROM users WHERE id=2").first()).member, 1);
   await setClientMember(e, 2, false, { role: "admin", id: 0 });
-  assert.equal((await e.DB.prepare("SELECT member FROM clients WHERE id=2").first()).member, 0);
+  assert.equal((await e.DB.prepare("SELECT member FROM users WHERE id=2").first()).member, 0);
 });

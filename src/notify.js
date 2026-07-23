@@ -191,7 +191,7 @@ async function upsellFor(env, settings, client) {
   if (client && client.member != null) {
     isMember = !!client.member;
   } else if (client && client.id) {
-    const row = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(client.id).first();
+    const row = await env.DB.prepare("SELECT member FROM users WHERE id = ?").bind(client.id).first();
     isMember = !!(row && row.member);
   }
   if (isMember) return null;

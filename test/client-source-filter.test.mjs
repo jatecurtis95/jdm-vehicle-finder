@@ -22,7 +22,7 @@ async function seed(env) {
 test("staff-added clients are tagged jdm, public submissions tagged public", async () => {
   const env = makeEnv();
   await seed(env);
-  const rows = (await env.DB.prepare("SELECT name, source FROM clients ORDER BY name").all()).results;
+  const rows = (await env.DB.prepare("SELECT name, source FROM users ORDER BY name").all()).results;
   const by = Object.fromEntries(rows.map((r) => [r.name, r.source]));
   assert.equal(by["Trade Tom"], "jdm", "staff add -> jdm");
   assert.equal(by["Retail Rita"], "jdm", "staff add -> jdm");
@@ -59,7 +59,7 @@ test("the two filters combine (dealer AND added-by-JDM)", async () => {
 
 test("client saves still work when the source column is missing (drift tolerance)", async () => {
   const env = makeEnv();
-  env.db.exec("ALTER TABLE clients DROP COLUMN source");
+  env.db.exec("ALTER TABLE users DROP COLUMN source");
   const r = await createClient(env, cf({ name: "No Column", email: "nc@x.com", category: "private" }), ADMIN);
   assert.equal(r.ok, true, "the client is created even though the DB lacks the source column");
 });

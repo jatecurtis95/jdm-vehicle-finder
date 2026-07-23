@@ -52,7 +52,7 @@ test("common passwords are refused when setting a new password", () => {
 test("a 64-character password round-trips: set via invite link, then sign in", async () => {
   const env = makeEnv();
   env.db.prepare(
-    "INSERT INTO clients (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Long','long@example.com',1,'tok-long',?)"
+    "INSERT INTO users (name, email, portal_enabled, invite_token, invite_exp) VALUES ('Long','long@example.com',1,'tok-long',?)"
   ).run(FUTURE());
   const pw = "a genuinely long passphrase with 64 characters in it -- number 7"; // 64 chars
   assert.equal(pw.length, 64);

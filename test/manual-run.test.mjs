@@ -24,13 +24,13 @@ function stubFeed(lots) {
 function seed(env) {
   env.db.exec(`
     INSERT INTO settings (key, value) VALUES ('budget_filter', '0');
-    INSERT INTO clients (id, name, email, state) VALUES (1, 'Buyer', 'b@x.com', 'VIC');
-    INSERT INTO clients (id, name, email, state) VALUES (2, 'Other', 'o@x.com', 'VIC');
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active)
+    INSERT INTO users (id, name, email, state) VALUES (1, 'Buyer', 'b@x.com', 'VIC');
+    INSERT INTO users (id, name, email, state) VALUES (2, 'Other', 'o@x.com', 'VIC');
+    INSERT INTO searches (id, client_id, marka_name, model_name, active)
       VALUES (10, 1, 'NISSAN', 'SKYLINE', 1);
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active, watch_only)
+    INSERT INTO searches (id, client_id, marka_name, model_name, active, watch_only)
       VALUES (11, 1, 'NISSAN', 'SKYLINE', 1, 1);
-    INSERT INTO wishlists (id, client_id, marka_name, model_name, active)
+    INSERT INTO searches (id, client_id, marka_name, model_name, active)
       VALUES (12, 1, 'TOYOTA', 'SUPRA', 0);
   `);
 }

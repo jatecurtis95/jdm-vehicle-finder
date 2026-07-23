@@ -13,7 +13,7 @@ const ADMIN = { role: "admin", id: 0 };
 function seed() {
   return `
     INSERT INTO agents (id, email, name, pass_salt, pass_hash, active) VALUES (5, 'ben@x.com', 'Ben', '', '', 1);
-    INSERT INTO clients (id, name, email, agent_id) VALUES (1, 'Alice Apple', 'a@x.com', 5), (2, 'Bob Banana', 'b@x.com', 5);
+    INSERT INTO users (id, name, email, agent_id) VALUES (1, 'Alice Apple', 'a@x.com', 5), (2, 'Bob Banana', 'b@x.com', 5);
     INSERT INTO tasks (id, title, client_id, assigned_to, due_date, status) VALUES
       (1, 'Call Alice re finance', 1, 5, date('now'), 'todo'),
       (2, 'Chase the deposit', 2, NULL, date('now'), 'todo');
@@ -49,7 +49,7 @@ test("quick-add resolves a typed client name to the record", async () => {
 });
 
 test("ambiguous or unknown names leave the task unlinked, never guessed", async () => {
-  const env = makeEnv(seed() + `INSERT INTO clients (id, name, email) VALUES (3, 'Alice Apple', 'a2@x.com');`);
+  const env = makeEnv(seed() + `INSERT INTO users (id, name, email) VALUES (3, 'Alice Apple', 'a2@x.com');`);
   const r = await createTask(env, new Map([["title", "Ring re shipping"], ["client_name", "Alice Apple"]]), ADMIN);
   assert.equal(r.ok, true);
   const t = await env.DB.prepare("SELECT client_id FROM tasks WHERE title = 'Ring re shipping'").first();

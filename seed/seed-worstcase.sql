@@ -6,11 +6,11 @@
 --   npx wrangler d1 execute jdm-vehicle-finder --local --file seed/seed-worstcase.sql
 -- Remove after checking:
 --   DELETE FROM queue WHERE client_id = 9010;
---   DELETE FROM wishlists WHERE id = 9010;
---   DELETE FROM clients WHERE id = 9010;
-INSERT OR REPLACE INTO clients (id, name, email, whatsapp, state, agent_id, portal_enabled, category) VALUES
+--   DELETE FROM searches WHERE id = 9010;
+--   DELETE FROM users WHERE id = 9010;
+INSERT OR REPLACE INTO users (id, name, email, whatsapp, state, agent_id, portal_enabled, category) VALUES
   (9010, 'Bartholomew Constantine-Featherstonehaugh', 'bartholomew.constantine.featherstonehaugh@example.com.au', '+61400777888', 'NSW', 9001, 1, 'private');
-INSERT OR REPLACE INTO wishlists (id, client_id, label, marka_name, model_name, year_min, year_max, price_max, rate_min, kuzov, active, watch_only, status) VALUES
+INSERT OR REPLACE INTO searches (id, client_id, label, marka_name, model_name, year_min, year_max, price_max, rate_min, kuzov, active, watch_only, status) VALUES
   (9010, 9010, 'Land Cruiser Prado TX Limited low kilometre sunroof preferred', 'TOYOTA', 'LAND CRUISER PRADO', 1996, 2002, 4500000, 4, 'KZJ95W', 1, 0, 'searching');
 INSERT OR REPLACE INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, created_at) VALUES
   (9101, 9010, 9010, 'WC101', '{"id":"WC101","year":"1999","marka_name":"TOYOTA","model_name":"LAND CRUISER PRADO","grade":"TX LIMITED 4WD SUNROOF","kuzov":"KZJ95W-GKPET","eng_v":"2982","kpp":"AT","mileage":"187000","rate":"4.5","start":"2450000","avg_price":"2800000","auction":"USS Nagoya","auction_date":"2026-07-20 10:00","lot":"51220","color":"pearl white","_strength":"Strong","_landed":{"grandTotal":48750,"state":"NSW"}}', 'pending', 'wc-tok-101', datetime('now')),

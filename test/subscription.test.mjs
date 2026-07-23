@@ -4,11 +4,11 @@ import { makeEnv } from "./helpers/d1.mjs";
 import { applyStripeEvent, createSubscriptionCheckout } from "../src/stripe.js";
 
 const seedClient = (env, over = {}) =>
-  env.DB.prepare("INSERT INTO clients (id,name,email) VALUES (?,?,?)")
+  env.DB.prepare("INSERT INTO users (id,name,email) VALUES (?,?,?)")
     .bind(over.id || 1, over.name || "Stephen", over.email || "s@example.com").run();
 
 const memberRow = (env, id = 1) =>
-  env.DB.prepare("SELECT member, sub_status, stripe_customer_id, stripe_subscription_id FROM clients WHERE id=?").bind(id).first();
+  env.DB.prepare("SELECT member, sub_status, stripe_customer_id, stripe_subscription_id FROM users WHERE id=?").bind(id).first();
 
 test("subscription checkout completed makes the client a member and stores the ids", async () => {
   const env = makeEnv();
@@ -95,7 +95,7 @@ test("a failed event is rolled back so a Stripe retry can re-process it", async 
   let failNext = true;
   const env = { DB: {
     prepare(sql) {
-      if (failNext && sql.includes("UPDATE clients")) {
+      if (failNext && sql.includes("UPDATE users")) {
         return { bind: () => ({ run: () => { throw new Error("transient db error"); } }) };
       }
       return base.DB.prepare(sql);
@@ -113,7 +113,7 @@ test("a failed event is rolled back so a Stripe retry can re-process it", async 
   // The retry now succeeds and provisions membership.
   failNext = false;
   assert.equal(await applyStripeEvent(env, evt), "subscribed");
-  assert.equal((await base.DB.prepare("SELECT member FROM clients WHERE id=1").first()).member, 1);
+  assert.equal((await base.DB.prepare("SELECT member FROM users WHERE id=1").first()).member, 1);
 });
 
 test("createSubscriptionCheckout posts a monthly recurring price", async () => {

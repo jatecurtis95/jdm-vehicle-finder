@@ -65,7 +65,7 @@ test("an interested response counts as engagement even without a view", async ()
 test("a client whose requests are all lost or delivered stays out", async () => {
   const env = seededEnv();
   await sentAndViewed(env, 9001, 9001, 20);
-  await env.DB.prepare("UPDATE wishlists SET status = 'lost' WHERE client_id = 9001").run();
+  await env.DB.prepare("UPDATE searches SET status = 'lost' WHERE client_id = 9001").run();
   const html = await adminPage(env, "dashboard", ADMIN);
   assert.doesNotMatch(goneQuietSlice(html), /Aiko Tanaka/, "closed pipelines are not resurfaced");
 });

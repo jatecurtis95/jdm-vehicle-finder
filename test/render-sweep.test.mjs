@@ -16,10 +16,10 @@ const FEED_ROW = `<row><id>L1</id><marka_name>NISSAN</marka_name><model_name>SKY
 function seed() {
   return `
     INSERT INTO agents (id, email, name, pass_salt, pass_hash, active) VALUES (5, 'ben@x.com', 'Ben', '', '', 1);
-    INSERT INTO clients (id, name, email, whatsapp, portal_enabled, member, agent_id) VALUES
+    INSERT INTO users (id, name, email, whatsapp, portal_enabled, member, agent_id) VALUES
       (1, 'Jordan Member', 'jordan@x.com', '+61400111222', 1, 1, NULL),
       (2, 'Casey Free', 'casey@x.com', NULL, 1, 0, 5);
-    INSERT INTO wishlists (id, client_id, label, marka_name, model_name, active, status, deposit_status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, model_name, active, status, deposit_status) VALUES
       (1, 1, 'R34', 'NISSAN', 'SKYLINE', 1, 'searching', 'none'),
       (2, 2, 'Supra', 'TOYOTA', 'SUPRA', 1, 'deposit_requested', 'requested');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, client_request) VALUES

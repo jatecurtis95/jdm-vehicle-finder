@@ -195,7 +195,7 @@ async function applyStripeEventInner(env, event) {
     const clientId = obj.client_reference_id || obj.metadata?.client_id;
     if (clientId) {
       await env.DB.prepare(
-        `UPDATE clients SET member = 1, sub_status = 'active',
+        `UPDATE users SET member = 1, sub_status = 'active',
             stripe_customer_id = COALESCE(?, stripe_customer_id),
             stripe_subscription_id = COALESCE(?, stripe_subscription_id)
           WHERE id = ?`
@@ -211,7 +211,7 @@ async function applyStripeEventInner(env, event) {
     const status = event.type === "customer.subscription.deleted" ? "canceled" : String(obj.status || "");
     const active = status === "active" || status === "trialing";
     await env.DB.prepare(
-      `UPDATE clients SET member = ?, sub_status = ?,
+      `UPDATE users SET member = ?, sub_status = ?,
           stripe_subscription_id = COALESCE(stripe_subscription_id, ?)
         WHERE stripe_subscription_id = ?
            OR (stripe_subscription_id IS NULL AND stripe_customer_id = ? AND ? <> '')`
@@ -260,12 +260,12 @@ async function advanceDepositPaid(env, obj) {
     }
     if (!wid && p.client_id) {
       const w = await env.DB.prepare(
-        "SELECT id FROM wishlists WHERE client_id = ? ORDER BY COALESCE(last_activity, created_at) DESC LIMIT 1"
+        "SELECT id FROM searches WHERE client_id = ? ORDER BY COALESCE(last_activity, created_at) DESC LIMIT 1"
       ).bind(Number(p.client_id)).first();
       wid = w?.id || null;
     }
     if (!wid) return;
-    const w = await env.DB.prepare("SELECT status FROM wishlists WHERE id = ?").bind(wid).first();
+    const w = await env.DB.prepare("SELECT status FROM searches WHERE id = ?").bind(wid).first();
     if (w && ["new", "qualified", "searching", "vehicles_sent", "interested", "deposit_requested"].includes(w.status || "new")) {
       await updateRequestStatus(env, wid, "deposit_paid", { role: "admin", id: 0 });
     }

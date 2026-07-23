@@ -608,7 +608,7 @@ export async function auctionHistoryContent(env, rawParams = {}, surface = HISTO
 
 export async function auctionHistoryPage(env, session, rawParams = {}) {
   const cid = Number(session.id);
-  const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(cid).first();
+  const c = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(cid).first();
   if (!c) {
     return brandShell(portalSidebar(null),
       `<div class="topbar"><div><div class="kicker">Buyer portal</div><h1>Access ended</h1></div><a class="btn-secondary" href="/logout">Sign out</a></div>

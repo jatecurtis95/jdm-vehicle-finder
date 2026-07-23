@@ -8,8 +8,8 @@ import { bulkAllocate, adminPage } from "../src/admin.js";
 
 const FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
-  INSERT INTO clients (id,name,email) VALUES (10,'Doomed One','d1@x'),(20,'Doomed Two','d2@x'),(30,'Survivor','s@x');
-  INSERT INTO wishlists (id,client_id,label) VALUES (100,10,'w10'),(200,20,'w20'),(300,30,'w30');
+  INSERT INTO users (id,name,email) VALUES (10,'Doomed One','d1@x'),(20,'Doomed Two','d2@x'),(30,'Survivor','s@x');
+  INSERT INTO searches (id,client_id,label) VALUES (100,10,'w10'),(200,20,'w20'),(300,30,'w30');
   INSERT INTO seen_lots (wishlist_id,lot_id) VALUES (100,'L1'),(200,'L2'),(300,'L3');
   INSERT INTO queue (id,wishlist_id,client_id,lot_id,lot_json,token) VALUES
     (1,100,10,'L1','{}','t1'),(2,200,20,'L2','{}','t2'),(3,300,30,'L3','{}','t3');
@@ -21,8 +21,8 @@ const ADMIN = { role: "admin", id: 0 };
 async function counts(env) {
   const one = async (sql) => (await env.DB.prepare(sql).first())?.n || 0;
   return {
-    clients: await one("SELECT COUNT(*) AS n FROM clients"),
-    wishlists: await one("SELECT COUNT(*) AS n FROM wishlists"),
+    clients: await one("SELECT COUNT(*) AS n FROM users"),
+    wishlists: await one("SELECT COUNT(*) AS n FROM searches"),
     queue: await one("SELECT COUNT(*) AS n FROM queue"),
     seen: await one("SELECT COUNT(*) AS n FROM seen_lots"),
     shares: await one("SELECT COUNT(*) AS n FROM client_shares"),
@@ -35,16 +35,16 @@ test("bulk delete removes selected clients and all their dependent rows", async 
   const c = await counts(env);
   assert.deepEqual(c, { clients: 1, wishlists: 1, queue: 1, seen: 1, shares: 1 },
     "only the Survivor (30) and its rows remain");
-  const survivor = await env.DB.prepare("SELECT id FROM clients").all();
+  const survivor = await env.DB.prepare("SELECT id FROM users").all();
   assert.deepEqual(survivor.results.map((r) => r.id), [30]);
 });
 
 test("bulk delete leaves un-selected clients untouched", async () => {
   const env = makeEnv(FIXTURE);
   await bulkAllocate(env, "delete", "", ["10"], ADMIN);
-  assert.ok(await env.DB.prepare("SELECT id FROM clients WHERE id = 20").first(), "20 survives");
-  assert.ok(await env.DB.prepare("SELECT id FROM clients WHERE id = 30").first(), "30 survives");
-  assert.ok(!(await env.DB.prepare("SELECT id FROM clients WHERE id = 10").first()), "10 is gone");
+  assert.ok(await env.DB.prepare("SELECT id FROM users WHERE id = 20").first(), "20 survives");
+  assert.ok(await env.DB.prepare("SELECT id FROM users WHERE id = 30").first(), "30 survives");
+  assert.ok(!(await env.DB.prepare("SELECT id FROM users WHERE id = 10").first()), "10 is gone");
 });
 
 test("bulk delete is admin-only - an agent cannot delete clients", async () => {
@@ -57,7 +57,7 @@ test("bulk delete is admin-only - an agent cannot delete clients", async () => {
 test("bulk delete with no ids is a safe no-op", async () => {
   const env = makeEnv(FIXTURE);
   await bulkAllocate(env, "delete", "", [], ADMIN);
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 3);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 3);
 });
 
 // An agent's own customers (agent_id set) must never be swept up by an admin's
@@ -65,24 +65,24 @@ test("bulk delete with no ids is a safe no-op", async () => {
 // customers belong to JDM Connect, so they stay deletable (see the first test).
 const OWNED_FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','','');
-  INSERT INTO clients (id,name,email,agent_id) VALUES (10,'Unowned','u@x',NULL),(11,'Agent Book','ao@x',1);
-  INSERT INTO wishlists (id,client_id,label) VALUES (100,10,'w'),(110,11,'w');
+  INSERT INTO users (id,name,email,agent_id) VALUES (10,'Unowned','u@x',NULL),(11,'Agent Book','ao@x',1);
+  INSERT INTO searches (id,client_id,label) VALUES (100,10,'w'),(110,11,'w');
 `;
 
 test("bulk delete protects agent-owned customers by default and reports the skip", async () => {
   const env = makeEnv(OWNED_FIXTURE);
   const res = await bulkAllocate(env, "delete", null, ["10", "11"], ADMIN);
   assert.deepEqual(res, { deleted: 1, skipped: 1 });
-  assert.ok(!(await env.DB.prepare("SELECT id FROM clients WHERE id=10").first()), "the unowned customer is deleted");
-  assert.ok(await env.DB.prepare("SELECT id FROM clients WHERE id=11").first(), "the agent's customer is protected");
-  assert.ok(await env.DB.prepare("SELECT id FROM wishlists WHERE id=110").first(), "and their request survives too");
+  assert.ok(!(await env.DB.prepare("SELECT id FROM users WHERE id=10").first()), "the unowned customer is deleted");
+  assert.ok(await env.DB.prepare("SELECT id FROM users WHERE id=11").first(), "the agent's customer is protected");
+  assert.ok(await env.DB.prepare("SELECT id FROM searches WHERE id=110").first(), "and their request survives too");
 });
 
 test("bulk delete removes agent-owned customers only when the admin opts in", async () => {
   const env = makeEnv(OWNED_FIXTURE);
   const res = await bulkAllocate(env, "delete", null, ["10", "11"], ADMIN, true);
   assert.deepEqual(res, { deleted: 2, skipped: 0 });
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first()).n, 0, "both removed with the opt-in");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 0, "both removed with the opt-in");
 });
 
 test("the Clients bulk bar exposes the 'Include agents' customers' opt-in", async () => {

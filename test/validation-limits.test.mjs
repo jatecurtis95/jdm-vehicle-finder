@@ -34,7 +34,7 @@ test("createClient rejects a bad email and a junk phone, stores E.164", async ()
   assert.equal(badPhone.error, "whatsapp");
   const ok = await createClient(env, fd({ name: "C", whatsapp: "0412 345 678" }), ADMIN);
   assert.equal(ok.ok, true);
-  const row = env.DB.prepare("SELECT whatsapp FROM clients WHERE id = ?").bind(ok.id).first();
+  const row = env.DB.prepare("SELECT whatsapp FROM users WHERE id = ?").bind(ok.id).first();
   assert.equal(row.whatsapp, "+61412345678", "stored in canonical E.164");
 });
 
@@ -51,7 +51,7 @@ test("createWishlist clamps years, caps numerics, clips strings", async () => {
     rate_min: "9",                        // clamped to 6
   }), undefined, ADMIN);
   assert.equal(r.ok, true);
-  const w = env.DB.prepare("SELECT * FROM wishlists WHERE client_id = ?").bind(c.id).first();
+  const w = env.DB.prepare("SELECT * FROM searches WHERE client_id = ?").bind(c.id).first();
   assert.equal(w.marka_name.length, 60);
   assert.equal(w.year_min, null);
   assert.equal(w.year_max, 2049);
@@ -77,9 +77,9 @@ test("editWishlist sanitises the same way (years, caps)", async () => {
   const env = makeEnv();
   const c = await createClient(env, fd({ name: "Buyer", email: "e@example.com" }), ADMIN);
   await createWishlist(env, fd({ client_id: c.id, marka_name: "MAZDA" }), undefined, ADMIN);
-  const w = env.DB.prepare("SELECT id FROM wishlists WHERE client_id = ?").bind(c.id).first();
+  const w = env.DB.prepare("SELECT id FROM searches WHERE client_id = ?").bind(c.id).first();
   await editWishlist(env, fd({ id: w.id, marka_name: "MAZDA", year_min: "2005", year_max: "1998", price_max: "2000000" }), ADMIN);
-  const after = env.DB.prepare("SELECT * FROM wishlists WHERE id = ?").bind(w.id).first();
+  const after = env.DB.prepare("SELECT * FROM searches WHERE id = ?").bind(w.id).first();
   assert.equal(after.year_min, 1998, "inverted years are swapped");
   assert.equal(after.year_max, 2005);
   assert.equal(after.price_max, 2000000);

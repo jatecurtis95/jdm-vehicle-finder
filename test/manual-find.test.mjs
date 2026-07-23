@@ -7,7 +7,7 @@ import { addLotToClient, clientDetailPage } from "../src/admin.js";
 
 const FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','',''),(2,'a2@x','A2','','');
-  INSERT INTO clients (id,name,email,state,agent_id) VALUES (10,'Direct','d@x','VIC',NULL),(20,'Owned by A2','o@x','NSW',2);
+  INSERT INTO users (id,name,email,state,agent_id) VALUES (10,'Direct','d@x','VIC',NULL),(20,'Owned by A2','o@x','NSW',2);
 `;
 const ADMIN = { role: "admin", id: 0 };
 
@@ -24,7 +24,7 @@ test("addLotToClient files a pending match in a watch_only=0 'Manual finds' sear
   const r = await addLotToClient(env, 10, "L9", ADMIN);
   assert.equal(r.ok, true);
   assert.ok(!r.already);
-  const wl = await env.DB.prepare("SELECT * FROM wishlists WHERE client_id = 10").first();
+  const wl = await env.DB.prepare("SELECT * FROM searches WHERE client_id = 10").first();
   assert.equal(wl.label, "Manual finds");
   assert.equal(wl.watch_only, 0, "approving must email the client, like a normal match");
   const q = await env.DB.prepare("SELECT * FROM queue WHERE client_id = 10").first();
@@ -63,8 +63,8 @@ test("an agent can add a lot to their own client", async () => {
 
 test("client page shows the Find-a-car search and hides internal catch-all searches", async () => {
   const env = makeEnv(FIXTURE); stubFeed();
-  await env.DB.prepare("INSERT INTO wishlists (client_id,label) VALUES (10,'Manual finds')").run();
-  await env.DB.prepare("INSERT INTO wishlists (client_id,label,marka_name) VALUES (10,'Daily driver','TOYOTA')").run();
+  await env.DB.prepare("INSERT INTO searches (client_id,label) VALUES (10,'Manual finds')").run();
+  await env.DB.prepare("INSERT INTO searches (client_id,label,marka_name) VALUES (10,'Daily driver','TOYOTA')").run();
   const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
   assert.match(html, /Find a car for/);
   assert.match(html, /Search auctions/);
@@ -74,7 +74,7 @@ test("client page shows the Find-a-car search and hides internal catch-all searc
 
 test("the Find-a-car form pre-fills from the client's saved search", async () => {
   const env = makeEnv(FIXTURE); stubFeed();
-  await env.DB.prepare("INSERT INTO wishlists (client_id,label,marka_name,model_name,year_min,year_max,price_max,rate_min,kuzov) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001,3000000,4,'JZX100')").run();
+  await env.DB.prepare("INSERT INTO searches (client_id,label,marka_name,model_name,year_min,year_max,price_max,rate_min,kuzov) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001,3000000,4,'JZX100')").run();
   const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
   assert.match(html, /name="make"[^>]*value="TOYOTA"/, "make pre-filled in the find form");
   assert.match(html, /name="model"[^>]*value="CHASER"/, "model pre-filled");
@@ -84,7 +84,7 @@ test("the Find-a-car form pre-fills from the client's saved search", async () =>
 
 test("each saved search has a Search button that hunts that exact car", async () => {
   const env = makeEnv(FIXTURE); stubFeed();
-  await env.DB.prepare("INSERT INTO wishlists (client_id,label,marka_name,model_name,year_min,year_max) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001)").run();
+  await env.DB.prepare("INSERT INTO searches (client_id,label,marka_name,model_name,year_min,year_max) VALUES (10,'Chaser','TOYOTA','CHASER',1996,2001)").run();
   const html = await clientDetailPage(env, 10, ADMIN, { search: {} });
   assert.match(html, /class="btn-primary wl-search"/, "a Search button on the search row");
   assert.match(html, /make=TOYOTA/, "carries the make");

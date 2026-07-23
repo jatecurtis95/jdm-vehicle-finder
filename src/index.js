@@ -255,7 +255,7 @@ async function resetRateLimited(env, ip, email) {
 async function notifyShareInterest(env, queueId) {
   try {
     const q = await env.DB.prepare(
-      "SELECT q.lot_json, q.client_id, c.name AS client_name FROM queue q LEFT JOIN clients c ON c.id = q.client_id WHERE q.id = ?"
+      "SELECT q.lot_json, q.client_id, c.name AS client_name FROM queue q LEFT JOIN users c ON c.id = q.client_id WHERE q.id = ?"
     ).bind(Number(queueId)).first();
     if (!q) return;
     let lot = {}; try { lot = JSON.parse(q.lot_json); } catch (e) {}
@@ -456,7 +456,7 @@ export default {
       const session = await getSession(request, url, env);
       let signedIn = null;
       if (session && session.role === "client" && session.id) {
-        const c = await env.DB.prepare("SELECT name, email, whatsapp FROM clients WHERE id = ?").bind(session.id).first();
+        const c = await env.DB.prepare("SELECT name, email, whatsapp FROM users WHERE id = ?").bind(session.id).first();
         if (c) signedIn = { name: c.name || "", email: c.email || "", whatsapp: c.whatsapp || "" };
       }
       if (request.method === "POST") {
@@ -514,7 +514,7 @@ export default {
             // a failure here never blocks the confirmation.
             let welcome = null, upsell = null;
             try {
-              const cm = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(result.clientId).first();
+              const cm = await env.DB.prepare("SELECT member FROM users WHERE id = ?").bind(result.clientId).first();
               if (!(cm && cm.member)) {
                 const settings = await getSettings(env);
                 // V1.3 (decided): free accounts are manually reviewed, so the
@@ -885,7 +885,7 @@ export default {
       let state = null;
       const cid = Number(url.searchParams.get("client"));
       if (Number.isInteger(cid) && cid > 0 && await clientAccessibleBy(env, cid, session)) {
-        const c = await env.DB.prepare("SELECT state FROM clients WHERE id = ?").bind(cid).first();
+        const c = await env.DB.prepare("SELECT state FROM users WHERE id = ?").bind(cid).first();
         state = c?.state || null;
       }
       return landedBatchResponse(env, request, `s:${session.role}:${session.id}`, state);
@@ -1554,14 +1554,14 @@ export default {
         // the failure notice, not a false "Search updated".
         if (r && r.ok === false) throw new Error(r.error || "invalid");
       }, async () => {
-        const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(f.get("id"))).first();
+        const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(Number(f.get("id"))).first();
         return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
       }, "Search updated");
     }
 
     // Helper: a search's edits/toggle/delete should return to its client page.
     const searchClientDest = async (id) => {
-      const w = await env.DB.prepare("SELECT client_id FROM wishlists WHERE id = ?").bind(Number(id)).first();
+      const w = await env.DB.prepare("SELECT client_id FROM searches WHERE id = ?").bind(Number(id)).first();
       return (w && await clientAccessibleBy(env, w.client_id, session)) ? `/admin?view=client&id=${w.client_id}` : "/admin?view=clients";
     };
 
@@ -1756,7 +1756,7 @@ async function handleClientPortal(request, env, url, path, session, here) {
   // Deferred landed-cost fill for the member auction pages (Phase 2). Gated
   // like the pages themselves: active portal + paid member. JSON in/out.
   if (path === "/portal/landed-batch" && request.method === "POST") {
-    const c = await env.DB.prepare("SELECT state, member FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    const c = await env.DB.prepare("SELECT state, member FROM users WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
     if (!c || !c.member) return jsonResponse({ error: "forbidden" }, 403);
     return landedBatchResponse(env, request, `c:${session.id}`, c.state);
   }
@@ -1795,7 +1795,7 @@ async function handleClientPortal(request, env, url, path, session, here) {
   }
 
   if (path === "/portal/auctions/request" && request.method === "POST") {
-    const c = await env.DB.prepare("SELECT * FROM clients WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
+    const c = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND portal_enabled = 1").bind(Number(session.id)).first();
     if (!c || !c.member) return Response.redirect(here("/portal/auctions"), 303);
     const r = await requestAuctionLot(env, c.id, (await request.formData()).get("id"));
     if (r.ok && !r.already) {
@@ -1867,7 +1867,7 @@ async function handleClientPortal(request, env, url, path, session, here) {
   if (path === "/portal/subscribe" && request.method === "GET") {
     const settings = await getSettings(env);
     const priceAud = settingNum(settings, "membership_monthly_aud", 49);
-    const me = await env.DB.prepare("SELECT member FROM clients WHERE id = ?").bind(session.id).first();
+    const me = await env.DB.prepare("SELECT member FROM users WHERE id = ?").bind(session.id).first();
     if (me && me.member) return back("?ok=member");
     const purchasable = stripeConfigured(env) && settingOn(settings, "membership_enabled") && priceAud > 0;
     if (!purchasable) {
@@ -1900,7 +1900,7 @@ async function startSubscriptionCheckout(env, session, here) {
     if (!stripeConfigured(env) || !settingOn(settings, "membership_enabled") || !(priceAud > 0)) {
       return Response.redirect(here("/portal?err=sub"), 303);
     }
-    const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(session.id).first();
+    const client = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(session.id).first();
     if (!client) return Response.redirect(here("/portal?err=sub"), 303);
     if (client.member) return Response.redirect(here("/portal"), 303); // already a member
     const { url } = await createSubscriptionCheckout(env, {
@@ -1920,7 +1920,7 @@ async function startSubscriptionCheckout(env, session, here) {
 // Open the Stripe Billing Portal so a member can manage or cancel their plan.
 async function startBillingPortal(env, session, here) {
   try {
-    const client = await env.DB.prepare("SELECT stripe_customer_id FROM clients WHERE id = ?").bind(session.id).first();
+    const client = await env.DB.prepare("SELECT stripe_customer_id FROM users WHERE id = ?").bind(session.id).first();
     if (!stripeConfigured(env) || !client || !client.stripe_customer_id) {
       return Response.redirect(here("/portal?err=sub"), 303);
     }
@@ -1944,7 +1944,7 @@ async function startDepositCheckout(env, session, queueId, here) {
     if (!stripeConfigured(env) || !settingOn(settings, "stripe_enabled") || !(depositAud > 0)) {
       return Response.redirect(here("/portal?err=pay"), 303);
     }
-    const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(session.id).first();
+    const client = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(session.id).first();
     if (!client) return Response.redirect(here("/portal?err=pay"), 303);
     // Only attach a queue_id the signed-in client actually owns. A client must
     // never be able to reference another client's match on their payment row.
@@ -2123,7 +2123,7 @@ async function handleDealerPortal(request, env, url, path, session, here) {
   if (path === "/dealer/portal" && request.method === "GET") {
     // active = 1: a deactivated dealer's still-valid cookie must not keep
     // working (same guard as /dealer/history below).
-    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM suppliers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return Response.redirect(here("/login"), 303);
     let flash = "";
     if (url.searchParams.get("ok") === "submitted") {
@@ -2140,7 +2140,7 @@ async function handleDealerPortal(request, env, url, path, session, here) {
   // Deferred landed-cost fill for the dealer history page (Phase 2). Same
   // active-dealer guard as the page; estimates use the default state.
   if (path === "/dealer/landed-batch" && request.method === "POST") {
-    const dealer = await env.DB.prepare("SELECT id FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    const dealer = await env.DB.prepare("SELECT id FROM suppliers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return jsonResponse({ error: "forbidden" }, 403);
     return landedBatchResponse(env, request, `d:${session.id}`, null);
   }
@@ -2149,7 +2149,7 @@ async function handleDealerPortal(request, env, url, path, session, here) {
   // the URL; validateHistoryParams coerces everything before SQL. rates is a
   // checkbox multi-select: getAll() keeps every ticked score.
   if (path === "/dealer/history" && request.method === "GET") {
-    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM dealers WHERE id = ? AND active = 1").bind(session.id).first();
+    const dealer = await env.DB.prepare("SELECT id, name, company, email FROM suppliers WHERE id = ? AND active = 1").bind(session.id).first();
     if (!dealer) return Response.redirect(here("/login"), 303);
     const html = await dealerHistoryPage(env, dealer, {
       ...Object.fromEntries(url.searchParams),
@@ -2229,9 +2229,9 @@ async function handleDecision(request, env, url) {
 
   // Approve. Watch-only "lead" wishlists never email the client - the match is
   // just marked handled so staff can follow up by phone instead.
-  const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
+  const client = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(item.client_id).first();
   const wishlist = await env.DB.prepare(
-    "SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+    "SELECT w.*, c.name AS client_name FROM searches w JOIN users c ON c.id = w.client_id WHERE w.id = ?"
   ).bind(item.wishlist_id).first();
   if (wishlist && wishlist.watch_only) {
     await env.DB.prepare(
@@ -2306,12 +2306,12 @@ async function applyBulkDecisions(env, action, ids, session) {
       if (!item || item.status !== "pending") continue;
       if (session && session.role === "agent" && !(await clientAccessibleBy(env, item.client_id, session))) continue;
       const wishlist = await env.DB.prepare(
-        "SELECT w.*, c.name AS client_name FROM wishlists w JOIN clients c ON c.id = w.client_id WHERE w.id = ?"
+        "SELECT w.*, c.name AS client_name FROM searches w JOIN users c ON c.id = w.client_id WHERE w.id = ?"
       ).bind(item.wishlist_id).first();
       if (wishlist && wishlist.watch_only) { watchOnly.push(item); continue; }
       let lot = {}; try { lot = JSON.parse(item.lot_json); } catch (e) {}
       if (!byClient.has(item.client_id)) {
-        const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(item.client_id).first();
+        const client = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(item.client_id).first();
         byClient.set(item.client_id, { client, rows: [] });
       }
       byClient.get(item.client_id).rows.push({ item, lot, wishlist });

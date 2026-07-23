@@ -8,7 +8,7 @@ import { adminPage } from "../src/admin.js";
 const ADMIN = { role: "admin", id: 0 };
 
 test("the Clients list has a search box wired to the filter handler", async () => {
-  const env = makeEnv(`INSERT INTO clients (id,name,email,state) VALUES (1,'Alice','a@x','VIC'),(2,'Bob','b@x','NSW');`);
+  const env = makeEnv(`INSERT INTO users (id,name,email,state) VALUES (1,'Alice','a@x','VIC'),(2,'Bob','b@x','NSW');`);
   const html = await adminPage(env, "clients", ADMIN);
   assert.match(html, /class="tbl-search"/, "renders a search input");
   assert.match(html, /id="clientsTbl"/, "the table is targetable");
@@ -17,7 +17,7 @@ test("the Clients list has a search box wired to the filter handler", async () =
 });
 
 test("the Payments list has a search box", async () => {
-  const env = makeEnv(`INSERT INTO clients (id,name) VALUES (1,'Alice');
+  const env = makeEnv(`INSERT INTO users (id,name) VALUES (1,'Alice');
     INSERT INTO payments (client_id,amount_cents,currency,status,description) VALUES (1,50000,'aud','paid','Deposit');`);
   const html = await adminPage(env, "payments", ADMIN);
   assert.match(html, /id="paymentsTbl"/);
@@ -29,8 +29,8 @@ test("the Payments list has a search box", async () => {
 test("list views ship a mobile card list beside the desktop table", async () => {
   const env = makeEnv(`
     INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a@x','Agent A','s','h');
-    INSERT INTO clients (id,name,email,state,agent_id) VALUES (1,'Alice','a@x','VIC',1);
-    INSERT INTO wishlists (id,client_id,label,marka_name,status,last_activity) VALUES (1,1,'R34','NISSAN','new',datetime('now'));
+    INSERT INTO users (id,name,email,state,agent_id) VALUES (1,'Alice','a@x','VIC',1);
+    INSERT INTO searches (id,client_id,label,marka_name,status,last_activity) VALUES (1,1,'R34','NISSAN','new',datetime('now'));
     INSERT INTO payments (client_id,amount_cents,currency,status,description,stripe_session) VALUES (1,50000,'aud','paid','Deposit','cs_test_a1b2c3d4e5f6g7h8i9j0');
   `);
   for (const view of ["requests", "clients", "agents", "payments"]) {

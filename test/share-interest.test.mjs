@@ -13,9 +13,9 @@ const HOST = "https://jdmfinder.com.au";
 function seed() {
   return `
     INSERT INTO agents (id, email, name, pass_salt, pass_hash, active) VALUES (7, 'stranger@x.com', 'Stranger', '', '', 1);
-    INSERT INTO clients (id, name, email, whatsapp, portal_enabled, agent_id) VALUES
+    INSERT INTO users (id, name, email, whatsapp, portal_enabled, agent_id) VALUES
       (1, 'Jordan Buyer', 'jordan@x.com', '+61400111222', 1, NULL);
-    INSERT INTO wishlists (id, client_id, label, marka_name, model_name, active, status) VALUES
+    INSERT INTO searches (id, client_id, label, marka_name, model_name, active, status) VALUES
       (1, 1, 'Aqua', 'TOYOTA', 'AQUA', 1, 'vehicles_sent');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token) VALUES
       (10, 1, 1, 'L1', '{"year":2021,"marka_name":"TOYOTA","model_name":"AQUA","lot":"9850","rate":"3.5","mileage":43000}', 'sent', 't-1');

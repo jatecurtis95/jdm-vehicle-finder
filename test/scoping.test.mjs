@@ -8,7 +8,7 @@ import { clientOwnedBy, clientAccessibleBy, accessScope } from "../src/admin.js"
 
 const FIXTURE = `
   INSERT INTO agents (id,email,name,pass_salt,pass_hash) VALUES (1,'a1@x','A1','',''),(2,'a2@x','A2','','');
-  INSERT INTO clients (id,name,email,agent_id) VALUES
+  INSERT INTO users (id,name,email,agent_id) VALUES
     (10,'Owned by A1','a@x',1),
     (20,'Owned by A2','b@x',2),
     (30,'Owned by A2, shared to A1','c@x',2);
@@ -42,7 +42,7 @@ test("clientAccessibleBy: owner or share grants access, nothing else", async () 
 test("accessScope predicate filters list queries to owned + shared rows", async () => {
   const env = makeEnv(FIXTURE);
   const scope = accessScope(A1);
-  const rows = env.DB.prepare(`SELECT c.id FROM clients c WHERE ${scope.sql} ORDER BY c.id`).bind(...scope.binds).all().results;
+  const rows = env.DB.prepare(`SELECT c.id FROM users c WHERE ${scope.sql} ORDER BY c.id`).bind(...scope.binds).all().results;
   assert.deepEqual(rows.map((r) => r.id), [10, 30], "A1 sees only owned (10) + shared (30)");
 });
 
@@ -51,6 +51,6 @@ test("accessScope for admin is unrestricted", async () => {
   const scope = accessScope(ADMIN);
   assert.equal(scope.sql, "1=1");
   assert.deepEqual(scope.binds, []);
-  const rows = env.DB.prepare(`SELECT c.id FROM clients c WHERE ${scope.sql} ORDER BY c.id`).all().results;
+  const rows = env.DB.prepare(`SELECT c.id FROM users c WHERE ${scope.sql} ORDER BY c.id`).all().results;
   assert.deepEqual(rows.map((r) => r.id), [10, 20, 30]);
 });

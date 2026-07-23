@@ -43,7 +43,7 @@ test("the landing page uses a semantic main and reserves live-card image space",
 
 // Watchlist hearts must follow a signed-in buyer across devices.
 test("the member watchlist persists server-side per client", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email, portal_enabled, member) VALUES (7, 'Casey Client', 'c@x.com', 1, 1);`);
+  const env = makeEnv(`INSERT INTO users (id, name, email, portal_enabled, member) VALUES (7, 'Casey Client', 'c@x.com', 1, 1);`);
   env.ADMIN_TOKEN = "test-admin-token";
   const cookie = await cookieFor(env, "client", 7);
   const call = (method, body) => worker.fetch(new Request(HOST + "/portal/watchlist", {
@@ -106,7 +106,7 @@ test("vehicle enquiry links prefill the request wizard", async () => {
 // Dashboard tiles render their real numbers server-side - never a 0 that
 // animates toward the truth.
 test("dashboard stat tiles render real numbers, and the closing header says 48h", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');`);
+  const env = makeEnv(`INSERT INTO users (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');`);
   const html = await adminPage(env, "dashboard", { role: "admin", id: 0 });
   assert.match(html, /data-count="1">1</, "active-clients tile shows 1 from first paint");
   assert.ok(!/data-count="\d+">0</.test(html.replace(/data-count="0">0</g, "")), "no non-zero tile renders a 0 placeholder");
@@ -128,7 +128,7 @@ test("landing photography ships as sized WebP with a preloaded hero", async () =
 // Runs after the live-card test above: landingPage caches the lineup per
 // isolate, so the fixtured render must prime that cache first.
 test("Start membership routes to the paid subscribe path, not the free form", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email) VALUES (7, 'Casey Client', 'c@x.com');`);
+  const env = makeEnv(`INSERT INTO users (id, name, email) VALUES (7, 'Casey Client', 'c@x.com');`);
   env.ADMIN_TOKEN = "test-admin-token"; // sessionCookie() signs with this
   const landing = await landingPage(env);
   assert.match(landing, /<a class="jf-gold" href="\/login\?next=subscribe">Start membership<\/a>/, "landing CTA targets the login hop");
@@ -157,8 +157,8 @@ test("Start membership routes to the paid subscribe path, not the free form", as
 test("admin vehicle links use queue.id, not the external lot_id", async () => {
   const lotJson = JSON.stringify({ id: "EXT-777", lot: "42", marka_name: "NISSAN", model_name: "SKYLINE", year: 1999 });
   const env = makeEnv(`
-    INSERT INTO clients (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');
-    INSERT INTO wishlists (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN');
+    INSERT INTO users (id, name, email) VALUES (1, 'Alice Apple', 'a@x.com');
+    INSERT INTO searches (id, client_id, label, marka_name) VALUES (1, 1, 'R34 hunt', 'NISSAN');
     INSERT INTO queue (id, wishlist_id, client_id, lot_id, lot_json, status, token, sent_at)
       VALUES (5, 1, 1, 'EXT-777', '${lotJson}', 'sent', 't5', datetime('now'));
   `);
@@ -203,7 +203,7 @@ test("Run Searches only fires on a confirmed same-origin POST", async () => {
 // (launch audit). The Settings toggle controls the admin surface; an invited
 // dealer's own portal keeps working, and its nav links the real route.
 test("dealer feature is hidden for launch behind its Settings toggle", async () => {
-  const env = makeEnv(`INSERT INTO dealers (id, email, name, pass_salt, pass_hash, active) VALUES (1, 'd@x.com', 'Dan Dealer', 's', 'h', 1);`);
+  const env = makeEnv(`INSERT INTO suppliers (id, email, name, pass_salt, pass_hash, active) VALUES (1, 'd@x.com', 'Dan Dealer', 's', 'h', 1);`);
   env.ADMIN_TOKEN = "test-admin-token";
   const admin = { role: "admin", id: 0 };
   // Off (the default): no dealer nav items, and view=dealers bounces home.
@@ -229,7 +229,7 @@ test("dealer feature is hidden for launch behind its Settings toggle", async () 
 // (launch audit). The bare test env has no feed URL, so the fetch throws -
 // exactly the outage path.
 test("an auction feed outage shows an error state, not 0 lots", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email, portal_enabled, member) VALUES (7, 'Casey Client', 'c@x.com', 1, 1);`);
+  const env = makeEnv(`INSERT INTO users (id, name, email, portal_enabled, member) VALUES (7, 'Casey Client', 'c@x.com', 1, 1);`);
   env.ADMIN_TOKEN = "test-admin-token";
   const res = await worker.fetch(new Request(HOST + "/portal/auctions", {
     headers: { Cookie: await cookieFor(env, "client", 7) },
@@ -269,14 +269,14 @@ test("the request form rejects a blank name server-side", async () => {
     }),
   }), env, CTX);
   assert.match(await res.text(), /Please enter your name/, "form re-renders with the name error");
-  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM clients").first();
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
   assert.equal(n.n, 0, "no account row was created");
 });
 
 // The portal must only flash "Saved." when a search row was actually written
 // (launch audit: a rejected save could still show success).
 test("saving a search without any criteria reports an error, not Saved", async () => {
-  const env = makeEnv(`INSERT INTO clients (id, name, email, portal_enabled) VALUES (7, 'Casey Client', 'c@x.com', 1);`);
+  const env = makeEnv(`INSERT INTO users (id, name, email, portal_enabled) VALUES (7, 'Casey Client', 'c@x.com', 1);`);
   env.ADMIN_TOKEN = "test-admin-token";
   const cookie = await cookieFor(env, "client", 7);
   const save = (body) => worker.fetch(new Request(HOST + "/portal/wishlist", {
@@ -287,7 +287,7 @@ test("saving a search without any criteria reports an error, not Saved", async (
   // No make/model/chassis/grade: nothing is written, so no success flash.
   const empty = await save({ label: "My search" });
   assert.match(empty.headers.get("location") || "", /err=save/, "criteria-less save flashes an error");
-  const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM wishlists").first();
+  const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM searches").first();
   assert.equal(rows.n, 0, "nothing was inserted");
   // A real save still says Saved.
   const good = await save({ marka_name: "NISSAN", model_name: "SKYLINE" });
