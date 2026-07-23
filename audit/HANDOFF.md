@@ -305,3 +305,75 @@ Live version `5f79bc7c`. SMS wired end to end, defaulting OFF.
 
 Rollback: `npx wrangler rollback <previous version id>` (each version above is
 the rollback target for the one after it; `31364596...` predates them all).
+
+## Task 5 / Phase 6: submitted units + quotas (ANALYSED, NOT built - needs a decision from you)
+
+The mechanism is ready to build, but it turns on a business decision I will not
+make unilaterally on your live product.
+
+What exists: the member "request a bid" flow is live. `POST /portal/auctions/request`
+loads the client, GATES on `c.member` (members only), then `requestAuctionLot`
+queues the lot as a pending `client_request` (columns `client_request` = 1 and
+`client_request_at` on the `queue` row), alerts staff and sends a push. Dedupes by
+client+lot (a re-request just refreshes the timestamp).
+
+What Task 5 asks: (a) open the flow to free/non-member buyers, and (b) add
+per-tier weekly quotas (free 1/week, paid more, managed unlimited), tunable in
+settings, enforced server-side by counting `client_request` rows in the window.
+
+Why I stopped here, not built it:
+1. Opening the request flow to free users moves your paywall: today the live
+   auction floor and the bid request are a members-only benefit. Whether free
+   buyers get to request cars (and how that affects membership value) is a
+   monetisation decision, not a mechanical one.
+2. The quota NUMBERS are explicitly a business decision. Ben's notes list the
+   tiers ($10 / $50 / $499 / $1200) as "arbitrary, needs a business decision",
+   and the audit carries that forward. There is also no real tier model yet
+   (only `clients.member` true/false); true tiers arrive with Phase 3.
+
+Ready-to-build design once you decide (say the word and I will do it):
+- Settings: `req_quota_free_week` (default 1) and `req_quota_member_week`
+  (default 0 = unlimited), tunable without a deploy.
+- A quota check counting `queue` rows where `client_id = ? AND client_request = 1
+  AND client_request_at >= datetime('now','-7 days')`, run only for a genuinely
+  new lot (existing/re-requests bypass it), plus a short KV per-client limiter to
+  stop hammering.
+- Open `/portal/auctions/request` (and the matching JSON gate near it) to free
+  clients, refusing over-quota with a clear "you've used your free requests this
+  week, upgrade for more" message.
+Decision needed from you: do free buyers get to request at all, and what are the
+free / paid weekly numbers?
+
+---
+
+# SESSION END SUMMARY (2026-07-23)
+
+Completed and deployed to production, test-gated and verified each time:
+- Task 2 / Phases 1+2 (filter panel, landed-cost defaults 1500/3500, grades) - ver 2bb47937
+- Task 4 / Phase 5 (per-search manual trigger) - ver 9049c598
+- Task 3 / Phase 4 (SMS channel, gated OFF) - ver 5f79bc7c
+
+Completed, no deploy needed:
+- Task 1 (audit consolidation, branch chore/audit-consolidation)
+- Task 7 / Phase 0 (branch cleanup: 37 merged branches removed; migration-ledger
+  decided; migration tracking confirmed already adopted and healthy)
+
+Test suite grew 577 -> 589, always green. e2e is a skipped placeholder (flagged).
+
+Needs you (in priority order):
+1. Rotate ADMIN_PASSWORD - urgent, it is in a circulated PDF (see the security
+   findings section above). Two minutes.
+2. Task 5 / Phase 6 - the free-access + quota-number business decision above.
+3. Task 6 / Phase 3 - say go and I will build the users model and run the full
+   local D1 rehearsal, then STOP for your go/no-go before touching production.
+4. Eyeball both auction tabs logged in (grade pills, results, landed figures).
+
+Not started, scoped for pickup: Task 8 / Phase 7 (lives in the separate
+C:\Users\jatec\repos\jdm-calculator repo), Task 9 / Phase 8 (separate
+rover-eligibility-local repo), Task 10 / Phase 9 (greenfield landing page,
+branch-only, depends on 7 and 8).
+
+Untouched as instructed: rescue/onedrive-wip-2026-07-22.
+Also parked, your call: the avg-sold tool on rescue/main-wip-2026-07-23, and the
+docs-only chore/audit-consolidation branch (merge to main if you want the full
+audit/ folder there; main currently has the Phase 1/2 subset plus this HANDOFF).
